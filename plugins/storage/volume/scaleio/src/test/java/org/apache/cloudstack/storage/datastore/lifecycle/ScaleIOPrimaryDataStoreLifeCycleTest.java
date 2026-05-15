@@ -19,7 +19,8 @@
 
 package org.apache.cloudstack.storage.datastore.lifecycle;
 
-import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -163,7 +164,7 @@ public class ScaleIOPrimaryDataStoreLifeCycleTest {
         when(dataStoreHelper.attachZone(Mockito.any(DataStore.class))).thenReturn(null);
 
         boolean result = scaleIOPrimaryDataStoreLifeCycleTest.attachZone(dataStore, scope, Hypervisor.HypervisorType.KVM);
-        assertThat(result).isTrue();
+        assertTrue(result);
     }
 
     @Test(expected = CloudRuntimeException.class)
@@ -179,7 +180,7 @@ public class ScaleIOPrimaryDataStoreLifeCycleTest {
         when(storagePoolAutomation.maintain(any(DataStore.class), anyMap())).thenReturn(true);
         when(dataStoreHelper.maintain(any(DataStore.class))).thenReturn(true);
         final boolean result = scaleIOPrimaryDataStoreLifeCycleTest.maintain(store);
-        assertThat(result).isTrue();
+        assertTrue(result);
     }
 
     @Test
@@ -188,7 +189,7 @@ public class ScaleIOPrimaryDataStoreLifeCycleTest {
         when(dataStoreHelper.cancelMaintain(any(DataStore.class))).thenReturn(true);
         when(storagePoolAutomation.cancelMaintain(any(DataStore.class), anyMap())).thenReturn(true);
         final boolean result = scaleIOPrimaryDataStoreLifeCycleTest.cancelMaintain(store);
-        assertThat(result).isTrue();
+        assertTrue(result);
     }
 
     @Test
@@ -210,7 +211,7 @@ public class ScaleIOPrimaryDataStoreLifeCycleTest {
         final PrimaryDataStore store = mock(PrimaryDataStore.class);
         when(primaryDataStoreDao.findById(anyLong())).thenReturn(null);
         final boolean result = scaleIOPrimaryDataStoreLifeCycleTest.deleteDataStore(store);
-        assertThat(result).isFalse();
+        assertFalse(result);
     }
 
     @Test
@@ -225,6 +226,6 @@ public class ScaleIOPrimaryDataStoreLifeCycleTest {
         when(storagePoolHostDao.listByPoolId(anyLong())).thenReturn(poolHostVOs);
         when(dataStoreHelper.deletePrimaryDataStore(any(DataStore.class))).thenReturn(true);
         final boolean result = scaleIOPrimaryDataStoreLifeCycleTest.deleteDataStore(store);
-        assertThat(result).isTrue();
+        assertTrue(result);
     }
 }
