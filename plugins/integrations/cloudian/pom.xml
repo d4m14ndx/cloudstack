@@ -49,8 +49,8 @@
             <version>${cs.jackson.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.github.tomakehurst</groupId>
-            <artifactId>wiremock-standalone</artifactId>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock</artifactId>
             <version>${cs.wiremock.version}</version>
             <scope>test</scope>
         </dependency>
