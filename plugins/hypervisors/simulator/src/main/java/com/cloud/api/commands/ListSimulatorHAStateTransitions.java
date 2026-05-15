@@ -39,7 +39,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.ha.HAManager;
 import org.apache.cloudstack.ha.SimulatorHAProvider;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 

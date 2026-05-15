@@ -23,8 +23,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import javax.inject.Inject;
-import javax.persistence.EntityExistsException;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityExistsException;
 
 import com.cloud.offering.DiskOffering;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;

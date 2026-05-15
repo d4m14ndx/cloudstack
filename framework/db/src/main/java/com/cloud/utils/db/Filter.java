@@ -18,7 +18,7 @@ package com.cloud.utils.db;
 
 import java.lang.reflect.Field;
 
-import javax.persistence.Column;
+import jakarta.persistence.Column;
 
 import com.cloud.utils.Pair;
 import com.cloud.utils.ReflectUtil;

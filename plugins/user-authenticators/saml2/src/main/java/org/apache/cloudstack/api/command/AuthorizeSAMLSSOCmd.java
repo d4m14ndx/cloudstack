@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.saml.SAML2AuthManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "authorizeSamlSso", description = "Allow or disallow a user to use SAML SSO", responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
 public class AuthorizeSAMLSSOCmd extends BaseCmd {

@@ -18,8 +18,8 @@ package org.apache.cloudstack.util;
 
 import com.cloud.cpu.CPU;
 
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 @Converter(autoApply = true)
 public class CPUArchConverter implements AttributeConverter<CPU.CPUArch, String> {

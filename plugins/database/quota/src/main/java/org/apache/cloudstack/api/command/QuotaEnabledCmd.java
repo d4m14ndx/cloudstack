@@ -24,7 +24,7 @@ import org.apache.cloudstack.api.response.QuotaEnabledResponse;
 import org.apache.cloudstack.quota.QuotaService;
 
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaIsEnabled", responseObject = QuotaEnabledResponse.class, description = "Return true if the plugin is enabled", since = "4.7.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,
         httpMethod = "GET")

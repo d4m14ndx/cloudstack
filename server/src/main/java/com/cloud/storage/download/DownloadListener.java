@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.configuration.Resource;
 import com.cloud.resourcelimit.CheckedReservation;

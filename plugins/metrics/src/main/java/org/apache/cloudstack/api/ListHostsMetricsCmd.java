@@ -26,7 +26,7 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.HostMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listHostsMetrics", description = "Lists hosts metrics", responseObject = HostMetricsResponse.class,

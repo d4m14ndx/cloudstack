@@ -38,7 +38,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagement.PowerOperation;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "issueOutOfBandManagementPowerAction", description = "Initiates the specified power action to the host's out-of-band management interface",
         responseObject = OutOfBandManagementResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,

@@ -40,7 +40,7 @@ import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.storage.volume.VolumeImportUnmanageService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "unmanageVolume",
         description = "Unmanage a volume on storage pool.",

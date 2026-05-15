@@ -33,7 +33,7 @@ import org.apache.cloudstack.api.response.RemoveVirtualMachinesFromKubernetesClu
 import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "removeVirtualMachinesFromKubernetesCluster",

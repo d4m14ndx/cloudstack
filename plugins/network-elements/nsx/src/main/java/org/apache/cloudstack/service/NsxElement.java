@@ -118,7 +118,7 @@ import org.apache.cloudstack.resourcedetail.FirewallRuleDetailVO;
 import org.apache.cloudstack.resourcedetail.dao.FirewallRuleDetailsDao;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.util.ArrayList;
 import java.util.Arrays;

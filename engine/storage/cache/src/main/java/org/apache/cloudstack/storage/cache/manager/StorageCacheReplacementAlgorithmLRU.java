@@ -21,8 +21,8 @@ package org.apache.cloudstack.storage.cache.manager;
 import java.util.Calendar;
 import java.util.Date;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;

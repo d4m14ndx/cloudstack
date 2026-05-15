@@ -22,7 +22,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.InfrastructureResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listInfrastructure", description = "Lists infrastructure", responseObject = InfrastructureResponse.class,
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,  responseView = ResponseObject.ResponseView.Full,

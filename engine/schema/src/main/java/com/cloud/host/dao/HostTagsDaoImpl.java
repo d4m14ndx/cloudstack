@@ -35,7 +35,7 @@ import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.db.SearchCriteria.Func;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @Component
 public class HostTagsDaoImpl extends GenericDaoBase<HostTagVO, Long> implements HostTagsDao, Configurable {

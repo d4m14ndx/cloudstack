@@ -50,16 +50,16 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.naming.ConfigurationException;
-import javax.persistence.AttributeConverter;
-import javax.persistence.AttributeOverride;
-import javax.persistence.Column;
-import javax.persistence.Convert;
-import javax.persistence.EmbeddedId;
-import javax.persistence.EntityExistsException;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
-import javax.persistence.Table;
-import javax.persistence.TableGenerator;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.EntityExistsException;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
+import jakarta.persistence.TableGenerator;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.ObjectUtils;

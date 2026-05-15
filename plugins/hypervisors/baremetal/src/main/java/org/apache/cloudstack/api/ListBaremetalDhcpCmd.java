@@ -28,7 +28,7 @@ import com.cloud.exception.ResourceUnavailableException;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.PhysicalNetworkResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listBaremetalDhcp", description = "List baremetal dhcp servers", responseObject = BaremetalDhcpResponse.class,

@@ -15,7 +15,7 @@
 
 package com.cloud.api.commands;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.APICommand;

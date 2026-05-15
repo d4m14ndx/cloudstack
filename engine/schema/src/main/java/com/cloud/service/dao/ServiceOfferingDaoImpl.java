@@ -21,8 +21,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
-import javax.persistence.EntityExistsException;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityExistsException;
 
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.dao.DiskOfferingDao;

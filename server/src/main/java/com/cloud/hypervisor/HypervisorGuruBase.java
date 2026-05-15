@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.agent.api.to.GPUDeviceTO;
 import com.cloud.agent.api.to.VirtualMachineMetadataTO;

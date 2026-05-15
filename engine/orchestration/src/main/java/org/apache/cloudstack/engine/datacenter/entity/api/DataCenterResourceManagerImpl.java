@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.engine.datacenter.entity.api;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.springframework.stereotype.Component;
 

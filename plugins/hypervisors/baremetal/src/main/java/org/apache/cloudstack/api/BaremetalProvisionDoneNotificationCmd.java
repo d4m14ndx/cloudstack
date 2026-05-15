@@ -27,7 +27,7 @@ import com.cloud.exception.ResourceUnavailableException;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 /**
  * Created by frank on 9/17/14.

@@ -28,7 +28,7 @@ import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.UserTwoFactorAuthenticationSetupResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = SetupUserTwoFactorAuthenticationCmd.APINAME, description = "Setup the 2FA for the user.", authorized = {RoleType.Admin, RoleType.DomainAdmin, RoleType.ResourceAdmin, RoleType.User}, requestHasSensitiveInfo = false,
         responseObject = UserTwoFactorAuthenticationSetupResponse.class, entityType = {}, since = "4.18.0")

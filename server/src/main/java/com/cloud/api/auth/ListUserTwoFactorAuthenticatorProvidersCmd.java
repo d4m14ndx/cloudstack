@@ -27,7 +27,7 @@ import org.apache.cloudstack.api.response.UserTwoFactorAuthenticatorProviderResp
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.auth.UserTwoFactorAuthenticator;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -19,7 +19,7 @@
 
 package org.apache.cloudstack.network.opendaylight.api.commands;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;

@@ -71,7 +71,7 @@ import org.apache.cloudstack.diagnostics.DiagnosticsCommand;
 import org.apache.cloudstack.gpu.GpuDevice;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;

@@ -31,7 +31,10 @@ import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.eclipse.jetty.websocket.server.config.JettyWebSocketServletContainerInitializer;
 
 public class ConsoleProxyNoVNCServer {
 
@@ -53,16 +56,22 @@ public class ConsoleProxyNoVNCServer {
         return Integer.parseInt(portStr);
     }
 
+    private ServletContextHandler createWebSocketContext() {
+        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+        context.setContextPath("/");
+        context.addServlet(new ServletHolder(new ConsoleProxyNoVNCHandler()), "/*");
+        JettyWebSocketServletContainerInitializer.configure(context, null);
+        return context;
+    }
+
     public ConsoleProxyNoVNCServer() {
         this.server = new Server(WS_PORT);
-        ConsoleProxyNoVNCHandler handler = new ConsoleProxyNoVNCHandler();
-        this.server.setHandler(handler);
+        this.server.setHandler(createWebSocketContext());
     }
 
     public ConsoleProxyNoVNCServer(byte[] ksBits, String ksPassword) {
         this.server = new Server();
-        ConsoleProxyNoVNCHandler handler = new ConsoleProxyNoVNCHandler();
-        this.server.setHandler(handler);
+        this.server.setHandler(createWebSocketContext());
 
         try {
             final HttpConfiguration httpConfig = new HttpConfiguration();

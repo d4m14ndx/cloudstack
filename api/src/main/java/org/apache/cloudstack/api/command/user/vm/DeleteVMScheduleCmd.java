@@ -33,7 +33,7 @@ import org.apache.cloudstack.api.response.VMScheduleResponse;
 import org.apache.cloudstack.vm.schedule.VMSchedule;
 import org.apache.cloudstack.vm.schedule.VMScheduleManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Collections;
 import java.util.List;
 

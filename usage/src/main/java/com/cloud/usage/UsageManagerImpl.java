@@ -38,9 +38,9 @@ import com.cloud.usage.dao.UsageNetworksDao;
 import com.cloud.usage.parser.UsageParser;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.usage.dao.UsageVpcDao;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;

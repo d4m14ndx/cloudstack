@@ -33,7 +33,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.cpu.CPU;
 import com.cloud.deploy.DataCenterDeployment;

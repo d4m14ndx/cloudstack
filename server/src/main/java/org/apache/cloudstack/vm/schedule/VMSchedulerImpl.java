@@ -45,8 +45,8 @@ import org.apache.cloudstack.vm.schedule.dao.VMScheduledJobDao;
 import org.apache.commons.lang.time.DateUtils;
 import org.springframework.scheduling.support.CronExpression;
 
-import javax.inject.Inject;
-import javax.persistence.EntityExistsException;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityExistsException;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;

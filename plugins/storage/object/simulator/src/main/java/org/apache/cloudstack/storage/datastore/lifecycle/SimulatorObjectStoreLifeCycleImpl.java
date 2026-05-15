@@ -30,7 +30,7 @@ import org.apache.cloudstack.storage.object.datastore.ObjectStoreHelper;
 import org.apache.cloudstack.storage.object.datastore.ObjectStoreProviderManager;
 import org.apache.cloudstack.storage.object.store.lifecycle.ObjectStoreLifeCycle;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

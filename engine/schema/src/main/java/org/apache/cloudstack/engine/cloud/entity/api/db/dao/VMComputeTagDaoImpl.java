@@ -19,7 +19,7 @@ package org.apache.cloudstack.engine.cloud.entity.api.db.dao;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.springframework.stereotype.Component;
 

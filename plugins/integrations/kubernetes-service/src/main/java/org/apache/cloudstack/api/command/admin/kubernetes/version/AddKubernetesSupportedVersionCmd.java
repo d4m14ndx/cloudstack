@@ -17,7 +17,7 @@
 
 package org.apache.cloudstack.api.command.admin.kubernetes.version;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.cpu.CPU;
 import org.apache.cloudstack.acl.RoleType;

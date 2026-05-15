@@ -36,7 +36,7 @@ import org.apache.cloudstack.api.response.HostResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.direct.download.DirectDownloadManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "provisionTemplateDirectDownloadCertificate",
         description = "Provisions a host with a direct download certificate",

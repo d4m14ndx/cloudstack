@@ -30,7 +30,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 
 @RunWith(MockitoJUnitRunner.class)
 public class GenericDaoBaseTest {

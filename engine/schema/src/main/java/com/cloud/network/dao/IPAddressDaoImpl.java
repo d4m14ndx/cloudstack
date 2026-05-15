@@ -21,8 +21,8 @@ import java.sql.ResultSet;
 import java.util.Date;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.resourcedetail.dao.UserIpAddressDetailsDao;

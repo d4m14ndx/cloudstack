@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.response.NsxControllerResponse;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.service.NsxProviderService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import static org.apache.cloudstack.api.command.DeleteNsxControllerCmd.APINAME;
 

@@ -47,7 +47,7 @@ import org.apache.cloudstack.api.ListBaremetalRctCmd;
 import org.apache.cloudstack.utils.baremetal.BaremetalUtils;
 import org.springframework.web.client.RestTemplate;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;

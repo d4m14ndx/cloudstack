@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.commons.collections.MapUtils;
 import org.springframework.stereotype.Component;

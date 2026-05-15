@@ -21,7 +21,7 @@ package org.apache.cloudstack.storage.image.store;
 import java.util.Date;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.cpu.CPU;
 import com.cloud.storage.StorageManager;

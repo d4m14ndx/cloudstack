@@ -34,7 +34,7 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.vm.InstanceGroup;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @Component
 public class InstanceGroupJoinDaoImpl extends GenericDaoBase<InstanceGroupJoinVO, Long> implements InstanceGroupJoinDao {

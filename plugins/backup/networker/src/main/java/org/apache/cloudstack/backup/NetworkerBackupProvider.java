@@ -54,7 +54,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.xml.utils.URI;
 import org.apache.cloudstack.backup.networker.api.NetworkerBackup;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;

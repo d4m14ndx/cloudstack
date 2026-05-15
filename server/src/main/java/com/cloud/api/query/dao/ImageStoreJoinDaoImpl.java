@@ -19,7 +19,7 @@ package com.cloud.api.query.dao;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.api.ApiDBUtils;
 import com.cloud.storage.StorageStats;

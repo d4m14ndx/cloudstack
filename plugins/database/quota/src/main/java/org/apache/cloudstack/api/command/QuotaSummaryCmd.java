@@ -36,7 +36,7 @@ import org.apache.commons.lang3.ObjectUtils;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaSummary", responseObject = QuotaSummaryResponse.class, description = "Lists Quota balance summary of Accounts and Projects.", since = "4.7.0",
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false, httpMethod = "GET")

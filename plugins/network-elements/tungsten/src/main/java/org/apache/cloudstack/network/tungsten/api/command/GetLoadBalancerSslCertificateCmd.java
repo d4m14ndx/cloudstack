@@ -35,7 +35,7 @@ import org.apache.cloudstack.network.tungsten.api.response.TlsDataResponse;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = GetLoadBalancerSslCertificateCmd.APINAME, description = "Get load balancer certificate",
     responseObject = TlsDataResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

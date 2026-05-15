@@ -37,7 +37,7 @@ import org.apache.cloudstack.utils.consoleproxy.ConsoleAccessUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.ObjectUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Map;
 
 @APICommand(name = "createConsoleEndpoint", description = "Create a console endpoint to connect to a Instance console",

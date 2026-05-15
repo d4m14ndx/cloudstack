@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.commons.lang3.BooleanUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.List;
 

@@ -38,7 +38,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

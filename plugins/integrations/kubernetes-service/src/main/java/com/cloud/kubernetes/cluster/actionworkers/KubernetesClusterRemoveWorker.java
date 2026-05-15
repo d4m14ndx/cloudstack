@@ -37,7 +37,7 @@ import com.cloud.vm.UserVmVO;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;

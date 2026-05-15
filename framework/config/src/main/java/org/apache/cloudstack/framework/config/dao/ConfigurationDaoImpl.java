@@ -21,7 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.framework.config.impl.ConfigurationVO;

@@ -17,7 +17,7 @@
 package com.cloud.network.vpc.dao;
 
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.offering.NetworkOffering;
 import org.apache.cloudstack.api.ApiConstants;

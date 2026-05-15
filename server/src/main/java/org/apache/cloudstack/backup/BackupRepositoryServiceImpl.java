@@ -37,7 +37,7 @@ import org.apache.cloudstack.backup.dao.BackupRepositoryDao;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

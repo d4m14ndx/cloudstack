@@ -20,7 +20,7 @@ package org.apache.cloudstack.spring.lifecycle.registry;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.utils.component.ComponentLifecycleBase;

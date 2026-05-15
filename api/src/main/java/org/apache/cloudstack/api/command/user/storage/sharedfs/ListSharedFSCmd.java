@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.storage.sharedfs.SharedFS;
 import org.apache.cloudstack.storage.sharedfs.SharedFSService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listSharedFileSystems",
         responseObject= SharedFSResponse.class,

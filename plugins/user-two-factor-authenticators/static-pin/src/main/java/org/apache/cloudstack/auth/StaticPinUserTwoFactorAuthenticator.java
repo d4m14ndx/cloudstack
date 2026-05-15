@@ -15,7 +15,7 @@
 
 package org.apache.cloudstack.auth;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.CloudTwoFactorAuthenticationException;
 import com.cloud.user.UserAccount;

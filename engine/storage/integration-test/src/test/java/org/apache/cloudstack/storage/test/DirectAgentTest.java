@@ -20,7 +20,7 @@ package org.apache.cloudstack.storage.test;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.mockito.Mockito;
 import org.springframework.test.context.ContextConfiguration;

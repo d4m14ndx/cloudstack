@@ -34,7 +34,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricTagTypeResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = CreateTungstenFabricTagTypeCmd.APINAME, description = "Create Tungsten-Fabric tag type",
     responseObject = TungstenFabricTagTypeResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

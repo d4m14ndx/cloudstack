@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.command.user.kubernetes.cluster;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.ManagementServerException;

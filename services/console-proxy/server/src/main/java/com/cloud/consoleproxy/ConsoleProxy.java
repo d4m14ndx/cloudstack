@@ -621,7 +621,7 @@ public class ConsoleProxy {
                 LOGGER.info("Initializing new novnc client and disconnecting existing session");
                 try {
                     ((ConsoleProxyNoVncClient)viewer).getSession().disconnect();
-                } catch (IOException e) {
+                } catch (Exception e) {
                     LOGGER.error("Exception while disconnect session of novnc viewer object: " + viewer, e);
                 }
                 removeViewer(viewer);

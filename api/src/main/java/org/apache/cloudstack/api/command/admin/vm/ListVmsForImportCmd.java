@@ -37,7 +37,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.cloudstack.vm.VmImportService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listVmsForImport",
         description = "Lists virtual machines on a unmanaged host",

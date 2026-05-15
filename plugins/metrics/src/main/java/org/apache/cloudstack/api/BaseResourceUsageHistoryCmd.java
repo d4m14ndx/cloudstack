@@ -19,7 +19,7 @@ package org.apache.cloudstack.api;
 
 import java.util.Date;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.metrics.MetricsService;
 

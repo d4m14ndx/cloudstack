@@ -23,7 +23,7 @@ import junit.framework.TestCase;
 import org.apache.commons.lang.RandomStringUtils;
 import org.junit.Test;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class UserVmDaoImplTest extends TestCase {
     @Inject

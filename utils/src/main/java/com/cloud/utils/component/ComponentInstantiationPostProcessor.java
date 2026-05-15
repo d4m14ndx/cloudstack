@@ -19,7 +19,6 @@
 
 package com.cloud.utils.component;
 
-import java.beans.PropertyDescriptor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -103,7 +102,7 @@ public class ComponentInstantiationPostProcessor implements InstantiationAwareBe
     }
 
     @Override
-    public PropertyValues postProcessPropertyValues(PropertyValues pvs, PropertyDescriptor[] pds, Object bean, String beanName) throws BeansException {
+    public PropertyValues postProcessProperties(PropertyValues pvs, Object bean, String beanName) throws BeansException {
         return pvs;
     }
 

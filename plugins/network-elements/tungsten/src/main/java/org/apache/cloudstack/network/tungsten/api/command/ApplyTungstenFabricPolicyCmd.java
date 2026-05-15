@@ -34,7 +34,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricPolicyResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = ApplyTungstenFabricPolicyCmd.APINAME, description = "Apply Tungsten-Fabric policy",
     responseObject = TungstenFabricPolicyResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo =

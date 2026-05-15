@@ -35,7 +35,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaCreditsList", responseObject = QuotaCreditsResponse.class, description = "Lists quota credits of an account.", since = "4.21.0",
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

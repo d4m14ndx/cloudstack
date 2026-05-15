@@ -38,7 +38,7 @@ import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricLBHealt
 import org.apache.cloudstack.network.tungsten.dao.TungstenFabricLBHealthMonitorVO;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = UpdateTungstenFabricLBHealthMonitorCmd.APINAME, description = "Update Tungsten-Fabric loadbalancer health monitor",
     responseObject = TungstenFabricLBHealthMonitorResponse.class, requestHasSensitiveInfo = false,

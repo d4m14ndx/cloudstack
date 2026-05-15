@@ -31,9 +31,9 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.persistence.TableGenerator;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.persistence.TableGenerator;
 
 import com.cloud.vm.VirtualMachine;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;

@@ -22,8 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
-import javax.ws.rs.Path;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.Path;
 
 import org.apache.cloudstack.engine.datacenter.entity.api.ClusterEntity;
 import org.apache.cloudstack.engine.datacenter.entity.api.ClusterEntityImpl;

@@ -37,7 +37,7 @@ import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = AddTungstenFabricNetworkGatewayToLogicalRouterCmd.APINAME, description = "Add Tungsten-Fabric network gateway to logical router",
     responseObject = TungstenFabricLogicalRouterResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

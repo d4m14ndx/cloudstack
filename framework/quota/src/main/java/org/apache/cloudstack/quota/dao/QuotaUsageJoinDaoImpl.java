@@ -29,8 +29,8 @@ import org.apache.cloudstack.quota.vo.QuotaUsageJoinVO;
 import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 import java.util.Date;
 import java.util.List;
 

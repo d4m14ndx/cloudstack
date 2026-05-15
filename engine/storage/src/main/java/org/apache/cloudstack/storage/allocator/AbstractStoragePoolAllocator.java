@@ -57,7 +57,7 @@ import com.cloud.vm.VirtualMachineProfile;
 
 import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.math.BigDecimal;
 import java.security.SecureRandom;

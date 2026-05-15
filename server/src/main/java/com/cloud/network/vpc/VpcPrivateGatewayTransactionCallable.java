@@ -19,7 +19,7 @@ package com.cloud.network.vpc;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.network.dao.NetworkDao;
 import org.apache.logging.log4j.Logger;

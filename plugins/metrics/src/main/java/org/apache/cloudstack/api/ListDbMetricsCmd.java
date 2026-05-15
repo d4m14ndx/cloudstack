@@ -26,7 +26,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.DbMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name="listDbMetrics", description = "List the db hosts and statistics",
         responseObject = DbMetricsResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,

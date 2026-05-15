@@ -31,7 +31,7 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.net.NetUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class VpcOfferingJoinDaoImpl extends GenericDaoBase<VpcOfferingJoinVO, Long> implements VpcOfferingJoinDao {
 

@@ -20,7 +20,7 @@ import com.cloud.usage.UsageNetworksVO;
 import com.cloud.usage.UsageVO;
 import com.cloud.usage.dao.UsageNetworksDao;
 import com.cloud.user.AccountVO;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.usage.UsageTypes;
 import org.apache.commons.collections.CollectionUtils;

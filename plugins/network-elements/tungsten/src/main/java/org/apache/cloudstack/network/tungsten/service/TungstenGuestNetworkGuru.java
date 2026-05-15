@@ -85,7 +85,7 @@ import org.apache.cloudstack.network.tungsten.model.TungstenRule;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class TungstenGuestNetworkGuru extends GuestNetworkGuru implements NetworkMigrationResponder {
 

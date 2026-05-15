@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.response.ClusterDrsPlanResponse;
 import org.apache.cloudstack.api.response.ClusterResponse;
 import org.apache.cloudstack.cluster.ClusterDrsService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import static org.apache.cloudstack.cluster.ClusterDrsService.ClusterDrsMaxMigrations;
 

@@ -20,7 +20,7 @@ package org.apache.cloudstack.storage.snapshot;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.agent.api.ConvertSnapshotAnswer;
 import com.cloud.agent.api.ConvertSnapshotCommand;

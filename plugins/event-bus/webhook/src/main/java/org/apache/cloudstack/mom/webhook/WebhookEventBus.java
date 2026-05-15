@@ -22,7 +22,7 @@ package org.apache.cloudstack.mom.webhook;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.framework.events.Event;

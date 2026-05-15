@@ -16,7 +16,7 @@
 // under the License.
 package com.cloud.ha;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.agent.AgentManager;

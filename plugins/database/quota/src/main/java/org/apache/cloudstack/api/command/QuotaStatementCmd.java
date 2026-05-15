@@ -18,7 +18,7 @@ package org.apache.cloudstack.api.command;
 
 import java.util.Date;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.ACL;
 import org.apache.cloudstack.api.APICommand;

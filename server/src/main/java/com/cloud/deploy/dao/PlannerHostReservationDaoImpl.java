@@ -18,7 +18,7 @@ package com.cloud.deploy.dao;
 
 import java.util.List;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import com.cloud.deploy.DeploymentPlanner.PlannerResourceUsage;
 import com.cloud.deploy.PlannerHostReservationVO;

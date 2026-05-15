@@ -25,7 +25,7 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.storage.browser.DataStoreObjectResponse;
 import org.apache.cloudstack.storage.browser.StorageBrowser;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.nio.file.Path;
 
 @APICommand(name = "listImageStoreObjects", description = "Lists objects at specified path on an image store.",

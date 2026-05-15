@@ -29,7 +29,7 @@ import org.apache.cloudstack.gpu.GpuDevice;
 import org.apache.commons.collections.CollectionUtils;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.util.Collections;
 import java.util.List;

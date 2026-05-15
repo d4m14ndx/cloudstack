@@ -18,7 +18,7 @@ package com.cloud.vm;
 
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.context.CallContext;

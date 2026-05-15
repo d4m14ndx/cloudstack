@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.command.user.storage.sharedfs;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.event.EventTypes;
 import com.cloud.exception.ConcurrentOperationException;

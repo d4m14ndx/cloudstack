@@ -19,7 +19,7 @@
 
 package org.apache.cloudstack.storage.listener;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.agent.api.ModifyStoragePoolCommand;
 import com.cloud.agent.api.ModifyStoragePoolAnswer;

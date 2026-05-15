@@ -19,7 +19,7 @@ package com.cloud.storage.listener;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.HostPodDao;

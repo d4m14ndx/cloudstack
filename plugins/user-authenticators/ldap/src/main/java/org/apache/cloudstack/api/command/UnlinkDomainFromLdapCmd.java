@@ -33,7 +33,7 @@ import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.api.response.DomainResponse;
 import org.apache.cloudstack.ldap.LdapManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "unlinkDomainFromLdap", description = "remove the linkage of a Domain to a group or OU in ldap",
         responseObject = SuccessResponse.class, since = "4.23.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

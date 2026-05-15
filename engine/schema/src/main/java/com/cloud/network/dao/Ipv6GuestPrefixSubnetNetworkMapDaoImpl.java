@@ -19,7 +19,7 @@ package com.cloud.network.dao;
 
 import java.util.List;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.springframework.stereotype.Component;

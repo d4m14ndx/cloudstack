@@ -22,7 +22,7 @@ import java.sql.SQLException;
 import java.util.Date;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import com.cloud.utils.DateUtil;
 import com.cloud.utils.db.DB;

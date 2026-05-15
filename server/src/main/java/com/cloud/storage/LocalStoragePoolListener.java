@@ -16,7 +16,7 @@
 // under the License.
 package com.cloud.storage;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 

@@ -45,8 +45,8 @@
                 <version>${cs.gmavenplus.version}</version>
                 <dependencies>
                     <dependency>
-                        <groupId>org.codehaus.groovy</groupId>
-                        <artifactId>groovy-all</artifactId>
+                        <groupId>org.apache.groovy</groupId>
+                        <artifactId>groovy</artifactId>
                         <version>${cs.groovy.version}</version>
                     </dependency>
                 </dependencies>

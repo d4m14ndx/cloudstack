@@ -18,7 +18,7 @@ package com.cloud.uuididentity;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.Identity;
 import org.apache.cloudstack.context.CallContext;

@@ -19,7 +19,7 @@ package org.apache.cloudstack.api.command.admin.diagnostics;
 import java.util.Collections;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.RoleType;
 import org.apache.cloudstack.acl.SecurityChecker;

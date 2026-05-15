@@ -16,9 +16,9 @@
 // under the License.
 package com.cloud.dc;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
 
 // NOTE: This particular table is totally internal to the CS MS.
 // Do not ever include a uuid/guid field in this table. We just

@@ -136,11 +136,11 @@
         <cs.cglib.version>3.3.0</cs.cglib.version>
         <cs.checkstyle-lib.version>8.18</cs.checkstyle-lib.version>
         <cs.cron-utils.version>9.2.0</cs.cron-utils.version>
-        <cs.cxf.version>3.2.14</cs.cxf.version>
+        <cs.cxf.version>4.0.5</cs.cxf.version>
         <cs.ehcache.version>2.6.11</cs.ehcache.version>
-        <cs.gmavenplus.version>3.0.2</cs.gmavenplus.version>
+        <cs.gmavenplus.version>4.0.1</cs.gmavenplus.version>
         <cs.google-http-client>1.42.3</cs.google-http-client>
-        <cs.groovy.version>2.4.17</cs.groovy.version>
+        <cs.groovy.version>4.0.24</cs.groovy.version>
         <cs.gson.version>2.11.0</cs.gson.version>
         <cs.guava.version>33.4.0-jre</cs.guava.version>
         <cs.httpclient.version>4.5.14</cs.httpclient.version>
@@ -151,23 +151,23 @@
         <cs.java-ipv6.version>0.17</cs.java-ipv6.version>
         <cs.javassist.version>3.27.0-GA</cs.javassist.version>
         <cs.maven-javadoc-plugin.version>3.1.1</cs.maven-javadoc-plugin.version>
-        <cs.javax.annotation.version>1.3.2</cs.javax.annotation.version>
-        <cs.jaxb.version>2.3.0</cs.jaxb.version>
-        <cs.jaxb.impl.version>2.3.9</cs.jaxb.impl.version>
-        <cs.jakarta.xml.bind.version>2.3.3</cs.jakarta.xml.bind.version>
+        <cs.javax.annotation.version>2.1.1</cs.javax.annotation.version>
+        <cs.jaxb.version>4.0.0</cs.jaxb.version>
+        <cs.jaxb.impl.version>4.0.5</cs.jaxb.impl.version>
+        <cs.jakarta.xml.bind.version>4.0.0</cs.jakarta.xml.bind.version>
         <cs.jaxws.version>2.3.7</cs.jaxws.version>
         <cs.jersey-client.version>2.26</cs.jersey-client.version>
-        <cs.jetty.version>9.4.58.v20250814</cs.jetty.version>
-        <cs.jetty-maven-plugin.version>9.4.27.v20200227</cs.jetty-maven-plugin.version>
+        <cs.jetty.version>11.0.24</cs.jetty.version>
+        <cs.jetty-maven-plugin.version>11.0.24</cs.jetty-maven-plugin.version>
         <cs.jna.version>5.16.0</cs.jna.version>
         <cs.joda-time.version>2.12.5</cs.joda-time.version>
-        <cs.jpa.version>2.2.1</cs.jpa.version>
+        <cs.jpa.version>3.1.0</cs.jpa.version>
         <cs.jsch.version>0.2.21</cs.jsch.version>
         <cs.json.version>20240303</cs.json.version>
         <cs.jstl.version>1.2</cs.jstl.version>
         <cs.kafka-clients.version>3.8.1</cs.kafka-clients.version>
         <cs.libvirt-java.version>0.5.3</cs.libvirt-java.version>
-        <cs.mail.version>1.5.0-b01</cs.mail.version>
+        <cs.mail.version>2.1.3</cs.mail.version>
         <cs.mustache.version>0.9.14</cs.mustache.version>
         <cs.mysql.version>8.0.33</cs.mysql.version>
         <cs.neethi.version>2.0.4</cs.neethi.version>
@@ -177,16 +177,16 @@
         <cs.java-linstor.version>0.6.1</cs.java-linstor.version>
         <cs.reflections.version>0.10.2</cs.reflections.version>
         <cs.servicemix.version>3.4.4_1</cs.servicemix.version>
-        <cs.servlet.version>4.0.1</cs.servlet.version>
+        <cs.servlet.version>6.0.0</cs.servlet.version>
         <cs.tink.version>1.7.0</cs.tink.version>
-        <cs.tomcat-embed-core.version>10.0.22</cs.tomcat-embed-core.version>
+        <cs.tomcat-embed-core.version>10.0.27</cs.tomcat-embed-core.version>
         <cs.trilead.version>build-217-jenkins-27</cs.trilead.version>
         <cs.vmware.api.version>8.0</cs.vmware.api.version>
         <cs.winrm4j.version>0.5.0</cs.winrm4j.version>
         <cs.xapi.version>8.1.0</cs.xapi.version>
         <cs.xmlrpc.version>3.1.3</cs.xmlrpc.version>
         <cs.xstream.version>1.4.21</cs.xstream.version>
-        <org.springframework.version>5.3.26</org.springframework.version>
+        <org.springframework.version>6.1.14</org.springframework.version>
         <cs.ini.version>0.5.4</cs.ini.version>
         <cs.caffeine.version>3.1.8</cs.caffeine.version>
         <cs.protobuf.version>3.25.6</cs.protobuf.version>
@@ -423,18 +423,18 @@
                 <version>${cs.commons-validator.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.annotation</groupId>
-                <artifactId>javax.annotation-api</artifactId>
+                <groupId>jakarta.annotation</groupId>
+                <artifactId>jakarta.annotation-api</artifactId>
                 <version>${cs.javax.annotation.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.mail</groupId>
-                <artifactId>mail</artifactId>
+                <groupId>jakarta.mail</groupId>
+                <artifactId>jakarta.mail-api</artifactId>
                 <version>${cs.mail.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.servlet</groupId>
-                <artifactId>javax.servlet-api</artifactId>
+                <groupId>jakarta.servlet</groupId>
+                <artifactId>jakarta.servlet-api</artifactId>
                 <version>${cs.servlet.version}</version>
             </dependency>
             <dependency>
@@ -590,8 +590,8 @@
                 <version>${cs.bcprov.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-all</artifactId>
+                <groupId>org.apache.groovy</groupId>
+                <artifactId>groovy</artifactId>
                 <version>${cs.groovy.version}</version>
             </dependency>
             <dependency>
@@ -625,8 +625,8 @@
                 <version>${cs.jetty.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.eclipse.persistence</groupId>
-                <artifactId>javax.persistence</artifactId>
+                <groupId>jakarta.persistence</groupId>
+                <artifactId>jakarta.persistence-api</artifactId>
                 <version>${cs.jpa.version}</version>
             </dependency>
             <dependency>
@@ -784,9 +784,9 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>javax.inject</groupId>
-            <artifactId>javax.inject</artifactId>
-            <version>1</version>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+            <version>2.0.1</version>
         </dependency>
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>

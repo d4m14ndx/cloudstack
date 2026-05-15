@@ -36,7 +36,7 @@ import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = DeleteTungstenFabricLogicalRouterCmd.APINAME, description = "Delete Tungsten-Fabric logical router",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

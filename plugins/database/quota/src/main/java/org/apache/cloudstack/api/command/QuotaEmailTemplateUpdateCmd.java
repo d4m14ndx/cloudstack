@@ -26,7 +26,7 @@ import org.apache.cloudstack.api.response.QuotaResponseBuilder;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.quota.constant.QuotaConfig;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Arrays;
 
 @APICommand(name = "quotaEmailTemplateUpdate", responseObject = SuccessResponse.class, description = "Updates existing email Templates for quota alerts", since = "4.7.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

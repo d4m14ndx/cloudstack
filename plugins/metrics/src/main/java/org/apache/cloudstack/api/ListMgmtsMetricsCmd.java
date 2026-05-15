@@ -24,7 +24,7 @@ import org.apache.cloudstack.api.response.ManagementServerResponse;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.ManagementServerMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listManagementServersMetrics", description = "Lists Management Server metrics", responseObject = ManagementServerMetricsResponse.class,

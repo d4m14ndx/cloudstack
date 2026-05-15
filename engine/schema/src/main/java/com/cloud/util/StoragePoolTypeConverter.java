@@ -18,8 +18,8 @@ package com.cloud.util;
 
 import com.cloud.storage.Storage.StoragePoolType;
 
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 /**
  * Converts {@link StoragePoolType} to and from {@link String} using {@link StoragePoolType#name()}.

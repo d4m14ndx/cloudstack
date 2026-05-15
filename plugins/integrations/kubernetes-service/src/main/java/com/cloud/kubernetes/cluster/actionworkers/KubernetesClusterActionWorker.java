@@ -36,7 +36,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.kubernetes.version.KubernetesSupportedVersionVO;
 import org.apache.logging.log4j.Level;

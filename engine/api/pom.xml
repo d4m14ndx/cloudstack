@@ -59,18 +59,18 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-          <groupId>javax.xml.bind</groupId>
-          <artifactId>jaxb-api</artifactId>
+          <groupId>jakarta.xml.bind</groupId>
+          <artifactId>jakarta.xml.bind-api</artifactId>
           <version>${cs.jaxb.version}</version>
         </dependency>
         <dependency>
-          <groupId>com.sun.xml.bind</groupId>
+          <groupId>org.glassfish.jaxb</groupId>
           <artifactId>jaxb-core</artifactId>
           <version>${cs.jaxb.version}</version>
         </dependency>
         <dependency>
-          <groupId>com.sun.xml.bind</groupId>
-          <artifactId>jaxb-impl</artifactId>
+          <groupId>org.glassfish.jaxb</groupId>
+          <artifactId>jaxb-runtime</artifactId>
           <version>${cs.jaxb.impl.version}</version>
         </dependency>
     </dependencies>

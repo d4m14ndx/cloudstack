@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.command.admin.account;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;

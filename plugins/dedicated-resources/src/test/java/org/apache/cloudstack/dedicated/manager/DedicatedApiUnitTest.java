@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.affinity.AffinityGroupService;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;

@@ -21,7 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;

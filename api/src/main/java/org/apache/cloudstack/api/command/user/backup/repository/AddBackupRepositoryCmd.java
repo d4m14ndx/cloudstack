@@ -31,7 +31,7 @@ import org.apache.cloudstack.backup.BackupRepository;
 import org.apache.cloudstack.backup.BackupRepositoryService;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "addBackupRepository",
         description = "Adds a backup repository to store NAS backups",

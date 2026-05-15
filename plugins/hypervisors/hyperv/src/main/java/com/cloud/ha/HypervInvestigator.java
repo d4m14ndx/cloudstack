@@ -20,7 +20,7 @@ package com.cloud.ha;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.agent.AgentManager;

@@ -17,7 +17,7 @@
 
 package org.apache.cloudstack.api.command.user.backup;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.amazonaws.util.CollectionUtils;
 import org.apache.cloudstack.acl.RoleType;

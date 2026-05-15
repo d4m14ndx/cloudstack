@@ -24,7 +24,7 @@ import com.linbit.linstor.api.model.ApiCallRcList;
 import com.linbit.linstor.api.model.CreateMultiSnapshotRequest;
 import com.linbit.linstor.api.model.Snapshot;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collections;

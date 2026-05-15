@@ -37,7 +37,7 @@ import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = ListTungstenFabricLBHealthMonitorCmd.APINAME, description = "List Tungsten-Fabric LB health monitor", responseObject =
     TungstenFabricLBHealthMonitorResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

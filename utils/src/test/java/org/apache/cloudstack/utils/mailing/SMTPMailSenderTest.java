@@ -14,8 +14,8 @@
  */
 package org.apache.cloudstack.utils.mailing;
 
-import com.sun.mail.smtp.SMTPMessage;
-import com.sun.mail.smtp.SMTPTransport;
+import org.eclipse.angus.mail.smtp.SMTPMessage;
+import org.eclipse.angus.mail.smtp.SMTPTransport;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Calendar;
@@ -26,11 +26,11 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import javax.mail.Address;
-import javax.mail.MessagingException;
-import javax.mail.Session;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
+import jakarta.mail.Address;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Session;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
 import junit.framework.TestCase;
 import org.apache.commons.lang3.time.DateUtils;
 import org.apache.commons.mail.EmailConstants;

@@ -38,7 +38,7 @@ import org.apache.cloudstack.ha.HAManager;
 import org.apache.cloudstack.ha.SimulatorHAProvider;
 import org.apache.cloudstack.ha.SimulatorHAState;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = ConfigureSimulatorHAProviderState.APINAME,
         description = "Configures simulator HA provider state for a host for probing and testing",

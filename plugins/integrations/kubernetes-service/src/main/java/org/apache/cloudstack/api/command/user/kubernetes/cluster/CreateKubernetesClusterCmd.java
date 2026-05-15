@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.dc.ASNumberVO;
 import com.cloud.dc.dao.ASNumberDao;

@@ -28,7 +28,7 @@ import org.apache.cloudstack.api.response.BackupRepositoryResponse;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.backup.BackupRepositoryService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "deleteBackupRepository",
         description = "delete a backup repository",

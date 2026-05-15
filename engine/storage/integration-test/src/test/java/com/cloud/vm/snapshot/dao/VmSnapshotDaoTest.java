@@ -20,7 +20,7 @@ package com.cloud.vm.snapshot.dao;
 
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.storage.test.CloudStackTestNGBase;
 import org.junit.Assert;

@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.xml.stream.FactoryConfigurationError;
 
 import org.apache.cloudstack.api.command.AuthorizeSAMLSSOCmd;

@@ -16,7 +16,7 @@
 // under the License.
 package com.cloud.network.dao;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.springframework.stereotype.Component;
 

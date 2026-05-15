@@ -26,7 +26,7 @@ import com.cloud.utils.Pair;
 import com.cloud.utils.component.AdapterBase;
 import org.apache.commons.collections.CollectionUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 public abstract class BaseAllocator extends AdapterBase implements HostAllocator {

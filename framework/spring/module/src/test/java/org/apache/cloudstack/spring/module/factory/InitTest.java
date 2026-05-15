@@ -18,7 +18,7 @@
  */
 package org.apache.cloudstack.spring.module.factory;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 public class InitTest {
 

@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.network.dao.PhysicalNetworkDao;
 import org.apache.cloudstack.api.command.user.loadbalancer.CreateLoadBalancerRuleCmd;

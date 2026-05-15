@@ -26,9 +26,9 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 
 import com.cloud.hypervisor.xenserver.resource.XcpServer83Resource;
 import com.cloud.hypervisor.xenserver.resource.Xenserver84Resource;

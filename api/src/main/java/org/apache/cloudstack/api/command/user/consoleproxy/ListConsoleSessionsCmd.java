@@ -36,7 +36,7 @@ import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.consoleproxy.ConsoleAccessManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Date;
 
 @APICommand(name = "listConsoleSessions", description = "Lists console sessions.", responseObject = ConsoleSessionResponse.class,

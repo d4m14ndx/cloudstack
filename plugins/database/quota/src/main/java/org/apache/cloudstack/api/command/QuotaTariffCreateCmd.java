@@ -31,7 +31,7 @@ import org.apache.cloudstack.api.response.QuotaTariffResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.quota.vo.QuotaTariffVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Date;
 

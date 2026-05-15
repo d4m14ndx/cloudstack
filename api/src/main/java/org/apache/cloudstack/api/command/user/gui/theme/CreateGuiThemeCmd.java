@@ -29,7 +29,7 @@ import org.apache.cloudstack.gui.theme.GuiTheme;
 import org.apache.cloudstack.gui.theme.GuiThemeJoin;
 import org.apache.cloudstack.gui.theme.GuiThemeService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "createGuiTheme", description = "Creates a customized GUI theme for a set of Common Names (fixed or wildcard), a set of domain UUIDs, and/or a set of " +
         "account UUIDs.", responseObject = GuiThemeResponse.class, entityType = {GuiTheme.class}, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,

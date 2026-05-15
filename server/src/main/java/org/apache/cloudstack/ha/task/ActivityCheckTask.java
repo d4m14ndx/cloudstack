@@ -19,7 +19,7 @@ package org.apache.cloudstack.ha.task;
 
 import java.util.concurrent.ExecutorService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.ha.HAConfig;
 import org.apache.cloudstack.ha.HAManager;

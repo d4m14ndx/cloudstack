@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.TimeZone;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.command.user.vm.CreateVMScheduleCmd;

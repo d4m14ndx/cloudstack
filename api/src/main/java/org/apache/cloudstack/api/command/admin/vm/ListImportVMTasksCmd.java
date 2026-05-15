@@ -37,7 +37,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.vm.ImportVmTasksManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listImportVmTasks",
         description = "List running import virtual machine tasks from a unmanaged hosts into CloudStack",

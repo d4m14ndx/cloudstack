@@ -58,8 +58,8 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
-import javax.persistence.Column;
-import javax.persistence.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.Table;
 
 /*
  * EncryptionSecretKeyChanger updates Management Secret Key / DB Secret Key or both.

@@ -34,7 +34,7 @@ import com.linbit.linstor.api.model.SnapshotRestore;
 import com.linbit.linstor.api.model.VolumeDefinitionModify;
 
 import javax.annotation.Nonnull;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.Collections;
 import java.util.HashMap;

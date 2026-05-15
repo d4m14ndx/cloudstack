@@ -27,7 +27,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.api.query.dao.NetworkOfferingJoinDao;
 import com.cloud.api.query.dao.VpcOfferingJoinDao;

@@ -25,7 +25,7 @@ import com.linbit.linstor.api.model.ApiCallRcList;
 import com.linbit.linstor.api.model.ResourceDefinition;
 import com.linbit.linstor.api.model.ResourceDefinitionModify;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Collections;

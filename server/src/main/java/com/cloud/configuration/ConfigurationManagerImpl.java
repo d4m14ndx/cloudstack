@@ -47,7 +47,7 @@ import java.util.Set;
 import java.util.Vector;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.consoleproxy.ConsoleProxyManager;
@@ -497,7 +497,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     @Inject
     NetrisProviderDao netrisProviderDao;
     @Inject
-    private javax.inject.Provider<NetrisService> netrisServiceProvider;
+    private jakarta.inject.Provider<NetrisService> netrisServiceProvider;
     @Inject
     VMLeaseManager vmLeaseManager;
 

@@ -25,7 +25,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.utils.DomainHelper;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;

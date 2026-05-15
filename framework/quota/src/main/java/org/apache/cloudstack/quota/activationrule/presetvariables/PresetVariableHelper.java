@@ -32,7 +32,7 @@ import com.cloud.hypervisor.Hypervisor;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.vpc.VpcOfferingVO;
 import com.cloud.network.vpc.VpcVO;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.storage.StoragePoolTagVO;
 import com.cloud.vm.VirtualMachine;

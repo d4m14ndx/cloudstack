@@ -40,7 +40,7 @@ import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.storage.volume.VolumeImportUnmanageService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "importVolume",
         description = "Import an unmanaged volume from a storage pool on a host into CloudStack",

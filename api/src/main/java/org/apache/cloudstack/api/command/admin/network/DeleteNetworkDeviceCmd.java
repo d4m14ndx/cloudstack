@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.command.admin.network;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.APICommand;

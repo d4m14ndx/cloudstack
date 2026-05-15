@@ -24,7 +24,7 @@ import org.apache.cloudstack.api.response.StoragePoolResponse;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.StoragePoolMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listStoragePoolsMetrics", description = "Lists storage pool metrics", responseObject = StoragePoolMetricsResponse.class,

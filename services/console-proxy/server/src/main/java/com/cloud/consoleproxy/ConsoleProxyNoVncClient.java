@@ -18,9 +18,9 @@ package com.cloud.consoleproxy;
 
 import com.cloud.utils.net.NetUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.jetty.websocket.api.Frame;
 import org.eclipse.jetty.websocket.api.Session;
-import org.eclipse.jetty.websocket.api.WebSocketException;
-import org.eclipse.jetty.websocket.api.extensions.Frame;
+import org.eclipse.jetty.websocket.api.exceptions.WebSocketException;
 
 import java.awt.Image;
 import java.io.IOException;

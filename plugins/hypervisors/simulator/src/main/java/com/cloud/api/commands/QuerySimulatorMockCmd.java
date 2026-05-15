@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 @APICommand(name = "querySimulatorMock", description = "Query simulator mock", responseObject=MockResponse.class)

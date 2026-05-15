@@ -68,7 +68,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;

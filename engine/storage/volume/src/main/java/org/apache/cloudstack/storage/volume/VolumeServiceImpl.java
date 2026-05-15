@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutionException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.vm.dao.VMInstanceDao;
 import org.apache.cloudstack.annotation.AnnotationService;
