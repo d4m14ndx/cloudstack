@@ -28,6 +28,8 @@ permissions:
 
 jobs:
   build:
+    # Upstream-only: requires shapeblue/cloudstack-nonoss (proprietary). Forks use fork-ci.yml.
+    if: github.repository == 'apache/cloudstack'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6

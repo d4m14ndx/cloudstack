@@ -70,8 +70,8 @@
         <cs.compiler-plugin.version>3.13.0</cs.compiler-plugin.version>
         <cs.dependency-plugin.version>3.9.0</cs.dependency-plugin.version>
         <cs.failsafe-plugin.version>3.5.2</cs.failsafe-plugin.version>
-        <cs.spotbugs.version>3.1.12</cs.spotbugs.version>
-        <cs.spotbugs-maven-plugin.version>3.1.12.2</cs.spotbugs-maven-plugin.version>
+        <cs.spotbugs.version>4.8.6</cs.spotbugs.version>
+        <cs.spotbugs-maven-plugin.version>4.8.6.4</cs.spotbugs-maven-plugin.version>
         <cs.jar-plugin.version>3.4.2</cs.jar-plugin.version>
         <cs.pmd-plugin.version>3.28.0</cs.pmd-plugin.version>
         <cs.project-info-plugin.version>3.0.0</cs.project-info-plugin.version>
