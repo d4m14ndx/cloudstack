@@ -20,17 +20,37 @@
 <Appenders>
 
     <properties>
-        <property name="filters">net.sf.cglib.proxy</property>
+        <!-- Stack-trace package filters: hide noisy proxy frames from output -->
+        <property name="filters">org.springframework.cglib.proxy</property>
+        <!-- Log format selector: set CLOUDSTACK_LOG_FORMAT=json for structured JSON output.
+             Default is human-readable text. -->
+        <property name="logFormat">${env:CLOUDSTACK_LOG_FORMAT:-text}</property>
     </properties>
 
     <!-- ============================== -->
-    <!-- Append messages to the console -->
+    <!-- Console output (text or JSON)  -->
     <!-- ============================== -->
 
-    <Console name="CONSOLE" target="SYSTEM_OUT">
+    <Console name="CONSOLE_TEXT" target="SYSTEM_OUT">
         <ThresholdFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
         <PatternLayout pattern="%d{ABSOLUTE} %-5p [%c{1}] %m%ex{filters(${filters})}%n"/>
     </Console>
+
+    <!-- JSON template layout: only used when CLOUDSTACK_LOG_FORMAT=json.
+         Outputs one ECS-compatible JSON object per line for log aggregation
+         (Loki, Elasticsearch, Datadog, etc.). -->
+    <Console name="CONSOLE_JSON" target="SYSTEM_OUT">
+        <ThresholdFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
+        <JsonTemplateLayout eventTemplateUri="classpath:EcsLayout.json"/>
+    </Console>
+
+    <!-- Route based on logFormat -->
+    <Routing name="CONSOLE">
+        <Routes pattern="${logFormat}">
+            <Route ref="CONSOLE_JSON" key="json"/>
+            <Route ref="CONSOLE_TEXT"/>
+        </Routes>
+    </Routing>
 </Appenders>
 
 <Loggers>

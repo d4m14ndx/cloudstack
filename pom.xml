@@ -458,6 +458,13 @@
                 <version>${cs.log4j.version}</version>
             </dependency>
             <dependency>
+                <!-- Provides JsonTemplateLayout for structured JSON logging.
+                     Activated when CLOUDSTACK_LOG_FORMAT=json. -->
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-layout-template-json</artifactId>
+                <version>${cs.log4j.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>ch.qos.reload4j</groupId>
                 <artifactId>reload4j</artifactId>
                 <version>${cs.reload4j.version}</version>
