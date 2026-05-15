@@ -274,7 +274,6 @@
         <module>framework</module>
         <module>client</module>
         <module>services</module>
-        <module>quickcloud</module>
     </modules>
 
     <dependencyManagement>
