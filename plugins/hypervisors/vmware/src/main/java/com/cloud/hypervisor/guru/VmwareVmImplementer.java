@@ -294,17 +294,7 @@ class VmwareVmImplementer {
     }
 
     private List<NicProfile> getNicProfiles(VirtualMachineProfile vm, Map<String, String> details) {
-        List<NicProfile> nicProfiles = vm.getNics();
-
-        for (NicProfile nicProfile : nicProfiles) {
-            if (nicProfile.getTrafficType() == Networks.TrafficType.Guest) {
-                if (networkModel.isProviderSupportServiceInNetwork(nicProfile.getNetworkId(), Network.Service.Firewall, Network.Provider.CiscoVnmc)) {
-                    details.put("ConfigureVServiceInNexus", Boolean.TRUE.toString());
-                }
-                break;
-            }
-        }
-        return nicProfiles;
+        return vm.getNics();
     }
 
     private void setDiskControllers(VirtualMachineProfile vm, Map<String, String> details, boolean userVm) {

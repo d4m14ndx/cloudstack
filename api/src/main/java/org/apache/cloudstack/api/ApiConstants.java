@@ -819,7 +819,6 @@ public class ApiConstants {
     public static final String KVM_NETWORK_LABEL = "kvmnetworklabel";
     public static final String VMWARE_NETWORK_LABEL = "vmwarenetworklabel";
     public static final String HYPERV_NETWORK_LABEL = "hypervnetworklabel";
-    public static final String OVM3_NETWORK_LABEL = "ovm3networklabel";
     public static final String NETWORK_SERVICE_PROVIDER_ID = "nspid";
     public static final String SERVICE_LIST = "servicelist";
     public static final String CAN_ENABLE_INDIVIDUAL_SERVICE = "canenableindividualservice";
@@ -1176,9 +1175,6 @@ public class ApiConstants {
     public static final String METADATA = "metadata";
     public static final String PHYSICAL_SIZE = "physicalsize";
     public static final String CHAIN_SIZE = "chainsize";
-    public static final String OVM3_POOL = "ovm3pool";
-    public static final String OVM3_CLUSTER = "ovm3cluster";
-    public static final String OVM3_VIP = "ovm3vip";
     public static final String CLEAN_UP_DETAILS = "cleanupdetails";
     public static final String CLEAN_UP_EXTERNAL_DETAILS = "cleanupexternaldetails";
     public static final String CLEAN_UP_EXTRA_CONFIG = "cleanupextraconfig";

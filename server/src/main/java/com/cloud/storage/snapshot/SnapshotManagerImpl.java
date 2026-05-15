@@ -1570,10 +1570,6 @@ public class SnapshotManagerImpl extends MutualExclusiveIdsManagerBase implement
             hypervisorType = volume.getHypervisorType();
         }
 
-        if (hypervisorType.equals(HypervisorType.Ovm)) {
-            throw new InvalidParameterValueException("Ovm won't support taking snapshot");
-        }
-
         if (hypervisorType.equals(HypervisorType.KVM)) {
             List<HostVO> hosts = null;
             if (scope.equals(ScopeType.CLUSTER)) {

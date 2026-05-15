@@ -333,8 +333,8 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
     private final ScheduledExecutorService _executor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("VpcChecker"));
     private List<VpcProvider> vpcElements = null;
     private final List<Service> nonSupportedServices = Arrays.asList(Service.SecurityGroup, Service.Firewall);
-    private final List<Provider> supportedProviders = Arrays.asList(Provider.VPCVirtualRouter, Provider.NiciraNvp, Provider.InternalLbVm, Provider.Netscaler,
-            Provider.JuniperContrailVpcRouter, Provider.Ovs, Provider.BigSwitchBcf, Provider.ConfigDrive, Provider.Nsx, Provider.Netris);
+    private final List<Provider> supportedProviders = Arrays.asList(Provider.VPCVirtualRouter, Provider.InternalLbVm, Provider.Netscaler,
+            Provider.Ovs, Provider.ConfigDrive, Provider.Nsx, Provider.Netris);
 
     int _cleanupInterval;
     int _maxNetworks;
@@ -350,7 +350,6 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         hTypes.add(HypervisorType.Simulator);
         hTypes.add(HypervisorType.LXC);
         hTypes.add(HypervisorType.Hyperv);
-        hTypes.add(HypervisorType.Ovm3);
         hTypes.add(HypervisorType.External);
     }
 
@@ -654,11 +653,6 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         final Map<Network.Service, Set<Network.Provider>> svcProviderMap = new HashMap<Network.Service, Set<Network.Provider>>();
         final Set<Network.Provider> defaultProviders = new HashSet<Network.Provider>();
         defaultProviders.add(Provider.VPCVirtualRouter);
-        // Just here for 4.1, replaced by commit 836ce6c1 in newer versions
-        final Set<Network.Provider> sdnProviders = new HashSet<Network.Provider>();
-        sdnProviders.add(Provider.NiciraNvp);
-        sdnProviders.add(Provider.JuniperContrailVpcRouter);
-
         boolean sourceNatSvc = false;
         boolean firewallSvs = false;
         // populate the services first
@@ -669,12 +663,7 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
                 throw new InvalidParameterValueException("Service " + serviceName + " is not supported in VPC");
             }
 
-            if (service == Service.Connectivity) {
-                logger.debug("Applying Connectivity workaround, setting provider to NiciraNvp");
-                svcProviderMap.put(service, sdnProviders);
-            } else {
-                svcProviderMap.put(service, defaultProviders);
-            }
+            svcProviderMap.put(service, defaultProviders);
             if (service == Service.NetworkACL) {
                 firewallSvs = true;
             }
@@ -2621,7 +2610,6 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         if (vpcElements == null) {
             vpcElements = new ArrayList<VpcProvider>();
             vpcElements.add((VpcProvider) _ntwkModel.getElementImplementingProvider(Provider.VPCVirtualRouter.getName()));
-            vpcElements.add((VpcProvider) _ntwkModel.getElementImplementingProvider(Provider.JuniperContrailVpcRouter.getName()));
         }
 
         if (vpcElements == null) {

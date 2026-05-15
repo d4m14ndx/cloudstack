@@ -181,6 +181,7 @@ public class OCFS2ManagerImpl extends ManagerBase implements OCFS2Manager, Resou
             String.format("Prepare OCFS2 nodes failed after delete host %s (zone: %s, pod: %s, cluster: %s",
                     host, host.getDataCenterId(), host.getPodId(), host.getClusterId());
 
+        // OCFS2 node management was only used by the removed OVM hypervisor plugin
         if (host.getHypervisorType() != HypervisorType.Ovm) {
             return;
         }

@@ -63,6 +63,7 @@ public class PhysicalNetworkTrafficTypeVO implements PhysicalNetworkTrafficType 
     @Column(name = "hyperv_network_label")
     private String hypervNetworkLabel;
 
+    /** @deprecated OVM3 hypervisor plugin has been removed. Column retained for DB compatibility. */
     @Column(name = "ovm_network_label")
     private String ovm3NetworkLabel;
 
@@ -164,12 +165,4 @@ public class PhysicalNetworkTrafficTypeVO implements PhysicalNetworkTrafficType 
         return hypervNetworkLabel;
     }
 
-    public void setOvm3NetworkLabel(String ovm3NetworkLabel) {
-        this.ovm3NetworkLabel = ovm3NetworkLabel;
-    }
-
-    @Override
-    public String getOvm3NetworkLabel() {
-        return ovm3NetworkLabel;
-    }
 }

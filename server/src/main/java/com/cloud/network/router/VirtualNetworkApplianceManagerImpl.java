@@ -3363,7 +3363,6 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 RouterTemplateVmware,
                 RouterTemplateHyperV,
                 RouterTemplateLxc,
-                RouterTemplateOvm3,
                 UseExternalDnsServers,
                 RouterVersionCheckEnabled,
                 SetServiceMonitor,

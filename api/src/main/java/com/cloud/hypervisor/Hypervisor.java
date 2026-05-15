@@ -52,7 +52,9 @@ public class Hypervisor {
         public static final HypervisorType Parralels = new HypervisorType("Parralels");
         public static final HypervisorType BareMetal = new HypervisorType("BareMetal");
         public static final HypervisorType Simulator = new HypervisorType("Simulator", null, EnumSet.of(RootDiskSizeOverride, VmStorageMigration));
+        /** @deprecated OVM (Oracle VM 2) hypervisor plugin has been removed. Retained for DB deserialization compatibility. */
         public static final HypervisorType Ovm = new HypervisorType("Ovm", ImageFormat.RAW);
+        /** @deprecated OVM3 (Oracle VM 3) hypervisor plugin has been removed. Retained for DB deserialization compatibility. */
         public static final HypervisorType Ovm3 = new HypervisorType("Ovm3", ImageFormat.RAW);
         public static final HypervisorType LXC = new HypervisorType("LXC");
         public static final HypervisorType Custom = new HypervisorType("Custom", null, EnumSet.of(RootDiskSizeOverride));

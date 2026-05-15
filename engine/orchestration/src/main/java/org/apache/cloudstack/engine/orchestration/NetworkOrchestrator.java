@@ -4005,8 +4005,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         }
 
         for (final NicVO nic : result) {
-            if (_networkModel.isProviderForNetwork(Provider.NiciraNvp, nic.getNetworkId())) {
-                //For NSX Based networks, add nsxlogicalswitch, nsxlogicalswitchport to each result
+            if (_networkModel.isProviderForNetwork(Provider.Nsx, nic.getNetworkId())) {
                 logger.info("Listing NSX logical switch and logical switch por for each nic");
                 final NetworkVO network = _networksDao.findById(nic.getNetworkId());
                 final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());

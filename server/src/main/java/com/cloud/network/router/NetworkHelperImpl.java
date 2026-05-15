@@ -181,7 +181,7 @@ public class NetworkHelperImpl implements NetworkHelper {
     VpcManager vpcManager;
 
     protected static final List<HypervisorType> HYPERVISOR_TYPES_NOT_SUPPORTING_DOMAIN_ROUTER = Arrays.asList(
-            HypervisorType.Ovm, HypervisorType.BareMetal, HypervisorType.External);
+            HypervisorType.BareMetal, HypervisorType.External);
 
     protected final Map<HypervisorType, ConfigKey<String>> hypervisorsMap = new HashMap<>();
 
@@ -192,7 +192,6 @@ public class NetworkHelperImpl implements NetworkHelper {
         hypervisorsMap.put(HypervisorType.VMware, VirtualNetworkApplianceManager.RouterTemplateVmware);
         hypervisorsMap.put(HypervisorType.Hyperv, VirtualNetworkApplianceManager.RouterTemplateHyperV);
         hypervisorsMap.put(HypervisorType.LXC, VirtualNetworkApplianceManager.RouterTemplateLxc);
-        hypervisorsMap.put(HypervisorType.Ovm3, VirtualNetworkApplianceManager.RouterTemplateOvm3);
     }
 
     @Override

@@ -76,7 +76,6 @@ under the License.
             <adapter name="DirectPodBasedNetworkGuru" class="com.cloud.network.guru.DirectPodBasedNetworkGuru"/>
             <adapter name="OvsGuestNetworkGuru" class="com.cloud.network.guru.OvsGuestNetworkGuru"/>
             <adapter name="PrivateNetworkGuru" class="com.cloud.network.guru.PrivateNetworkGuru"/>
-            <adapter name="NiciraNvpGuestNetworkGuru" class="com.cloud.network.guru.NiciraNvpGuestNetworkGuru"/>
         </adapters>
         <adapters key="com.cloud.cluster.ClusterServiceAdapter">
             <adapter name="ClusterService" class="com.cloud.cluster.ClusterServiceServletAdapter"/>
@@ -89,7 +88,6 @@ under the License.
         </adapters>
         <adapters key="com.cloud.server.auth.UserAuthenticator">
             <!-- <adapter name="SHA256SALT" class="com.cloud.server.auth.SHA256SaltedUserAuthenticator"/> -->
-            <adapter name="MD5" class="com.cloud.server.auth.MD5UserAuthenticator"/>
             <adapter name="LDAP" class="com.cloud.server.auth.LDAPUserAuthenticator"/>
         </adapters>
         <adapters key="com.cloud.ha.Investigator">
@@ -101,7 +99,6 @@ under the License.
         <adapters key="com.cloud.ha.FenceBuilder">
             <adapter name="XenServerFenceBuilder" class="com.cloud.ha.XenServerFencer"/>
             <adapter name="KVMFenceBuilder" class="com.cloud.ha.KVMFencer"/>
-            <adapter name="OvmFenceBuilder" class="com.cloud.ovm.hypervisor.OvmFencer"/>
         </adapters>
         <adapters key="com.cloud.hypervisor.HypervisorGuru">
             <adapter name="XenServerGuru" class="com.cloud.hypervisor.XenServerGuru"/>
@@ -113,7 +110,6 @@ under the License.
             <adapter name="KVM Agent" class="com.cloud.hypervisor.kvm.discoverer.KvmServerDiscoverer"/>
             <adapter name="CustomHW Agent" class="com.cloud.hypervisor.discoverer.CustomServerDiscoverer"/>
             <adapter name="Bare Metal Agent" class="com.cloud.baremetal.BareMetalDiscoverer"/>
-			<adapter name="Ovm Discover" class="com.cloud.ovm.hypervisor.OvmDiscoverer" />
         </adapters>
         <adapters key="com.cloud.deploy.DeploymentPlanner">
             <adapter name="First Fit" class="com.cloud.deploy.FirstFitPlanner"/>
@@ -136,7 +132,6 @@ under the License.
             <adapter name="BareMetal" class="com.cloud.network.element.BareMetalElement"/>
             <adapter name="SecurityGroupProvider" class="com.cloud.network.element.SecurityGroupElement"/>
             <adapter name="VpcVirtualRouter" class="com.cloud.network.element.VpcVirtualRouterElement"/>
-            <adapter name="NiciraNvp" class="com.cloud.network.element.NiciraNvpElement"/>
             <adapter name="DnsNotifier" class="org.apache.cloudstack.network.element.DnsNotifier"/>
         </adapters>
         <adapters key="com.cloud.cluster.agentlb.AgentLoadBalancerPlanner">
@@ -146,7 +141,6 @@ under the License.
             <adapter name="XenServerGuru" class="com.cloud.hypervisor.XenServerGuru"/>
             <adapter name="KVMGuru" class="com.cloud.hypervisor.KVMGuru"/>
             <adapter name="BareMetalGuru" class="com.cloud.baremetal.BareMetalGuru"/>
-            <adapter name="OvmGuru" class="com.cloud.ovm.hypervisor.OvmGuru" />
         </adapters>
         <adapters key="com.cloud.agent.StartupCommandProcessor">
             <adapter name="BasicAgentAuthorizer" class="com.cloud.agent.manager.authn.impl.BasicAgentAuthManager"/>
@@ -156,12 +150,8 @@ under the License.
         <manager name="LBHealthCheckManager" key="com.cloud.network.lb.LBHealthCheckManager" class="com.cloud.network.lb.LBHealthCheckManagerImpl"/>
         <pluggableservice name="ApiDiscoveryService" key="org.apache.cloudstack.discovery.ApiDiscoveryService" class="org.apache.cloudstack.discovery.ApiDiscoveryServiceImpl"/>
         <pluggableservice name="VirtualRouterElementService" key="com.cloud.network.element.VirtualRouterElementService" class="com.cloud.network.element.VirtualRouterElement"/>
-        <pluggableservice name="NiciraNvpElementService" key="com.cloud.network.element.NiciraNvpElementService" class="com.cloud.network.element.NiciraNvpElement"/>
         <dao name="OvsTunnelInterfaceDao" class="com.cloud.network.ovs.dao.OvsTunnelInterfaceDaoImpl" singleton="false"/>
         <dao name="OvsTunnelAccountDao" class="com.cloud.network.ovs.dao.OvsTunnelNetworkDaoImpl" singleton="false"/>
-        <dao name="NiciraNvpDao" class="com.cloud.network.dao.NiciraNvpDaoImpl" singleton="false"/>
-        <dao name="NiciraNvpNicMappingDao" class="com.cloud.network.dao.NiciraNvpNicMappingDaoImpl" singleton="false"/>
-        <dao name="NiciraNvpRouterMappingDao" class="com.cloud.network.dao.NiciraNvpRouterMappingDaoImpl" singleton="false"/>
         <dao name="ElasticLbVmMapDao" class="com.cloud.network.lb.dao.ElasticLbVmMapDaoImpl" singleton="false"/>
     </management-server>
 

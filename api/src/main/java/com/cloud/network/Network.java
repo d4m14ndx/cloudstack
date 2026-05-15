@@ -176,8 +176,6 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
         private static List<Provider> supportedProviders = new ArrayList<Provider>();
 
         public static final Provider VirtualRouter = new Provider("VirtualRouter", false, false);
-        public static final Provider JuniperContrailRouter = new Provider("JuniperContrailRouter", false);
-        public static final Provider JuniperContrailVpcRouter = new Provider("JuniperContrailVpcRouter", false);
         public static final Provider JuniperSRX = new Provider("JuniperSRX", true);
         public static final Provider PaloAlto = new Provider("PaloAlto", true);
         public static final Provider F5BigIp = new Provider("F5BigIp", true);
@@ -188,21 +186,10 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
         public static final Provider SecurityGroupProvider = new Provider("SecurityGroupProvider", false);
         public static final Provider VPCVirtualRouter = new Provider("VpcVirtualRouter", false);
         public static final Provider None = new Provider("None", false);
-        // NiciraNvp is not an "External" provider, otherwise we get in trouble with NetworkServiceImpl.providersConfiguredForExternalNetworking
-        public static final Provider NiciraNvp = new Provider("NiciraNvp", false);
         public static final Provider InternalLbVm = new Provider("InternalLbVm", false);
-        public static final Provider CiscoVnmc = new Provider("CiscoVnmc", true);
-        // add new Ovs provider
         public static final Provider Ovs = new Provider("Ovs", false);
         public static final Provider Opendaylight = new Provider("Opendaylight", false);
-        public static final Provider BrocadeVcs = new Provider("BrocadeVcs", false);
-        // add GloboDns provider
-        public static final Provider GloboDns = new Provider("GloboDns", true);
-        // add Big Switch Bcf Provider
-        public static final Provider BigSwitchBcf = new Provider("BigSwitchBcf", false);
-        //Add ConfigDrive provider
         public static final Provider ConfigDrive = new Provider("ConfigDrive", false);
-        //Add Tungsten Fabric provider
         public static final Provider Tungsten = new Provider("Tungsten", false);
 
         public static final Provider Nsx = new Provider("Nsx", false);

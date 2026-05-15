@@ -145,8 +145,7 @@ public class DirectNetworkGuru extends AdapterBase implements NetworkGuru {
         if (dc.getNetworkType() == NetworkType.Advanced
                 && isMyTrafficType(offering.getTrafficType())
                 && isMyIsolationMethod(physnet)
-                && offering.getGuestType() == GuestType.Shared
-                && !_ntwkOfferingSrvcDao.isProviderForNetworkOffering(offering.getId(), Network.Provider.NiciraNvp)) {
+                && offering.getGuestType() == GuestType.Shared) {
             return true;
         } else if (dc.getNetworkType() == NetworkType.Advanced
                 && offering.getGuestType() == GuestType.Shared
@@ -154,7 +153,7 @@ public class DirectNetworkGuru extends AdapterBase implements NetworkGuru {
                 && physnet.getIsolationMethods().contains("GRE")) {
             return true;
         } else {
-            logger.trace("We only take care of Shared Guest networks without Ovs or NiciraNvp provider");
+            logger.trace("We only take care of Shared Guest networks without Ovs provider");
             return false;
         }
     }

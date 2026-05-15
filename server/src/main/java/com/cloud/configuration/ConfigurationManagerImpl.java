@@ -563,7 +563,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     private static final String DefaultForSystemVmsForPodIpRange = "0";
     private static final String DefaultVlanForPodIpRange = Vlan.UNTAGGED;
 
-    private static final Set<Provider> VPC_ONLY_PROVIDERS = Sets.newHashSet(Provider.VPCVirtualRouter, Provider.JuniperContrailVpcRouter, Provider.InternalLbVm);
+    private static final Set<Provider> VPC_ONLY_PROVIDERS = Sets.newHashSet(Provider.VPCVirtualRouter, Provider.InternalLbVm);
 
     private static final List<String> SUPPORTED_ROUTING_MODE_STRS = Arrays.asList(Static.toString().toLowerCase(), Dynamic.toString().toLowerCase());
     private static final long GiB_TO_BYTES = 1024 * 1024 * 1024;
@@ -604,8 +604,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         configValuesForValidation.add("wait");
         configValuesForValidation.add("xenserver.heartbeat.interval");
         configValuesForValidation.add("xenserver.heartbeat.timeout");
-        configValuesForValidation.add("ovm3.heartbeat.interval");
-        configValuesForValidation.add("ovm3.heartbeat.timeout");
         configValuesForValidation.add("incorrect.login.attempts.allowed");
         configValuesForValidation.add("vm.password.length");
         configValuesForValidation.add("externaldhcp.vmip.retrieval.interval");
@@ -1700,7 +1698,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     /**
-     * Valid values are XenServer, KVM, VMware, Hyperv, VirtualBox, Parralels, BareMetal, Simulator, Ovm, Ovm3, LXC.
+     * Valid values are XenServer, KVM, VMware, Hyperv, VirtualBox, Parralels, BareMetal, Simulator, LXC.
      * Inputting "Any" will return the hypervisor type Any, other inputs will result in the hypervisor type none.
      * Both of these are invalid values and will return an error message.
      */
@@ -3074,7 +3072,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
                                 final PhysicalNetworkTrafficTypeVO mgmtTraffic = _trafficTypeDao.findBy(mgmtPhyNetwork.getId(), TrafficType.Management);
                                 _networkSvc.addTrafficTypeToPhysicalNetwork(mgmtPhyNetwork.getId(), TrafficType.Storage.toString(), "vlan", mgmtTraffic.getXenNetworkLabel(),
                                         mgmtTraffic.getKvmNetworkLabel(), mgmtTraffic.getVmwareNetworkLabel(), mgmtTraffic.getSimulatorNetworkLabel(), mgmtTraffic.getVlan(),
-                                        mgmtTraffic.getHypervNetworkLabel(), mgmtTraffic.getOvm3NetworkLabel());
+                                        mgmtTraffic.getHypervNetworkLabel());
                                 logger.info("No storage traffic type was specified by admin, create default storage traffic on physical network {} with same configure of management traffic type", mgmtPhyNetwork);
                             }
                         } catch (final InvalidParameterValueException ex) {
@@ -7271,10 +7269,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
                         final Network.Provider provider = Network.Provider.getProvider(prvNameStr);
                         if (provider == null) {
                             throw new InvalidParameterValueException("Invalid service provider: " + prvNameStr);
-                        }
-
-                        if (provider == Provider.CiscoVnmc) {
-                            firewallProvider = provider;
                         }
 
                         if (provider == Provider.PaloAlto) {

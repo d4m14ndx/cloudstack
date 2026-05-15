@@ -5417,7 +5417,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_TRAFFIC_TYPE_CREATE, eventDescription = "Creating Physical Network TrafficType", create = true)
     public PhysicalNetworkTrafficType addTrafficTypeToPhysicalNetwork(Long physicalNetworkId, String trafficTypeStr, String isolationMethod, String xenLabel, String kvmLabel, String vmwareLabel,
-            String simulatorLabel, String vlan, String hypervLabel, String ovm3Label) {
+            String simulatorLabel, String vlan, String hypervLabel) {
 
         // verify input parameters
         PhysicalNetworkVO network = _physicalNetworkDao.findById(physicalNetworkId);
@@ -5473,7 +5473,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
                 xenLabel = getDefaultXenNetworkLabel(trafficType);
             }
             PhysicalNetworkTrafficTypeVO pNetworktrafficType = new PhysicalNetworkTrafficTypeVO(physicalNetworkId, trafficType, xenLabel, kvmLabel, vmwareLabel, simulatorLabel, vlan, hypervLabel,
-                    ovm3Label);
+                    null);
             pNetworktrafficType = _pNTrafficTypeDao.persist(pNetworktrafficType);
 
             // For public traffic, get isolation method of physical network and update the public network accordingly
@@ -5533,7 +5533,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_TRAFFIC_TYPE_UPDATE, eventDescription = "Updating physical network TrafficType", async = true)
-    public PhysicalNetworkTrafficType updatePhysicalNetworkTrafficType(Long id, String xenLabel, String kvmLabel, String vmwareLabel, String hypervLabel, String ovm3Label) {
+    public PhysicalNetworkTrafficType updatePhysicalNetworkTrafficType(Long id, String xenLabel, String kvmLabel, String vmwareLabel, String hypervLabel) {
 
         PhysicalNetworkTrafficTypeVO trafficType = _pNTrafficTypeDao.findById(id);
 
@@ -5567,12 +5567,6 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
             trafficType.setHypervNetworkLabel(hypervLabel);
         }
 
-        if (ovm3Label != null) {
-            if ("".equals(ovm3Label)) {
-                ovm3Label = null;
-            }
-            trafficType.setOvm3NetworkLabel(ovm3Label);
-        }
         _pNTrafficTypeDao.update(id, trafficType);
         return trafficType;
     }

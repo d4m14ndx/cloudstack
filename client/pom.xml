@@ -128,21 +128,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-solidfire</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-cloudbyte</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-datera</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-storage-volume-scaleio</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -213,22 +198,12 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-user-authenticator-md5</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-user-authenticator-oauth2</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-user-authenticator-pbkdf2</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-user-authenticator-plaintext</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -258,11 +233,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-nvp</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-network-palo-alto</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -279,16 +249,6 @@
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-network-elb</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-bigswitch</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-ssp</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -319,11 +279,6 @@
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-hypervisor-baremetal</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-hypervisor-ucs</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -560,16 +515,6 @@
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-non-strict-host-affinity</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-api-solidfire-intg-test</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-globodns</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -868,11 +813,6 @@
                                     match="classpath:componentContext.xml"
                                     replace="classpath:nonossComponentContext.xml"
                                     byline="true" />
-                                <copy overwrite="true" todir="${basedir}/target/common/scripts">
-                                    <fileset dir="${basedir}/../plugins/network-elements/cisco-vnmc/src/main/scripts">
-                                        <include name="**/*" />
-                                    </fileset>
-                                </copy>
                             </target>
                         </configuration>
                     </execution>
@@ -1095,11 +1035,6 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.cloudstack</groupId>
-                    <artifactId>cloud-plugin-network-cisco-vnmc</artifactId>
-                    <version>${project.version}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.cloudstack</groupId>
                     <artifactId>cloud-plugin-network-nsx</artifactId>
                     <version>${project.version}</version>
                 </dependency>
@@ -1116,11 +1051,6 @@
                 <dependency>
                     <groupId>org.apache.cloudstack</groupId>
                     <artifactId>cloud-plugin-api-vmware-sioc</artifactId>
-                    <version>${project.version}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.cloudstack</groupId>
-                    <artifactId>cloud-plugin-network-contrail</artifactId>
                     <version>${project.version}</version>
                 </dependency>
                 <dependency>

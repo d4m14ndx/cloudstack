@@ -301,7 +301,6 @@ import com.cloud.utils.exception.ExceptionUtil;
 import com.cloud.utils.mgmt.JmxUtil;
 import com.cloud.utils.mgmt.PropertyMapDynamicBean;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.utils.nicira.nvp.plugin.NiciraNvpApiVersion;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.ssh.SshHelper;
 import com.cloud.utils.validation.ChecksumUtil;
@@ -2465,8 +2464,6 @@ public class VmwareResource extends ServerResourceBase implements StoragePoolRes
 
             VirtualEthernetCardType nicDeviceType;
 
-            NiciraNvpApiVersion.logNiciraApiVersion();
-
             Map<String, String> nicUuidToDvSwitchUuid = new HashMap<>();
             for (NicTO nicTo : sortNicsByDeviceId(nics)) {
                 logger.info("Prepare NIC device based on NicTO: " + _gson.toJson(nicTo));
@@ -2483,28 +2480,25 @@ public class VmwareResource extends ServerResourceBase implements StoragePoolRes
                 VirtualMachine.Type vmType = cmd.getVirtualMachine().getType();
                 Pair<ManagedObjectReference, String> networkInfo = prepareNetworkFromNicInfo(vmMo.getRunningHost(), nicTo, configureVServiceInNexus,
                         vmSpec.getNetworkIdToNetworkNameMap().getOrDefault(nicTo.getNetworkId(), null), vmType);
-                if ((nicTo.getBroadcastType() != BroadcastDomainType.Lswitch)
-                        || (nicTo.getBroadcastType() == BroadcastDomainType.Lswitch && NiciraNvpApiVersion.isApiVersionLowerThan("4.2"))) {
-                    if (VmwareHelper.isDvPortGroup(networkInfo.first())) {
-                        String dvSwitchUuid;
-                        ManagedObjectReference dcMor = hyperHost.getHyperHostDatacenter();
-                        DatacenterMO dataCenterMo = new DatacenterMO(context, dcMor);
-                        ManagedObjectReference dvsMor = dataCenterMo.getDvSwitchMor(networkInfo.first());
-                        dvSwitchUuid = dataCenterMo.getDvSwitchUuid(dvsMor);
-                        logger.info("Preparing NIC device on dvSwitch : " + dvSwitchUuid);
-                        nic = VmwareHelper.prepareDvNicDevice(vmMo, networkInfo.first(), nicDeviceType, networkInfo.second(), dvSwitchUuid,
-                                nicTo.getMac(), i + 1, true, true);
-                        if (nicTo.getUuid() != null) {
-                            nicUuidToDvSwitchUuid.put(nicTo.getUuid(), dvSwitchUuid);
-                        }
-                    } else {
-                        logger.info("Preparing NIC device on network " + networkInfo.second());
-                        nic = VmwareHelper.prepareNicDevice(vmMo, networkInfo.first(), nicDeviceType, networkInfo.second(),
-                                nicTo.getMac(), i + 1, true, true);
+                if (nicTo.getBroadcastType() == BroadcastDomainType.Lswitch) {
+                    // For Lswitch (NSX), connect to br-int (nsx.network) via opaque network
+                    nic = VmwareHelper.prepareNicOpaque(vmMo, nicDeviceType, networkInfo.second(),
+                            nicTo.getMac(), i + 1, true, true);
+                } else if (VmwareHelper.isDvPortGroup(networkInfo.first())) {
+                    String dvSwitchUuid;
+                    ManagedObjectReference dcMor = hyperHost.getHyperHostDatacenter();
+                    DatacenterMO dataCenterMo = new DatacenterMO(context, dcMor);
+                    ManagedObjectReference dvsMor = dataCenterMo.getDvSwitchMor(networkInfo.first());
+                    dvSwitchUuid = dataCenterMo.getDvSwitchUuid(dvsMor);
+                    logger.info("Preparing NIC device on dvSwitch : " + dvSwitchUuid);
+                    nic = VmwareHelper.prepareDvNicDevice(vmMo, networkInfo.first(), nicDeviceType, networkInfo.second(), dvSwitchUuid,
+                            nicTo.getMac(), i + 1, true, true);
+                    if (nicTo.getUuid() != null) {
+                        nicUuidToDvSwitchUuid.put(nicTo.getUuid(), dvSwitchUuid);
                     }
                 } else {
-                    //if NSX API VERSION >= 4.2, connect to br-int (nsx.network), do not create portgroup else previous behaviour
-                    nic = VmwareHelper.prepareNicOpaque(vmMo, nicDeviceType, networkInfo.second(),
+                    logger.info("Preparing NIC device on network " + networkInfo.second());
+                    nic = VmwareHelper.prepareNicDevice(vmMo, networkInfo.first(), nicDeviceType, networkInfo.second(),
                             nicTo.getMac(), i + 1, true, true);
                 }
 

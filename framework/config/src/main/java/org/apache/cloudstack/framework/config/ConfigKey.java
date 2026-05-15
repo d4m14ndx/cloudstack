@@ -87,7 +87,6 @@ public class ConfigKey<T> {
     public static final Pair<String, Long> SUBGROUP_KVM = new Pair<>("KVM", 2L);
     public static final Pair<String, Long> SUBGROUP_VMWARE = new Pair<>("VMware", 3L);
     public static final Pair<String, Long> SUBGROUP_XENSERVER = new Pair<>("XenServer", 4L);
-    public static final Pair<String, Long> SUBGROUP_OVM = new Pair<>("OVM", 5L);
     public static final Pair<String, Long> SUBGROUP_BAREMETAL = new Pair<>("Baremetal", 6L);
     public static final Pair<String, Long> SUBGROUP_CONSOLE_PROXY_VM = new Pair<>("ConsoleProxyVM", 1L);
     public static final Pair<String, Long> SUBGROUP_SEC_STORAGE_VM = new Pair<>("SecStorageVM", 2L);

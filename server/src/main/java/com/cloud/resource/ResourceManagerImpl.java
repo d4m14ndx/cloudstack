@@ -597,14 +597,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
         if (clusterType == Cluster.ClusterType.CloudManaged) {
             final Map<String, String> details = new HashMap<>();
-            // should do this nicer perhaps ?
-            if (hypervisorType == HypervisorType.Ovm3) {
-                final Map<String, String> allParams = cmd.getFullUrlParams();
-                details.put("ovm3vip", allParams.get("ovm3vip"));
-                details.put("ovm3pool", allParams.get("ovm3pool"));
-                details.put("ovm3cluster", allParams.get("ovm3cluster"));
-            }
-
             details.put(VmDetailConstants.CPU_OVER_COMMIT_RATIO, CapacityManager.CpuOverprovisioningFactor.value().toString());
             details.put(VmDetailConstants.MEMORY_OVER_COMMIT_RATIO, CapacityManager.MemOverprovisioningFactor.value().toString());
             _clusterDetailsDao.persist(cluster.getId(), details);
@@ -2969,7 +2961,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
         for (final ClusterVO cluster : clustersForZone) {
             final HypervisorType hType = cluster.getHypervisorType();
-            if (!forVirtualRouter || (hType != HypervisorType.BareMetal && hType != HypervisorType.External && hType != HypervisorType.Ovm)) {
+            if (!forVirtualRouter || (hType != HypervisorType.BareMetal && hType != HypervisorType.External)) {
                 hypervisorTypes.add(hType);
             }
         }

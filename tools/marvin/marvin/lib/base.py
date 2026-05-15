@@ -4975,57 +4975,6 @@ class NetScaler:
         return (apiclient.listNetscalerLoadBalancers(cmd))
 
 
-class NiciraNvp:
-
-    def __init__(self, items):
-        self.__dict__.update(items)
-
-    @classmethod
-    def add(cls, apiclient, services, physicalnetworkid,
-            hostname=None, username=None, password=None, transportzoneuuid=None, l2gatewayserviceuuid=None):
-        cmd = addNiciraNvpDevice.addNiciraNvpDeviceCmd()
-        cmd.physicalnetworkid = physicalnetworkid
-        if hostname:
-            cmd.hostname = hostname
-        else:
-            cmd.hostname = services['hostname']
-
-        if username:
-            cmd.username = username
-        else:
-            cmd.username = services['username']
-
-        if password:
-            cmd.password = password
-        else:
-            cmd.password = services['password']
-
-        if transportzoneuuid:
-            cmd.transportzoneuuid = transportzoneuuid
-        else:
-            cmd.transportzoneuuid = services['transportZoneUuid']
-
-        if l2gatewayserviceuuid:
-            cmd.l2gatewayserviceuuid = l2gatewayserviceuuid
-        elif services and 'l2gatewayserviceuuid' in services:
-            cmd.l2gatewayserviceuuid = services['l2gatewayserviceuuid']
-
-        return NiciraNvp(apiclient.addNiciraNvpDevice(cmd).__dict__)
-
-    def delete(self, apiclient):
-        cmd = deleteNiciraNvpDevice.deleteNiciraNvpDeviceCmd()
-        cmd.nvpdeviceid = self.nvpdeviceid
-        apiclient.deleteNiciraNvpDevice(cmd)
-        return
-
-    @classmethod
-    def list(cls, apiclient, **kwargs):
-        cmd = listNiciraNvpDevices.listNiciraNvpDevicesCmd()
-        [setattr(cmd, k, v) for k, v in list(kwargs.items())]
-        if 'account' in list(kwargs.keys()) and 'domainid' in list(kwargs.keys()):
-            cmd.listall = True
-        return (apiclient.listNiciraNvpDevices(cmd))
-
 
 class NetworkServiceProvider:
     """Manage network service providers for CloudStack"""
@@ -5460,41 +5409,6 @@ class StaticRoute:
         if 'account' in list(kwargs.keys()) and 'domainid' in list(kwargs.keys()):
             cmd.listall = True
         return (apiclient.listStaticRoutes(cmd))
-
-
-class VNMC:
-    """Manage VNMC lifecycle"""
-
-    def __init__(self, items):
-        self.__dict__.update(items)
-
-    def create(cls, apiclient, hostname, username, password,
-               physicalnetworkid):
-        """Registers VNMC appliance"""
-
-        cmd = addCiscoVnmcResource.addCiscoVnmcResourceCmd()
-        cmd.hostname = hostname
-        cmd.username = username
-        cmd.password = password
-        cmd.physicalnetworkid = physicalnetworkid
-        return VNMC(apiclient.addCiscoVnmcResource(cmd))
-
-    def delete(self, apiclient):
-        """Removes VNMC appliance"""
-
-        cmd = deleteCiscoVnmcResource.deleteCiscoVnmcResourceCmd()
-        cmd.resourceid = self.resourceid
-        return apiclient.deleteCiscoVnmcResource(cmd)
-
-    @classmethod
-    def list(cls, apiclient, **kwargs):
-        """List VNMC appliances"""
-
-        cmd = listCiscoVnmcResources.listCiscoVnmcResourcesCmd()
-        [setattr(cmd, k, v) for k, v in list(kwargs.items())]
-        if 'account' in list(kwargs.keys()) and 'domainid' in list(kwargs.keys()):
-            cmd.listall = True
-        return (apiclient.listCiscoVnmcResources(cmd))
 
 
 class SSHKeyPair:

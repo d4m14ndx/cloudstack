@@ -76,7 +76,6 @@ import com.cloud.utils.cisco.n1kv.vsm.VsmCommand.SwitchPortMode;
 import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.utils.nicira.nvp.plugin.NiciraNvpApiVersion;
 import com.vmware.vim25.AlreadyExistsFaultMsg;
 import com.vmware.vim25.BoolPolicy;
 import com.vmware.vim25.ClusterConfigInfoEx;
@@ -1365,17 +1364,7 @@ public class HypervisorHostHelper {
 
         boolean bWaitPortGroupReady = false;
         if (broadcastDomainType == BroadcastDomainType.Lswitch) {
-            //if NSX API VERSION >= 4.2, connect to br-int (nsx.network), do not create portgroup else previous behaviour
-            if (NiciraNvpApiVersion.isApiVersionLowerThan("4.2")){
-              //Previous behaviour
-                if (!hostMo.hasPortGroup(vSwitch, networkName)) {
-                    createNvpPortGroup(hostMo, vSwitch, networkName, shapingPolicy);
-
-                    bWaitPortGroupReady = true;
-                } else {
-                    bWaitPortGroupReady = false;
-                }
-            }
+            // For Lswitch (NSX), connect to br-int (nsx.network) via opaque network; no port group creation needed
         } else {
             if (!hostMo.hasPortGroup(vSwitch, networkName)) {
                 hostMo.createPortGroup(vSwitch, networkName, vid, secPolicy, shapingPolicy, timeOutMs);
@@ -1394,8 +1383,7 @@ public class HypervisorHostHelper {
 
         ManagedObjectReference morNetwork = null;
 
-        if (broadcastDomainType != BroadcastDomainType.Lswitch ||
-                (broadcastDomainType == BroadcastDomainType.Lswitch && NiciraNvpApiVersion.isApiVersionLowerThan("4.2"))) {
+        if (broadcastDomainType != BroadcastDomainType.Lswitch) {
             if (bWaitPortGroupReady)
                 morNetwork = waitForNetworkReady(hostMo, networkName, timeOutMs);
             else

@@ -65,7 +65,7 @@ public class AddClusterCmd extends BaseCmd {
     @Parameter(name = ApiConstants.HYPERVISOR,
                type = CommandType.STRING,
                required = true,
-               description = "Hypervisor type of the cluster: XenServer,KVM,VMware,Hyperv,BareMetal,Simulator,Ovm3,External")
+               description = "Hypervisor type of the cluster: XenServer,KVM,VMware,Hyperv,BareMetal,Simulator,External")
     private String hypervisor;
 
     @Parameter(name = ApiConstants.ARCH, type = CommandType.STRING,
@@ -112,13 +112,6 @@ public class AddClusterCmd extends BaseCmd {
                description = "Name of virtual switch used for public traffic in the cluster. This would override zone wide traffic label setting.")
     private String vSwitchNamePublicTraffic;
 
-    @Parameter(name = ApiConstants.OVM3_POOL, type = CommandType.STRING, required = false, description = "Ovm3 native pooling enabled for cluster")
-    private String ovm3pool;
-    @Parameter(name = ApiConstants.OVM3_CLUSTER, type = CommandType.STRING, required = false, description = "Ovm3 native OCFS2 clustering enabled for cluster")
-    private String ovm3cluster;
-    @Parameter(name = ApiConstants.OVM3_VIP, type = CommandType.STRING, required = false,  description = "Ovm3 vip to use for pool (and cluster)")
-    private String ovm3vip;
-
     @Parameter(name = ApiConstants.STORAGE_ACCESS_GROUPS,
             type = CommandType.LIST, collectionType = CommandType.STRING,
             description = "comma separated list of storage access groups for the hosts in the cluster",
@@ -137,16 +130,6 @@ public class AddClusterCmd extends BaseCmd {
             description = "Details in key/value pairs to be added to the extension-resource mapping. Use the format externaldetails[i].<key>=<value>. Example: externaldetails[0].endpoint.url=https://example.com",
             since = "4.21.0")
     protected Map externalDetails;
-
-    public String getOvm3Pool() {
-         return ovm3pool;
-    }
-    public String getOvm3Cluster() {
-        return ovm3cluster;
-    }
-    public String getOvm3Vip() {
-        return ovm3vip;
-    }
 
     public String getVSwitchTypeGuestTraffic() {
         return vSwitchTypeGuestTraffic;

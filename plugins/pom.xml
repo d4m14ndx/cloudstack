@@ -58,7 +58,6 @@
 
         <module>api/discovery</module>
         <module>api/rate-limit</module>
-        <module>api/solidfire-intg-test</module>
 
         <module>backup/dummy</module>
         <module>backup/networker</module>
@@ -88,7 +87,6 @@
         <module>hypervisors/external</module>
         <module>hypervisors/hyperv</module>
         <module>hypervisors/kvm</module>
-        <module>hypervisors/ucs</module>
         <module>hypervisors/xenserver</module>
 
         <module>integrations/cloudian</module>
@@ -97,18 +95,13 @@
 
         <module>metrics</module>
 
-        <module>network-elements/bigswitch</module>
         <module>network-elements/dns-notifier</module>
         <module>network-elements/elastic-loadbalancer</module>
-        <module>network-elements/globodns</module>
         <module>network-elements/internal-loadbalancer</module>
         <module>network-elements/netscaler</module>
-        <module>network-elements/nicira-nvp</module>
         <module>network-elements/opendaylight</module>
         <module>network-elements/ovs</module>
         <module>network-elements/palo-alto</module>
-        <module>network-elements/stratosphere-ssp</module>
-        <module>network-elements/brocade-vcs</module>
         <module>network-elements/vxlan</module>
 
         <module>outofbandmanagement-drivers/ipmitool</module>
@@ -122,13 +115,9 @@
         <module>storage/image/s3</module>
         <module>storage/image/sample</module>
         <module>storage/image/swift</module>
-        <module>storage/volume/cloudbyte</module>
-        <module>storage/volume/datera</module>
         <module>storage/volume/default</module>
-        <module>storage/volume/nexenta</module>
         <module>storage/volume/sample</module>
         <module>storage/volume/ontap</module>
-        <module>storage/volume/solidfire</module>
         <module>storage/volume/scaleio</module>
         <module>storage/volume/linstor</module>
         <module>storage/volume/storpool</module>
@@ -144,10 +133,8 @@
         <module>storage-allocators/random</module>
 
         <module>user-authenticators/ldap</module>
-        <module>user-authenticators/md5</module>
         <module>user-authenticators/oauth2</module>
         <module>user-authenticators/pbkdf2</module>
-        <module>user-authenticators/plain-text</module>
         <module>user-authenticators/saml2</module>
         <module>user-authenticators/sha256salted</module>
 
@@ -230,10 +217,8 @@
                 <module>api/vmware-sioc</module>
                 <module>backup/veeam</module>
                 <module>hypervisors/vmware</module>
-                <module>network-elements/cisco-vnmc</module>
                 <module>network-elements/nsx</module>
                 <module>network-elements/netris</module>
-                <module>network-elements/juniper-contrail</module>
                 <module>network-elements/tungsten</module>
             </modules>
         </profile>
