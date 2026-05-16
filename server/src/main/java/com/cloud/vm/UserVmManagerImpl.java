@@ -201,7 +201,6 @@ import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
-import com.cloud.configuration.ConfigurationManagerImpl;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
@@ -601,6 +600,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private AnnotationDao annotationDao;
     @Inject
     private VmGroupService vmGroupService;
+    @Inject
+    private ServiceOfferingValidator serviceOfferingValidator;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1301,57 +1302,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
 
     private void validateOfferingMaxResource(ServiceOfferingVO offering) {
-        Integer maxCPUCores = ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_CPU_CORES.value() == 0 ? Integer.MAX_VALUE: ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_CPU_CORES.value();
-        if (offering.getCpu() > maxCPUCores) {
-            throw new InvalidParameterValueException("Invalid cpu cores value, please choose another service offering with cpu cores between 1 and " + maxCPUCores);
-        }
-        Integer maxRAMSize = ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_RAM_SIZE.value() == 0 ? Integer.MAX_VALUE: ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_RAM_SIZE.value();
-        if (offering.getRamSize() > maxRAMSize) {
-            throw new InvalidParameterValueException("Invalid memory value, please choose another service offering with memory between 32 and " + maxRAMSize + " MB");
-        }
+        serviceOfferingValidator.validateOfferingMaxResource(offering);
     }
 
     @Override
     public void validateCustomParameters(ServiceOfferingVO serviceOffering, Map<String, String> customParameters) {
-        if (MapUtils.isEmpty(customParameters) && serviceOffering.isDynamic()) {
-            throw new InvalidParameterValueException("Need to specify custom parameter values cpu, cpu speed and memory when using custom offering");
-        }
-        Map<String, String> offeringDetails = serviceOfferingDetailsDao.listDetailsKeyPairs(serviceOffering.getId());
-        if (serviceOffering.getCpu() == null) {
-            int minCPU = NumbersUtil.parseInt(offeringDetails.get(ApiConstants.MIN_CPU_NUMBER), 1);
-            int maxCPU = NumbersUtil.parseInt(offeringDetails.get(ApiConstants.MAX_CPU_NUMBER), Integer.MAX_VALUE);
-            int cpuNumber = NumbersUtil.parseInt(customParameters.get(UsageEventVO.DynamicParameters.cpuNumber.name()), -1);
-            int maxCPUCores = ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_CPU_CORES.value() == 0 ? Integer.MAX_VALUE: ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_CPU_CORES.value();
-            if (cpuNumber < minCPU || cpuNumber > maxCPU || cpuNumber > maxCPUCores) {
-                throw new InvalidParameterValueException(String.format("Invalid CPU cores value, specify a value between %d and %d", minCPU, Math.min(maxCPUCores, maxCPU)));
-            }
-        } else if (customParameters.containsKey(UsageEventVO.DynamicParameters.cpuNumber.name())) {
-            throw new InvalidParameterValueException("The CPU cores of this offering id:" + serviceOffering.getUuid()
-            + " is not customizable. This is predefined in the Template.");
-        }
-
-        if (serviceOffering.getSpeed() == null) {
-            String cpuSpeed = customParameters.get(UsageEventVO.DynamicParameters.cpuSpeed.name());
-            if ((cpuSpeed == null) || (NumbersUtil.parseInt(cpuSpeed, -1) <= 0)) {
-                throw new InvalidParameterValueException("Invalid CPU speed value, specify a value between 1 and " + Integer.MAX_VALUE);
-            }
-        } else if (!serviceOffering.isCustomCpuSpeedSupported() && customParameters.containsKey(UsageEventVO.DynamicParameters.cpuSpeed.name())) {
-            throw new InvalidParameterValueException(String.format("The CPU speed of this offering id:%s"
-                    + " is not customizable. This is predefined as %d MHz.",
-                    serviceOffering.getUuid(), serviceOffering.getSpeed()));
-        }
-
-        if (serviceOffering.getRamSize() == null) {
-            int minMemory = NumbersUtil.parseInt(offeringDetails.get(ApiConstants.MIN_MEMORY), 32);
-            int maxMemory = NumbersUtil.parseInt(offeringDetails.get(ApiConstants.MAX_MEMORY), Integer.MAX_VALUE);
-            int memory = NumbersUtil.parseInt(customParameters.get(UsageEventVO.DynamicParameters.memory.name()), -1);
-            int maxRAMSize = ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_RAM_SIZE.value() == 0 ? Integer.MAX_VALUE: ConfigurationManagerImpl.VM_SERVICE_OFFERING_MAX_RAM_SIZE.value();
-            if (memory < minMemory || memory > maxMemory || memory > maxRAMSize) {
-                throw new InvalidParameterValueException(String.format("Invalid memory value, specify a value between %d and %d", minMemory, Math.min(maxRAMSize, maxMemory)));
-            }
-        } else if (customParameters.containsKey(UsageEventVO.DynamicParameters.memory.name())) {
-            throw new InvalidParameterValueException("The memory of this offering id:" + serviceOffering.getUuid() + " is not customizable. This is predefined in the Template.");
-        }
+        serviceOfferingValidator.validateCustomParameters(serviceOffering, customParameters);
     }
 
     private UserVm upgradeStoppedVirtualMachine(Long vmId, Long svcOffId, Map<String, String> customParameters) throws ResourceAllocationException {
@@ -2235,15 +2191,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateDiskOfferingChecks(ServiceOfferingVO currentServiceOffering, ServiceOfferingVO newServiceOffering) {
-        if (currentServiceOffering.getDiskOfferingStrictness() != newServiceOffering.getDiskOfferingStrictness()) {
-            throw new InvalidParameterValueException("Unable to Scale VM, since disk offering strictness flag is not same for new service offering and old service offering");
-        }
-
-        if (currentServiceOffering.getDiskOfferingStrictness() && !currentServiceOffering.getDiskOfferingId().equals(newServiceOffering.getDiskOfferingId())) {
-            throw new InvalidParameterValueException("Unable to Scale VM, since disk offering id associated with the old service offering is not same for new service offering");
-        }
-
-        _volService.validateChangeDiskOfferingEncryptionType(currentServiceOffering.getDiskOfferingId(), newServiceOffering.getDiskOfferingId());
+        serviceOfferingValidator.validateDiskOfferingChecks(currentServiceOffering, newServiceOffering);
     }
 
     private void changeDiskOfferingForRootVolume(Long vmId, DiskOfferingVO newDiskOffering, Map<String, String> customParameters, Long zoneId) throws ResourceAllocationException {

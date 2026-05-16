@@ -509,6 +509,13 @@ public class UserVmManagerImplTest {
     @Before
     public void beforeTest() {
         userVmManagerImpl.resourceLimitService = resourceLimitMgr;
+        // The serviceOfferingValidator field was added as part of the Phase 4
+        // Spring-component decomposition. The tests below exercise validation
+        // behavior through the manager's public methods, so wire up a real
+        // ServiceOfferingValidatorImpl with the test's existing mocked DAOs.
+        ServiceOfferingValidatorImpl validator = new ServiceOfferingValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(validator, "serviceOfferingDetailsDao", serviceOfferingDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "serviceOfferingValidator", validator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
