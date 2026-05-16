@@ -465,6 +465,19 @@ public class VolumeApiServiceImplTest {
         lenient().doNothing().when(accountManagerMock).checkAccess(any(Account.class), any(AccessType.class), any(Boolean.class), any(ControlledEntity.class));
         doNothing().when(_jobMgr).updateAsyncJobAttachment(any(Long.class), any(String.class), any(Long.class));
         when(_jobMgr.submitAsyncJob(any(AsyncJobVO.class), any(String.class), any(Long.class))).thenReturn(1L);
+
+        // Phase 4 (parallel slice): wire DiskOfferingCompatibilityServiceImpl with
+        // the same DAO mocks that the manager-level tests already configure. The
+        // delegating wrappers on VolumeApiServiceImpl (getStoragePoolTags,
+        // doesStoragePoolSupportDiskOfferingTags, etc.) forward to this service,
+        // so existing spy-based tests continue to exercise the same code paths
+        // through the wrappers.
+        DiskOfferingCompatibilityServiceImpl compatibilityService = new DiskOfferingCompatibilityServiceImpl();
+        ReflectionTestUtils.setField(compatibilityService, "storagePoolTagsDao", storagePoolTagsDao);
+        ReflectionTestUtils.setField(compatibilityService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(compatibilityService, "serviceOfferingDao", serviceOfferingDao);
+        ReflectionTestUtils.setField(compatibilityService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "diskOfferingCompatibilityService", compatibilityService);
     }
 
     /**

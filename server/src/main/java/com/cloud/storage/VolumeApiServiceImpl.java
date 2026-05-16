@@ -112,7 +112,6 @@ import org.apache.cloudstack.storage.image.datastore.ImageStoreEntity;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.cloudstack.utils.imagestore.ImageStoreUtil;
-import org.apache.cloudstack.utils.jsinterpreter.TagAsRuleHelper;
 import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;
 import org.apache.cloudstack.utils.volume.VirtualMachineDiskInfo;
 import org.apache.commons.collections.CollectionUtils;
@@ -374,6 +373,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private ReservationDao reservationDao;
     @Inject
     private VMSnapshotDetailsDao vmSnapshotDetailsDao;
+    @Inject
+    private DiskOfferingCompatibilityService diskOfferingCompatibilityService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -3781,34 +3782,13 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         if (newDiskOffering == null) {
             return false;
         }
-        if (destPool.isShared() && newDiskOffering.isUseLocalStorage()) {
-            throw new InvalidParameterValueException("You cannot move the volume to shared storage, with the disk offering configured for local storage.");
-        }
-        if (destPool.isLocal() && newDiskOffering.isShared()) {
-            throw new InvalidParameterValueException("You cannot move the volume to local storage, with the disk offering configured for shared storage.");
-        }
+        diskOfferingCompatibilityService.validateBasicMigrationCompatibility(volume, newDiskOffering, destPool);
         if (!doesStoragePoolSupportDiskOffering(destPool, newDiskOffering)) {
             throw new InvalidParameterValueException(String.format("Migration failed: target pool [%s, tags:%s] has no matching tags for volume [%s, uuid:%s, tags:%s]", destPool.getName(),
                     storagePoolTagsDao.getStoragePoolTags(destPool.getId()), volume.getName(), volume.getUuid(), newDiskOffering.getTags()));
         }
-        if (volume.getVolumeType().equals(Volume.Type.ROOT)) {
-            VMInstanceVO vm = null;
-            if (volume.getInstanceId() != null) {
-                vm = _vmInstanceDao.findById(volume.getInstanceId());
-            }
-            if (vm != null) {
-                ServiceOfferingVO serviceOffering = _serviceOfferingDao.findById(vm.getServiceOfferingId());
-                if (serviceOffering != null && serviceOffering.getDiskOfferingStrictness()) {
-                    throw new InvalidParameterValueException(String.format("Disk offering cannot be changed to the volume %s since existing disk offering is strictly associated with the volume", volume.getUuid()));
-                }
-            }
-        }
-
-        if (volume.getSize() != newDiskOffering.getDiskSize()) {
-            DiskOfferingVO oldDiskOffering = this._diskOfferingDao.findById(volume.getDiskOfferingId());
-            logger.warn("You are migrating a volume [{}] and changing the disk offering[from {} to {}] to reflect this migration. However, the sizes of the volume and the new disk offering are different.",
-                    volume, oldDiskOffering, newDiskOffering);
-        }
+        diskOfferingCompatibilityService.validateRootVolumeServiceOfferingStrictness(volume);
+        diskOfferingCompatibilityService.logSizeMismatchOnMigration(volume, newDiskOffering);
         logger.info("Changing disk offering to [{}] while migrating volume [{}].", newDiskOffering, volume);
         return true;
     }
@@ -3865,30 +3845,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     @Override
     public boolean doesStoragePoolSupportDiskOfferingTags(StoragePool destPool, String diskOfferingTags) {
         Pair<List<String>, Boolean> storagePoolTags = getStoragePoolTags(destPool);
-        if ((storagePoolTags == null || !storagePoolTags.second()) && org.apache.commons.lang.StringUtils.isBlank(diskOfferingTags)) {
-            if (storagePoolTags == null) {
-                logger.debug("Storage pool [{}] does not have any tags, and so does the disk offering. Therefore, they are compatible", destPool.getUuid());
-            } else {
-                logger.debug("Storage pool has tags [%s], and the disk offering has no tags. Therefore, they are compatible.", destPool.getUuid());
-            }
-            return true;
-        }
-        if (storagePoolTags == null || CollectionUtils.isEmpty(storagePoolTags.first())) {
-            logger.debug("Destination storage pool [{}] has no tags, while disk offering has tags [{}]. Therefore, they are not compatible", destPool.getUuid(),
-                    diskOfferingTags);
-            return false;
-        }
-        List<String> storageTagsList = storagePoolTags.first();
-        String[] newDiskOfferingTagsAsStringArray = org.apache.commons.lang.StringUtils.split(diskOfferingTags, ",");
-
-        boolean result;
-        if (storagePoolTags.second()) {
-            result =  TagAsRuleHelper.interpretTagAsRule(storageTagsList.get(0), diskOfferingTags, storageTagRuleExecutionTimeout.value());
-        } else {
-            result = CollectionUtils.isSubCollection(Arrays.asList(newDiskOfferingTagsAsStringArray), storageTagsList);
-        }
-        logger.debug(String.format("Destination storage pool [{}] accepts tags [{}]? {}", destPool.getUuid(), diskOfferingTags, result));
-        return result;
+        return diskOfferingCompatibilityService.storagePoolTagsMatchOfferingTags(destPool, storagePoolTags, diskOfferingTags);
     }
 
     /**
@@ -3898,11 +3855,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      *  If the storage pool does not have tags we return a null value.
      */
     protected Pair<List<String>, Boolean> getStoragePoolTags(StoragePool destPool) {
-        List<StoragePoolTagVO> destPoolTags = storagePoolTagsDao.findStoragePoolTags(destPool.getId());
-        if (CollectionUtils.isEmpty(destPoolTags)) {
-            return null;
-        }
-        return new Pair<>(destPoolTags.parallelStream().map(StoragePoolTagVO::getTag).collect(Collectors.toList()), destPoolTags.get(0).isTagARule());
+        return diskOfferingCompatibilityService.resolveStoragePoolTags(destPool);
     }
 
     private Volume orchestrateMigrateVolume(VolumeVO volume, StoragePool destPool, boolean liveMigrateVolume, DiskOfferingVO newDiskOffering) {
