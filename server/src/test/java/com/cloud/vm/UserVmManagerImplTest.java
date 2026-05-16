@@ -533,6 +533,15 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "volumeService", volumeApiService);
         org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "templateDao", templateDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRootDiskValidator", rootDiskValidator);
+        // Slice 5: wire VmUpdateValidatorImpl with the test's existing mocks so the
+        // update-VM input validation + service-offering detail-merging tests still
+        // exercise the same logic through the manager's delegating wrappers.
+        VmUpdateValidatorImpl updateValidator = new VmUpdateValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "userVmDao", userVmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "guestOSDao", guestOSDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "serviceOfferingDao", _serviceOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmUpdateValidator", updateValidator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

@@ -76,6 +76,30 @@ wiring, possible @Transactional boundaries, integration tests rather
 than pure unit tests) — appropriate for a longer-lived branch with
 proper review.
 
+## UserVmManagerImpl — Spring-component extraction in progress
+
+`UserVmManagerImpl` is the biggest god class in the codebase. Rather than
+pure-helper extraction (which is unsuitable — see below), each slice
+pulls a coherent unit of behaviour into its own `@Component` with its
+own DAO injections. `UserVmManagerImpl` keeps one-line delegating
+wrappers so the `UserVmManager` interface contract and existing test
+spies still work.
+
+### Slices shipped
+
+| # | Component | Methods extracted | Dedicated tests |
+|---|-----------|-------------------|-----------------|
+| 1 | `VmGroupService` | 4 instance-group APIs + helpers (assign/unassign/CRUD) | 11 |
+| 2 | `ServiceOfferingValidator` | 5 service-offering compatibility checks | 9 |
+| 3 | `VmNicService` | 5 NIC APIs + helpers (add/remove/update/default) | 6 |
+| 4 | `VmRootDiskValidator` | 4 root-disk validation/sizing methods | 9 |
+| 5 | `VmUpdateValidator` | update-VM input validation + service-offering detail merging | 10 |
+
+Each slice keeps the orchestration that needs spy-verified inner calls
+inside `UserVmManagerImpl` — the leaf methods become thin wrappers that
+delegate to the extracted component, and the validator's own
+implementation can call its helpers directly when invoked standalone.
+
 ## Other god classes in the codebase
 
 These are the remaining `*ManagerImpl` classes over 5K lines, by size:

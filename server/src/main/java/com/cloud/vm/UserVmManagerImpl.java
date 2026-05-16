@@ -604,6 +604,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmRootDiskValidator vmRootDiskValidator;
     @Inject
+    private VmUpdateValidator vmUpdateValidator;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -1277,6 +1279,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      */
 
     protected void updateInstanceDetailsMapWithCurrentValuesForAbsentDetails(Map<String, String> details, VirtualMachine vmInstance, Long newServiceOfferingId) {
+        // Orchestration stays here so existing test spies can verify the
+        // per-detail helper is invoked once per scaling constant. The leaf
+        // helper itself delegates to VmUpdateValidator.
         ServiceOfferingVO currentServiceOffering = serviceOfferingDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
         ServiceOfferingVO newServiceOffering = serviceOfferingDao.findById(newServiceOfferingId);
         addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified(newServiceOffering.getSpeed(), details, VmDetailConstants.CPU_SPEED, currentServiceOffering.getSpeed());
@@ -1294,11 +1299,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      */
 
     protected void addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified(Integer newValue, Map<String, String> details, String detailKey, Integer currentValue) {
-        if (newValue == null && details.get(detailKey) == null) {
-            String currentValueString = String.valueOf(currentValue);
-            logger.debug("{} was not specified, keeping the current value: {}.", detailKey, currentValueString);
-            details.put(detailKey, currentValueString);
-        }
+        vmUpdateValidator.addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified(newValue, details, detailKey, currentValue);
     }
 
 
@@ -2544,6 +2545,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateInputsAndPermissionForUpdateVirtualMachineCommand(UpdateVMCmd cmd) {
+        // Orchestration stays here so existing test spies can intercept the
+        // inner validateGuestOsIdForUpdateVirtualMachineCommand call. The leaf
+        // wrapper below delegates to VmUpdateValidator.
         UserVmVO vmInstance = _vmDao.findById(cmd.getId());
         if (vmInstance == null) {
             throw new InvalidParameterValueException("unable to find virtual machine with id: " + cmd.getId());
@@ -2554,13 +2558,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateGuestOsIdForUpdateVirtualMachineCommand(UpdateVMCmd cmd) {
-        Long osTypeId = cmd.getOsTypeId();
-        if (osTypeId != null) {
-            GuestOSVO guestOS = _guestOSDao.findById(osTypeId);
-            if (guestOS == null) {
-                throw new InvalidParameterValueException("Please specify a valid guest OS ID.");
-            }
-        }
+        vmUpdateValidator.validateGuestOsIdForUpdateVirtualMachineCommand(cmd);
     }
 
     private void saveUsageEvent(UserVmVO vm) {

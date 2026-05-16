@@ -246,6 +246,13 @@ public class UserVmManagerTest {
         // Slice 4: wire a VmRootDiskValidatorImpl. validateRootDiskResize is pure
         // (no DAOs needed), so an instance without injected dependencies is fine.
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmRootDiskValidator", new VmRootDiskValidatorImpl());
+        // Slice 5: wire VmUpdateValidatorImpl. upgradeVirtualMachine reaches into
+        // addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified, which
+        // now delegates here.
+        VmUpdateValidatorImpl updateValidator = new VmUpdateValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "userVmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmUpdateValidator", updateValidator);
     }
 
     @Test
