@@ -198,7 +198,6 @@ import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
-import com.cloud.event.UsageEventVO;
 import com.cloud.exception.AffinityConflictException;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConcurrentOperationException;
@@ -462,6 +461,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     ExtensionsManager extensionsManager;
     @Inject
     ExtensionDetailsDao extensionDetailsDao;
+    @Inject
+    private VmServiceOfferingUpgradeManager vmServiceOfferingUpgradeManager;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -4486,38 +4487,12 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     public boolean isRootVolumeOnLocalStorage(long vmId) {
-        ScopeType poolScope = ScopeType.ZONE;
-        List<VolumeVO> volumes = _volsDao.findByInstanceAndType(vmId, Type.ROOT);
-        if(CollectionUtils.isNotEmpty(volumes)) {
-            VolumeVO rootDisk = volumes.get(0);
-            Long poolId = rootDisk.getPoolId();
-            if (poolId != null) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(poolId);
-                poolScope = storagePoolVO.getScope();
-            }
-        }
-        return ScopeType.HOST == poolScope;
+        return vmServiceOfferingUpgradeManager.isRootVolumeOnLocalStorage(vmId);
     }
 
     @Override
     public boolean upgradeVmDb(final long vmId, final ServiceOffering newServiceOffering, ServiceOffering currentServiceOffering) {
-
-        final VMInstanceVO vmForUpdate = _vmDao.findById(vmId);
-        vmForUpdate.setServiceOfferingId(newServiceOffering.getId());
-        final ServiceOffering newSvcOff = _entityMgr.findById(ServiceOffering.class, newServiceOffering.getId());
-        vmForUpdate.setHaEnabled(newSvcOff.isOfferHA());
-        vmForUpdate.setLimitCpuUse(newSvcOff.getLimitCpuUse());
-        vmForUpdate.setServiceOfferingId(newSvcOff.getId());
-        if (newServiceOffering.isDynamic()) {
-            saveCustomOfferingDetails(vmId, newServiceOffering);
-        }
-        if (currentServiceOffering.isDynamic() && !newServiceOffering.isDynamic()) {
-            removeCustomOfferingDetails(vmId);
-        }
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmForUpdate.getTemplateId());
-        boolean dynamicScalingEnabled = _userVmMgr.checkIfDynamicScalingCanBeEnabled(vmForUpdate, newServiceOffering, template, vmForUpdate.getDataCenterId());
-        vmForUpdate.setDynamicallyScalable(dynamicScalingEnabled);
-        return _vmDao.update(vmId, vmForUpdate);
+        return vmServiceOfferingUpgradeManager.upgradeVmDb(vmId, newServiceOffering, currentServiceOffering);
     }
 
     @Override
@@ -5243,40 +5218,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     private void removeCustomOfferingDetails(long vmId) {
-        Map<String, String> details = vmInstanceDetailsDao.listDetailsKeyPairs(vmId);
-        details.remove(UsageEventVO.DynamicParameters.cpuNumber.name());
-        details.remove(UsageEventVO.DynamicParameters.cpuSpeed.name());
-        details.remove(UsageEventVO.DynamicParameters.memory.name());
-        List<VMInstanceDetailVO> detailList = new ArrayList<>();
-        for(Map.Entry<String, String> entry: details.entrySet()) {
-            VMInstanceDetailVO detailVO = new VMInstanceDetailVO(vmId, entry.getKey(), entry.getValue(), true);
-            detailList.add(detailVO);
-        }
-        vmInstanceDetailsDao.saveDetails(detailList);
+        vmServiceOfferingUpgradeManager.removeCustomOfferingDetails(vmId);
     }
 
     private void saveCustomOfferingDetails(long vmId, ServiceOffering serviceOffering) {
-        Map<String, String> details = vmInstanceDetailsDao.listDetailsKeyPairs(vmId);
-
-        // We need to restore only the customizable parameters. If we save a parameter that is not customizable and attempt
-        // to restore a VM snapshot, com.cloud.vm.UserVmManagerImpl.validateCustomParameters will fail.
-        ServiceOffering unfilledOffering = _serviceOfferingDao.findByIdIncludingRemoved(serviceOffering.getId());
-        if (unfilledOffering.getCpu() == null) {
-            details.put(UsageEventVO.DynamicParameters.cpuNumber.name(), serviceOffering.getCpu().toString());
-        }
-        if (unfilledOffering.getSpeed() == null) {
-            details.put(UsageEventVO.DynamicParameters.cpuSpeed.name(), serviceOffering.getSpeed().toString());
-        }
-        if (unfilledOffering.getRamSize() == null) {
-            details.put(UsageEventVO.DynamicParameters.memory.name(), serviceOffering.getRamSize().toString());
-        }
-
-        List<VMInstanceDetailVO> detailList = new ArrayList<>();
-        for (Map.Entry<String, String> entry: details.entrySet()) {
-            VMInstanceDetailVO detailVO = new VMInstanceDetailVO(vmId, entry.getKey(), entry.getValue(), true);
-            detailList.add(detailVO);
-        }
-        vmInstanceDetailsDao.saveDetails(detailList);
+        vmServiceOfferingUpgradeManager.saveCustomOfferingDetails(vmId, serviceOffering);
     }
 
     @Override
