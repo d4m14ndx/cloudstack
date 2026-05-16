@@ -59,12 +59,10 @@ import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.BaseCmd.HTTPMethod;
 import org.apache.cloudstack.api.command.admin.vm.AssignVMCmd;
 import org.apache.cloudstack.api.command.admin.vm.CreateVMFromBackupCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.vm.DeployVMCmdByAdmin;
-import org.apache.cloudstack.api.command.admin.vm.ExpungeVMCmd;
 import org.apache.cloudstack.api.command.admin.vm.RecoverVMCmd;
 import org.apache.cloudstack.api.command.user.vm.AddNicToVMCmd;
 import org.apache.cloudstack.api.command.user.vm.BaseDeployVMCmd;
@@ -147,7 +145,6 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
@@ -352,7 +349,6 @@ import com.cloud.utils.DateUtil;
 import com.cloud.utils.Journal;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.crypt.DBEncryptionUtil;
@@ -594,6 +590,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmMigrationValidator vmMigrationValidator;
     @Inject
     private VmCreationValidator vmCreationValidator;
+    @Inject
+    private VmDestroyPermissionService vmDestroyPermissionService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -2949,31 +2947,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      *  Encapsulates AllowUserExpungeRecoverVm so we can unit test checkExpungeVmPermission.
      */
     protected boolean getConfigAllowUserExpungeRecoverVm(Long accountId) {
-        return AllowUserExpungeRecoverVm.valueIn(accountId);
+        return vmDestroyPermissionService.isUserExpungeRecoverVmAllowed(accountId);
     }
 
     protected void checkExpungeVmPermission(Account callingAccount, String apiKey) {
-        logger.debug(String.format("Checking if [%s] has permission for expunging VMs.", callingAccount));
-        if (!_accountMgr.isAdmin(callingAccount.getId()) && !getConfigAllowUserExpungeRecoverVm(callingAccount.getId())) {
-            logger.error(String.format("Parameter [%s] can only be passed by Admin accounts or when the allow.user.expunge.recover.vm key is true.", ApiConstants.EXPUNGE));
-            throw new PermissionDeniedException("Account does not have permission for expunging.");
-        }
-        try {
-            _accountMgr.checkApiAccess(callingAccount, BaseCmd.getCommandNameByClass(ExpungeVMCmd.class), apiKey);
-        } catch (PermissionDeniedException ex) {
-            logger.error(String.format("Role [%s] of [%s] does not have permission for expunging VMs.", callingAccount.getRoleId(), callingAccount));
-            throw new PermissionDeniedException("Account does not have permission for expunging.");
-        }
+        vmDestroyPermissionService.checkExpungeVmPermission(callingAccount, apiKey);
     }
 
     protected void checkPluginsIfVmCanBeDestroyed(UserVm vm) {
-        try {
-            KubernetesServiceHelper kubernetesServiceHelper =
-                    ComponentContext.getDelegateComponentOfType(KubernetesServiceHelper.class);
-            kubernetesServiceHelper.checkVmCanBeDestroyed(vm);
-        } catch (NoSuchBeanDefinitionException ignored) {
-            logger.debug("No KubernetesClusterHelper bean found");
-        }
+        vmDestroyPermissionService.checkPluginsIfVmCanBeDestroyed(vm);
     }
 
     @Override
@@ -4920,10 +4902,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void checkForceStopVmPermission(Account callingAccount) {
-        if (!AllowUserForceStopVm.valueIn(callingAccount.getId())) {
-            logger.error("Parameter [{}] can only be passed by Admin accounts or when the allow.user.force.stop.vm config is true for the account.", ApiConstants.FORCED);
-            throw new PermissionDeniedException("Account does not have the permission to force stop the vm.");
-        }
+        vmDestroyPermissionService.checkForceStopVmPermission(callingAccount);
     }
 
     @Override

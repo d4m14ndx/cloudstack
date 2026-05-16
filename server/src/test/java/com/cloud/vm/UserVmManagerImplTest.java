@@ -217,6 +217,12 @@ public class UserVmManagerImplTest {
     @InjectMocks
     private UserVmManagerImpl userVmManagerImpl = new UserVmManagerImpl();
 
+    // Slice 11: spy on the destroy-permission service so the five existing
+    // checkExpungeVmPermission tests that stub getConfigAllowUserExpungeRecoverVm
+    // continue to control the config branch via the new isUserExpungeRecoverVmAllowed
+    // method. Initialized in beforeTest() once accountManager is available.
+    private VmDestroyPermissionServiceImpl vmDestroyPermissionServiceSpy;
+
     @Mock
     private ServiceOfferingDao _serviceOfferingDao;
 
@@ -583,6 +589,14 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(creationValidator, "serviceOfferingJoinDao", serviceOfferingJoinDao);
         org.springframework.test.util.ReflectionTestUtils.setField(creationValidator, "vnfTemplateManager", vnfTemplateManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmCreationValidator", creationValidator);
+        // Slice 11: wire VmDestroyPermissionServiceImpl. The destroy/expunge/force-stop
+        // permission helpers in this class are exercised via the manager's wrappers,
+        // so the per-helper tests in VmDestroyPermissionServiceImplTest cover the
+        // direct branches; here we just need a working impl behind the wrapper for
+        // orchestration tests that pass through destroyVm / stopVirtualMachine.
+        vmDestroyPermissionServiceSpy = Mockito.spy(new VmDestroyPermissionServiceImpl());
+        org.springframework.test.util.ReflectionTestUtils.setField(vmDestroyPermissionServiceSpy, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmDestroyPermissionService", vmDestroyPermissionServiceSpy);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -1898,17 +1912,21 @@ public class UserVmManagerImplTest {
         Assert.assertEquals(20 * GiB_TO_BYTES, actualSize.longValue());
     }
 
+    // Slice 11: these five tests now drive the new VmDestroyPermissionServiceImpl
+    // behind the manager's checkExpungeVmPermission wrapper. The config-branch stub
+    // moved from the spied manager's removed getConfigAllowUserExpungeRecoverVm
+    // call site to the equivalent isUserExpungeRecoverVmAllowed on the service spy.
     @Test
     public void checkExpungeVMPermissionTestAccountIsNotAdminConfigFalseThrowsPermissionDeniedException () {
         Mockito.doReturn(false).when(accountManager).isAdmin(Mockito.anyLong());
-        Mockito.doReturn(false).when(userVmManagerImpl).getConfigAllowUserExpungeRecoverVm(Mockito.anyLong());
+        Mockito.doReturn(false).when(vmDestroyPermissionServiceSpy).isUserExpungeRecoverVmAllowed(Mockito.anyLong());
 
         Assert.assertThrows(PermissionDeniedException.class, () -> userVmManagerImpl.checkExpungeVmPermission(accountMock, null));
     }
     @Test
     public void checkExpungeVmPermissionTestAccountIsNotAdminConfigTrueNoApiAccessThrowsPermissionDeniedException () {
         Mockito.doReturn(false).when(accountManager).isAdmin(Mockito.anyLong());
-        Mockito.doReturn(true).when(userVmManagerImpl).getConfigAllowUserExpungeRecoverVm(Mockito.anyLong());
+        Mockito.doReturn(true).when(vmDestroyPermissionServiceSpy).isUserExpungeRecoverVmAllowed(Mockito.anyLong());
         doThrow(PermissionDeniedException.class).when(accountManager).checkApiAccess(accountMock, "expungeVirtualMachine", null);
 
         Assert.assertThrows(PermissionDeniedException.class, () -> userVmManagerImpl.checkExpungeVmPermission(accountMock, null));
@@ -1916,7 +1934,7 @@ public class UserVmManagerImplTest {
     @Test
     public void checkExpungeVmPermissionTestAccountIsNotAdminConfigTrueHasApiAccessReturnNothing () {
         Mockito.doReturn(false).when(accountManager).isAdmin(Mockito.anyLong());
-        Mockito.doReturn(true).when(userVmManagerImpl).getConfigAllowUserExpungeRecoverVm(Mockito.anyLong());
+        Mockito.doReturn(true).when(vmDestroyPermissionServiceSpy).isUserExpungeRecoverVmAllowed(Mockito.anyLong());
 
         userVmManagerImpl.checkExpungeVmPermission(accountMock, null);
     }
