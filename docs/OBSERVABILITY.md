@@ -1,5 +1,35 @@
 # Observability
 
+## Health check endpoints
+
+The management server exposes lightweight health endpoints suitable for use
+with Kubernetes probes, load balancers, and uptime monitors.
+
+| Endpoint | Purpose | Behavior |
+|----------|---------|----------|
+| `GET /health/live` | Liveness | Always returns 200 unless the JVM is wedged. Use for restart triggers. |
+| `GET /health/ready` | Readiness | Returns 200 only when the Spring context is initialized and the database is reachable. Use for traffic routing. |
+| `GET /health` | Aggregate | Same as `/health/ready`. |
+
+Responses are plain text (`OK` or a short reason like `database-unreachable`).
+The HTTP status code is the source of truth.
+
+### Kubernetes example
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  periodSeconds: 5
+  failureThreshold: 3
+```
+
 ## Structured logging (JSON)
 
 CloudStack supports both human-readable text logs (default) and structured
