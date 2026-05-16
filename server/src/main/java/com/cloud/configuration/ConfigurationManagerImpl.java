@@ -498,7 +498,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     protected DataCenterLinkLocalIpAddressDao _linkLocalIpAllocDao;
 
     private long _defaultPageSize = Long.parseLong(Config.DefaultPageSize.getDefaultValue());
-    private static final String DOMAIN_NAME_PATTERN = "^((?!-)[A-Za-z0-9-]{1,63}(?<!-)\\.)+[A-Za-z]{1,63}$";
     // Validation sets now live in ConfigurationValueValidator as immutable static
     // constants. These instance fields are kept (and back the same data) so any
     // subclass or test that referenced them directly continues to work.
