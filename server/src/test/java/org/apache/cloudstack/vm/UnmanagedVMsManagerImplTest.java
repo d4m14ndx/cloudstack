@@ -24,7 +24,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -249,6 +248,8 @@ public class UnmanagedVMsManagerImplTest {
     private ImportVmTasksManager importVmTasksManager;
     @Mock
     private SnapshotDao snapshotDao;
+    @Mock
+    private UnmanagedInstanceNicValidator unmanagedInstanceNicValidator;
 
     @Mock
     private VMInstanceVO virtualMachine;
@@ -377,14 +378,14 @@ public class UnmanagedVMsManagerImplTest {
                 nullable(Long.class), nullable(Long.class), nullable(ServiceOffering.class), nullable(String.class), nullable(Long.class),
                 nullable(String.class), nullable(Hypervisor.HypervisorType.class), nullable(Map.class), nullable(VirtualMachine.PowerState.class), nullable(LinkedHashMap.class))).thenReturn(userVm);
         NetworkVO networkVO = Mockito.mock(NetworkVO.class);
-        when(networkVO.getGuestType()).thenReturn(Network.GuestType.L2);
-        when(networkVO.getBroadcastUri()).thenReturn(URI.create(String.format("vlan://%d", instanceNic.getVlan())));
-        when(networkVO.getDataCenterId()).thenReturn(1L);
+        Mockito.lenient().when(networkVO.getGuestType()).thenReturn(Network.GuestType.L2);
+        Mockito.lenient().when(networkVO.getBroadcastUri()).thenReturn(URI.create(String.format("vlan://%d", instanceNic.getVlan())));
+        Mockito.lenient().when(networkVO.getDataCenterId()).thenReturn(1L);
         when(networkDao.findById(anyLong())).thenReturn(networkVO);
         List<NetworkVO> networks = new ArrayList<>();
         networks.add(networkVO);
         when(networkDao.listByZone(anyLong())).thenReturn(networks);
-        doNothing().when(networkModel).checkNetworkPermissions(any(Account.class), any(Network.class));
+        Mockito.lenient().doNothing().when(networkModel).checkNetworkPermissions(any(Account.class), any(Network.class));
         NicProfile profile = Mockito.mock(NicProfile.class);
         Integer deviceId = 100;
         Pair<NicProfile, Integer> pair = new Pair<>(profile, deviceId);
@@ -808,8 +809,8 @@ public class UnmanagedVMsManagerImplTest {
         when(importVmCmd.getUseVddk()).thenReturn(useVddk);
 
         NetworkVO networkVO = Mockito.mock(NetworkVO.class);
-        when(networkVO.getGuestType()).thenReturn(Network.GuestType.L2);
-        when(networkVO.getDataCenterId()).thenReturn(zoneId);
+        Mockito.lenient().when(networkVO.getGuestType()).thenReturn(Network.GuestType.L2);
+        Mockito.lenient().when(networkVO.getDataCenterId()).thenReturn(zoneId);
         when(networkDao.findById(networkId)).thenReturn(networkVO);
 
         HypervisorGuru vmwareGuru = mock(HypervisorGuru.class);
