@@ -18,7 +18,10 @@ package com.cloud.configuration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
+import org.apache.cloudstack.config.Configuration;
+import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -260,5 +263,51 @@ public final class ConfigurationValueValidator {
         }
         LOG.error("Invalid value for configuration [{}].", name);
         return String.format("a valid value for this configuration (Options are: [%s])", rangeOption);
+    }
+
+    /**
+     * Configuration values in these categories are encrypted at rest and masked
+     * when emitted as audit events.
+     */
+    public static boolean shouldEncryptValue(String category) {
+        return StringUtils.equalsAny(category, "Hidden", "Secure");
+    }
+
+    /**
+     * Returns the masked event value if the configuration is marked encrypted;
+     * otherwise returns the original value (or empty string if null).
+     */
+    public static String maskEventValueIfEncrypted(ConfigurationVO config, String value) {
+        if (config != null && config.isEncrypted()) {
+            return "*****";
+        }
+        return Objects.requireNonNullElse(value, "");
+    }
+
+    /**
+     * Maps a Java wrapper class to the configuration value-type string used in
+     * the API ({@link Configuration.ValueType}). When the type is a String/Char,
+     * defers to the configuration's {@code kind} if one is set.
+     */
+    public static String parseConfigurationTypeIntoString(Class<?> type, ConfigurationVO cfg) {
+        if (type == null) {
+            return Configuration.ValueType.String.name();
+        }
+        if (type == String.class || type == Character.class) {
+            if (cfg.getKind() == null) {
+                return Configuration.ValueType.String.name();
+            }
+            return cfg.getKind();
+        }
+        if (type == Integer.class || type == Long.class || type == Short.class) {
+            return Configuration.ValueType.Number.name();
+        }
+        if (type == Float.class || type == Double.class) {
+            return Configuration.ValueType.Decimal.name();
+        }
+        if (type == Boolean.class) {
+            return Configuration.ValueType.Boolean.name();
+        }
+        return Configuration.ValueType.String.name();
     }
 }

@@ -991,7 +991,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     private boolean shouldEncryptValue(String category) {
-        return StringUtils.equalsAny(category, "Hidden", "Secure");
+        return ConfigurationValueValidator.shouldEncryptValue(category);
     }
 
     /**
@@ -1132,10 +1132,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     private String encryptEventValueIfConfigIsEncrypted(ConfigurationVO config, String value) {
-        if (config != null && config.isEncrypted()) {
-           return  "*****";
-        }
-        return Objects.requireNonNullElse(value, "");
+        return ConfigurationValueValidator.maskEventValueIfEncrypted(config, value);
     }
 
     private ParamCountPair getParamCount(Map<String, Long> scopeMap) {
@@ -9301,26 +9298,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * Parses a configuration type's wrapper class into its string representation.
      */
     protected String parseConfigurationTypeIntoString(Class<?> type, ConfigurationVO cfg) {
-        if (type == null) {
-            return Configuration.ValueType.String.name();
-        }
-
-        if (type == String.class || type == Character.class) {
-            if (cfg.getKind() == null) {
-                return Configuration.ValueType.String.name();
-            }
-            return cfg.getKind();
-        }
-        if (type == Integer.class || type == Long.class || type == Short.class) {
-            return Configuration.ValueType.Number.name();
-        }
-        if (type == Float.class || type == Double.class) {
-            return Configuration.ValueType.Decimal.name();
-        }
-        if (type == Boolean.class) {
-            return Configuration.ValueType.Boolean.name();
-        }
-        return Configuration.ValueType.String.name();
+        return ConfigurationValueValidator.parseConfigurationTypeIntoString(type, cfg);
     }
 
     @Override

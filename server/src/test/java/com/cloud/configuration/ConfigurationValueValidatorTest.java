@@ -267,4 +267,79 @@ public class ConfigurationValueValidatorTest {
         assertEquals("a valid site local IP address",
                 ConfigurationValueValidator.validateRangePrivateIp("x", "8.8.8.8"));
     }
+
+    // ---- shouldEncryptValue ----
+
+    @Test
+    public void hiddenAndSecureCategoriesShouldBeEncrypted() {
+        assertTrue(ConfigurationValueValidator.shouldEncryptValue("Hidden"));
+        assertTrue(ConfigurationValueValidator.shouldEncryptValue("Secure"));
+    }
+
+    @Test
+    public void otherCategoriesShouldNotBeEncrypted() {
+        assertFalse(ConfigurationValueValidator.shouldEncryptValue("Network"));
+        assertFalse(ConfigurationValueValidator.shouldEncryptValue(""));
+        assertFalse(ConfigurationValueValidator.shouldEncryptValue(null));
+    }
+
+    // ---- maskEventValueIfEncrypted ----
+
+    @Test
+    public void maskedWhenConfigIsEncrypted() {
+        org.apache.cloudstack.framework.config.impl.ConfigurationVO cfg =
+                mock(org.apache.cloudstack.framework.config.impl.ConfigurationVO.class);
+        when(cfg.isEncrypted()).thenReturn(true);
+        assertEquals("*****", ConfigurationValueValidator.maskEventValueIfEncrypted(cfg, "secret"));
+    }
+
+    @Test
+    public void passthroughWhenConfigNotEncrypted() {
+        org.apache.cloudstack.framework.config.impl.ConfigurationVO cfg =
+                mock(org.apache.cloudstack.framework.config.impl.ConfigurationVO.class);
+        when(cfg.isEncrypted()).thenReturn(false);
+        assertEquals("plain", ConfigurationValueValidator.maskEventValueIfEncrypted(cfg, "plain"));
+    }
+
+    @Test
+    public void nullValueBecomesEmptyString() {
+        assertEquals("", ConfigurationValueValidator.maskEventValueIfEncrypted(null, null));
+    }
+
+    // ---- parseConfigurationTypeIntoString ----
+
+    @Test
+    public void nullTypeReturnsStringValueType() {
+        assertEquals("String", ConfigurationValueValidator.parseConfigurationTypeIntoString(null, null));
+    }
+
+    @Test
+    public void numericTypesMapToNumberOrDecimal() {
+        org.apache.cloudstack.framework.config.impl.ConfigurationVO cfg =
+                mock(org.apache.cloudstack.framework.config.impl.ConfigurationVO.class);
+        assertEquals("Number", ConfigurationValueValidator.parseConfigurationTypeIntoString(Integer.class, cfg));
+        assertEquals("Number", ConfigurationValueValidator.parseConfigurationTypeIntoString(Long.class, cfg));
+        assertEquals("Number", ConfigurationValueValidator.parseConfigurationTypeIntoString(Short.class, cfg));
+        assertEquals("Decimal", ConfigurationValueValidator.parseConfigurationTypeIntoString(Float.class, cfg));
+        assertEquals("Decimal", ConfigurationValueValidator.parseConfigurationTypeIntoString(Double.class, cfg));
+        assertEquals("Boolean", ConfigurationValueValidator.parseConfigurationTypeIntoString(Boolean.class, cfg));
+    }
+
+    @Test
+    public void stringTypeUsesConfigKindWhenAvailable() {
+        org.apache.cloudstack.framework.config.impl.ConfigurationVO cfg =
+                mock(org.apache.cloudstack.framework.config.impl.ConfigurationVO.class);
+        when(cfg.getKind()).thenReturn("WhitelistedIPs");
+        assertEquals("WhitelistedIPs",
+                ConfigurationValueValidator.parseConfigurationTypeIntoString(String.class, cfg));
+    }
+
+    @Test
+    public void stringTypeFallsBackToStringWhenKindNull() {
+        org.apache.cloudstack.framework.config.impl.ConfigurationVO cfg =
+                mock(org.apache.cloudstack.framework.config.impl.ConfigurationVO.class);
+        when(cfg.getKind()).thenReturn(null);
+        assertEquals("String",
+                ConfigurationValueValidator.parseConfigurationTypeIntoString(String.class, cfg));
+    }
 }
