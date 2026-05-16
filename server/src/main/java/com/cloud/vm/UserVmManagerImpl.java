@@ -68,7 +68,6 @@ import org.apache.cloudstack.affinity.AffinityGroupVMMapVO;
 import org.apache.cloudstack.affinity.AffinityGroupVO;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
-import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
@@ -600,6 +599,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private BackupManager backupManager;
     @Inject
     private AnnotationDao annotationDao;
+    @Inject
+    private VmGroupService vmGroupService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -3669,176 +3670,37 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return volumes;
     }
 
+    // ---- VM Group methods delegated to VmGroupService ----
+    // (extracted in Phase 4 god-class decomposition; see VmGroupServiceImpl)
+
     @Override
-    @DB
     public InstanceGroupVO createVmGroup(CreateVMGroupCmd cmd) {
-        Account caller = CallContext.current().getCallingAccount();
-        Long domainId = cmd.getDomainId();
-        String accountName = cmd.getAccountName();
-        String groupName = cmd.getGroupName();
-        Long projectId = cmd.getProjectId();
-
-        Account owner = _accountMgr.finalizeOwner(caller, accountName, domainId, projectId);
-        long accountId = owner.getId();
-
-        // Check if name is already in use by this account
-        boolean isNameInUse = _vmGroupDao.isNameInUse(accountId, groupName);
-
-        if (isNameInUse) {
-            throw new InvalidParameterValueException(String.format("Unable to create Instance group, a group with name %s already exists for Account %s", groupName, owner));
-        }
-
-        return createVmGroup(groupName, accountId);
-    }
-
-    @DB
-    private InstanceGroupVO createVmGroup(String groupName, long accountId) {
-        Account account = null;
-        try {
-            account = _accountDao.acquireInLockTable(accountId); // to ensure
-            // duplicate
-            // vm group
-            // names are
-            // not
-            // created.
-            if (account == null) {
-                logger.warn("Failed to acquire lock on Account");
-                return null;
-            }
-            InstanceGroupVO group = _vmGroupDao.findByAccountAndName(accountId, groupName);
-            if (group == null) {
-                group = new InstanceGroupVO(groupName, accountId);
-                group = _vmGroupDao.persist(group);
-            }
-            return group;
-        } finally {
-            if (account != null) {
-                _accountDao.releaseFromLockTable(accountId);
-            }
-        }
+        return vmGroupService.createVmGroup(cmd);
     }
 
     @Override
     public boolean deleteVmGroup(DeleteVMGroupCmd cmd) {
-        Account caller = CallContext.current().getCallingAccount();
-        Long groupId = cmd.getId();
-
-        // Verify input parameters
-        InstanceGroupVO group = _vmGroupDao.findById(groupId);
-        if ((group == null) || (group.getRemoved() != null)) {
-            throw new InvalidParameterValueException("unable to find a vm group with id " + groupId);
-        }
-
-        _accountMgr.checkAccess(caller, null, true, group);
-
-        return deleteVmGroup(groupId);
+        return vmGroupService.deleteVmGroup(cmd);
     }
 
     @Override
     public boolean deleteVmGroup(long groupId) {
-        InstanceGroupVO group = _vmGroupDao.findById(groupId);
-        annotationDao.removeByEntityType(AnnotationService.EntityType.INSTANCE_GROUP.name(), group.getUuid());
-        // delete all the mappings from group_vm_map table
-        List<InstanceGroupVMMapVO> groupVmMaps = _groupVMMapDao.listByGroupId(groupId);
-        for (InstanceGroupVMMapVO groupMap : groupVmMaps) {
-            SearchCriteria<InstanceGroupVMMapVO> sc = _groupVMMapDao.createSearchCriteria();
-            sc.addAnd("instanceId", SearchCriteria.Op.EQ, groupMap.getInstanceId());
-            _groupVMMapDao.expunge(sc);
-        }
-
-        if (_vmGroupDao.remove(groupId)) {
-            return true;
-        } else {
-            return false;
-        }
+        return vmGroupService.deleteVmGroup(groupId);
     }
 
     @Override
-    @DB
     public boolean addInstanceToGroup(final long userVmId, String groupName) {
-        UserVmVO vm = _vmDao.findById(userVmId);
-
-        InstanceGroupVO group = _vmGroupDao.findByAccountAndName(vm.getAccountId(), groupName);
-        // Create vm group if the group doesn't exist for this account
-        if (group == null) {
-            group = createVmGroup(groupName, vm.getAccountId());
-        }
-
-        if (group != null) {
-            UserVm userVm = _vmDao.acquireInLockTable(userVmId);
-            if (userVm == null) {
-                logger.warn("Failed to acquire lock on user vm {} with id {}", vm, userVmId);
-            }
-            try {
-                final InstanceGroupVO groupFinal = group;
-                Transaction.execute(new TransactionCallbackNoReturn() {
-                    @Override
-                    public void doInTransactionWithoutResult(TransactionStatus status) {
-                        // don't let the group be deleted when we are assigning vm to
-                        // it.
-                        InstanceGroupVO ngrpLock = _vmGroupDao.lockRow(groupFinal.getId(), false);
-                        if (ngrpLock == null) {
-                            logger.warn("Failed to acquire lock on Instance group {}", groupFinal);
-                            throw new CloudRuntimeException(String.format("Failed to acquire lock on Instance group %s", groupFinal));
-                        }
-
-                        // Currently don't allow to assign a vm to more than one group
-                        if (_groupVMMapDao.listByInstanceId(userVmId) != null) {
-                            // Delete all mappings from group_vm_map table
-                            List<InstanceGroupVMMapVO> groupVmMaps = _groupVMMapDao.listByInstanceId(userVmId);
-                            for (InstanceGroupVMMapVO groupMap : groupVmMaps) {
-                                SearchCriteria<InstanceGroupVMMapVO> sc = _groupVMMapDao.createSearchCriteria();
-                                sc.addAnd("instanceId", SearchCriteria.Op.EQ, groupMap.getInstanceId());
-                                _groupVMMapDao.expunge(sc);
-                            }
-                        }
-                        InstanceGroupVMMapVO groupVmMapVO = new InstanceGroupVMMapVO(groupFinal.getId(), userVmId);
-                        _groupVMMapDao.persist(groupVmMapVO);
-
-                    }
-                });
-
-                return true;
-            } finally {
-                if (userVm != null) {
-                    _vmDao.releaseFromLockTable(userVmId);
-                }
-            }
-        }
-        return false;
+        return vmGroupService.addInstanceToGroup(userVmId, groupName);
     }
 
     @Override
     public InstanceGroupVO getGroupForVm(long vmId) {
-        // TODO - in future releases vm can be assigned to multiple groups; but
-        // currently return just one group per vm
-        try {
-            List<InstanceGroupVMMapVO> groupsToVmMap = _groupVMMapDao.listByInstanceId(vmId);
-
-            if (groupsToVmMap != null && groupsToVmMap.size() != 0) {
-                InstanceGroupVO group = _vmGroupDao.findById(groupsToVmMap.get(0).getGroupId());
-                return group;
-            } else {
-                return null;
-            }
-        } catch (Exception e) {
-            logger.warn("Error trying to get group for a vm: ", e);
-            return null;
-        }
+        return vmGroupService.getGroupForVm(vmId);
     }
 
     @Override
     public void removeInstanceFromInstanceGroup(long vmId) {
-        try {
-            List<InstanceGroupVMMapVO> groupVmMaps = _groupVMMapDao.listByInstanceId(vmId);
-            for (InstanceGroupVMMapVO groupMap : groupVmMaps) {
-                SearchCriteria<InstanceGroupVMMapVO> sc = _groupVMMapDao.createSearchCriteria();
-                sc.addAnd("instanceId", SearchCriteria.Op.EQ, groupMap.getInstanceId());
-                _groupVMMapDao.expunge(sc);
-            }
-        } catch (Exception e) {
-            logger.warn("Error trying to remove vm from group: ", e);
-        }
+        vmGroupService.removeInstanceFromInstanceGroup(vmId);
     }
 
     private boolean validPassword(String password) {
