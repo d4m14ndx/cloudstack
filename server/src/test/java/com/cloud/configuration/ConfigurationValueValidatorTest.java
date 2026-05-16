@@ -342,4 +342,78 @@ public class ConfigurationValueValidatorTest {
         assertEquals("String",
                 ConfigurationValueValidator.parseConfigurationTypeIntoString(String.class, cfg));
     }
+
+    // ---- isIpConfigName ----
+
+    @Test
+    public void ipConfigNameSuffixesRecognized() {
+        assertTrue(ConfigurationValueValidator.isIpConfigName("foo.ip"));
+        assertTrue(ConfigurationValueValidator.isIpConfigName("foo.ipaddress"));
+        assertTrue(ConfigurationValueValidator.isIpConfigName("foo.iprange"));
+    }
+
+    @Test
+    public void nonIpConfigNamesIgnored() {
+        assertFalse(ConfigurationValueValidator.isIpConfigName("foo.bar"));
+        assertFalse(ConfigurationValueValidator.isIpConfigName("foo.ip.bar"));
+        assertFalse(ConfigurationValueValidator.isIpConfigName(""));
+        assertFalse(ConfigurationValueValidator.isIpConfigName(null));
+    }
+
+    // ---- validateIpConfigValue ----
+
+    @Test
+    public void validIp4AcceptedForIpConfig() {
+        assertNull(ConfigurationValueValidator.validateIpConfigValue("foo.ip", "192.168.1.1"));
+        assertNull(ConfigurationValueValidator.validateIpConfigValue("foo.ipaddress", "10.0.0.1"));
+    }
+
+    @Test
+    public void invalidIp4RejectedForIpConfig() {
+        assertNotNull(ConfigurationValueValidator.validateIpConfigValue("foo.ip", "not-an-ip"));
+        assertNotNull(ConfigurationValueValidator.validateIpConfigValue("foo.ipaddress", "999.999.999.999"));
+    }
+
+    @Test
+    public void validIpRangeAccepted() {
+        assertNull(ConfigurationValueValidator.validateIpConfigValue("foo.iprange", "10.0.0.1-10.0.0.255"));
+    }
+
+    @Test
+    public void malformedIpRangeRejected() {
+        assertNotNull(ConfigurationValueValidator.validateIpConfigValue("foo.iprange", "10.0.0.1"));
+        assertNotNull(ConfigurationValueValidator.validateIpConfigValue("foo.iprange", "10.0.0.1-bad"));
+        assertNotNull(ConfigurationValueValidator.validateIpConfigValue("foo.iprange", "1-2-3"));
+    }
+
+    @Test
+    public void emptyValueSkipsValidation() {
+        assertNull(ConfigurationValueValidator.validateIpConfigValue("foo.ip", ""));
+    }
+
+    @Test
+    public void nonIpConfigSkipped() {
+        assertNull(ConfigurationValueValidator.validateIpConfigValue("foo.bar", "garbage"));
+    }
+
+    // ---- validateConflictingConfigValue ----
+
+    @Test
+    public void kubernetesEtcdNodeStartPortConflictDetected() {
+        String err = ConfigurationValueValidator.validateConflictingConfigValue(
+                "cloud.kubernetes.etcd.node.start.port", "2222");
+        assertNotNull(err);
+        assertTrue(err.contains("reserved for Kubernetes"));
+    }
+
+    @Test
+    public void nonConflictingKubernetesEtcdPortAccepted() {
+        assertNull(ConfigurationValueValidator.validateConflictingConfigValue(
+                "cloud.kubernetes.etcd.node.start.port", "3333"));
+    }
+
+    @Test
+    public void unrelatedConfigKeyAccepted() {
+        assertNull(ConfigurationValueValidator.validateConflictingConfigValue("any.other.key", "2222"));
+    }
 }

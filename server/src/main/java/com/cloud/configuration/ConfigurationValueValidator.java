@@ -50,6 +50,12 @@ public final class ConfigurationValueValidator {
     public static final int MAX_DOMAIN_NAME_LENGTH = 238;
     public static final String DOMAIN_NAME_PATTERN = "^((?!-)[A-Za-z0-9-]{1,63}(?<!-)\\.)+[A-Za-z]{1,63}$";
 
+    /** Default starting SSH port for Kubernetes cluster node access. */
+    public static final String CLUSTER_NODES_DEFAULT_START_SSH_PORT = "2222";
+
+    /** Config key whose value must not collide with the Kubernetes cluster SSH port range. */
+    public static final String KUBERNETES_ETCD_NODE_START_PORT_KEY = "cloud.kubernetes.etcd.node.start.port";
+
     private ConfigurationValueValidator() {
     }
 
@@ -282,6 +288,57 @@ public final class ConfigurationValueValidator {
             return "*****";
         }
         return Objects.requireNonNullElse(value, "");
+    }
+
+    /**
+     * Configurations whose names end with {@code .ip}, {@code .ipaddress}, or
+     * {@code .iprange} should hold valid IPv4 values. Returns null if the value
+     * is structurally valid for the suffix; an error message otherwise.
+     *
+     * <p>Callers must first verify the config exists and is of String type —
+     * this helper is purely about the value's shape.
+     */
+    public static String validateIpConfigValue(String configName, String value) {
+        if (!isIpConfigName(configName)) {
+            return null;
+        }
+        if (StringUtils.isEmpty(value)) {
+            return null;
+        }
+        boolean valid;
+        if (configName.endsWith(".iprange")) {
+            valid = false;
+            if (value.contains("-")) {
+                String[] ips = value.split("-");
+                if (ips.length == 2 && NetUtils.isValidIp4(ips[0]) && NetUtils.isValidIp4(ips[1])) {
+                    valid = true;
+                }
+            }
+        } else {
+            valid = NetUtils.isValidIp4(value);
+        }
+        return valid ? null : "Invalid IP address value(s) specified for the config value.";
+    }
+
+    /**
+     * @return true if the config name's suffix indicates it should hold an IP address or range
+     */
+    public static boolean isIpConfigName(String configName) {
+        return configName != null
+                && (configName.endsWith(".ip") || configName.endsWith(".ipaddress") || configName.endsWith(".iprange"));
+    }
+
+    /**
+     * Validates that the value doesn't conflict with reserved ports/ranges.
+     * Returns null if no conflict; an error message otherwise.
+     */
+    public static String validateConflictingConfigValue(String configName, String value) {
+        if (KUBERNETES_ETCD_NODE_START_PORT_KEY.equals(configName)
+                && CLUSTER_NODES_DEFAULT_START_SSH_PORT.equals(value)) {
+            return "This range is reserved for Kubernetes cluster nodes."
+                    + "Please choose a value in a higher range would does not conflict with a kubernetes cluster deployed";
+        }
+        return null;
     }
 
     /**

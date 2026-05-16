@@ -336,7 +336,7 @@ import com.googlecode.ipv6.IPv6Network;
 public class ConfigurationManagerImpl extends ManagerBase implements ConfigurationManager, ConfigurationService, Configurable {
     public static final String PERACCOUNT = "peraccount";
     public static final String PERZONE = "perzone";
-    public static final String CLUSTER_NODES_DEFAULT_START_SSH_PORT = "2222";
+    public static final String CLUSTER_NODES_DEFAULT_START_SSH_PORT = ConfigurationValueValidator.CLUSTER_NODES_DEFAULT_START_SSH_PORT;
 
     @Inject
     EntityManager _entityMgr;
@@ -694,39 +694,28 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     protected void validateIpAddressRelatedConfigValues(final String configName, final String value) {
-        if (!configName.endsWith(".ip") && !configName.endsWith(".ipaddress") && !configName.endsWith(".iprange")) {
+        if (!ConfigurationValueValidator.isIpConfigName(configName)) {
             return;
         }
         if (StringUtils.isEmpty(value)) {
             return;
         }
+        // Configuration must be registered and of String type for IP-shape validation to apply.
         final ConfigKey<?> configKey = _configDepot.get(configName);
         if (configKey == null || !String.class.equals(configKey.type())) {
             return;
         }
-        boolean err = (configName.endsWith(".ip") || configName.endsWith(".ipaddress")) && !NetUtils.isValidIp4(value);
-        if (configName.endsWith(".iprange")) {
-            err = true;
-            if (value.contains("-")) {
-                String[] ips = value.split("-");
-                if (ips.length == 2 && NetUtils.isValidIp4(ips[0]) && NetUtils.isValidIp4(ips[1])) {
-                    err = false;
-                }
-            }
-        }
-        if (err) {
-            throw new InvalidParameterValueException("Invalid IP address value(s) specified for the config value.");
+        String error = ConfigurationValueValidator.validateIpConfigValue(configName, value);
+        if (error != null) {
+            throw new InvalidParameterValueException(error);
         }
     }
 
     protected void validateConflictingConfigValue(final String configName, final String value) {
-        if (configName.equals("cloud.kubernetes.etcd.node.start.port")) {
-            if (value.equals(CLUSTER_NODES_DEFAULT_START_SSH_PORT)) {
-                String errorMessage = "This range is reserved for Kubernetes cluster nodes." +
-                        "Please choose a value in a higher range would does not conflict with a kubernetes cluster deployed";
-                logger.error(errorMessage);
-                throw new InvalidParameterValueException(errorMessage);
-            }
+        String errorMessage = ConfigurationValueValidator.validateConflictingConfigValue(configName, value);
+        if (errorMessage != null) {
+            logger.error(errorMessage);
+            throw new InvalidParameterValueException(errorMessage);
         }
     }
 
