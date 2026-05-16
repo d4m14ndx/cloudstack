@@ -1,0 +1,61 @@
+# Local development stack: management server + MySQL.
+#
+# Usage:
+#   docker compose up --build
+#
+# Then point a browser at http://localhost:8080/client
+# Metrics at http://localhost:8080/client/metrics
+# Health at http://localhost:8080/client/health/ready
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: cloud
+      MYSQL_DATABASE: cloud
+      MYSQL_USER: cloud
+      MYSQL_PASSWORD: cloud
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --sql-mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  cloudstack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # Exercises the JSON logging path added in Phase 4 (CLOUDSTACK_LOG_FORMAT)
+      CLOUDSTACK_LOG_FORMAT: text
+      # OpenTelemetry: uncomment to export traces
+      # OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # OTEL_TRACES_EXPORTER: otlp
+      JAVA_OPTS: "-Xmx2g -Xms512m"
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    # Mount your own server.properties/db.properties to override defaults
+    # volumes:
+    #   - ./local-config/server.properties:/etc/cloudstack/management/server.properties:ro
+    #   - ./local-config/db.properties:/etc/cloudstack/management/db.properties:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/client/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+
+volumes:
+  mysql-data:
