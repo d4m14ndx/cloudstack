@@ -497,6 +497,9 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     @Inject
     protected PodService podService;
 
+    @Inject
+    protected DiskOfferingService diskOfferingService;
+
     private long _defaultPageSize = Long.parseLong(Config.DefaultPageSize.getDefaultValue());
     // Validation sets now live in ConfigurationValueValidator as immutable static
     // constants. These instance fields are kept (and back the same data) so any
@@ -3892,97 +3895,8 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_DISK_OFFERING_CREATE, eventDescription = "creating disk offering")
     public DiskOffering createDiskOffering(final CreateDiskOfferingCmd cmd) {
-        final String name = cmd.getOfferingName();
-        final String description = cmd.getDisplayText();
-        final String provisioningType = cmd.getProvisioningType();
-        final Long numGibibytes = cmd.getDiskSize();
-        final boolean isDisplayOfferingEnabled = cmd.getDisplayOffering() != null ? cmd.getDisplayOffering() : true;
-        final boolean isCustomized = cmd.isCustomized() != null ? cmd.isCustomized() : false; // false
-        final String tags = cmd.getTags();
-        final List<Long> domainIds = cmd.getDomainIds();
-        final List<Long> zoneIds = cmd.getZoneIds();
-        final Map<String, String> details = cmd.getDetails();
-        final Long storagePolicyId = cmd.getStoragePolicy();
-        final boolean diskSizeStrictness =  cmd.getDiskSizeStrictness();
-
-        // check if valid domain
-        if (CollectionUtils.isNotEmpty(domainIds)) {
-            for (final Long domainId: domainIds) {
-                if (_domainDao.findById(domainId) == null) {
-                    throw new InvalidParameterValueException("Please specify a valid domain id");
-                }
-            }
-        }
-
-        // check if valid zone
-        if (CollectionUtils.isNotEmpty(zoneIds)) {
-            for (Long zoneId : zoneIds) {
-                if (_zoneDao.findById(zoneId) == null)
-                    throw new InvalidParameterValueException("Please specify a valid zone id");
-            }
-        }
-
-        if (!isCustomized && numGibibytes == null) {
-            throw new InvalidParameterValueException("Disksize is required for a non-customized disk offering");
-        }
-
-        if (isCustomized && numGibibytes != null) {
-            throw new InvalidParameterValueException("Disksize is not allowed for a customized disk offering");
-        }
-
-        // check if cache_mode parameter is valid
-        validateCacheMode(cmd.getCacheMode());
-
-        boolean localStorageRequired = false;
-        final String storageType = cmd.getStorageType();
-        if (storageType != null) {
-            if (storageType.equalsIgnoreCase(ServiceOffering.StorageType.local.toString())) {
-                localStorageRequired = true;
-            } else if (!storageType.equalsIgnoreCase(ServiceOffering.StorageType.shared.toString())) {
-                throw new InvalidParameterValueException("Invalid storage type " + storageType + " specified, valid types are: 'local' and 'shared'");
-            }
-        }
-
-        if (storagePolicyId != null) {
-            if (vsphereStoragePolicyDao.findById(storagePolicyId) == null) {
-                throw new InvalidParameterValueException("Please specify a valid vSphere storage policy id");
-            }
-        }
-
-        final Boolean isCustomizedIops = cmd.isCustomizedIops();
-        final Long minIops = cmd.getMinIops();
-        final Long maxIops = cmd.getMaxIops();
-        final Long bytesReadRate = cmd.getBytesReadRate();
-        final Long bytesReadRateMax = cmd.getBytesReadRateMax();
-        final Long bytesReadRateMaxLength = cmd.getBytesReadRateMaxLength();
-        final Long bytesWriteRate = cmd.getBytesWriteRate();
-        final Long bytesWriteRateMax = cmd.getBytesWriteRateMax();
-        final Long bytesWriteRateMaxLength = cmd.getBytesWriteRateMaxLength();
-        final Long iopsReadRate = cmd.getIopsReadRate();
-        final Long iopsReadRateMax = cmd.getIopsReadRateMax();
-        final Long iopsReadRateMaxLength = cmd.getIopsReadRateMaxLength();
-        final Long iopsWriteRate = cmd.getIopsWriteRate();
-        final Long iopsWriteRateMax = cmd.getIopsWriteRateMax();
-        final Long iopsWriteRateMaxLength = cmd.getIopsWriteRateMaxLength();
-        final Integer hypervisorSnapshotReserve = cmd.getHypervisorSnapshotReserve();
-        final String cacheMode = cmd.getCacheMode();
-        final boolean encrypt = cmd.getEncrypt();
-
-        validateMaxRateEqualsOrGreater(iopsReadRate, iopsReadRateMax, IOPS_READ_RATE);
-        validateMaxRateEqualsOrGreater(iopsWriteRate, iopsWriteRateMax, IOPS_WRITE_RATE);
-        validateMaxRateEqualsOrGreater(bytesReadRate, bytesReadRateMax, BYTES_READ_RATE);
-        validateMaxRateEqualsOrGreater(bytesWriteRate, bytesWriteRateMax, BYTES_WRITE_RATE);
-
-        validateMaximumIopsAndBytesLength(iopsReadRateMaxLength, iopsWriteRateMaxLength, bytesReadRateMaxLength, bytesWriteRateMaxLength);
-
-        final Long userId = CallContext.current().getCallingUserId();
-        return createDiskOffering(userId, domainIds, zoneIds, name, description, provisioningType, numGibibytes, tags, isCustomized,
-                localStorageRequired, isDisplayOfferingEnabled, isCustomizedIops, minIops,
-                maxIops, bytesReadRate, bytesReadRateMax, bytesReadRateMaxLength, bytesWriteRate, bytesWriteRateMax, bytesWriteRateMaxLength,
-                iopsReadRate, iopsReadRateMax, iopsReadRateMaxLength, iopsWriteRate, iopsWriteRateMax, iopsWriteRateMaxLength,
-                hypervisorSnapshotReserve, cacheMode, details, storagePolicyId, diskSizeStrictness, encrypt);
+        return diskOfferingService.createDiskOffering(cmd);
     }
 
     /**
@@ -4037,130 +3951,8 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_DISK_OFFERING_EDIT, eventDescription = "updating disk offering")
     public DiskOffering updateDiskOffering(final UpdateDiskOfferingCmd cmd) {
-        final Long diskOfferingId = cmd.getId();
-        final String name = cmd.getDiskOfferingName();
-        final String displayText = cmd.getDisplayText();
-        final Integer sortKey = cmd.getSortKey();
-        final Boolean displayDiskOffering = cmd.getDisplayOffering();
-        final List<Long> domainIds = cmd.getDomainIds();
-        final List<Long> zoneIds = cmd.getZoneIds();
-        final String tags = cmd.getTags();
-
-        Long bytesReadRate = cmd.getBytesReadRate();
-        Long bytesReadRateMax = cmd.getBytesReadRateMax();
-        Long bytesReadRateMaxLength = cmd.getBytesReadRateMaxLength();
-        Long bytesWriteRate = cmd.getBytesWriteRate();
-        Long bytesWriteRateMax = cmd.getBytesWriteRateMax();
-        Long bytesWriteRateMaxLength = cmd.getBytesWriteRateMaxLength();
-        Long iopsReadRate = cmd.getIopsReadRate();
-        Long iopsReadRateMax = cmd.getIopsReadRateMax();
-        Long iopsReadRateMaxLength = cmd.getIopsReadRateMaxLength();
-        Long iopsWriteRate = cmd.getIopsWriteRate();
-        Long iopsWriteRateMax = cmd.getIopsWriteRateMax();
-        Long iopsWriteRateMaxLength = cmd.getIopsWriteRateMaxLength();
-        String cacheMode = cmd.getCacheMode();
-        DiskOffering.State state = cmd.getState();
-
-        // Check if diskOffering exists
-        final DiskOffering diskOfferingHandle = _entityMgr.findById(DiskOffering.class, diskOfferingId);
-        if (diskOfferingHandle == null) {
-            throw new InvalidParameterValueException("Unable to find disk offering by id " + diskOfferingId);
-        }
-
-        List<Long> existingDomainIds = diskOfferingDetailsDao.findDomainIds(diskOfferingId);
-        Collections.sort(existingDomainIds);
-
-        List<Long> existingZoneIds = diskOfferingDetailsDao.findZoneIds(diskOfferingId);
-        Collections.sort(existingZoneIds);
-
-        validateDomain(domainIds);
-
-        validateZone(zoneIds);
-
-        Long userId = CallContext.current().getCallingUserId();
-        if (userId == null) {
-            userId = Long.valueOf(User.UID_SYSTEM);
-        }
-        final User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find active user by id " + userId);
-        }
-        final Account account = _accountDao.findById(user.getAccountId());
-
-        // Filter child domains when both parent and child domains are present
-        List<Long> filteredDomainIds = domainHelper.filterChildSubDomains(domainIds);
-        Collections.sort(filteredDomainIds);
-
-        List<Long> filteredZoneIds = new ArrayList<>();
-        if (CollectionUtils.isNotEmpty(zoneIds)) {
-            filteredZoneIds.addAll(zoneIds);
-        }
-        Collections.sort(filteredZoneIds);
-
-        if (account.getType() == Account.Type.DOMAIN_ADMIN) {
-            checkDomainAdminUpdateOfferingRestrictions(diskOfferingHandle, user, filteredZoneIds, existingZoneIds, existingDomainIds, filteredDomainIds);
-
-            if (StringUtils.isNotBlank(tags) && !ALLOW_DOMAIN_ADMINS_TO_CREATE_TAGGED_OFFERINGS.valueIn(account.getAccountId())) {
-                throw new InvalidParameterValueException(String.format("User [%s] is unable to update disk offering tags.", user));
-            }
-
-            List<Long> nonChildDomains = getAccountNonChildDomains(diskOfferingHandle, account, user, cmd, existingDomainIds);
-
-            checkIfDomainIsChildDomain(diskOfferingHandle, account, user, filteredDomainIds);
-
-            filteredDomainIds.addAll(nonChildDomains); // Final list must include domains which were not child domain for domain-admin but specified for this offering prior to update
-        } else if (account.getType() != Account.Type.ADMIN) {
-            throw new InvalidParameterValueException(String.format("Unable to update disk offering: %s by id user: %s because it is not root-admin or domain-admin", diskOfferingHandle, user));
-        }
-
-        boolean updateNeeded = shouldUpdateDiskOffering(name, displayText, sortKey, displayDiskOffering, tags, cacheMode, state) ||
-                shouldUpdateIopsRateParameters(iopsReadRate, iopsReadRateMax, iopsReadRateMaxLength, iopsWriteRate, iopsWriteRateMax, iopsWriteRateMaxLength) ||
-                shouldUpdateBytesRateParameters(bytesReadRate, bytesReadRateMax, bytesReadRateMaxLength, bytesWriteRate, bytesWriteRateMax, bytesWriteRateMaxLength);
-
-        final boolean detailsUpdateNeeded = !filteredDomainIds.equals(existingDomainIds) || !filteredZoneIds.equals(existingZoneIds);
-        if (!updateNeeded && !detailsUpdateNeeded) {
-            return _diskOfferingDao.findById(diskOfferingId);
-        }
-
-        final DiskOfferingVO diskOffering = _diskOfferingDao.createForUpdate(diskOfferingId);
-        updateDiskOfferingIfCmdAttributeNotNull(diskOffering, cmd);
-
-        updateOfferingTagsIfIsNotNull(tags, diskOffering);
-
-        validateMaxRateEqualsOrGreater(iopsReadRate, iopsReadRateMax, IOPS_READ_RATE);
-        validateMaxRateEqualsOrGreater(iopsWriteRate, iopsWriteRateMax, IOPS_WRITE_RATE);
-        validateMaxRateEqualsOrGreater(bytesReadRate, bytesReadRateMax, BYTES_READ_RATE);
-        validateMaxRateEqualsOrGreater(bytesWriteRate, bytesWriteRateMax, BYTES_WRITE_RATE);
-        validateMaximumIopsAndBytesLength(iopsReadRateMaxLength, iopsWriteRateMaxLength, bytesReadRateMaxLength, bytesWriteRateMaxLength);
-
-        setBytesRate(diskOffering, bytesReadRate, bytesReadRateMax, bytesReadRateMaxLength, bytesWriteRate, bytesWriteRateMax, bytesWriteRateMaxLength);
-        setIopsRate(diskOffering, iopsReadRate, iopsReadRateMax, iopsReadRateMaxLength, iopsWriteRate, iopsWriteRateMax, iopsWriteRateMaxLength);
-
-        if (cacheMode != null) {
-            validateCacheMode(cacheMode);
-            diskOffering.setCacheMode(DiskOffering.DiskCacheMode.valueOf(cacheMode.toUpperCase()));
-        }
-
-        if (state != null) {
-            diskOffering.setState(state);
-        }
-
-        if (updateNeeded && !_diskOfferingDao.update(diskOfferingId, diskOffering)) {
-            return null;
-        }
-        List<DiskOfferingDetailVO> detailsVO = new ArrayList<>();
-        if(detailsUpdateNeeded) {
-            updateDiskOfferingDetails(detailsVO, diskOfferingId, filteredDomainIds, existingDomainIds, filteredZoneIds, existingZoneIds);
-        }
-        if (!detailsVO.isEmpty()) {
-            for (DiskOfferingDetailVO detailVO : detailsVO) {
-                diskOfferingDetailsDao.persist(detailVO);
-            }
-        }
-        CallContext.current().setEventDetails("Disk offering ID: " + diskOffering.getUuid());
-        return _diskOfferingDao.findById(diskOfferingId);
+        return diskOfferingService.updateDiskOffering(cmd);
     }
 
     protected void validateDomain(List<Long> domainIds) {
@@ -4381,47 +4173,8 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_DISK_OFFERING_DELETE, eventDescription = "deleting disk offering")
     public boolean deleteDiskOffering(final DeleteDiskOfferingCmd cmd) {
-        final Long diskOfferingId = cmd.getId();
-
-        final DiskOfferingVO offering = _diskOfferingDao.findById(diskOfferingId);
-
-        if (offering == null) {
-            throw new InvalidParameterValueException("Unable to find disk offering by id " + diskOfferingId);
-        }
-
-        Long userId = CallContext.current().getCallingUserId();
-        if (userId == null) {
-            userId = Long.valueOf(User.UID_SYSTEM);
-        }
-        final User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find active user by id " + userId);
-        }
-        final Account account = _accountDao.findById(user.getAccountId());
-        if (account.getType() == Account.Type.DOMAIN_ADMIN) {
-            List<Long> existingDomainIds = diskOfferingDetailsDao.findDomainIds(diskOfferingId);
-            if (existingDomainIds.isEmpty()) {
-                throw new InvalidParameterValueException(String.format("Unable to delete public disk offering: %s by admin: %s because it is domain-admin", offering, user));
-            }
-            for (Long domainId : existingDomainIds) {
-                if (!_domainDao.isChildDomain(account.getDomainId(), domainId)) {
-                    throw new InvalidParameterValueException(String.format("Unable to delete disk offering: %s as it has linked domain(s) which are not child domain for domain-admin: %s", offering, user));
-                }
-            }
-        } else if (account.getType() != Account.Type.ADMIN) {
-            throw new InvalidParameterValueException(String.format("Unable to delete disk offering: %s by user: %s because it is not root-admin or domain-admin", offering, user));
-        }
-
-        annotationDao.removeByEntityType(AnnotationService.EntityType.DISK_OFFERING.name(), offering.getUuid());
-        offering.setState(DiskOffering.State.Inactive);
-        if (_diskOfferingDao.update(offering.getId(), offering)) {
-            CallContext.current().setEventDetails("Disk offering ID: " + offering.getUuid());
-            return true;
-        } else {
-            return false;
-        }
+        return diskOfferingService.deleteDiskOffering(cmd);
     }
 
     @Override
