@@ -102,10 +102,8 @@ import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.rules.FirewallRule.Purpose;
 import com.cloud.network.rules.FirewallRuleVO;
 import com.cloud.network.rules.dao.PortForwardingRulesDao;
-import com.cloud.network.vpc.Vpc;
 import com.cloud.network.vpc.VpcGatewayVO;
 import com.cloud.network.vpc.dao.PrivateIpDao;
-import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.network.vpc.dao.VpcGatewayDao;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.NetworkOffering.Detail;
@@ -182,7 +180,7 @@ public class NetworkModelImpl extends ManagerBase implements NetworkModel, Confi
     @Inject
     NetworkPermissionDao _networkPermissionDao;
     @Inject
-    VpcDao vpcDao;
+    NetworkDnsResolver networkDnsResolver;
 
     private List<NetworkElement> networkElements;
 
@@ -2740,56 +2738,22 @@ public class NetworkModelImpl extends ManagerBase implements NetworkModel, Confi
 
     @Override
     public Pair<String, String> getNetworkIp4Dns(final Network network, final DataCenter zone) {
-        if (StringUtils.isNotBlank(network.getDns1())) {
-            return new Pair<>(network.getDns1(), network.getDns2());
-        }
-        if (network.getVpcId() != null) {
-            Vpc vpc = vpcDao.findById(network.getVpcId());
-            if (vpc != null && StringUtils.isNotBlank(vpc.getIp4Dns1())) {
-                return new Pair<>(vpc.getIp4Dns1(), vpc.getIp4Dns2());
-            }
-        }
-        return new Pair<>(zone.getDns1(), zone.getDns2());
+        return networkDnsResolver.getNetworkIp4Dns(network, zone);
     }
 
     @Override
     public Pair<String, String> getNetworkIp6Dns(final Network network, final DataCenter zone) {
-        if (StringUtils.isNotBlank(network.getIp6Dns1())) {
-            return new Pair<>(network.getIp6Dns1(), network.getIp6Dns2());
-        }
-        if (network.getVpcId() != null) {
-            Vpc vpc = vpcDao.findById(network.getVpcId());
-            if (vpc != null && StringUtils.isNotBlank(vpc.getIp6Dns1())) {
-                return new Pair<>(vpc.getIp6Dns1(), vpc.getIp6Dns2());
-            }
-        }
-        return new Pair<>(zone.getIp6Dns1(), zone.getIp6Dns2());
+        return networkDnsResolver.getNetworkIp6Dns(network, zone);
     }
 
     @Override
     public void verifyIp4DnsPair(String ip4Dns1, String ip4Dns2) {
-        if (StringUtils.isEmpty(ip4Dns1) && StringUtils.isNotEmpty(ip4Dns2)) {
-            throw new InvalidParameterValueException("Second IPv4 DNS can be specified only with the first IPv4 DNS");
-        }
-        if (StringUtils.isNotEmpty(ip4Dns1) && !NetUtils.isValidIp4(ip4Dns1)) {
-            throw new InvalidParameterValueException("Invalid IPv4 for DNS1");
-        }
-        if (StringUtils.isNotEmpty(ip4Dns2) && !NetUtils.isValidIp4(ip4Dns2)) {
-            throw new InvalidParameterValueException("Invalid IPv4 for DNS2");
-        }
+        networkDnsResolver.verifyIp4DnsPair(ip4Dns1, ip4Dns2);
     }
 
     @Override
     public void verifyIp6DnsPair(String ip6Dns1, String ip6Dns2) {
-        if (StringUtils.isEmpty(ip6Dns1) && StringUtils.isNotEmpty(ip6Dns2)) {
-            throw new InvalidParameterValueException("Second IPv6 DNS can be specified only with the first IPv6 DNS");
-        }
-        if (StringUtils.isNotEmpty(ip6Dns1) && !NetUtils.isValidIp6(ip6Dns1)) {
-            throw new InvalidParameterValueException("Invalid IPv6 for IPv6 DNS1");
-        }
-        if (StringUtils.isNotEmpty(ip6Dns2) && !NetUtils.isValidIp6(ip6Dns2)) {
-            throw new InvalidParameterValueException("Invalid IPv6 for IPv6 DNS2");
-        }
+        networkDnsResolver.verifyIp6DnsPair(ip6Dns1, ip6Dns2);
     }
 
     @Override

@@ -87,6 +87,7 @@ public class NetworkModelImplTest {
 
     private NetworkOfferingDao networkOfferingDao;
     private NetworkServiceMapDao networkServiceMapDao;
+    private NetworkDnsResolverImpl networkDnsResolver;
 
     @Before
     public void setUp() {
@@ -96,6 +97,9 @@ public class NetworkModelImplTest {
         networkModel._networkOfferingDao = networkOfferingDao;
         networkModel._ntwkSrvcDao = networkServiceMapDao;
         networkModel._ntwkOfferingSrvcDao = networkOfferingServiceMapDao;
+        networkDnsResolver = new NetworkDnsResolverImpl();
+        ReflectionTestUtils.setField(networkDnsResolver, "vpcDao", vpcDao);
+        ReflectionTestUtils.setField(networkModel, "networkDnsResolver", networkDnsResolver);
     }
 
     private void prepareMocks(boolean isIp6, Network network, DataCenter zone, VpcVO vpc,
