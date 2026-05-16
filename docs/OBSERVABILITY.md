@@ -75,8 +75,8 @@ the same trace.
 
 ## Metrics endpoint (Prometheus)
 
-The management server exposes JVM and process metrics in Prometheus text
-format at `GET /metrics`. This complements the existing prometheus
+The management server exposes JVM, process, and HTTP metrics in Prometheus
+text format at `GET /metrics`. This complements the existing prometheus
 integration plugin (which serves *business* metrics — VMs, hosts, storage —
 on its own dedicated port).
 
@@ -85,6 +85,11 @@ What's exposed:
 - **JVM**: heap usage by region, GC pause times and counts, thread states,
   classloader counts, JIT compilation time, heap pressure
 - **Process**: uptime, CPU load, file descriptors, system load average
+- **HTTP**: request rate and duration histogram per method × route × status class
+  - `http_server_request_duration_seconds{method, uri, status}`
+  - `uri` is a coarse route bucket (`/api`, `/console`, `/health`, `/metrics`,
+    `other`) to bound cardinality
+  - `status` is a status class (`2xx`, `3xx`, `4xx`, `5xx`)
 
 ### Prometheus scrape config
 

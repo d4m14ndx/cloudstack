@@ -70,11 +70,11 @@ public final class MetricsRegistryHolder {
     }
 
     // Test hooks
-    static void setRegistry(PrometheusMeterRegistry r) {
+    public static void setRegistry(PrometheusMeterRegistry r) {
         registry = r;
     }
 
-    static void reset() {
+    public static void reset() {
         registry = null;
     }
 }
