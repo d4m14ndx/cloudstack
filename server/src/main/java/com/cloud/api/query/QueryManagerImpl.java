@@ -49,7 +49,6 @@ import com.cloud.dc.dao.HostPodDao;
 import com.cloud.org.Cluster;
 import com.cloud.server.ManagementService;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
-import com.cloud.cluster.ManagementServerHostPeerJoinVO;
 
 import com.cloud.vm.UserVmManager;
 import org.apache.cloudstack.acl.ControlledEntity;
@@ -133,7 +132,6 @@ import org.apache.cloudstack.api.response.IpQuarantineResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.ManagementServerResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
-import org.apache.cloudstack.api.response.PeerManagementServerNodeResponse;
 import org.apache.cloudstack.api.response.PodResponse;
 import org.apache.cloudstack.api.response.ProjectAccountResponse;
 import org.apache.cloudstack.api.response.ProjectInvitationResponse;
@@ -167,7 +165,6 @@ import org.apache.cloudstack.extension.Extension;
 import org.apache.cloudstack.extension.ExtensionHelper;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
-import org.apache.cloudstack.framework.jobs.AsyncJobManager;
 import org.apache.cloudstack.framework.jobs.impl.AsyncJobVO;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementVO;
 import org.apache.cloudstack.outofbandmanagement.dao.OutOfBandManagementDao;
@@ -205,7 +202,6 @@ import com.cloud.api.query.dao.DomainRouterJoinDao;
 import com.cloud.api.query.dao.HostJoinDao;
 import com.cloud.api.query.dao.ImageStoreJoinDao;
 import com.cloud.api.query.dao.InstanceGroupJoinDao;
-import com.cloud.api.query.dao.ManagementServerJoinDao;
 import com.cloud.api.query.dao.ProjectAccountJoinDao;
 import com.cloud.api.query.dao.ProjectInvitationJoinDao;
 import com.cloud.api.query.dao.ProjectJoinDao;
@@ -245,7 +241,6 @@ import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.api.query.vo.VolumeJoinVO;
 import com.cloud.cluster.ManagementServerHostVO;
 import com.cloud.cluster.dao.ManagementServerHostDao;
-import com.cloud.cluster.dao.ManagementServerHostPeerJoinDao;
 import com.cloud.cpu.CPU;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
@@ -532,9 +527,6 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     DataStoreManager dataStoreManager;
 
     @Inject
-    ManagementServerJoinDao managementServerJoinDao;
-
-    @Inject
     VpcVirtualNetworkApplianceService routerService;
 
     @Inject
@@ -631,13 +623,10 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     ClusterDao clusterDao;
 
     @Inject
-    ManagementServerHostPeerJoinDao mshostPeerJoinDao;
-
-    @Inject
-    private AsyncJobManager jobManager;
-
-    @Inject
     private StoragePoolAndAccessGroupMapDao storagePoolAndAccessGroupMapDao;
+
+    @Inject
+    private ManagementServerQueryService managementServerQueryService;
 
     @Inject
     public ManagementService managementService;
@@ -5808,86 +5797,15 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     @Override
     public ListResponse<ManagementServerResponse> listManagementServers(ListMgmtsCmd cmd) {
         ListResponse<ManagementServerResponse> response = new ListResponse<>();
-        Pair<List<ManagementServerJoinVO>, Integer> result = listManagementServersInternal(cmd);
+        Pair<List<ManagementServerJoinVO>, Integer> result = managementServerQueryService.listManagementServersInternal(cmd);
         List<ManagementServerResponse> hostResponses = new ArrayList<>();
 
         for (ManagementServerJoinVO host : result.first()) {
-            ManagementServerResponse hostResponse = createManagementServerResponse(host, cmd.getPeers());
+            ManagementServerResponse hostResponse = managementServerQueryService.createManagementServerResponse(host, cmd.getPeers());
             hostResponses.add(hostResponse);
         }
 
         response.setResponses(hostResponses);
-        return response;
-    }
-
-    protected Pair<List<ManagementServerJoinVO>, Integer> listManagementServersInternal(ListMgmtsCmd cmd) {
-        Long id = cmd.getId();
-        String name = cmd.getHostName();
-        String version = cmd.getVersion();
-        String keyword = cmd.getKeyword();
-
-        SearchBuilder<ManagementServerJoinVO> sb = managementServerJoinDao.createSearchBuilder();
-        SearchCriteria<ManagementServerJoinVO> sc = sb.create();
-        if (id != null) {
-            sc.addAnd("id", SearchCriteria.Op.EQ, id);
-        }
-        if (name != null) {
-            sc.addAnd("name", SearchCriteria.Op.EQ, name);
-        }
-        if (version != null) {
-            sc.addAnd("version", SearchCriteria.Op.EQ, version);
-        }
-        if (keyword != null) {
-            sc.addAnd("version", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-        }
-        return managementServerJoinDao.searchAndCount(sc, null);
-    }
-
-    protected ManagementServerResponse createManagementServerResponse(ManagementServerJoinVO mgmt, boolean listPeers) {
-        ManagementServerResponse mgmtResponse = new ManagementServerResponse();
-        mgmtResponse.setId(mgmt.getUuid());
-        mgmtResponse.setName(mgmt.getName());
-        mgmtResponse.setState(mgmt.getState());
-        mgmtResponse.setVersion(mgmt.getVersion());
-        mgmtResponse.setJavaVersion(mgmt.getJavaVersion());
-        mgmtResponse.setJavaDistribution(mgmt.getJavaName());
-        mgmtResponse.setOsDistribution(mgmt.getOsDistribution());
-        mgmtResponse.setLastServerStart(mgmt.getLastJvmStart());
-        mgmtResponse.setLastServerStop(mgmt.getLastJvmStop());
-        mgmtResponse.setLastBoot(mgmt.getLastSystemBoot());
-        if (listPeers) {
-            List<ManagementServerHostPeerJoinVO> peers = mshostPeerJoinDao.listByOwnerMshostId(mgmt.getId());
-            for (ManagementServerHostPeerJoinVO peer: peers) {
-                mgmtResponse.addPeer(createPeerManagementServerNodeResponse(peer));
-            }
-        }
-        List<String> lastAgents = hostDao.listByLastMs(mgmt.getMsid());
-        mgmtResponse.setLastAgents(lastAgents);
-        List<String> agents = hostDao.listByMs(mgmt.getMsid());
-        mgmtResponse.setAgents(agents);
-        mgmtResponse.setAgentsCount((long) agents.size());
-        mgmtResponse.setPendingJobsCount(jobManager.countPendingNonPseudoJobs(mgmt.getMsid()));
-        mgmtResponse.setServiceIp(mgmt.getServiceIP());
-        mgmtResponse.setIpAddress(mgmt.getServiceIP());
-        mgmtResponse.setObjectName("managementserver");
-        return mgmtResponse;
-    }
-
-    private PeerManagementServerNodeResponse createPeerManagementServerNodeResponse(ManagementServerHostPeerJoinVO peer) {
-        PeerManagementServerNodeResponse response = new PeerManagementServerNodeResponse();
-
-        response.setState(peer.getPeerState());
-        response.setLastUpdated(peer.getLastUpdateTime());
-
-        response.setPeerId(peer.getPeerMshostUuid());
-        response.setPeerName(peer.getPeerMshostName());
-        response.setPeerMsId(String.valueOf(peer.getPeerMshostMsId()));
-        response.setPeerRunId(String.valueOf(peer.getPeerMshostRunId()));
-        response.setPeerState(peer.getPeerMshostState());
-        response.setPeerServiceIp(peer.getPeerMshostServiceIp());
-        response.setPeerServicePort(String.valueOf(peer.getPeerMshostServicePort()));
-
-        response.setObjectName("peermanagementserver");
         return response;
     }
 
