@@ -319,6 +319,8 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
     private DataStoreManager dataStoreManager;
     @Inject
     private ImportVmTasksManager importVmTasksManager;
+    @Inject
+    protected UnmanagedInstanceNicValidator unmanagedInstanceNicValidator;
 
     protected Gson gson;
 
@@ -629,65 +631,24 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
         }
     }
 
-    private void checkUnmanagedNicAndNetworkForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final DataCenter zone, final Account owner, final boolean autoAssign, Hypervisor.HypervisorType hypervisorType) throws ServerApiException {
-        basicNetworkChecks(instanceName, nic, network);
-        if (network.getDataCenterId() != zone.getId()) {
-            throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("Network(ID: %s) for nic(ID: %s) belongs to a different zone than VM to be imported", network.getUuid(), nic.getNicId()));
-        }
-        networkModel.checkNetworkPermissions(owner, network);
-        if (!autoAssign && network.getGuestType().equals(Network.GuestType.Isolated)) {
-            return;
-        }
-        checksOnlyNeededForVmware(nic, network, hypervisorType);
+    protected void checkUnmanagedNicAndNetworkForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final DataCenter zone, final Account owner, final boolean autoAssign, Hypervisor.HypervisorType hypervisorType) throws ServerApiException {
+        unmanagedInstanceNicValidator.checkUnmanagedNicAndNetworkForImport(instanceName, nic, network, zone, owner, autoAssign, hypervisorType);
     }
 
-    private void checksOnlyNeededForVmware(UnmanagedInstanceTO.Nic nic, Network network, final Hypervisor.HypervisorType hypervisorType) {
-        if (hypervisorType == Hypervisor.HypervisorType.VMware) {
-            String networkBroadcastUri = network.getBroadcastUri() == null ? null : network.getBroadcastUri().toString();
-            if (nic.getVlan() != null && nic.getVlan() != 0 && nic.getPvlan() == null &&
-                    (StringUtils.isEmpty(networkBroadcastUri) ||
-                            !networkBroadcastUri.equals(String.format("vlan://%d", nic.getVlan())))) {
-                throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("VLAN of network(ID: %s) %s is found different from the VLAN of nic(ID: %s) vlan://%d during VM import", network.getUuid(), networkBroadcastUri, nic.getNicId(), nic.getVlan()));
-            }
-            String pvLanType = nic.getPvlanType() == null ? "" : nic.getPvlanType().toLowerCase().substring(0, 1);
-            if (nic.getVlan() != null && nic.getVlan() != 0 && nic.getPvlan() != null && nic.getPvlan() != 0 &&
-                    (StringUtils.isEmpty(networkBroadcastUri) || !String.format("pvlan://%d-%s%d", nic.getVlan(), pvLanType, nic.getPvlan()).equals(networkBroadcastUri))) {
-                throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("PVLAN of network(ID: %s) %s is found different from the VLAN of nic(ID: %s) pvlan://%d-%s%d during VM import", network.getUuid(), networkBroadcastUri, nic.getNicId(), nic.getVlan(), pvLanType, nic.getPvlan()));
-            }
-        }
+    protected void checksOnlyNeededForVmware(UnmanagedInstanceTO.Nic nic, Network network, final Hypervisor.HypervisorType hypervisorType) {
+        unmanagedInstanceNicValidator.checksOnlyNeededForVmware(nic, network, hypervisorType);
     }
 
-    private void basicNetworkChecks(String instanceName, UnmanagedInstanceTO.Nic nic, Network network) {
-        if (nic == null) {
-            throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("Unable to retrieve the NIC details used by VM [%s] from VMware. Please check if this VM have NICs in VMWare.", instanceName));
-        }
-        if (network == null) {
-            throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("Network for nic ID: %s not found during VM import.", nic.getNicId()));
-        }
+    protected void basicNetworkChecks(String instanceName, UnmanagedInstanceTO.Nic nic, Network network) {
+        unmanagedInstanceNicValidator.basicNetworkChecks(instanceName, nic, network);
     }
 
-    private void checkUnmanagedNicAndNetworkHostnameForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final String hostName) throws ServerApiException {
-        basicNetworkChecks(instanceName, nic, network);
-        // Check for duplicate hostname in network, get all vms hostNames in the network
-        List<String> hostNames = vmDao.listDistinctHostNames(network.getId());
-        if (CollectionUtils.isNotEmpty(hostNames) && hostNames.contains(hostName)) {
-            throw new InvalidParameterValueException(String.format("VM with Name [%s] already exists in the network [%s] domain [%s]. Cannot import another VM with the same name. Please try again with a different name.", hostName, network, network.getNetworkDomain()));
-        }
+    protected void checkUnmanagedNicAndNetworkHostnameForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final String hostName) throws ServerApiException {
+        unmanagedInstanceNicValidator.checkUnmanagedNicAndNetworkHostnameForImport(instanceName, nic, network, hostName);
     }
 
-    private void checkUnmanagedNicIpAndNetworkForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final Network.IpAddresses ipAddresses) throws ServerApiException {
-        basicNetworkChecks(instanceName, nic, network);
-        // Check IP is assigned for non L2 networks
-        if (!network.getGuestType().equals(Network.GuestType.L2) && (ipAddresses == null || StringUtils.isEmpty(ipAddresses.getIp4Address()))) {
-            throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("NIC(ID: %s) needs a valid IP address for it to be associated with network(ID: %s). %s parameter of API can be used for this", nic.getNicId(), network.getUuid(), ApiConstants.NIC_IP_ADDRESS_LIST));
-        }
-        // If network is non L2, IP v4 is assigned and not set to auto-assign, check it is available for network
-        if (!network.getGuestType().equals(Network.GuestType.L2) && ipAddresses != null && StringUtils.isNotEmpty(ipAddresses.getIp4Address()) && !ipAddresses.getIp4Address().equals("auto")) {
-            Set<Long> ips = networkModel.getAvailableIps(network, ipAddresses.getIp4Address());
-            if (CollectionUtils.isEmpty(ips) || !ips.contains(NetUtils.ip2Long(ipAddresses.getIp4Address()))) {
-                throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("IP address %s for NIC(ID: %s) is not available in network(ID: %s)", ipAddresses.getIp4Address(), nic.getNicId(), network.getUuid()));
-            }
-        }
+    protected void checkUnmanagedNicIpAndNetworkForImport(String instanceName, UnmanagedInstanceTO.Nic nic, Network network, final Network.IpAddresses ipAddresses) throws ServerApiException {
+        unmanagedInstanceNicValidator.checkUnmanagedNicIpAndNetworkForImport(instanceName, nic, network, ipAddresses);
     }
 
     private Map<String, Long> getUnmanagedNicNetworkMap(String instanceName, List<UnmanagedInstanceTO.Nic> nics, final Map<String, Long> callerNicNetworkMap,
@@ -1889,14 +1850,8 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
         }
     }
 
-    private void checkUnmanagedNicAndNetworkMacAddressForImport(NetworkVO network, UnmanagedInstanceTO.Nic nic, boolean forced) {
-        NicVO existingNic = nicDao.findByNetworkIdAndMacAddress(network.getId(), nic.getMacAddress());
-        if (existingNic != null && !forced) {
-            String err = String.format("NIC %s with MAC address %s already exists on network %s and forced flag is disabled. " +
-                    "Retry with forced flag enabled if a new MAC address to be generated.", nic, nic.getMacAddress(), network);
-            logger.error(err);
-            throw new CloudRuntimeException(err);
-        }
+    protected void checkUnmanagedNicAndNetworkMacAddressForImport(NetworkVO network, UnmanagedInstanceTO.Nic nic, boolean forced) {
+        unmanagedInstanceNicValidator.checkUnmanagedNicAndNetworkMacAddressForImport(network, nic, forced);
     }
 
     private void sanitizeConvertedInstance(UnmanagedInstanceTO convertedInstance, UnmanagedInstanceTO sourceVMwareInstance) {
