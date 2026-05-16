@@ -53,6 +53,7 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.object.ObjectStore;
 import org.apache.commons.collections.MapUtils;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
@@ -169,6 +170,21 @@ public class StorageManagerImplTest {
 
     @Mock
     DataStoreManager dataStoreMgr;
+
+    @Before
+    public void setUp() {
+        // Phase 4 Spring-component decomposition: the SAG resolution / uniqueness
+        // checks were extracted into StorageAccessGroupServiceImpl. The tests below
+        // exercise that behavior through the manager's delegating wrappers, so wire
+        // up a real StorageAccessGroupServiceImpl backed by the test's existing
+        // DAO mocks. Field names on the impl are dcDao/podDao/clusterDao/hostDao.
+        StorageAccessGroupServiceImpl sagService = new StorageAccessGroupServiceImpl();
+        ReflectionTestUtils.setField(sagService, "dcDao", dataCenterDao);
+        ReflectionTestUtils.setField(sagService, "podDao", podDao);
+        ReflectionTestUtils.setField(sagService, "clusterDao", clusterDao);
+        ReflectionTestUtils.setField(sagService, "hostDao", hostDao);
+        ReflectionTestUtils.setField(storageManagerImpl, "storageAccessGroupService", sagService);
+    }
 
     @Test
     public void createLocalStoragePoolName() {
