@@ -135,6 +135,19 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.routerJoinDao = mock(DomainRouterJoinDao.class);
         testOrchestrator._ipAddrMgr = mock(IpAddressManager.class);
         testOrchestrator._entityMgr = mock(EntityManager.class);
+
+        // Wire a real NetworkProviderResolutionServiceImpl that shares the
+        // same dao/network-model mocks as the orchestrator under test, so
+        // existing `verify(orchestrator._ntwkSrvcDao, ...)` and
+        // `verify(orchestrator._networkModel, ...)` assertions in tests that
+        // indirectly exercise getDhcpServiceProvider / getDnsServiceProvider
+        // through removeNic et al. continue to observe the calls.
+        NetworkProviderResolutionServiceImpl resolutionService = new NetworkProviderResolutionServiceImpl();
+        resolutionService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        resolutionService.networkModel = testOrchestrator._networkModel;
+        resolutionService.entityManager = testOrchestrator._entityMgr;
+        testOrchestrator.networkProviderResolutionService = resolutionService;
+
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
         Map<Network.Capability, String> capabilities = new HashMap<Network.Capability, String>();
