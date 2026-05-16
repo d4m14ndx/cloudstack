@@ -19,16 +19,31 @@ package com.cloud.configuration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
+import org.apache.cloudstack.cluster.ClusterDrsService;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
+import org.apache.cloudstack.userdata.UserDataManager;
+import org.apache.cloudstack.vm.UnmanagedVMsManager;
+import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.cloud.alert.AlertManager;
+import com.cloud.capacity.CapacityManager;
+import com.cloud.consoleproxy.ConsoleProxyManager;
+import com.cloud.deploy.DeploymentClusterPlanner;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.network.as.AutoScaleManager;
+import com.cloud.network.router.VirtualNetworkApplianceManager;
+import com.cloud.storage.StorageManager;
+import com.cloud.storage.secondary.SecondaryStorageVmManager;
+import com.cloud.user.AccountManagerImpl;
 import com.cloud.utils.Pair;
 import com.cloud.utils.net.NetUtils;
+import com.cloud.vm.VirtualMachineManager;
 
 /**
  * Pure validation utilities for global configuration values.
@@ -55,6 +70,111 @@ public final class ConfigurationValueValidator {
 
     /** Config key whose value must not collide with the Kubernetes cluster SSH port range. */
     public static final String KUBERNETES_ETCD_NODE_START_PORT_KEY = "cloud.kubernetes.etcd.node.start.port";
+
+    /**
+     * Configurations whose integer values must be strictly positive (with a
+     * few keys carrying additional bound constraints). Extracted from the
+     * former {@code populateConfigValuesForValidationSet()} method.
+     */
+    static final Set<String> POSITIVE_INTEGER_CONFIGS = Set.of(
+            "event.purge.interval",
+            "account.cleanup.interval",
+            "alert.wait",
+            ConsoleProxyManager.ConsoleProxyCapacityScanInterval.key(),
+            "expunge.interval",
+            "host.stats.interval",
+            "network.gc.interval",
+            "ping.interval",
+            "snapshot.poll.interval",
+            "storage.stats.interval",
+            "storage.cleanup.interval",
+            "wait",
+            "xenserver.heartbeat.interval",
+            "xenserver.heartbeat.timeout",
+            "incorrect.login.attempts.allowed",
+            "vm.password.length",
+            "externaldhcp.vmip.retrieval.interval",
+            "externaldhcp.vmip.max.retry",
+            "externaldhcp.vmipFetch.threadPool.max",
+            "remote.access.vpn.psk.length",
+            StorageManager.STORAGE_POOL_DISK_WAIT.key(),
+            StorageManager.STORAGE_POOL_CLIENT_TIMEOUT.key(),
+            StorageManager.STORAGE_POOL_CLIENT_MAX_CONNECTIONS.key(),
+            UserDataManager.VM_USERDATA_MAX_LENGTH_STRING,
+            UnmanagedVMsManager.RemoteKvmInstanceDisksCopyTimeout.key(),
+            UnmanagedVMsManager.ConvertVmwareInstanceToKvmTimeout.key(),
+            VMLeaseManager.InstanceLeaseSchedulerInterval.key(),
+            VMLeaseManager.InstanceLeaseExpiryEventSchedulerInterval.key(),
+            VMLeaseManager.InstanceLeaseExpiryEventDaysBefore.key(),
+            AutoScaleManager.AutoScaleErroredInstanceThreshold.key());
+
+    /**
+     * Configurations whose float values must be in the inclusive range [0.0, 1.0]
+     * (capacity and weight thresholds). Extracted from the former
+     * {@code weightBasedParametersForValidation()} method.
+     */
+    static final Set<String> WEIGHT_BASED_PARAMETERS = Set.of(
+            AlertManager.CPUCapacityThreshold.key(),
+            AlertManager.StorageAllocatedCapacityThreshold.key(),
+            AlertManager.StorageCapacityThreshold.key(),
+            AlertManager.MemoryCapacityThreshold.key(),
+            Config.PublicIpCapacityThreshold.key(),
+            Config.PrivateIpCapacityThreshold.key(),
+            Config.SecondaryStorageCapacityThreshold.key(),
+            Config.VlanCapacityThreshold.key(),
+            Config.DirectNetworkPublicIpCapacityThreshold.key(),
+            Config.LocalStorageCapacityThreshold.key(),
+            CapacityManager.StorageAllocatedCapacityDisableThreshold.key(),
+            CapacityManager.StorageCapacityDisableThreshold.key(),
+            CapacityManager.StorageAllocatedCapacityDisableThresholdForVolumeSize.key(),
+            DeploymentClusterPlanner.ClusterCPUCapacityDisableThreshold.key(),
+            DeploymentClusterPlanner.ClusterMemoryCapacityDisableThreshold.key(),
+            Config.AgentLoadThreshold.key(),
+            Config.VmUserDispersionWeight.key(),
+            CapacityManager.SecondaryStorageCapacityThreshold.key(),
+            ClusterDrsService.ClusterDrsImbalanceThreshold.key(),
+            ClusterDrsService.ClusterDrsImbalanceSkipThreshold.key(),
+            ConfigurationManager.HostCapacityTypeCpuMemoryWeight.key());
+
+    /**
+     * Configurations whose float values must be strictly positive (resource
+     * overprovisioning factors).
+     */
+    static final Set<String> OVERPROVISIONING_FACTORS = Set.of(
+            CapacityManager.MemOverprovisioningFactor.key(),
+            CapacityManager.CpuOverprovisioningFactor.key(),
+            CapacityManager.StorageOverprovisioningFactor.key());
+
+    /**
+     * Configurations that can only be edited by the default admin user (root admin).
+     */
+    static final Set<String> CONFIG_KEYS_ALLOWED_ONLY_FOR_DEFAULT_ADMIN = Set.of(
+            AccountManagerImpl.listOfRoleTypesAllowedForOperationsOfSameRoleType.key(),
+            AccountManagerImpl.allowOperationsOnUsersInSameAccount.key(),
+            VirtualMachineManager.SystemVmEnableUserData.key(),
+            ConsoleProxyManager.ConsoleProxyVmUserData.key(),
+            SecondaryStorageVmManager.SecondaryStorageVmUserData.key(),
+            VirtualNetworkApplianceManager.VirtualRouterUserData.key());
+
+    /** @return true if the named config must hold a positive integer */
+    public static boolean requiresPositiveInteger(String configName) {
+        return POSITIVE_INTEGER_CONFIGS.contains(configName);
+    }
+
+    /** @return true if the named config holds a 0..1 weight value */
+    public static boolean isWeightBasedParameter(String configName) {
+        return WEIGHT_BASED_PARAMETERS.contains(configName);
+    }
+
+    /** @return true if the named config is a positive-only overprovisioning factor */
+    public static boolean isOverprovisioningFactor(String configName) {
+        return OVERPROVISIONING_FACTORS.contains(configName);
+    }
+
+    /** @return true if the named config can only be modified by the default admin */
+    public static boolean isRestrictedToDefaultAdmin(String configName) {
+        return CONFIG_KEYS_ALLOWED_ONLY_FOR_DEFAULT_ADMIN.contains(configName);
+    }
 
     private ConfigurationValueValidator() {
     }

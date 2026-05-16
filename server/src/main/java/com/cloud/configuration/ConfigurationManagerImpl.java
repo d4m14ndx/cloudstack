@@ -50,11 +50,7 @@ import java.util.stream.Collectors;
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import com.cloud.consoleproxy.ConsoleProxyManager;
-import com.cloud.network.router.VirtualNetworkApplianceManager;
-import com.cloud.storage.secondary.SecondaryStorageVmManager;
 import com.cloud.utils.DomainHelper;
-import com.cloud.vm.VirtualMachineManager;
 import org.apache.cloudstack.acl.RoleType;
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.affinity.AffinityGroup;
@@ -101,7 +97,6 @@ import org.apache.cloudstack.api.command.admin.zone.CreateZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.DeleteZoneCmd;
 import org.apache.cloudstack.api.command.admin.zone.UpdateZoneCmd;
 import org.apache.cloudstack.api.command.user.network.ListNetworkOfferingsCmd;
-import org.apache.cloudstack.cluster.ClusterDrsService;
 import org.apache.cloudstack.config.ApiServiceConfiguration;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.context.CallContext;
@@ -196,7 +191,6 @@ import com.cloud.dc.dao.VlanDao;
 import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.dc.dao.VsphereStoragePolicyDao;
 import com.cloud.deploy.DataCenterDeployment;
-import com.cloud.deploy.DeploymentClusterPlanner;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainDetailVO;
 import com.cloud.domain.DomainVO;
@@ -237,7 +231,6 @@ import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetwork;
 import com.cloud.network.UserIpv6AddressVO;
-import com.cloud.network.as.AutoScaleManager;
 import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
@@ -506,10 +499,13 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
 
     private long _defaultPageSize = Long.parseLong(Config.DefaultPageSize.getDefaultValue());
     private static final String DOMAIN_NAME_PATTERN = "^((?!-)[A-Za-z0-9-]{1,63}(?<!-)\\.)+[A-Za-z]{1,63}$";
-    private Set<String> configValuesForValidation = new HashSet<>();
-    private Set<String> configKeysAllowedOnlyForDefaultAdmin = new HashSet<>();
-    private Set<String> weightBasedParametersForValidation = new HashSet<>();
-    private Set<String> overprovisioningFactorsForValidation = new HashSet<>();
+    // Validation sets now live in ConfigurationValueValidator as immutable static
+    // constants. These instance fields are kept (and back the same data) so any
+    // subclass or test that referenced them directly continues to work.
+    private final Set<String> configValuesForValidation = ConfigurationValueValidator.POSITIVE_INTEGER_CONFIGS;
+    private final Set<String> configKeysAllowedOnlyForDefaultAdmin = ConfigurationValueValidator.CONFIG_KEYS_ALLOWED_ONLY_FOR_DEFAULT_ADMIN;
+    private final Set<String> weightBasedParametersForValidation = ConfigurationValueValidator.WEIGHT_BASED_PARAMETERS;
+    private final Set<String> overprovisioningFactorsForValidation = ConfigurationValueValidator.OVERPROVISIONING_FACTORS;
 
     public static final ConfigKey<Boolean> SystemVMUseLocalStorage = new ConfigKey<>(Boolean.class, "system.vm.use.local.storage", "Advanced", "false",
             "Indicates whether to use local storage pools or shared storage pools for system VMs.", false, ConfigKey.Scope.Zone, null);
@@ -580,84 +576,38 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         final String defaultPageSizeString = _configDao.getValue(Config.DefaultPageSize.key());
         _defaultPageSize = NumbersUtil.parseLong(defaultPageSizeString, Long.parseLong(Config.DefaultPageSize.getDefaultValue()));
 
-        populateConfigValuesForValidationSet();
-        weightBasedParametersForValidation();
-        overProvisioningFactorsForValidation();
-        populateConfigKeysAllowedOnlyForDefaultAdmin();
+        // Validation sets are now immutable static constants in ConfigurationValueValidator;
+        // no per-instance population needed.
         initMessageBusListener();
         return true;
     }
 
+    /**
+     * @deprecated The sets these methods used to populate now live as immutable
+     *             static constants in {@link ConfigurationValueValidator}. These
+     *             methods are kept as no-ops for back-compat with tests/spies.
+     */
+    @Deprecated
     protected void populateConfigValuesForValidationSet() {
-        configValuesForValidation.add("event.purge.interval");
-        configValuesForValidation.add("account.cleanup.interval");
-        configValuesForValidation.add("alert.wait");
-        configValuesForValidation.add(ConsoleProxyManager.ConsoleProxyCapacityScanInterval.key());
-        configValuesForValidation.add("expunge.interval");
-        configValuesForValidation.add("host.stats.interval");
-        configValuesForValidation.add("network.gc.interval");
-        configValuesForValidation.add("ping.interval");
-        configValuesForValidation.add("snapshot.poll.interval");
-        configValuesForValidation.add("storage.stats.interval");
-        configValuesForValidation.add("storage.cleanup.interval");
-        configValuesForValidation.add("wait");
-        configValuesForValidation.add("xenserver.heartbeat.interval");
-        configValuesForValidation.add("xenserver.heartbeat.timeout");
-        configValuesForValidation.add("incorrect.login.attempts.allowed");
-        configValuesForValidation.add("vm.password.length");
-        configValuesForValidation.add("externaldhcp.vmip.retrieval.interval");
-        configValuesForValidation.add("externaldhcp.vmip.max.retry");
-        configValuesForValidation.add("externaldhcp.vmipFetch.threadPool.max");
-        configValuesForValidation.add("remote.access.vpn.psk.length");
-        configValuesForValidation.add(StorageManager.STORAGE_POOL_DISK_WAIT.key());
-        configValuesForValidation.add(StorageManager.STORAGE_POOL_CLIENT_TIMEOUT.key());
-        configValuesForValidation.add(StorageManager.STORAGE_POOL_CLIENT_MAX_CONNECTIONS.key());
-        configValuesForValidation.add(UserDataManager.VM_USERDATA_MAX_LENGTH_STRING);
-        configValuesForValidation.add(UnmanagedVMsManager.RemoteKvmInstanceDisksCopyTimeout.key());
-        configValuesForValidation.add(UnmanagedVMsManager.ConvertVmwareInstanceToKvmTimeout.key());
-        configValuesForValidation.add(VMLeaseManager.InstanceLeaseSchedulerInterval.key());
-        configValuesForValidation.add(VMLeaseManager.InstanceLeaseExpiryEventSchedulerInterval.key());
-        configValuesForValidation.add(VMLeaseManager.InstanceLeaseExpiryEventDaysBefore.key());
-        configValuesForValidation.add(AutoScaleManager.AutoScaleErroredInstanceThreshold.key());
+        // No-op: see ConfigurationValueValidator.POSITIVE_INTEGER_CONFIGS
     }
 
+    /** @deprecated see {@link #populateConfigValuesForValidationSet()} */
+    @Deprecated
     protected void weightBasedParametersForValidation() {
-        weightBasedParametersForValidation.add(AlertManager.CPUCapacityThreshold.key());
-        weightBasedParametersForValidation.add(AlertManager.StorageAllocatedCapacityThreshold.key());
-        weightBasedParametersForValidation.add(AlertManager.StorageCapacityThreshold.key());
-        weightBasedParametersForValidation.add(AlertManager.MemoryCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.PublicIpCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.PrivateIpCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.SecondaryStorageCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.VlanCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.DirectNetworkPublicIpCapacityThreshold.key());
-        weightBasedParametersForValidation.add(Config.LocalStorageCapacityThreshold.key());
-        weightBasedParametersForValidation.add(CapacityManager.StorageAllocatedCapacityDisableThreshold.key());
-        weightBasedParametersForValidation.add(CapacityManager.StorageCapacityDisableThreshold.key());
-        weightBasedParametersForValidation.add(CapacityManager.StorageAllocatedCapacityDisableThresholdForVolumeSize.key());
-        weightBasedParametersForValidation.add(DeploymentClusterPlanner.ClusterCPUCapacityDisableThreshold.key());
-        weightBasedParametersForValidation.add(DeploymentClusterPlanner.ClusterMemoryCapacityDisableThreshold.key());
-        weightBasedParametersForValidation.add(Config.AgentLoadThreshold.key());
-        weightBasedParametersForValidation.add(Config.VmUserDispersionWeight.key());
-        weightBasedParametersForValidation.add(CapacityManager.SecondaryStorageCapacityThreshold.key());
-        weightBasedParametersForValidation.add(ClusterDrsService.ClusterDrsImbalanceThreshold.key());
-        weightBasedParametersForValidation.add(ClusterDrsService.ClusterDrsImbalanceSkipThreshold.key());
-        weightBasedParametersForValidation.add(ConfigurationManager.HostCapacityTypeCpuMemoryWeight.key());
+        // No-op: see ConfigurationValueValidator.WEIGHT_BASED_PARAMETERS
     }
 
+    /** @deprecated see {@link #populateConfigValuesForValidationSet()} */
+    @Deprecated
     protected void overProvisioningFactorsForValidation() {
-        overprovisioningFactorsForValidation.add(CapacityManager.MemOverprovisioningFactor.key());
-        overprovisioningFactorsForValidation.add(CapacityManager.CpuOverprovisioningFactor.key());
-        overprovisioningFactorsForValidation.add(CapacityManager.StorageOverprovisioningFactor.key());
+        // No-op: see ConfigurationValueValidator.OVERPROVISIONING_FACTORS
     }
 
+    /** @deprecated see {@link #populateConfigValuesForValidationSet()} */
+    @Deprecated
     protected void populateConfigKeysAllowedOnlyForDefaultAdmin() {
-        configKeysAllowedOnlyForDefaultAdmin.add(AccountManagerImpl.listOfRoleTypesAllowedForOperationsOfSameRoleType.key());
-        configKeysAllowedOnlyForDefaultAdmin.add(AccountManagerImpl.allowOperationsOnUsersInSameAccount.key());
-        configKeysAllowedOnlyForDefaultAdmin.add(VirtualMachineManager.SystemVmEnableUserData.key());
-        configKeysAllowedOnlyForDefaultAdmin.add(ConsoleProxyManager.ConsoleProxyVmUserData.key());
-        configKeysAllowedOnlyForDefaultAdmin.add(SecondaryStorageVmManager.SecondaryStorageVmUserData.key());
-        configKeysAllowedOnlyForDefaultAdmin.add(VirtualNetworkApplianceManager.VirtualRouterUserData.key());
+        // No-op: see ConfigurationValueValidator.CONFIG_KEYS_ALLOWED_ONLY_FOR_DEFAULT_ADMIN
     }
 
     private void initMessageBusListener() {
