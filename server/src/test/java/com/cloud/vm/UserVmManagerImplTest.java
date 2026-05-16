@@ -528,6 +528,11 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(nicService, "itMgr", virtualMachineManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmNicService", nicService);
+        // Slice 4: wire VmRootDiskValidatorImpl with the test's existing mocks
+        VmRootDiskValidatorImpl rootDiskValidator = new VmRootDiskValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "volumeService", volumeApiService);
+        org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "templateDao", templateDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRootDiskValidator", rootDiskValidator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

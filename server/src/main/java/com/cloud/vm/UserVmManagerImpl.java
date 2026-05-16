@@ -602,6 +602,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmNicService vmNicService;
     @Inject
+    private VmRootDiskValidator vmRootDiskValidator;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -3992,21 +3994,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private long verifyAndGetDiskSize(DiskOffering diskOffering, Long diskSize) {
-        long size = 0l;
-        if (diskOffering == null) {
-            throw new InvalidParameterValueException("Specified disk offering cannot be found");
-        }
-        if (diskOffering.isCustomized() && !diskOffering.isComputeOnly()) {
-            if (diskSize == null) {
-                throw new InvalidParameterValueException("This disk offering requires a custom size specified");
-            }
-            _volumeService.validateCustomDiskOfferingSizeRange(diskSize);
-            size = diskSize * GiB_TO_BYTES;
-        } else {
-            size = diskOffering.getDiskSize();
-        }
-        _volumeService.validateVolumeSizeInBytes(size);
-        return size;
+        return vmRootDiskValidator.verifyAndGetDiskSize(diskOffering, diskSize);
     }
 
     @Override
@@ -4024,6 +4012,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      * If the Service Offering has the Root Disk size field configured then the User`s root disk custom parameter is overwritten by the service offering.
      */
     protected long configureCustomRootDiskSize(Map<String, String> customParameters, VMTemplateVO template, HypervisorType hypervisorType, DiskOfferingVO rootDiskOffering) {
+        // Orchestration stays here so existing test spies can intercept the
+        // leaf calls (verifyIfHypervisorSupportsRootdiskSizeOverride, etc.) on
+        // this instance. The leaf helpers themselves delegate to VmRootDiskValidator.
         verifyIfHypervisorSupportsRootdiskSizeOverride(hypervisorType);
         Long rootDiskSizeCustomParam = null;
         if (customParameters.containsKey(VmDetailConstants.ROOT_DISK_SIZE)) {
@@ -4033,13 +4024,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             }
         }
         long rootDiskSizeInBytes = verifyAndGetDiskSize(rootDiskOffering, rootDiskSizeCustomParam);
-        if (rootDiskSizeInBytes > 0) { //if the size at DiskOffering is not zero then the Service Offering had it configured, it holds priority over the User custom size
+        if (rootDiskSizeInBytes > 0) {
             _volumeService.validateVolumeSizeInBytes(rootDiskSizeInBytes);
             long rootDiskSizeInGiB = rootDiskSizeInBytes / GiB_TO_BYTES;
             customParameters.put(VmDetailConstants.ROOT_DISK_SIZE, String.valueOf(rootDiskSizeInGiB));
             return rootDiskSizeInBytes;
         }
-
         if (customParameters.containsKey(VmDetailConstants.ROOT_DISK_SIZE)) {
             Long rootDiskSize = NumbersUtil.parseLong(customParameters.get(VmDetailConstants.ROOT_DISK_SIZE), -1);
             if (rootDiskSize <= 0) {
@@ -4048,24 +4038,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             rootDiskSize = rootDiskSizeCustomParam * GiB_TO_BYTES;
             _volumeService.validateVolumeSizeInBytes(rootDiskSize);
             return rootDiskSize;
-        } else {
-            // For baremetal, size can be 0 (zero)
-            Long templateSize = _templateDao.findById(template.getId()).getSize();
-            if (templateSize != null) {
-                return templateSize;
-            }
         }
-        return 0;
+        Long templateSize = _templateDao.findById(template.getId()).getSize();
+        return templateSize != null ? templateSize : 0;
     }
 
     /**
-     * Only KVM, XenServer and VMware supports rootdisksize override
+     * Only KVM, XenServer and VMware support rootdisksize override.
      * @throws InvalidParameterValueException if the hypervisor does not support rootdisksize override
      */
     protected void verifyIfHypervisorSupportsRootdiskSizeOverride(HypervisorType hypervisorType) {
-        if (!hypervisorType.isFunctionalitySupported(Functionality.RootDiskSizeOverride)) {
-            throw new InvalidParameterValueException("Hypervisor " + hypervisorType + " does not support rootdisksize override");
-        }
+        vmRootDiskValidator.verifyIfHypervisorSupportsRootdiskSizeOverride(hypervisorType);
     }
 
     private List<NetworkVO> getNetworksWithSameNetworkDomainInDomains(List<NetworkVO> networkList, boolean checkSubDomains) {
@@ -4451,28 +4434,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 userVmOVFPropertiesMap, null, dynamicScalingEnabled, vmType, rootDiskOfferingId, sshkeypairs, dataDiskInfoList, volume, snapshot);
     }
 
-    public void validateRootDiskResize(final HypervisorType hypervisorType, Long rootDiskSize, VMTemplateVO templateVO, UserVmVO vm, final Map<String, String> customParameters) throws InvalidParameterValueException
-    {
-        // rootdisksize must be larger than template.
-        boolean isIso = ImageFormat.ISO == templateVO.getFormat();
-        if ((rootDiskSize << 30) < templateVO.getSize()) {
-            String error = String.format("Unsupported: rootdisksize override (%s GB) is smaller than template size %s", rootDiskSize, toHumanReadableSize(templateVO.getSize()));
-            logger.error(error);
-            throw new InvalidParameterValueException(error);
-        } else if ((rootDiskSize << 30) > templateVO.getSize()) {
-            if (hypervisorType == HypervisorType.VMware && (vm.getDetails() == null || vm.getDetails().get(VmDetailConstants.ROOT_DISK_CONTROLLER) == null)) {
-                logger.warn("If Root disk controller parameter is not overridden, then Root disk resize may fail because current Root disk controller value is NULL.");
-            } else if (hypervisorType == HypervisorType.VMware && vm.getDetails().get(VmDetailConstants.ROOT_DISK_CONTROLLER).toLowerCase().contains("ide") && !isIso) {
-                String error = String.format("Found unsupported root disk controller [%s].", vm.getDetails().get(VmDetailConstants.ROOT_DISK_CONTROLLER));
-                logger.error(error);
-                throw new InvalidParameterValueException(error);
-            } else {
-                logger.debug("Rootdisksize override validation successful. Template root disk size " + toHumanReadableSize(templateVO.getSize()) + " Root disk size specified " + rootDiskSize + " GB");
-            }
-        } else {
-            logger.debug("Root disk size specified is " + toHumanReadableSize(rootDiskSize << 30) + " and Template root disk size is " + toHumanReadableSize(templateVO.getSize()) + ". Both are equal so no need to override");
-            customParameters.remove(VmDetailConstants.ROOT_DISK_SIZE);
-        }
+    public void validateRootDiskResize(final HypervisorType hypervisorType, Long rootDiskSize, VMTemplateVO templateVO, UserVmVO vm, final Map<String, String> customParameters) throws InvalidParameterValueException {
+        vmRootDiskValidator.validateRootDiskResize(hypervisorType, rootDiskSize, templateVO, vm, customParameters);
     }
 
 

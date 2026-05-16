@@ -243,6 +243,9 @@ public class UserVmManagerTest {
         org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountDao", _accountDao);
         org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmSnapshotDao", _vmSnapshotDao);
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmNicService", nicService);
+        // Slice 4: wire a VmRootDiskValidatorImpl. validateRootDiskResize is pure
+        // (no DAOs needed), so an instance without injected dependencies is fine.
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmRootDiskValidator", new VmRootDiskValidatorImpl());
     }
 
     @Test
