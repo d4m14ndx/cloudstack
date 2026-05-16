@@ -190,6 +190,7 @@
         <cs.ini.version>0.5.4</cs.ini.version>
         <cs.caffeine.version>3.1.8</cs.caffeine.version>
         <cs.protobuf.version>3.25.6</cs.protobuf.version>
+        <cs.micrometer.version>1.13.6</cs.micrometer.version>
     </properties>
 
     <distributionManagement>
@@ -750,6 +751,16 @@
                 <groupId>com.linbit.linstor.api</groupId>
                 <artifactId>java-linstor</artifactId>
                 <version>${cs.java-linstor.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-core</artifactId>
+                <version>${cs.micrometer.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-registry-prometheus</artifactId>
+                <version>${cs.micrometer.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -1,5 +1,44 @@
 # Observability
 
+## Metrics endpoint (Prometheus)
+
+The management server exposes JVM and process metrics in Prometheus text
+format at `GET /metrics`. This complements the existing prometheus
+integration plugin (which serves *business* metrics — VMs, hosts, storage —
+on its own dedicated port).
+
+What's exposed:
+
+- **JVM**: heap usage by region, GC pause times and counts, thread states,
+  classloader counts, JIT compilation time, heap pressure
+- **Process**: uptime, CPU load, file descriptors, system load average
+
+### Prometheus scrape config
+
+```yaml
+scrape_configs:
+  - job_name: cloudstack-management
+    metrics_path: /client/metrics
+    static_configs:
+      - targets: ['mgmt-1:8080', 'mgmt-2:8080']
+```
+
+### Add custom metrics
+
+Anywhere in the server module:
+
+```java
+import com.cloud.servlet.MetricsRegistryHolder;
+import io.micrometer.core.instrument.Counter;
+
+private final Counter myCounter = Counter.builder("cloudstack.my.counter")
+        .tag("kind", "thing")
+        .register(MetricsRegistryHolder.get());
+
+// ... later
+myCounter.increment();
+```
+
 ## Health check endpoints
 
 The management server exposes lightweight health endpoints suitable for use
