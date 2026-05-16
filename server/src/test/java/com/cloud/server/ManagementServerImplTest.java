@@ -218,6 +218,17 @@ public class ManagementServerImplTest {
         spy._detailsDao = hostDetailsDao;
         spy.userDataManager = userDataManager;
 
+        // SSH keypair slice: wire a real SshKeyPairServiceImpl backed by the
+        // same SSHKeyPairDao mock the existing register tests use, so the
+        // registerSSHKeyPair orchestration (which still lives on the god
+        // class) continues to call the real key-existence / persistence
+        // logic through its delegating wrappers.
+        SshKeyPairServiceImpl sshKeyPairService = new SshKeyPairServiceImpl();
+        ReflectionTestUtils.setField(sshKeyPairService, "sshKeyPairDao", sshKeyPairDao);
+        ReflectionTestUtils.setField(sshKeyPairService, "accountManager", accountManager);
+        ReflectionTestUtils.setField(sshKeyPairService, "annotationDao", annotationDao);
+        ReflectionTestUtils.setField(spy, "sshKeyPairService", sshKeyPairService);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
@@ -257,7 +268,7 @@ public class ManagementServerImplTest {
         Mockito.doReturn(publicKeyString).when(regCmd).getPublicKey();
         Mockito.doReturn("name").when(regCmd).getName();
 
-        spy._sshKeyPairDao = sshKeyPairDao;
+        // SSH keypair DAO is wired into the SshKeyPairServiceImpl in setUp()
         Mockito.doReturn(1L).when(account).getAccountId();
         Mockito.doReturn(1L).when(account).getDomainId();
         Mockito.doReturn(Mockito.mock(SSHKeyPairVO.class)).when(sshKeyPairDao).persist(any(SSHKeyPairVO.class));
@@ -276,7 +287,7 @@ public class ManagementServerImplTest {
 
         Mockito.lenient().doReturn(1L).when(account).getAccountId();
         Mockito.doReturn(1L).when(account).getAccountId();
-        spy._sshKeyPairDao = sshKeyPairDao;
+        // SSH keypair DAO is wired into the SshKeyPairServiceImpl in setUp()
 
 
         //Mocking the DAO object functions - NO object found in DB

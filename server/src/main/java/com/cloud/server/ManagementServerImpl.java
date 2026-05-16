@@ -829,13 +829,11 @@ import com.cloud.user.AccountManager;
 import com.cloud.user.AccountService;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPair;
-import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
 import com.cloud.user.UserData;
 import com.cloud.user.UserDataVO;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
-import com.cloud.user.dao.SSHKeyPairDao;
 import com.cloud.user.dao.UserDao;
 import com.cloud.user.dao.UserDataDao;
 import com.cloud.utils.EnumUtils;
@@ -861,7 +859,6 @@ import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.net.MacAddress;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.security.CertificateHelper;
-import com.cloud.utils.ssh.SSHKeysHelper;
 import com.cloud.vm.ConsoleProxyVO;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.DomainRouterVO;
@@ -986,7 +983,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     private InstanceGroupDao _vmGroupDao;
     @Inject
-    protected SSHKeyPairDao _sshKeyPairDao;
+    protected SshKeyPairService sshKeyPairService;
     @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
@@ -5111,111 +5108,17 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public SSHKeyPair createSSHKeyPair(final CreateSSHKeyPairCmd cmd) {
-        final Account caller = getCaller();
-        final String accountName = cmd.getAccountName();
-        final Long domainId = cmd.getDomainId();
-        final Long projectId = cmd.getProjectId();
-
-        final String name = cmd.getName();
-
-        if (StringUtils.isBlank(name)) {
-            throw new InvalidParameterValueException("Please specify a valid name for the key pair. The key name can't be empty");
-        }
-
-        final Account owner = _accountMgr.finalizeOwner(caller, accountName, domainId, projectId);
-
-        final SSHKeyPairVO s = _sshKeyPairDao.findByName(owner.getAccountId(), owner.getDomainId(), cmd.getName());
-        if (s != null) {
-            throw new InvalidParameterValueException("A key pair with name '" + cmd.getName() + "' already exists.");
-        }
-
-        final SSHKeysHelper keys = new SSHKeysHelper(sshKeyLength.value());
-        final String publicKey = keys.getPublicKey();
-        final String fingerprint = keys.getPublicKeyFingerPrint();
-        final String privateKey = keys.getPrivateKey();
-
-        return createAndSaveSSHKeyPair(name, fingerprint, publicKey, privateKey, owner);
+        return sshKeyPairService.createSshKeyPair(cmd);
     }
 
     @Override
     public boolean deleteSSHKeyPair(final DeleteSSHKeyPairCmd cmd) {
-        final Account caller = getCaller();
-        final String accountName = cmd.getAccountName();
-        final Long domainId = cmd.getDomainId();
-        final Long projectId = cmd.getProjectId();
-
-        Account owner = null;
-        try {
-            owner = _accountMgr.finalizeOwner(caller, accountName, domainId, projectId);
-        } catch (InvalidParameterValueException ex) {
-            if (caller.getType() == Account.Type.ADMIN && accountName != null && domainId != null) {
-                owner = _accountDao.findAccountIncludingRemoved(accountName, domainId);
-            }
-            if (owner == null) {
-                throw ex;
-            }
-        }
-
-        final SSHKeyPairVO s = _sshKeyPairDao.findByName(owner.getAccountId(), owner.getDomainId(), cmd.getName());
-        if (s == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException(
-                    "A key pair with name '" + cmd.getName() + "' does not exist for account " + owner.getAccountName() + " in specified domain id");
-            final DomainVO domain = ApiDBUtils.findDomainById(owner.getDomainId());
-            String domainUuid = String.valueOf(owner.getDomainId());
-            if (domain != null) {
-                domainUuid = domain.getUuid();
-            }
-            ex.addProxyObject(domainUuid, "domainId");
-            throw ex;
-        }
-        annotationDao.removeByEntityType(AnnotationService.EntityType.SSH_KEYPAIR.name(), s.getUuid());
-
-        return _sshKeyPairDao.deleteByName(owner.getAccountId(), owner.getDomainId(), cmd.getName());
+        return sshKeyPairService.deleteSshKeyPair(cmd);
     }
 
     @Override
     public Pair<List<? extends SSHKeyPair>, Integer> listSSHKeyPairs(final ListSSHKeyPairsCmd cmd) {
-        final Long id = cmd.getId();
-        final String name = cmd.getName();
-        final String fingerPrint = cmd.getFingerprint();
-        final String keyword = cmd.getKeyword();
-
-        final Account caller = getCaller();
-        final List<Long> permittedAccounts = new ArrayList<>();
-
-        final Ternary<Long, Boolean, ListProjectResourcesCriteria> domainIdRecursiveListProject = new Ternary<>(cmd.getDomainId(), cmd.isRecursive(), null);
-        _accountMgr.buildACLSearchParameters(caller, null, cmd.getAccountName(), cmd.getProjectId(), permittedAccounts, domainIdRecursiveListProject, cmd.listAll(), false);
-        final Long domainId = domainIdRecursiveListProject.first();
-        final Boolean isRecursive = domainIdRecursiveListProject.second();
-        final ListProjectResourcesCriteria listProjectResourcesCriteria = domainIdRecursiveListProject.third();
-        final SearchBuilder<SSHKeyPairVO> sb = _sshKeyPairDao.createSearchBuilder();
-        _accountMgr.buildACLSearchBuilder(sb, domainId, isRecursive, permittedAccounts, listProjectResourcesCriteria);
-        final Filter searchFilter = new Filter(SSHKeyPairVO.class, "id", false, cmd.getStartIndex(), cmd.getPageSizeVal());
-
-        final SearchCriteria<SSHKeyPairVO> sc = sb.create();
-        _accountMgr.buildACLSearchCriteria(sc, domainId, isRecursive, permittedAccounts, listProjectResourcesCriteria);
-
-        if (id != null) {
-            sc.addAnd("id", SearchCriteria.Op.EQ, id);
-        }
-
-        if (name != null) {
-            sc.addAnd("name", SearchCriteria.Op.EQ, name);
-        }
-
-        if (fingerPrint != null) {
-            sc.addAnd("fingerprint", SearchCriteria.Op.EQ, fingerPrint);
-        }
-
-        if (keyword != null) {
-            final SearchCriteria<SSHKeyPairVO> ssc = _sshKeyPairDao.createSearchCriteria();
-            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("fingerprint", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
-        }
-
-        final Pair<List<SSHKeyPairVO>, Integer> result = _sshKeyPairDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return sshKeyPairService.listSshKeyPairs(cmd);
     }
 
     @Override
@@ -5231,7 +5134,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
         final String publicKey = getPublicKeyFromKeyKeyMaterial(key);
         final String fingerprint = getFingerprint(publicKey);
 
-        return createAndSaveSSHKeyPair(name, fingerprint, publicKey, null, owner);
+        return sshKeyPairService.saveSshKeyPair(name, fingerprint, publicKey, null, owner);
     }
 
     @Override
@@ -5387,49 +5290,37 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     }
 
     /**
-     * @param cmd
-     * @param owner
-     * @throws InvalidParameterValueException
+     * Delegating wrapper. Retained on the god class because
+     * {@link #registerSSHKeyPair(RegisterSSHKeyPairCmd)} calls
+     * {@link #getPublicKeyFromKeyKeyMaterial(String)} on {@code this}, and
+     * existing tests verify the invocation count via a {@code @Spy} on
+     * {@link ManagementServerImpl}.
      */
     private void checkForKeyByPublicKey(final RegisterSSHKeyPairCmd cmd, final Account owner) throws InvalidParameterValueException {
-        final SSHKeyPairVO existingPair = _sshKeyPairDao.findByPublicKey(owner.getAccountId(), owner.getDomainId(), getPublicKeyFromKeyKeyMaterial(cmd.getPublicKey()));
-        if (existingPair != null) {
-            throw new InvalidParameterValueException("A key pair with key '" + cmd.getPublicKey() + "' already exists for this account.");
-        }
+        sshKeyPairService.checkForExistingKeyByPublicKey(owner, getPublicKeyFromKeyKeyMaterial(cmd.getPublicKey()));
     }
 
     /**
-     * @param cmd
-     * @param owner
-     * @throws InvalidParameterValueException
+     * Delegating wrapper. Retained on the god class because existing tests
+     * stub this via {@code Mockito.doNothing().when(spy).checkForKeyByName(...)}.
      */
     protected void checkForKeyByName(final RegisterSSHKeyPairCmd cmd, final Account owner) throws InvalidParameterValueException {
-        final SSHKeyPairVO existingPair = _sshKeyPairDao.findByName(owner.getAccountId(), owner.getDomainId(), cmd.getName());
-        if (existingPair != null) {
-            throw new InvalidParameterValueException("A key pair with name '" + cmd.getName() + "' already exists for this account.");
-        }
+        sshKeyPairService.checkForExistingKeyByName(cmd, owner);
     }
 
     /**
-     * @param publicKey
-     * @return
+     * Delegating wrapper around {@link SshKeyPairService#computeFingerprint(String)}.
      */
     private String getFingerprint(final String publicKey) {
-        return SSHKeysHelper.getPublicKeyFingerprint(publicKey);
+        return sshKeyPairService.computeFingerprint(publicKey);
     }
 
     /**
-     * @param key
-     * @return
-     * @throws InvalidParameterValueException
+     * Delegating wrapper. Retained on the god class because existing tests
+     * verify it is invoked on the {@code @Spy} a specific number of times.
      */
     protected String getPublicKeyFromKeyKeyMaterial(final String key) throws InvalidParameterValueException {
-        final String publicKey = SSHKeysHelper.getPublicKeyFromKeyMaterial(key);
-
-        if (publicKey == null) {
-            throw new InvalidParameterValueException("Public key is invalid");
-        }
-        return publicKey;
+        return sshKeyPairService.extractPublicKey(key);
     }
 
     /**
@@ -5456,21 +5347,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
      */
     protected Account getCaller() {
         return CallContext.current().getCallingAccount();
-    }
-
-    private SSHKeyPair  createAndSaveSSHKeyPair(final String name, final String fingerprint, final String publicKey, final String privateKey, final Account owner) {
-        final SSHKeyPairVO newPair = new SSHKeyPairVO();
-
-        newPair.setAccountId(owner.getAccountId());
-        newPair.setDomainId(owner.getDomainId());
-        newPair.setName(name);
-        newPair.setFingerprint(fingerprint);
-        newPair.setPublicKey(publicKey);
-        newPair.setPrivateKey(privateKey); // transient; not saved.
-
-        _sshKeyPairDao.persist(newPair);
-
-        return newPair;
     }
 
     private UserData createAndSaveUserData(final String name, final String userdata, final String params, final Account owner, final boolean isForCks) {
