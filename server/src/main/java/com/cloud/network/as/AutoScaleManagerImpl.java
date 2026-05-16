@@ -285,6 +285,8 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
     private VirtualMachineManager virtualMachineManager;
     @Inject
     GuestOSDao guestOSDao;
+    @Inject
+    CounterService counterService;
 
     private static final String PARAM_ROOT_DISK_SIZE = "rootdisksize";
     private static final String PARAM_DISK_OFFERING_ID = "diskofferingid";
@@ -1456,40 +1458,13 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_CREATE, eventDescription = "Counter", create = true)
     @DB
     public Counter createCounter(CreateCounterCmd cmd) {
-        String source = cmd.getSource().toUpperCase();
-        String name = cmd.getName();
-        String value = cmd.getValue();
-        Counter.Source src;
-        // Validate Source
-        try {
-            src = Counter.Source.valueOf(source);
-        } catch (Exception ex) {
-            throw new InvalidParameterValueException("The Source " + source + " does not exist; Unable to create Counter");
-        }
-
-        // Validate Provider
-        Network.Provider provider = Network.Provider.getProvider(cmd.getProvider());
-        if (provider == null) {
-            throw new InvalidParameterValueException("The Provider " + cmd.getProvider() + " does not exist; Unable to create Counter");
-        }
-
-        CounterVO counter = null;
-
-        CounterVO existingCounter = counterDao.findByNameProviderValue(name, value, provider.getName());
-        if (existingCounter != null) {
-            throw new InvalidParameterValueException(String.format("Counter with name %s and value %s already exists. ", name,value));
-        }
-        logger.debug("Adding Counter " + name);
-        counter = counterDao.persist(new CounterVO(src, name, value, provider));
-
-        CallContext.current().setEventDetails(" ID: " + counter.getUuid() + " Name: " + name);
-        return counter;
+        return counterService.createCounter(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_CREATE, eventDescription = "Creating a counter", async = true)
     public Counter getCounter(long counterId) {
-        return counterDao.findById(counterId);
+        return counterService.getCounter(counterId);
     }
 
     @Override
@@ -1529,24 +1504,7 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
 
     @Override
     public List<? extends Counter> listCounters(ListCountersCmd cmd) {
-        String name = cmd.getName();
-        Long id = cmd.getId();
-        String source = cmd.getSource();
-        if (source != null) {
-            source = source.toUpperCase();
-        }
-        String providerStr = cmd.getProvider();
-        if (providerStr != null) {
-            Network.Provider provider = Network.Provider.getProvider(providerStr);
-            if (provider == null) {
-                throw new InvalidParameterValueException("The Provider " + providerStr + " does not exist; Unable to list Counter");
-            }
-            providerStr = provider.getName();
-        }
-
-        Filter searchFilter = new Filter(CounterVO.class, "created", false, cmd.getStartIndex(), cmd.getPageSizeVal());
-
-        return counterDao.listCounters(id, name, source, providerStr, cmd.getKeyword(), searchFilter);
+        return counterService.listCounters(cmd);
     }
 
     @Override
@@ -1587,26 +1545,7 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_DELETE, eventDescription = "counter")
     public boolean deleteCounter(long counterId) throws ResourceInUseException {
-        // Verify Counter id
-        CounterVO counter = counterDao.findById(counterId);
-        if (counter == null) {
-            throw new InvalidParameterValueException("Unable to find Counter");
-        }
-
-        // Verify if it is used in any Condition
-
-        ConditionVO condition = conditionDao.findByCounterId(counterId);
-        if (condition != null) {
-            logger.info("Cannot delete counter {} as it is being used in a condition.", counter);
-            throw new ResourceInUseException("Counter is in use.");
-        }
-
-        boolean success = counterDao.remove(counterId);
-        if (success) {
-            logger.info("Successfully deleted counter: {}", counter);
-        }
-
-        return success;
+        return counterService.deleteCounter(counterId);
     }
 
     @Override
