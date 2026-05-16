@@ -56,7 +56,6 @@ import org.apache.cloudstack.acl.ApiKeyPairVO;
 import org.apache.cloudstack.alert.AlertService;
 import org.apache.cloudstack.alert.AlertService.AlertType;
 import org.apache.cloudstack.api.ApiCommandResourceType;
-import org.apache.cloudstack.api.command.admin.router.RebootRouterCmd;
 import org.apache.cloudstack.api.command.admin.router.UpgradeRouterCmd;
 import org.apache.cloudstack.api.command.admin.router.UpgradeRouterTemplateCmd;
 import org.apache.cloudstack.config.ApiServiceConfiguration;
@@ -65,8 +64,6 @@ import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationSe
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
-import org.apache.cloudstack.framework.jobs.AsyncJobManager;
-import org.apache.cloudstack.framework.jobs.impl.AsyncJobVO;
 import org.apache.cloudstack.lb.ApplicationLoadBalancerRuleVO;
 import org.apache.cloudstack.lb.dao.ApplicationLoadBalancerRuleDao;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;
@@ -113,8 +110,6 @@ import com.cloud.agent.api.routing.SetMonitorServiceCommand;
 import com.cloud.agent.api.to.MonitorServiceTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
-import com.cloud.api.ApiAsyncJobDispatcher;
-import com.cloud.api.ApiGsonHelper;
 import com.cloud.api.query.dao.DomainRouterJoinDao;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.DomainRouterJoinVO;
@@ -214,7 +209,6 @@ import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.VpcService;
 import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.network.vpn.Site2SiteVpnManager;
-import com.cloud.offering.DiskOffering;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.offerings.NetworkOfferingVO;
@@ -235,7 +229,6 @@ import com.cloud.user.dao.UserStatisticsDao;
 import com.cloud.user.dao.UserStatsLogDao;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
-import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.db.DB;
@@ -324,9 +317,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Inject Site2SiteVpnManager _s2sVpnMgr;
     @Inject NetworkService _networkSvc;
     @Inject protected MonitoringServiceDao _monitorServiceDao;
-    @Inject AsyncJobManager _asyncMgr;
     @Inject protected VpcDao _vpcDao;
-    @Inject protected ApiAsyncJobDispatcher _asyncDispatcher;
     @Inject OpRouterMonitorServiceDao _opRouterMonitorServiceDao;
 
     @Inject protected NetworkTopologyContext _networkTopologyContext;
@@ -351,6 +342,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
 
     @Inject protected CommandSetupHelper _commandSetupHelper;
     @Inject ManagementServer mgr;
+    @Inject protected RouterUpgradeService routerUpgradeService;
     @Inject
     RoutedIpv4Manager routedIpv4Manager;
     @Inject
@@ -386,60 +378,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Override
     @DB
     public VirtualRouter upgradeRouter(final UpgradeRouterCmd cmd) {
-        final Long routerId = cmd.getId();
-        final Long serviceOfferingId = cmd.getServiceOfferingId();
-        final Account caller = CallContext.current().getCallingAccount();
-
-        final DomainRouterVO router = _routerDao.findById(routerId);
-        if (router == null) {
-            throw new InvalidParameterValueException("Unable to find router with id " + routerId);
-        }
-
-        _accountMgr.checkAccess(caller, null, true, router);
-
-        if (router.getServiceOfferingId() == serviceOfferingId) {
-            logger.debug("Router: {} already has service offering: {}", router, serviceOfferingId);
-            return _routerDao.findById(routerId);
-        }
-
-        final ServiceOffering newServiceOffering = _entityMgr.findById(ServiceOffering.class, serviceOfferingId);
-        if (newServiceOffering == null) {
-            throw new InvalidParameterValueException("Unable to find service offering with id " + serviceOfferingId);
-        }
-        DiskOffering newDiskOffering = _entityMgr.findById(DiskOffering.class, newServiceOffering.getDiskOfferingId());
-        if (newDiskOffering == null) {
-            throw new InvalidParameterValueException("Unable to find disk offering: " + newServiceOffering.getDiskOfferingId());
-        }
-
-        // check if it is a system service offering, if yes return with error as
-        // it cannot be used for user vms
-        if (!newServiceOffering.isSystemUse()) {
-            throw new InvalidParameterValueException(String.format("Cannot upgrade router vm to a non system service offering %s", newServiceOffering));
-        }
-
-        // Check that the router is stopped
-        if (!router.getState().equals(VirtualMachine.State.Stopped)) {
-            logger.warn("Unable to upgrade router " + router + " in state " + router.getState());
-            throw new InvalidParameterValueException("Unable to upgrade router " + router + " in state " + router.getState()
-                    + "; make sure the router is stopped and not in an error state before upgrading.");
-        }
-
-        // Check that the service offering being upgraded to has the same
-        // storage pool preference as the VM's current service
-        // offering
-        if (_itMgr.isRootVolumeOnLocalStorage(routerId) != newDiskOffering.isUseLocalStorage()) {
-            throw new InvalidParameterValueException(String.format(
-                    "Can't upgrade, due to new local storage status : %s is different from current local storage status of router %s",
-                    newDiskOffering.isUseLocalStorage(), router));
-        }
-
-        router.setServiceOfferingId(serviceOfferingId);
-        if (_routerDao.update(routerId, router)) {
-            return _routerDao.findById(routerId);
-        } else {
-            throw new CloudRuntimeException("Unable to upgrade router " + router);
-        }
-
+        return routerUpgradeService.upgradeRouter(cmd);
     }
 
     @ActionEvent(eventType = EventTypes.EVENT_ROUTER_STOP, eventDescription = "stopping router Vm", async = true)
@@ -3266,89 +3205,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
 
     @Override
     public List<Long> upgradeRouterTemplate(final UpgradeRouterTemplateCmd cmd) {
-
-        List<DomainRouterVO> routers = new ArrayList<>();
-        int params = 0;
-
-        final Long routerId = cmd.getId();
-        if (routerId != null) {
-            params++;
-            final DomainRouterVO router = _routerDao.findById(routerId);
-            if (router != null) {
-                routers.add(router);
-            }
-        }
-
-        final Long domainId = cmd.getDomainId();
-        if (domainId != null) {
-            final String accountName = cmd.getAccount();
-            // List by account, if account Name is specified along with domainId
-            if (accountName != null) {
-                final Account account = _accountMgr.getActiveAccountByName(accountName, domainId);
-                if (account == null) {
-                    throw new InvalidParameterValueException("Account :" + accountName + " does not exist in domain: " + domainId);
-                }
-                routers = _routerDao.listRunningByAccountId(account.getId());
-            } else {
-                // List by domainId, account name not specified
-                routers = _routerDao.listRunningByDomain(domainId);
-            }
-            params++;
-        }
-
-        final Long clusterId = cmd.getClusterId();
-        if (clusterId != null) {
-            params++;
-            routers = _routerDao.listRunningByClusterId(clusterId);
-        }
-
-        final Long podId = cmd.getPodId();
-        if (podId != null) {
-            params++;
-            routers = _routerDao.listRunningByPodId(podId);
-        }
-
-        final Long zoneId = cmd.getZoneId();
-        if (zoneId != null) {
-            params++;
-            routers = _routerDao.listRunningByDataCenter(zoneId);
-        }
-
-        if (params > 1) {
-            throw new InvalidParameterValueException("Multiple parameters not supported. Specify only one among routerId/zoneId/podId/clusterId/accountId/domainId");
-        }
-
-        if (routers != null) {
-            return rebootRouters(routers);
-        }
-
-        return null;
-    }
-
-    private List<Long> rebootRouters(final List<DomainRouterVO> routers) {
-        final List<Long> jobIds = new ArrayList<>();
-        for (final DomainRouterVO router : routers) {
-            if (!_nwHelper.checkRouterTemplateVersion(router)) {
-                logger.debug("Upgrading template for router: {}", router);
-                final Map<String, String> params = new HashMap<>();
-                params.put("ctxUserId", "1");
-                params.put("ctxAccountId", "" + router.getAccountId());
-
-                final RebootRouterCmd cmd = new RebootRouterCmd();
-                ComponentContext.inject(cmd);
-                params.put("id", "" + router.getId());
-                params.put("ctxStartEventId", "1");
-                final AsyncJobVO job = new AsyncJobVO("", User.UID_SYSTEM, router.getAccountId(), RebootRouterCmd.class.getName(), ApiGsonHelper.getBuilder().create().toJson(params),
-                        router.getId(), cmd.getApiResourceType() != null ? cmd.getApiResourceType().toString() : null, null);
-                job.setDispatcher(_asyncDispatcher.getName());
-                final long jobId = _asyncMgr.submitAsyncJob(job);
-                jobIds.add(jobId);
-            } else {
-                logger.debug("Router: {} is already at the latest version. No upgrade required", router);
-                throw new CloudRuntimeException("Router is already at the latest version. No upgrade required");
-            }
-        }
-        return jobIds;
+        return routerUpgradeService.upgradeRouterTemplate(cmd);
     }
 
     @Override
