@@ -327,6 +327,20 @@ public class VirtualMachineManagerImplTest {
         ArrayList<StoragePoolAllocator> storagePoolAllocators = new ArrayList<>();
         storagePoolAllocators.add(storagePoolAllocatorMock);
         virtualMachineManagerImpl.setStoragePoolAllocators(storagePoolAllocators);
+
+        // Wire a real VmServiceOfferingUpgradeManager backed by the same
+        // DAO/manager mocks so the delegating wrappers in
+        // VirtualMachineManagerImpl behave like the original inline
+        // implementations.
+        VmServiceOfferingUpgradeManagerImpl upgradeManager = new VmServiceOfferingUpgradeManagerImpl();
+        ReflectionTestUtils.setField(upgradeManager, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(upgradeManager, "storagePoolDao", storagePoolDaoMock);
+        ReflectionTestUtils.setField(upgradeManager, "vmInstanceDao", vmInstanceDaoMock);
+        ReflectionTestUtils.setField(upgradeManager, "vmInstanceDetailsDao", vmInstanceDetailsDao);
+        ReflectionTestUtils.setField(upgradeManager, "templateDao", templateDao);
+        ReflectionTestUtils.setField(upgradeManager, "serviceOfferingDao", serviceOfferingDaoMock);
+        ReflectionTestUtils.setField(upgradeManager, "entityMgr", _entityMgr);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", upgradeManager);
     }
 
     @After
