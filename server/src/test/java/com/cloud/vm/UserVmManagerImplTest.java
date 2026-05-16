@@ -542,6 +542,12 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "serviceOfferingDao", _serviceOfferingDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmUpdateValidator", updateValidator);
+        // Slice 6: wire VmLeaseServiceImpl with the existing vmInstanceDetailsDao mock
+        // so lease validation/apply behaviour reaches the same code paths via the
+        // manager's delegating wrappers.
+        VmLeaseServiceImpl leaseService = new VmLeaseServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(leaseService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmLeaseService", leaseService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

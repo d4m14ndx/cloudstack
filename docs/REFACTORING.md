@@ -94,6 +94,7 @@ spies still work.
 | 3 | `VmNicService` | 5 NIC APIs + helpers (add/remove/update/default) | 6 |
 | 4 | `VmRootDiskValidator` | 4 root-disk validation/sizing methods | 9 |
 | 5 | `VmUpdateValidator` | update-VM input validation + service-offering detail merging | 10 |
+| 6 | `VmLeaseService` | VM lease validation, create-time apply, update-time apply, detail write | 20 |
 
 Each slice keeps the orchestration that needs spy-verified inner calls
 inside `UserVmManagerImpl` — the leaf methods become thin wrappers that
