@@ -73,7 +73,6 @@ import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.messagebus.MessageBus;
 import org.apache.cloudstack.framework.messagebus.PublishScope;
-import org.apache.cloudstack.network.NetworkPermissionVO;
 import org.apache.cloudstack.network.RoutedIpv4Manager;
 import org.apache.cloudstack.network.dao.NetworkPermissionDao;
 import org.apache.cloudstack.network.element.InternalLoadBalancerElementService;
@@ -437,6 +436,8 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     private BGPService bgpService;
     @Inject
     private ASNumberDao asNumberDao;
+    @Inject
+    NetworkPermissionService networkPermissionService;
 
     List<InternalLoadBalancerElementService> internalLoadBalancerElementServices = new ArrayList<>();
     Map<String, InternalLoadBalancerElementService> internalLoadBalancerElementServiceMap = new HashMap<>();
@@ -6109,170 +6110,22 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
 
     @Override
     public List<? extends NetworkPermission> listNetworkPermissions(ListNetworkPermissionsCmd cmd) {
-        final Long networkId = cmd.getNetworkId();
-        NetworkVO network = _networksDao.findById(networkId);
-        if (network == null) {
-            throw new InvalidParameterValueException("unable to find network with id " + networkId);
-        }
-        final Account caller = CallContext.current().getCallingAccount();
-        _accountMgr.checkAccess(caller, AccessType.OperateEntry, true, network);
-
-        List<String> accountNames = new ArrayList<String>();
-        List<NetworkPermissionVO> permissions = _networkPermissionDao.findByNetwork(networkId);
-        return permissions;
+        return networkPermissionService.listNetworkPermissions(cmd);
     }
 
     @Override
     public boolean createNetworkPermissions(CreateNetworkPermissionsCmd cmd) {
-        final Long id = cmd.getNetworkId();
-        List<String> accountNames = cmd.getAccountNames();
-        List<Long> accountIds = cmd.getAccountIds();
-        List<Long> projectIds = cmd.getProjectIds();
-
-        final Account caller = CallContext.current().getCallingAccount();
-        NetworkVO network = validateNetworkPermissionParameters(caller, id);
-
-        accountIds = populateAccounts(caller, accountIds, network.getDomainId(), accountNames, projectIds);
-
-        final List<Long> accountIdsFinal = accountIds;
-        final Account owner = _accountMgr.getAccount(network.getAccountId());
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                for (Long accountId : accountIdsFinal) {
-                    Account permittedAccount = _accountDao.findActiveAccountById(accountId, network.getDomainId());
-                    if (permittedAccount != null) {
-                        if (permittedAccount.getId() == owner.getId()) {
-                            continue; // don't grant permission to the network owner, they implicitly have permission
-                        }
-                        NetworkPermissionVO existingPermission = _networkPermissionDao.findByNetworkAndAccount(id, permittedAccount.getId());
-                        if (existingPermission == null) {
-                            NetworkPermissionVO networkPermission = new NetworkPermissionVO(id, permittedAccount.getId());
-                            _networkPermissionDao.persist(networkPermission);
-                        }
-                    } else {
-                        throw new InvalidParameterValueException("Unable to find account " + accountId + " in the domain of network " + network + ". No permissions is added");
-                    }
-                }
-            }
-        });
-
-        return true;
+        return networkPermissionService.createNetworkPermissions(cmd);
     }
 
     @Override
     public boolean removeNetworkPermissions(RemoveNetworkPermissionsCmd cmd) {
-        final Long id = cmd.getNetworkId();
-        List<String> accountNames = cmd.getAccountNames();
-        List<Long> accountIds = cmd.getAccountIds();
-        List<Long> projectIds = cmd.getProjectIds();
-
-        final Account caller = CallContext.current().getCallingAccount();
-        NetworkVO network = validateNetworkPermissionParameters(caller, id);
-
-        accountIds = populateAccounts(caller, accountIds, network.getDomainId(), accountNames, projectIds);
-
-        _networkPermissionDao.removePermissions(id, accountIds);
-
-        return true;
+        return networkPermissionService.removeNetworkPermissions(cmd);
     }
 
     @Override
     public boolean resetNetworkPermissions(ResetNetworkPermissionsCmd cmd) {
-
-        final Long id = cmd.getNetworkId();
-
-        final Account caller = CallContext.current().getCallingAccount();
-        NetworkVO network = validateNetworkPermissionParameters(caller, id);
-
-        _networkPermissionDao.removeAllPermissions(id);
-
-        return true;
-    }
-
-    private NetworkVO validateNetworkPermissionParameters(Account caller, Long id) {
-
-        final NetworkVO network = _networksDao.findById(id);
-
-        if (network == null) {
-            throw new InvalidParameterValueException("unable to find network with id " + id);
-        }
-
-        if (network.getAclType() == ACLType.Domain) {
-            throw new InvalidParameterValueException("network is already shared in domain");
-        }
-
-        if (network.getVpcId() != null) {
-            throw new InvalidParameterValueException("VPC tiers cannot be shared");
-        }
-
-        _accountMgr.checkAccess(caller, AccessType.OperateEntry, true, network);
-
-        final Account owner = _accountMgr.getAccount(network.getAccountId());
-        if (owner.getType() == Account.Type.PROJECT) {
-            // Currently project owned networks cannot be shared outside project but is available to all users within project by default.
-            throw new InvalidParameterValueException("Update network permissions is an invalid operation on network " + network.getName()
-                    + ". Project owned networks cannot be shared outside network.");
-        }
-
-        //Only admin or owner of the network should be able to change its permissions
-        if (caller.getId() != owner.getId() && !_accountMgr.isAdmin(caller.getId())) {
-            throw new InvalidParameterValueException("Unable to grant permission to account " + caller.getAccountName() + " as it is neither admin nor owner or the network");
-        }
-
-        return network;
-    }
-
-    private List<Long>  populateAccounts(Account caller, List<Long> accountIds, Long domainId, List<String> accountNames, List<Long> projectIds) {
-        if (accountIds == null) {
-            accountIds = new ArrayList<Long>();
-        }
-        // convert projectIds to accountIds
-        if (projectIds != null) {
-            accountIds.addAll(convertProjectIdsToAccountIds(caller, projectIds));
-        }
-        // convert accountNames to accountIds
-        if (accountNames != null) {
-            accountIds.addAll(convertAccountNamesToAccountIds(caller, domainId, accountNames));
-        }
-        final Domain domain = _domainDao.findById(domainId);
-        for (Long accountId : accountIds) {
-            Account permittedAccount = _accountDao.findActiveAccountById(accountId, domain.getId());
-            if (permittedAccount == null) {
-                throw new InvalidParameterValueException("Unable to find account " + accountId + " in domain id=" + domain.getUuid() + ". No permissions is removed");
-            }
-        }
-        return accountIds;
-    }
-
-    private List<Long> convertProjectIdsToAccountIds(final Account caller, final List<Long> projectIds) {
-        List<Long> accountIds = new ArrayList<Long>();
-        for (Long projectId : projectIds) {
-            Project project = _projectMgr.getProject(projectId);
-            if (project == null) {
-                throw new InvalidParameterValueException("Unable to find project by id " + projectId);
-            }
-
-            if (!_projectMgr.canAccessProjectAccount(caller, project.getProjectAccountId())) {
-                throw new InvalidParameterValueException(String.format("Account %s can't access project id=%s", caller, project.getUuid()));
-            }
-            accountIds.add(project.getProjectAccountId());
-        }
-        return accountIds;
-    }
-
-    private List<Long> convertAccountNamesToAccountIds(final Account caller, final Long domainId, final List<String> accountNames) {
-        List<Long> accountIds = new ArrayList<Long>();
-        for (String accountName : accountNames) {
-            Account permittedAccount = _accountDao.findActiveAccount(accountName, domainId);
-            if (permittedAccount == null) {
-                throw new InvalidParameterValueException("Unable to find account by name " + accountName);
-            }
-            if (permittedAccount.getId() != caller.getId()) {
-                accountIds.add(permittedAccount.getId());
-            }
-        }
-        return accountIds;
+        return networkPermissionService.resetNetworkPermissions(cmd);
     }
 
     private void checkIpRangeOverlapWithAssociatedNetworks(Long associatedNetworkId, String startIp, String endIp) {
