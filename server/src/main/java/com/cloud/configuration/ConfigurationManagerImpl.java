@@ -1454,15 +1454,10 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * @throws InvalidParameterValueException if validation fails with a specific error message
      */
     protected void validateSpecificConfigurationValues(String name, String value, Class<?> type) {
-        if (type.equals(String.class)) {
-            if (name.equals(AgentManager.GranularWaitTimeForCommands.toString())) {
-                Pair<Boolean, String> validationResult = validateCommaSeparatedKeyValueConfigWithPositiveIntegerValues(value);
-                if (!validationResult.first()) {
-                    String errMsg = validationResult.second();
-                    logger.error(validationResult.second());
-                    throw new InvalidParameterValueException(errMsg);
-                }
-            }
+        String errMsg = ConfigurationValueValidator.validateSpecificConfigurationValues(name, value, type);
+        if (errMsg != null) {
+            logger.error(errMsg);
+            throw new InvalidParameterValueException(errMsg);
         }
     }
 
@@ -1741,17 +1736,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * @return
      */
     protected String getVlanNumberFromUri(String vlan) {
-        URI uri;
-        try {
-            uri = new URI(vlan);
-            String vlanId = BroadcastDomainType.getValue(uri);
-            if (vlanId == null || !uri.getScheme().equalsIgnoreCase("vlan")) {
-                throw new CloudRuntimeException("Vlan parameter : " + vlan + " is not in valid format");
-            }
-            return vlanId;
-        } catch (URISyntaxException e) {
-            throw new CloudRuntimeException("Invalid vlan parameter: " + vlan + " can't get vlan number from it due to: " + e.getMessage());
-        }
+        return BroadcastDomainType.parseVlanNumberFromUri(vlan);
     }
 
     @Override

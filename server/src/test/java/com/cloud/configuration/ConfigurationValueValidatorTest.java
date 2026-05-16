@@ -442,4 +442,32 @@ public class ConfigurationValueValidatorTest {
         assertTrue("error should name the bad entry: " + err, err.contains("bad-entry"));
         assertTrue("error should name the config: " + err, err.contains("secstorage.allowed.internal.sites"));
     }
+
+    // ---- Static validation set membership ----
+
+    @Test
+    public void positiveIntegerConfigsContainsKnownKeys() {
+        assertTrue(ConfigurationValueValidator.requiresPositiveInteger("event.purge.interval"));
+        assertTrue(ConfigurationValueValidator.requiresPositiveInteger("vm.password.length"));
+        assertFalse(ConfigurationValueValidator.requiresPositiveInteger("arbitrary.unknown.key"));
+    }
+
+    @Test
+    public void weightBasedParametersContainsCapacityThresholds() {
+        assertTrue(ConfigurationValueValidator.isWeightBasedParameter("cluster.cpu.allocated.capacity.notificationthreshold"));
+        assertFalse(ConfigurationValueValidator.isWeightBasedParameter("arbitrary.unknown.key"));
+    }
+
+    @Test
+    public void overprovisioningFactorsAreThree() {
+        assertEquals(3, ConfigurationValueValidator.OVERPROVISIONING_FACTORS.size());
+        assertFalse(ConfigurationValueValidator.isOverprovisioningFactor("arbitrary.unknown.key"));
+    }
+
+    @Test
+    public void restrictedToDefaultAdminContainsExpectedKeys() {
+        assertFalse(ConfigurationValueValidator.isRestrictedToDefaultAdmin("arbitrary.unknown.key"));
+        // Verify the set is non-empty without hard-coding fragile key names
+        assertTrue(ConfigurationValueValidator.CONFIG_KEYS_ALLOWED_ONLY_FOR_DEFAULT_ADMIN.size() >= 4);
+    }
 }

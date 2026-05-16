@@ -247,6 +247,29 @@ public class Networks {
         }
 
         /**
+         * Parses the VLAN identifier from a {@code vlan://N} URI string.
+         *
+         * @param vlanUri a URI string with the "vlan" scheme, e.g. {@code "vlan://100"} or {@code "vlan://untagged"}
+         * @return the VLAN identifier (the URI's authority part)
+         * @throws com.cloud.utils.exception.CloudRuntimeException if the URI is malformed,
+         *         doesn't use the "vlan" scheme, or has no extractable VLAN value
+         */
+        public static String parseVlanNumberFromUri(String vlanUri) {
+            try {
+                URI uri = new URI(vlanUri);
+                String vlanId = getValue(uri);
+                if (vlanId == null || !"vlan".equalsIgnoreCase(uri.getScheme())) {
+                    throw new com.cloud.utils.exception.CloudRuntimeException(
+                            "Vlan parameter : " + vlanUri + " is not in valid format");
+                }
+                return vlanId;
+            } catch (URISyntaxException e) {
+                throw new com.cloud.utils.exception.CloudRuntimeException(
+                        "Invalid vlan parameter: " + vlanUri + " can't get vlan number from it due to: " + e.getMessage());
+            }
+        }
+
+        /**
          * encode a string into a BroadcastUri
          * @param candidate the input string
          * @return an URI containing an appropriate (possibly given) scheme and the value

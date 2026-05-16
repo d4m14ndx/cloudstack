@@ -31,6 +31,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.cloud.agent.AgentManager;
 import com.cloud.alert.AlertManager;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.consoleproxy.ConsoleProxyManager;
@@ -408,6 +409,27 @@ public final class ConfigurationValueValidator {
             return "*****";
         }
         return Objects.requireNonNullElse(value, "");
+    }
+
+    /**
+     * Runs configuration-specific validations that target a single named
+     * setting. Currently only {@code AgentManager.GranularWaitTimeForCommands}
+     * requires the comma-separated key=value format; other names pass through.
+     *
+     * @return null if valid; an error message otherwise
+     */
+    public static String validateSpecificConfigurationValues(String name, String value, Class<?> type) {
+        if (type == null || !type.equals(String.class)) {
+            return null;
+        }
+        if (AgentManager.GranularWaitTimeForCommands.toString().equals(name)) {
+            Pair<Boolean, String> result =
+                    validateCommaSeparatedKeyValueConfigWithPositiveIntegerValues(value);
+            if (!result.first()) {
+                return result.second();
+            }
+        }
+        return null;
     }
 
     /**
