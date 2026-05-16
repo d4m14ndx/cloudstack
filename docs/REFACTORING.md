@@ -90,7 +90,46 @@ These are the remaining `*ManagerImpl` classes over 5K lines, by size:
 | `server/.../VolumeApiServiceImpl.java` | 5,513 | Volume lifecycle. |
 | `server/.../ApiResponseHelper.java` | 5,878 | Response serialization (likely many static-extractable helpers). |
 
-Suggested next target: **`ApiResponseHelper.java`** — likely contains
-many pure response-construction helpers that map domain objects to
-response DTOs. Should yield more pure-helper slices than the
-DAO-heavy manager classes.
+### Pure-helper extraction is the wrong tool for most remaining god classes
+
+After surveying `ApiResponseHelper.java` (5,877 lines, 195 methods):
+its few `public static` helpers (`getPrettyDomainPath`,
+`setResponseIpAddress`, `populateOwner`, etc.) are already extracted
+in place — they're callable directly without instantiating the class.
+The remaining ~5,800 lines are instance methods that interleave DAO
+lookups with response-DTO construction. Extracting the pure
+post-lookup computation parts would yield 5-10 line slices for each
+of 195 methods — high churn, low semantic value.
+
+The same applies to `UserVmManagerImpl`, `NetworkServiceImpl`,
+`QueryManagerImpl`, etc. These are Spring components where the
+domain logic is genuinely entangled with infrastructure calls.
+
+## Recommended next decomposition pattern
+
+For the remaining god classes, **Spring-component extraction** is the
+right pattern, not pure-helper extraction:
+
+1. Pick a coherent domain unit (e.g., "VM clone creation",
+   "Network ACL rule management").
+2. Create a `@Component` that owns just those DAOs and beans, with
+   constructor injection.
+3. Move the related methods over (incl. their helpers).
+4. Replace call sites in the original god class with delegating calls
+   through an injected reference to the new component.
+5. Spy/mock at the new boundary in tests.
+
+This produces larger, less-frequent slices than the pure-helper
+pattern — each one is a meaningful architectural change deserving
+proper review. It's not appropriate for autonomous batch execution
+in the same way pure-helper slices were.
+
+## Suggested high-impact next targets
+
+| Target | Why |
+|--------|-----|
+| Add **OpenAPI spec generation** | Modernizes the API surface; very high external value |
+| **`UserVmManagerImpl` clone/migration extraction** | Natural seam in the biggest god class |
+| **Dockerfile + Helm chart** | Leverages the observability endpoints already added in Phase 4 |
+| **Async-job trace propagation** | Carry traceparent through the job queue so VM operations stay traceable end-to-end |
+| **Per-plugin SPI improvements** | Direct support for the user's "extend the platform over time" goal |
