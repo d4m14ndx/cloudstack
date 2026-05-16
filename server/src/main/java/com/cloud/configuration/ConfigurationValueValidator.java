@@ -291,6 +291,34 @@ public final class ConfigurationValueValidator {
     }
 
     /**
+     * Validates a comma-separated list of CIDR or IP entries. Used for configs
+     * like {@code secstorage.allowed.internal.sites} where the value is a CSV
+     * of allowed networks.
+     *
+     * @return null if all entries are valid IPv4/IPv6 addresses or clean IPv4
+     *         CIDRs; an error message naming the first invalid entry otherwise
+     */
+    public static String validateCidrList(String configName, String value) {
+        if (StringUtils.isEmpty(value)) {
+            return null;
+        }
+        for (String cidr : value.split(",")) {
+            if (NetUtils.isValidIp4(cidr) || NetUtils.isValidIp6(cidr)) {
+                continue;
+            }
+            try {
+                if (NetUtils.getCleanIp4Cidr(cidr).equals(cidr)) {
+                    continue;
+                }
+            } catch (RuntimeException ignored) {
+                // Treat unparseable CIDR as invalid below.
+            }
+            return String.format("Invalid CIDR %s value specified for the config %s.", cidr, configName);
+        }
+        return null;
+    }
+
+    /**
      * Configurations whose names end with {@code .ip}, {@code .ipaddress}, or
      * {@code .iprange} should hold valid IPv4 values. Returns null if the value
      * is structurally valid for the suffix; an error message otherwise.

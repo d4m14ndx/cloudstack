@@ -416,4 +416,30 @@ public class ConfigurationValueValidatorTest {
     public void unrelatedConfigKeyAccepted() {
         assertNull(ConfigurationValueValidator.validateConflictingConfigValue("any.other.key", "2222"));
     }
+
+    // ---- validateCidrList ----
+
+    @Test
+    public void emptyCidrListAccepted() {
+        assertNull(ConfigurationValueValidator.validateCidrList("foo", ""));
+        assertNull(ConfigurationValueValidator.validateCidrList("foo", null));
+    }
+
+    @Test
+    public void singleValidIpAccepted() {
+        assertNull(ConfigurationValueValidator.validateCidrList("foo", "10.0.0.1"));
+    }
+
+    @Test
+    public void multipleValidIpv4CidrsAccepted() {
+        assertNull(ConfigurationValueValidator.validateCidrList("foo", "10.0.0.0/8,192.168.0.0/16"));
+    }
+
+    @Test
+    public void invalidCidrEntryRejectedWithSpecificName() {
+        String err = ConfigurationValueValidator.validateCidrList("secstorage.allowed.internal.sites", "10.0.0.0/8,bad-entry");
+        assertNotNull(err);
+        assertTrue("error should name the bad entry: " + err, err.contains("bad-entry"));
+        assertTrue("error should name the config: " + err, err.contains("secstorage.allowed.internal.sites"));
+    }
 }

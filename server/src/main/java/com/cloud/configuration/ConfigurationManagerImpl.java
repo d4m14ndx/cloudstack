@@ -1469,14 +1469,10 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
             }
         }
 
-        if (type.equals(String.class)) {
-            if (SecStorageAllowedInternalDownloadSites.key().equalsIgnoreCase(name) && StringUtils.isNotEmpty(value)) {
-                final String[] cidrs = value.split(",");
-                for (final String cidr : cidrs) {
-                    if (!NetUtils.isValidIp4(cidr) && !NetUtils.isValidIp6(cidr) && !NetUtils.getCleanIp4Cidr(cidr).equals(cidr)) {
-                        return String.format("Invalid CIDR %s value specified for the config %s.", cidr, name);
-                    }
-                }
+        if (type.equals(String.class) && SecStorageAllowedInternalDownloadSites.key().equalsIgnoreCase(name)) {
+            String cidrError = ConfigurationValueValidator.validateCidrList(name, value);
+            if (cidrError != null) {
+                return cidrError;
             }
         }
 
