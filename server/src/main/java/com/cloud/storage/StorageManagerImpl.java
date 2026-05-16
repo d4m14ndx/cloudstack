@@ -145,7 +145,6 @@ import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.cloudstack.storage.image.datastore.ImageStoreEntity;
 import org.apache.cloudstack.storage.object.ObjectStore;
 import org.apache.cloudstack.storage.object.ObjectStoreEntity;
-import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.time.DateUtils;
@@ -181,7 +180,6 @@ import com.cloud.capacity.CapacityState;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManagerListener;
-import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.cpu.CPU;
@@ -399,6 +397,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     protected UserVmManager userVmManager;
     @Inject
     protected StorageAccessGroupService storageAccessGroupService;
+    @Inject
+    protected DiskThrottlingService diskThrottlingService;
     @Inject
     protected ObjectStoreDao _objectStoreDao;
 
@@ -4425,62 +4425,24 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         }
     }
 
-    // get bytesReadRate from service_offering, disk_offering and vm.disk.throttling.bytes_read_rate
     @Override
     public Long getDiskBytesReadRate(final ServiceOffering offering, final DiskOffering diskOffering) {
-        if ((diskOffering != null) && (diskOffering.getBytesReadRate() != null) && (diskOffering.getBytesReadRate() > 0)) {
-            return diskOffering.getBytesReadRate();
-        } else if ((diskOffering != null) && (diskOffering.getBytesReadRate() != null) && (diskOffering.getBytesReadRate() > 0)) {
-            return diskOffering.getBytesReadRate();
-        } else {
-            Long bytesReadRate = Long.parseLong(_configDao.getValue(Config.VmDiskThrottlingBytesReadRate.key()));
-            if ((bytesReadRate > 0) && ((offering == null) || (!offering.isSystemUse()))) {
-                return bytesReadRate;
-            }
-        }
-        return 0L;
+        return diskThrottlingService.getDiskBytesReadRate(offering, diskOffering);
     }
 
-    // get bytesWriteRate from service_offering, disk_offering and vm.disk.throttling.bytes_write_rate
     @Override
     public Long getDiskBytesWriteRate(final ServiceOffering offering, final DiskOffering diskOffering) {
-        if ((diskOffering != null) && (diskOffering.getBytesWriteRate() != null) && (diskOffering.getBytesWriteRate() > 0)) {
-            return diskOffering.getBytesWriteRate();
-        } else {
-            Long bytesWriteRate = Long.parseLong(_configDao.getValue(Config.VmDiskThrottlingBytesWriteRate.key()));
-            if ((bytesWriteRate > 0) && ((offering == null) || (!offering.isSystemUse()))) {
-                return bytesWriteRate;
-            }
-        }
-        return 0L;
+        return diskThrottlingService.getDiskBytesWriteRate(offering, diskOffering);
     }
 
-    // get iopsReadRate from service_offering, disk_offering and vm.disk.throttling.iops_read_rate
     @Override
     public Long getDiskIopsReadRate(final ServiceOffering offering, final DiskOffering diskOffering) {
-        if ((diskOffering != null) && (diskOffering.getIopsReadRate() != null) && (diskOffering.getIopsReadRate() > 0)) {
-            return diskOffering.getIopsReadRate();
-        } else {
-            Long iopsReadRate = Long.parseLong(_configDao.getValue(Config.VmDiskThrottlingIopsReadRate.key()));
-            if ((iopsReadRate > 0) && ((offering == null) || (!offering.isSystemUse()))) {
-                return iopsReadRate;
-            }
-        }
-        return 0L;
+        return diskThrottlingService.getDiskIopsReadRate(offering, diskOffering);
     }
 
-    // get iopsWriteRate from service_offering, disk_offering and vm.disk.throttling.iops_write_rate
     @Override
     public Long getDiskIopsWriteRate(final ServiceOffering offering, final DiskOffering diskOffering) {
-        if ((diskOffering != null) && (diskOffering.getIopsWriteRate() != null) && (diskOffering.getIopsWriteRate() > 0)) {
-            return diskOffering.getIopsWriteRate();
-        } else {
-            Long iopsWriteRate = Long.parseLong(_configDao.getValue(Config.VmDiskThrottlingIopsWriteRate.key()));
-            if ((iopsWriteRate > 0) && ((offering == null) || (!offering.isSystemUse()))) {
-                return iopsWriteRate;
-            }
-        }
-        return 0L;
+        return diskThrottlingService.getDiskIopsWriteRate(offering, diskOffering);
     }
 
     @Override
@@ -4523,29 +4485,12 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public void setDiskProfileThrottling(DiskProfile dskCh, final ServiceOffering offering, final DiskOffering diskOffering) {
-        dskCh.setBytesReadRate(getDiskBytesReadRate(offering, diskOffering));
-        dskCh.setBytesWriteRate(getDiskBytesWriteRate(offering, diskOffering));
-        dskCh.setIopsReadRate(getDiskIopsReadRate(offering, diskOffering));
-        dskCh.setIopsWriteRate(getDiskIopsWriteRate(offering, diskOffering));
+        diskThrottlingService.setDiskProfileThrottling(dskCh, offering, diskOffering);
     }
 
     @Override
     public DiskTO getDiskWithThrottling(final DataTO volTO, final Volume.Type volumeType, final long deviceId, final String path, final long offeringId, final long diskOfferingId) {
-        DiskTO disk = null;
-        if (volTO != null && volTO instanceof VolumeObjectTO) {
-            VolumeObjectTO volumeTO = (VolumeObjectTO)volTO;
-            ServiceOffering offering = _entityMgr.findById(ServiceOffering.class, offeringId);
-            DiskOffering diskOffering = _entityMgr.findById(DiskOffering.class, diskOfferingId);
-            if (volumeType == Volume.Type.ROOT) {
-                setVolumeObjectTOThrottling(volumeTO, offering, diskOffering);
-            } else {
-                setVolumeObjectTOThrottling(volumeTO, null, diskOffering);
-            }
-            disk = new DiskTO(volumeTO, deviceId, path, volumeType);
-        } else {
-            disk = new DiskTO(volTO, deviceId, path, volumeType);
-        }
-        return disk;
+        return diskThrottlingService.getDiskWithThrottling(volTO, volumeType, deviceId, path, offeringId, diskOfferingId);
     }
 
     @Override
@@ -4555,13 +4500,6 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
             return true;
         }
         return false;
-    }
-
-    private void setVolumeObjectTOThrottling(VolumeObjectTO volumeTO, final ServiceOffering offering, final DiskOffering diskOffering) {
-        volumeTO.setBytesReadRate(getDiskBytesReadRate(offering, diskOffering));
-        volumeTO.setBytesWriteRate(getDiskBytesWriteRate(offering, diskOffering));
-        volumeTO.setIopsReadRate(getDiskIopsReadRate(offering, diskOffering));
-        volumeTO.setIopsWriteRate(getDiskIopsWriteRate(offering, diskOffering));
     }
 
     @Override
