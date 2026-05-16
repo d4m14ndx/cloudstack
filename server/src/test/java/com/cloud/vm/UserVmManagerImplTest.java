@@ -576,6 +576,13 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "templateDao", templateDao);
         org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmMigrationValidator", migrationValidator);
+        // Slice 10: wire VmCreationValidatorImpl. createVirtualMachine tests reach
+        // verifyServiceOffering/verifyTemplate/verifyDetails through the manager's
+        // delegating wrappers, so the validator's deps need real mock backings.
+        VmCreationValidatorImpl creationValidator = new VmCreationValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(creationValidator, "serviceOfferingJoinDao", serviceOfferingJoinDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(creationValidator, "vnfTemplateManager", vnfTemplateManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmCreationValidator", creationValidator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

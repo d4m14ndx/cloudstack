@@ -593,6 +593,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmMigrationValidator vmMigrationValidator;
     @Inject
+    private VmCreationValidator vmCreationValidator;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -5610,47 +5612,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void verifyServiceOffering(BaseDeployVMCmd cmd, ServiceOffering serviceOffering) {
-        if (ServiceOffering.State.Inactive.equals(serviceOffering.getState())) {
-            throw new InvalidParameterValueException(String.format("Service offering is inactive: [%s].", serviceOffering.getUuid()));
-        }
-
-        Long overrideDiskOfferingId = cmd.getOverrideDiskOfferingId();
-        if (serviceOffering.getDiskOfferingStrictness() && overrideDiskOfferingId != null) {
-            throw new InvalidParameterValueException(String.format("Cannot override disk offering id %d since provided service offering is strictly mapped to its disk offering", overrideDiskOfferingId));
-        }
-
-        if (!serviceOffering.isDynamic()) {
-            for (String detail: cmd.getDetails().keySet()) {
-                if (detail.equalsIgnoreCase(VmDetailConstants.CPU_NUMBER) || detail.equalsIgnoreCase(VmDetailConstants.CPU_SPEED) || detail.equalsIgnoreCase(VmDetailConstants.MEMORY)) {
-                    throw new InvalidParameterValueException("cpuNumber or cpuSpeed or memory should not be specified for static service offering");
-                }
-            }
-        }
+        vmCreationValidator.verifyServiceOffering(cmd, serviceOffering);
     }
 
     private void verifyTemplate(BaseDeployVMCmd cmd, VirtualMachineTemplate template, Long serviceOfferingId) {
-        if (TemplateType.VNF.equals(template.getTemplateType())) {
-            vnfTemplateManager.validateVnfApplianceNics(template, cmd.getNetworkIds(), cmd.getVmNetworkMap());
-        } else if (cmd instanceof DeployVnfApplianceCmd) {
-            throw new InvalidParameterValueException("Can't deploy VNF appliance from a non-VNF template");
-        }
-
-        ServiceOfferingJoinVO svcOffering = serviceOfferingJoinDao.findById(serviceOfferingId);
-
-        if (template.isDeployAsIs()) {
-            if (svcOffering != null && svcOffering.getRootDiskSize() != null && svcOffering.getRootDiskSize() > 0) {
-                throw new InvalidParameterValueException("Failed to deploy Virtual Machine as a service offering with root disk size specified cannot be used with a deploy as-is template");
-            }
-
-            if (cmd.getDetails().get("rootdisksize") != null) {
-                throw new InvalidParameterValueException("Overriding root disk size isn't supported for VMs deployed from deploy as-is Templates");
-            }
-
-            // Bootmode and boottype are not supported on VMWare dpeloy-as-is templates (since 4.15)
-            if ((cmd.getBootMode() != null || cmd.getBootType() != null)) {
-                throw new InvalidParameterValueException("Boot type and boot mode are not supported on VMware for Templates registered as deploy-as-is, as we honour what is defined in the template.");
-            }
-        }
+        vmCreationValidator.verifyTemplate(cmd, template, serviceOfferingId);
     }
 
     @Override
@@ -6068,69 +6034,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return securityGroupIdList;
     }
 
-    // this is an opportunity to verify that parameters that came in via the Details Map are OK
-    // for example, minIops and maxIops should either both be specified or neither be specified and,
-    // if specified, minIops should be <= maxIops
-    private void verifyDetails(Map<String,String> details) {
-        if (details != null) {
-            String minIops = details.get(MIN_IOPS);
-            String maxIops = details.get(MAX_IOPS);
-
-            verifyMinAndMaxIops(minIops, maxIops);
-
-            minIops = details.get("minIopsDo");
-            maxIops = details.get("maxIopsDo");
-
-            verifyMinAndMaxIops(minIops, maxIops);
-
-            if (details.containsKey("extraconfig")) {
-                throw new InvalidParameterValueException("'extraconfig' should not be included in details as key");
-            }
-
-            for (String detailName : details.keySet()) {
-                if (isExtraConfig(detailName)) {
-                    throw new InvalidParameterValueException("detail name should not start with extraconfig");
-                }
-            }
-        }
+    private void verifyDetails(Map<String, String> details) {
+        vmCreationValidator.verifyDetails(details);
     }
 
     private void verifyMinAndMaxIops(String minIops, String maxIops) {
-        if ((minIops != null && maxIops == null) || (minIops == null && maxIops != null)) {
-            throw new InvalidParameterValueException("Either 'Min IOPS' and 'Max IOPS' must both be specified or neither be specified.");
-        }
-
-        long lMinIops;
-
-        try {
-            if (minIops != null) {
-                lMinIops = Long.parseLong(minIops);
-            }
-            else {
-                lMinIops = 0;
-            }
-        }
-        catch (NumberFormatException ex) {
-            throw new InvalidParameterValueException("'Min IOPS' must be a whole number.");
-        }
-
-        long lMaxIops;
-
-        try {
-            if (maxIops != null) {
-                lMaxIops = Long.parseLong(maxIops);
-            }
-            else {
-                lMaxIops = 0;
-            }
-        }
-        catch (NumberFormatException ex) {
-            throw new InvalidParameterValueException("'Max IOPS' must be a whole number.");
-        }
-
-        if (lMinIops > lMaxIops) {
-            throw new InvalidParameterValueException("'Min IOPS' must be less than or equal to 'Max IOPS'.");
-        }
+        vmCreationValidator.verifyMinAndMaxIops(minIops, maxIops);
     }
 
     @Override
