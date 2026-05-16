@@ -229,6 +229,14 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(sshKeyPairService, "annotationDao", annotationDao);
         ReflectionTestUtils.setField(spy, "sshKeyPairService", sshKeyPairService);
 
+        // Audit-trail slice: wire a mock AuditTrailService so the
+        // archiveEvents/deleteEvents/searchForAlerts/archiveAlerts/
+        // deleteAlerts/listEventTypes delegating wrappers on the god class
+        // have a non-null collaborator. No existing tests exercise these
+        // methods yet; the focused tests live in AuditTrailServiceImplTest.
+        AuditTrailService auditTrailServiceMock = Mockito.mock(AuditTrailService.class);
+        ReflectionTestUtils.setField(spy, "auditTrailService", auditTrailServiceMock);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
