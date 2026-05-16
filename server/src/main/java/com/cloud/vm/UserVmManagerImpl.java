@@ -22,11 +22,7 @@ import static com.cloud.utils.NumbersUtil.toHumanReadableSize;
 import static org.apache.cloudstack.api.ApiConstants.MAX_IOPS;
 import static org.apache.cloudstack.api.ApiConstants.MIN_IOPS;
 
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Type;
-import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -47,15 +43,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.ParserConfigurationException;
 
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
@@ -145,7 +137,6 @@ import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.bytescale.ByteScaleUtils;
-import org.apache.cloudstack.utils.security.ParserUtils;
 import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
@@ -160,11 +151,6 @@ import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
@@ -604,6 +590,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmAssignmentValidator vmAssignmentValidator;
     @Inject
+    private VmExtraConfigService vmExtraConfigService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -688,13 +676,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private static final ConfigKey<Boolean> AllowDeployVmIfGivenHostFails = new ConfigKey<>("Advanced", Boolean.class, "allow.deploy.vm.if.deploy.on.given.host.fails", "false",
             "allow vm to deploy on different host if vm fails to deploy on the given host ", true);
 
-    private static final ConfigKey<String> KvmAdditionalConfigAllowList = new ConfigKey<>(String.class,
+    // Package-private so the VmExtraConfigService extracted in slice 8 can
+    // resolve allow-list values without needing its own ConfigKey registration.
+    static final ConfigKey<String> KvmAdditionalConfigAllowList = new ConfigKey<>(String.class,
     "allow.additional.vm.configuration.list.kvm", "Advanced", "", "Comma separated list of allowed additional configuration options.", true, ConfigKey.Scope.Account, null, null, EnableAdditionalVmConfig.key(), null, null, ConfigKey.Kind.CSV, null);
 
-    private static final ConfigKey<String> XenServerAdditionalConfigAllowList = new ConfigKey<>(String.class,
+    static final ConfigKey<String> XenServerAdditionalConfigAllowList = new ConfigKey<>(String.class,
     "allow.additional.vm.configuration.list.xenserver", "Advanced", "", "Comma separated list of allowed additional configuration options", true, ConfigKey.Scope.Global, null, null, EnableAdditionalVmConfig.key(), null, null, ConfigKey.Kind.CSV, null);
 
-    private static final ConfigKey<String> VmwareAdditionalConfigAllowList = new ConfigKey<>(String.class,
+    static final ConfigKey<String> VmwareAdditionalConfigAllowList = new ConfigKey<>(String.class,
     "allow.additional.vm.configuration.list.vmware", "Advanced", "", "Comma separated list of allowed additional configuration options.", true, ConfigKey.Scope.Global, null, null, EnableAdditionalVmConfig.key(), null, null, ConfigKey.Kind.CSV, null);
 
     private static final ConfigKey<Boolean> VmDestroyForcestop = new ConfigKey<>("Advanced", Boolean.class, "vm.destroy.forcestop", "false",
@@ -5986,189 +5976,40 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    /**
-     * Persist extra configuration data in the vm_instance_details table as key/value pair
-     * @param decodedUrl String consisting of the extra config data to appended onto the vmx file for VMware instances
-     */
     protected void persistExtraConfigVmware(String decodedUrl, UserVm vm) {
-        boolean isValidConfig = isValidKeyValuePair(decodedUrl);
-        if (isValidConfig) {
-            String[] extraConfigs = decodedUrl.split("\\r?\\n+");
-            for (String cfg : extraConfigs) {
-                // Validate cfg against unsupported operations set by admin here
-                String[] allowedKeyList = VmwareAdditionalConfigAllowList.value().split(",");
-                boolean validXenOrVmwareConfiguration = isValidXenOrVmwareConfiguration(cfg, allowedKeyList);
-                String[] paramArray = cfg.split("=");
-                if (validXenOrVmwareConfiguration && paramArray.length == 2) {
-                    vmInstanceDetailsDao.addDetail(vm.getId(), paramArray[0].trim(), paramArray[1].trim(), true);
-                } else {
-                    throw new CloudRuntimeException("Extra config " + cfg + " is not on the list of allowed keys for VMware hypervisor hosts.");
-                }
-            }
-        } else {
-            throw new CloudRuntimeException("The passed extra config string " + decodedUrl + "contains an invalid key/value pair pattern");
-        }
+        vmExtraConfigService.persistExtraConfigVmware(decodedUrl, vm);
     }
 
-    /**
-     * Used to persist extra configuration settings in vm_instance_details table for the XenServer hypervisor
-     * persists config as key/value pair e.g key = extraconfig-1 , value="PV-bootloader=pygrub" and so on to extraconfig-N where
-     * N denotes the number of extra configuration settings passed by user
-     *
-     * @param decodedUrl A string containing extra configuration settings as key/value pairs seprated by newline escape character
-     *                   e.x PV-bootloader=pygrub\nPV-args=console\nHV-Boot-policy=""
-     */
     protected void persistExtraConfigXenServer(String decodedUrl, UserVm vm) {
-        boolean isValidConfig = isValidKeyValuePair(decodedUrl);
-        if (isValidConfig) {
-            String[] extraConfigs = decodedUrl.split("\\r?\\n+");
-            int i = 1;
-            String extraConfigKey = ApiConstants.EXTRA_CONFIG + "-";
-            for (String cfg : extraConfigs) {
-                // Validate cfg against unsupported operations set by admin here
-                String[] allowedKeyList = XenServerAdditionalConfigAllowList.value().split(",");
-                boolean validXenOrVmwareConfiguration = isValidXenOrVmwareConfiguration(cfg, allowedKeyList);
-                if (validXenOrVmwareConfiguration) {
-                    vmInstanceDetailsDao.addDetail(vm.getId(), extraConfigKey + String.valueOf(i), cfg, true);
-                    i++;
-                } else {
-                    throw new CloudRuntimeException("Extra config " + cfg + " is not on the list of allowed keys for XenServer hypervisor hosts.");
-                }
-            }
-        } else {
-            String msg = String.format("The passed extra config string '%s' contains an invalid key/value pair pattern", decodedUrl);
-            throw new CloudRuntimeException(msg);
-        }
+        vmExtraConfigService.persistExtraConfigXenServer(decodedUrl, vm);
     }
 
-    /**
-     * Used to valid extraconfig keylvalue pair for Vmware and XenServer
-     * Example of tested valid config for VMware as taken from VM instance vmx file
-     * <p>
-     * nvp.vm-uuid=34b3d5ea-1c25-4bb0-9250-8dc3388bfa9b
-     * migrate.hostLog=i-2-67-VM-5130f8ab.hlog
-     * ethernet0.address=02:00:5f:51:00:41
-     * </p>
-     * <p>
-     * Examples of tested valid configs for XenServer
-     * <p>
-     * is-a-template=true\nHVM-boot-policy=\nPV-bootloader=pygrub\nPV-args=hvc0
-     * </p>
-     *
-     * Allow the following character set {', ", -, ., =, a-z, 0-9, empty space, \n}
-     *
-     * @param decodedUrl String conprising of extra config key/value pairs for XenServer and Vmware
-     * @return True if extraconfig is valid key/value pair
-     */
     protected boolean isValidKeyValuePair(String decodedUrl) {
-        // Valid pairs should look like "key-1=value1, param:key-2=value2, my.config.v0=False"
-        Pattern pattern = Pattern.compile("^(?:[\\w-\\s\\.:]*=[\\w-\\s\\.'\":]*(?:\\s+|$))+$");
-        Matcher matcher = pattern.matcher(decodedUrl);
-        return matcher.matches();
+        return vmExtraConfigService.isValidKeyValuePair(decodedUrl);
     }
 
-    /**
-     * Validates key/value pair strings passed as extra configuration for XenServer and Vmware
-     * @param cfg configuration key-value pair
-     * @param allowedKeyList list of allowed configuration keys for XenServer and VMware
-     * @return
-     */
     protected boolean isValidXenOrVmwareConfiguration(String cfg, String[] allowedKeyList) {
-        // This should be of minimum length 1
-        // Value is ignored in case it is empty
-        String[] cfgKeyValuePair = cfg.split("=");
-        if (cfgKeyValuePair.length >= 1) {
-            for (String allowedKey : allowedKeyList) {
-                if (cfgKeyValuePair[0].equalsIgnoreCase(allowedKey.trim())) {
-                    return true;
-                }
-            }
-        } else {
-            String msg = String.format("An incorrect configuration %s has been passed", cfg);
-            throw new CloudRuntimeException(msg);
-        }
-        return false;
+        return vmExtraConfigService.isValidXenOrVmwareConfiguration(cfg, allowedKeyList);
     }
 
-    /**
-     * Persist extra configuration data on KVM
-     * persisted in the vm_instance_details DB as extraconfig-1, and so on depending on the number of configurations
-     * For KVM, extra config is passed as XML
-     * @param decodedUrl string containing xml configuration to be persisted into vm_instance_details table
-     * @param vm
-     */
     protected void persistExtraConfigKvm(String decodedUrl, UserVm vm) {
-        // validate config against denied cfg commands
-        validateKvmExtraConfig(decodedUrl, vm.getAccountId());
-        String[] extraConfigs = decodedUrl.split("\n\n");
-        int i = 1;
-        for (String cfg : extraConfigs) {
-            String[] cfgParts = cfg.split("\n");
-            String extraConfigKey = ApiConstants.EXTRA_CONFIG;
-            String extraConfigValue;
-            if (cfgParts[0].matches("\\S+:$")) {
-                extraConfigKey += "-" + cfgParts[0].substring(0, cfgParts[0].length() - 1);
-                extraConfigValue = cfg.replace(cfgParts[0] + "\n", "");
-            } else {
-                extraConfigKey += "-" + String.valueOf(i);
-                extraConfigValue = cfg;
-            }
-            vmInstanceDetailsDao.addDetail(vm.getId(), extraConfigKey, extraConfigValue, true);
-            i++;
-        }
+        vmExtraConfigService.persistExtraConfigKvm(decodedUrl, vm);
     }
-    /**
-     * This method is used to validate if extra config is valid
-     */
+
     @Override
     public void validateExtraConfig(long accountId, HypervisorType hypervisorType, String extraConfig) {
-        if (!EnableAdditionalVmConfig.valueIn(accountId)) {
-            throw new CloudRuntimeException("Additional VM configuration is not enabled for this account");
-        }
-        if (HypervisorType.KVM.equals(hypervisorType)) {
-            validateKvmExtraConfig(extraConfig, accountId);
-        }
+        vmExtraConfigService.validateExtraConfig(accountId, hypervisorType, extraConfig);
     }
 
-    /**
-     * This method is called by the persistExtraConfigKvm
-     * Validates passed extra configuration data for KVM and validates against deny-list of unwanted commands
-     * controlled by Root admin
-     * @param decodedUrl string containing xml configuration to be validated
-     */
     protected void validateKvmExtraConfig(String decodedUrl, long accountId) {
-        String[] allowedConfigOptionList = KvmAdditionalConfigAllowList.valueIn(accountId).split(",");
-        // Skip allowed keys validation for DPDK
-        if (!decodedUrl.contains(":")) {
-            try {
-                DocumentBuilder builder = ParserUtils.getSaferDocumentBuilderFactory().newDocumentBuilder();
-                InputSource src = new InputSource();
-                src.setCharacterStream(new StringReader(String.format("<config>\n%s\n</config>", decodedUrl)));
-                Document doc = builder.parse(src);
-                doc.getDocumentElement().normalize();
-                NodeList nodeList=doc.getElementsByTagName("*");
-                for (int i = 1; i < nodeList.getLength(); i++) { // First element is config so skip it
-                    Element element = (Element)nodeList.item(i);
-                    boolean isValidConfig = false;
-                    String currentConfig = element.getNodeName().trim();
-                    for (String tag : allowedConfigOptionList) {
-                        if (currentConfig.equals(tag.trim())) {
-                            isValidConfig = true;
-                        }
-                    }
-                    if (!isValidConfig) {
-                        throw new CloudRuntimeException(String.format("Extra config '%s' is not on the list of allowed keys for KVM hypervisor hosts", currentConfig));
-                    }
-                }
-            } catch (ParserConfigurationException | IOException | SAXException e) {
-                throw new CloudRuntimeException("Failed to parse additional XML configuration: " + e.getMessage());
-            }
-        }
+        vmExtraConfigService.validateKvmExtraConfig(decodedUrl, accountId);
     }
 
     /**
-     * Adds extra config data to guest VM instances
-     * @param extraConfig Extra Configuration settings to be added in UserVm instances for KVM, XenServer and VMware
+     * Orchestration stays here so existing test spies that stub
+     * {@code persistExtraConfigKvm}/{@code persistExtraConfigVmware}/
+     * {@code persistExtraConfigXenServer} on the manager keep working.
+     * The leaf wrappers above each delegate to {@link VmExtraConfigService}.
      */
     protected void addExtraConfig(UserVm vm, String extraConfig) {
         String decodedUrl = decodeExtraConfig(extraConfig);
@@ -6186,19 +6027,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    /**
-     * Decodes an URL encoded string passed as extra configuration for guest VMs
-     * @param encodeString URL encoded string
-     * @return String result of decoded URL
-     */
     protected String decodeExtraConfig(String encodeString) {
-        String decodedUrl;
-        try {
-            decodedUrl = URLDecoder.decode(encodeString, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            throw new CloudRuntimeException("Failed to provided decode URL string: " + e.getMessage());
-        }
-        return decodedUrl;
+        return vmExtraConfigService.decodeExtraConfig(encodeString);
     }
 
     protected List<Long> getSecurityGroupIdList(SecurityGroupAction cmd) {

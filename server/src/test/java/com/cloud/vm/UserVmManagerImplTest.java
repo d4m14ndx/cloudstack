@@ -559,6 +559,12 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "snapshotDao", snapshotDaoMock);
         org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmAssignmentValidator", assignValidator);
+        // Slice 8: wire VmExtraConfigServiceImpl. The KVM/Xen/VMware extra-config
+        // helpers all delegate here, while addExtraConfig orchestration stays on
+        // the manager so existing spy stubs for persistExtraConfigKvm still fire.
+        VmExtraConfigServiceImpl extraConfigService = new VmExtraConfigServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(extraConfigService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmExtraConfigService", extraConfigService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
