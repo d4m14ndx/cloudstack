@@ -19,6 +19,7 @@ package com.cloud.observability;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
@@ -88,7 +89,16 @@ public final class TracingHolder {
                     && System.getProperty("otel.service.name") == null) {
                 System.setProperty("otel.service.name", "cloudstack-management");
             }
-            return AutoConfiguredOpenTelemetrySdk.initialize().getOpenTelemetrySdk();
+            OpenTelemetry sdk = AutoConfiguredOpenTelemetrySdk.initialize().getOpenTelemetrySdk();
+            // Register globally so lower-level modules (framework/jobs, utils, etc.)
+            // can read the same OpenTelemetry instance via GlobalOpenTelemetry.get()
+            // without depending on the server module.
+            try {
+                GlobalOpenTelemetry.set(sdk);
+            } catch (IllegalStateException alreadySet) {
+                // Reset path during testing — fine to keep current global.
+            }
+            return sdk;
         } catch (Throwable t) {
             // Never let a tracing init failure break the management server.
             LOG.warn("OpenTelemetry initialization failed; falling back to no-op tracing.", t);

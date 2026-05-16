@@ -73,5 +73,11 @@
             <artifactId>commons-io</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- OTel API only (not SDK) — implementation comes from the management
+                 server's TracingHolder via GlobalOpenTelemetry. -->
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
     </dependencies>
 </project>

@@ -58,6 +58,25 @@ try (Scope ignored = span.makeCurrent()) {
 }
 ```
 
+In lower-level modules (framework/*, utils/, plugins/), use
+`io.opentelemetry.api.GlobalOpenTelemetry.get()` instead of TracingHolder
+— it returns the same SDK instance registered by the server at startup,
+without requiring a hard dependency on the server module.
+
+### Async job tracing
+
+Every async job execution gets its own SERVER span via the
+`asyncjob <cmd>` span name, with attributes:
+
+- `cloudstack.job.id` — job ID
+- `cloudstack.job.cmd` — command name (e.g. `org.apache.cloudstack.api.command.user.vm.DeployVMCmd`)
+- `cloudstack.job.dispatcher` — dispatcher name
+
+Note: async job spans are currently independent traces (no parent link
+to the originating API request). Full end-to-end tracing across the job
+queue requires persisting the W3C `traceparent` with the job row — a
+follow-up item.
+
 ### Full auto-instrumentation (optional)
 
 For zero-code instrumentation of JDBC, HTTP clients, Spring, and more, run
