@@ -217,6 +217,16 @@ public class AccountManagentImplTestBase {
     public void setup() {
         accountManagerImpl.setUserAuthenticators(Arrays.asList(userAuthenticator));
         accountManagerImpl.setSecurityCheckers(Arrays.asList(securityChecker));
+        // Phase 4 slice: wire AccountLookupServiceImpl with the same DAO mocks
+        // so AccountManagerImpl's delegating wrappers (getActiveAccountByName,
+        // getActiveUser, getUserAccountById, etc.) still exercise the same
+        // code paths the legacy tests assert on.
+        AccountLookupServiceImpl accountLookupService = new AccountLookupServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountLookupService", accountLookupService);
         CallContext.register(callingUser, callingAccount);
     }
 
