@@ -20,12 +20,10 @@ package org.apache.cloudstack.storage.motion;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -52,7 +50,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreState
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine.Event;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
-import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.StorageAction;
@@ -105,7 +102,6 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.resource.ResourceState;
 import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.MigrationOptions;
@@ -153,7 +149,6 @@ import static org.apache.cloudstack.vm.UnmanagedVMsManager.VM_IMPORT_DEFAULT_TEM
 
 public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     protected Logger logger = LogManager.getLogger(getClass());
-    private static final Random RANDOM = new Random(System.nanoTime());
     private static final int LOCK_TIME_IN_SECONDS = 300;
     private static final String OPERATION_NOT_SUPPORTED = "This operation is not supported.";
 
@@ -206,6 +201,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     private VolumeDataFactory _volFactory;
     @Inject
     ResourceManager resourceManager;
+    @Inject
+    protected HostResolutionService hostResolutionService;
 
     @Override
     public StrategyPriority canHandle(DataObject srcData, DataObject destData) {
@@ -2794,110 +2791,23 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     }
 
     private HostVO getHost(SnapshotInfo snapshotInfo) {
-        HypervisorType hypervisorType = snapshotInfo.getHypervisorType();
-
-        if (HypervisorType.XenServer.equals(hypervisorType)) {
-            HostVO hostVO = getHost(snapshotInfo, hypervisorType, true);
-
-            if (hostVO == null) {
-                hostVO = getHost(snapshotInfo, hypervisorType, false);
-
-                if (hostVO == null) {
-                    throw new CloudRuntimeException("Unable to locate an applicable host in data center with ID = " + snapshotInfo.getDataCenterId());
-                }
-            }
-
-            return hostVO;
-        }
-
-        if (HypervisorType.VMware.equals(hypervisorType) || HypervisorType.KVM.equals(hypervisorType)) {
-            return getHost(snapshotInfo, hypervisorType, false);
-        }
-
-        throw new CloudRuntimeException("Unsupported hypervisor type");
+        return hostResolutionService.getHost(snapshotInfo);
     }
 
     private HostVO getHostInCluster(StoragePoolVO storagePool) {
-        DataStore store = dataStoreMgr.getDataStore(storagePool.getId(), DataStoreRole.Primary);
-        List<HostVO> hosts = resourceManager.getEligibleUpAndEnabledHostsInClusterForStorageConnection((PrimaryDataStoreInfo) store);
-
-        if (hosts != null && hosts.size() > 0) {
-            Collections.shuffle(hosts, RANDOM);
-
-            for (HostVO host : hosts) {
-                if (ResourceState.Enabled.equals(host.getResourceState())) {
-                    return host;
-                }
-            }
-        }
-
-        throw new CloudRuntimeException("Unable to locate a host");
+        return hostResolutionService.getHostInCluster(storagePool);
     }
 
     private HostVO getHost(SnapshotInfo snapshotInfo, HypervisorType hypervisorType, boolean computeClusterMustSupportResign) {
-        Long zoneId = snapshotInfo.getDataCenterId();
-        Preconditions.checkArgument(zoneId != null, "Zone ID cannot be null.");
-        Preconditions.checkArgument(hypervisorType != null, "Hypervisor type cannot be null.");
-
-        List<HostVO> hosts;
-        if (DataStoreRole.Primary.equals(snapshotInfo.getDataStore().getRole())) {
-            hosts = resourceManager.getEligibleUpAndEnabledHostsInZoneForStorageConnection(snapshotInfo.getDataStore(), zoneId, hypervisorType);
-        } else {
-            hosts = _hostDao.listByDataCenterIdAndHypervisorType(zoneId, hypervisorType);
-        }
-
-        return getHost(hosts, computeClusterMustSupportResign);
+        return hostResolutionService.getHost(snapshotInfo, hypervisorType, computeClusterMustSupportResign);
     }
 
     private HostVO getHost(VolumeInfo volumeInfo, HypervisorType hypervisorType, boolean computeClusterMustSupportResign) {
-        Long zoneId = volumeInfo.getDataCenterId();
-        Preconditions.checkArgument(zoneId != null, "Zone ID cannot be null.");
-        Preconditions.checkArgument(hypervisorType != null, "Hypervisor type cannot be null.");
-
-        List<HostVO> hosts;
-        if (DataStoreRole.Primary.equals(volumeInfo.getDataStore().getRole())) {
-            hosts = resourceManager.getEligibleUpAndEnabledHostsInZoneForStorageConnection(volumeInfo.getDataStore(), zoneId, hypervisorType);
-        } else {
-            hosts = _hostDao.listByDataCenterIdAndHypervisorType(zoneId, hypervisorType);
-        }
-
-        return getHost(hosts, computeClusterMustSupportResign);
+        return hostResolutionService.getHost(volumeInfo, hypervisorType, computeClusterMustSupportResign);
     }
 
     private HostVO getHost(List<HostVO> hosts, boolean computeClusterMustSupportResign) {
-        if (hosts == null) {
-            return null;
-        }
-
-        List<Long> clustersToSkip = new ArrayList<>();
-
-        Collections.shuffle(hosts, RANDOM);
-
-        for (HostVO host : hosts) {
-            if (!ResourceState.Enabled.equals(host.getResourceState())) {
-                continue;
-            }
-
-            if (computeClusterMustSupportResign) {
-                long clusterId = host.getClusterId();
-
-                if (clustersToSkip.contains(clusterId)) {
-                    continue;
-                }
-
-                if (clusterDao.getSupportsResigning(clusterId)) {
-                    return host;
-                }
-                else {
-                    clustersToSkip.add(clusterId);
-                }
-            }
-            else {
-                return host;
-            }
-        }
-
-        return null;
+        return hostResolutionService.getHost(hosts, computeClusterMustSupportResign);
     }
 
     private Map<String, String> getDetails(DataObject dataObj) {
