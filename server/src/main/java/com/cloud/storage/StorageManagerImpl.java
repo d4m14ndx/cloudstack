@@ -398,6 +398,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @Inject
     protected UserVmManager userVmManager;
     @Inject
+    protected StorageAccessGroupService storageAccessGroupService;
+    @Inject
     protected ObjectStoreDao _objectStoreDao;
 
     @Inject
@@ -1553,96 +1555,15 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     }
 
     protected void checkIfStorageAccessGroupsExistsOnZone(long zoneId, List<String> storageAccessGroups) {
-        DataCenterVO zoneVO = _dcDao.findById(zoneId);
-
-        String storageAccessGroupsOnZone = zoneVO.getStorageAccessGroups();
-        List<String> zoneTagsList = parseTags(storageAccessGroupsOnZone);
-        List<String> newTags = storageAccessGroups;
-
-        List<String> existingTagsOnZone = (List<String>) CollectionUtils.intersection(newTags, zoneTagsList);
-
-        if (CollectionUtils.isNotEmpty(existingTagsOnZone)) {
-            throw new CloudRuntimeException(String.format("access groups already exist on the zone: %s", existingTagsOnZone));
-        }
+        storageAccessGroupService.checkIfStorageAccessGroupsExistsOnZone(zoneId, storageAccessGroups);
     }
 
     protected void checkIfStorageAccessGroupsExistsOnPod(long podId, List<String> storageAccessGroups) {
-        HostPodVO podVO = _podDao.findById(podId);
-        DataCenterVO zoneVO = _dcDao.findById(podVO.getDataCenterId());
-
-        String storageAccessGroupsOnPod = podVO.getStorageAccessGroups();
-        String storageAccessGroupsOnZone = zoneVO.getStorageAccessGroups();
-
-        List<String> podTagsList = parseTags(storageAccessGroupsOnPod);
-        List<String> zoneTagsList = parseTags(storageAccessGroupsOnZone);
-        List<String> newTags = storageAccessGroups;
-
-        List<String> existingTagsOnPod = (List<String>) CollectionUtils.intersection(newTags, podTagsList);
-        List<String> existingTagsOnZone = (List<String>) CollectionUtils.intersection(newTags, zoneTagsList);
-
-        if (CollectionUtils.isNotEmpty(existingTagsOnPod) || CollectionUtils.isNotEmpty(existingTagsOnZone)) {
-            String message = "access groups already exist ";
-
-            if (CollectionUtils.isNotEmpty(existingTagsOnPod)) {
-                message += String.format("on the pod: %s", existingTagsOnPod);
-            }
-            if (CollectionUtils.isNotEmpty(existingTagsOnZone)) {
-                if (CollectionUtils.isNotEmpty(existingTagsOnPod)) {
-                    message += ", ";
-                }
-                message += String.format("on the zone: %s", existingTagsOnZone);
-            }
-
-            throw new CloudRuntimeException(message);
-        }
+        storageAccessGroupService.checkIfStorageAccessGroupsExistsOnPod(podId, storageAccessGroups);
     }
 
     protected void checkIfStorageAccessGroupsExistsOnCluster(long clusterId, List<String> storageAccessGroups) {
-        ClusterVO clusterVO = _clusterDao.findById(clusterId);
-        HostPodVO podVO = _podDao.findById(clusterVO.getPodId());
-        DataCenterVO zoneVO = _dcDao.findById(podVO.getDataCenterId());
-
-        String storageAccessGroupsOnCluster = clusterVO.getStorageAccessGroups();
-        String storageAccessGroupsOnPod = podVO.getStorageAccessGroups();
-        String storageAccessGroupsOnZone = zoneVO.getStorageAccessGroups();
-
-        List<String> podTagsList = parseTags(storageAccessGroupsOnPod);
-        List<String> zoneTagsList = parseTags(storageAccessGroupsOnZone);
-        List<String> clusterTagsList = parseTags(storageAccessGroupsOnCluster);
-        List<String> newTags = storageAccessGroups;
-
-        List<String> existingTagsOnCluster = (List<String>) CollectionUtils.intersection(newTags, clusterTagsList);
-        List<String> existingTagsOnPod = (List<String>) CollectionUtils.intersection(newTags, podTagsList);
-        List<String> existingTagsOnZone = (List<String>) CollectionUtils.intersection(newTags, zoneTagsList);
-
-        if (CollectionUtils.isNotEmpty(existingTagsOnCluster) || CollectionUtils.isNotEmpty(existingTagsOnPod) || CollectionUtils.isNotEmpty(existingTagsOnZone)) {
-            String message = "access groups already exist ";
-
-            if (CollectionUtils.isNotEmpty(existingTagsOnCluster)) {
-                message += String.format("on the cluster: %s", existingTagsOnCluster);
-            }
-            if (CollectionUtils.isNotEmpty(existingTagsOnPod)) {
-                if (CollectionUtils.isNotEmpty(existingTagsOnCluster)) {
-                    message += ", ";
-                }
-                message += String.format("on the pod: %s", existingTagsOnPod);
-            }
-            if (CollectionUtils.isNotEmpty(existingTagsOnZone)) {
-                if (CollectionUtils.isNotEmpty(existingTagsOnCluster) || CollectionUtils.isNotEmpty(existingTagsOnPod)) {
-                    message += ", ";
-                }
-                message += String.format("on the zone: %s", existingTagsOnZone);
-            }
-
-            throw new CloudRuntimeException(message);
-        }
-    }
-
-    private List<String> parseTags(String tags) {
-        if (tags == null || tags.trim().isEmpty()) {
-            return Collections.emptyList();
-        }
-        return Arrays.asList(tags.split(","));
+        storageAccessGroupService.checkIfStorageAccessGroupsExistsOnCluster(clusterId, storageAccessGroups);
     }
 
     @Override
@@ -3001,32 +2922,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public String[] getStorageAccessGroups(Long zoneId, Long podId, Long clusterId, Long hostId) {
-        List<String> storageAccessGroups = new ArrayList<>();
-        if (hostId != null) {
-            HostVO host = _hostDao.findById(hostId);
-            ClusterVO cluster = _clusterDao.findById(host.getClusterId());
-            HostPodVO pod = _podDao.findById(cluster.getPodId());
-            DataCenterVO zone = _dcDao.findById(pod.getDataCenterId());
-            storageAccessGroups.addAll(List.of(com.cloud.utils.StringUtils.splitCommaSeparatedStrings(host.getStorageAccessGroups(), cluster.getStorageAccessGroups(), pod.getStorageAccessGroups(), zone.getStorageAccessGroups())));
-        } else if (clusterId != null) {
-            ClusterVO cluster = _clusterDao.findById(clusterId);
-            HostPodVO pod = _podDao.findById(cluster.getPodId());
-            DataCenterVO zone = _dcDao.findById(pod.getDataCenterId());
-            storageAccessGroups.addAll(List.of(com.cloud.utils.StringUtils.splitCommaSeparatedStrings(cluster.getStorageAccessGroups(), pod.getStorageAccessGroups(), zone.getStorageAccessGroups())));
-        } else if (podId != null) {
-            HostPodVO pod = _podDao.findById(podId);
-            DataCenterVO zone = _dcDao.findById(pod.getDataCenterId());
-            storageAccessGroups.addAll(List.of(com.cloud.utils.StringUtils.splitCommaSeparatedStrings(pod.getStorageAccessGroups(), zone.getStorageAccessGroups())));
-        } else if (zoneId != null) {
-            DataCenterVO zone = _dcDao.findById(zoneId);
-            storageAccessGroups.addAll(List.of(com.cloud.utils.StringUtils.splitCommaSeparatedStrings(zone.getStorageAccessGroups())));
-        }
-
-        storageAccessGroups.removeIf(tag -> tag == null || tag.trim().isEmpty());
-
-        return storageAccessGroups.isEmpty()
-                ? new String[0]
-                : storageAccessGroups.toArray(org.apache.commons.lang.ArrayUtils.EMPTY_STRING_ARRAY);
+        return storageAccessGroupService.getStorageAccessGroups(zoneId, podId, clusterId, hostId);
     }
 
     private void handleRemoveChildStoragePoolFromDatastoreCluster(Set<String> childDatastoreUUIDs) {
