@@ -565,6 +565,17 @@ public class UserVmManagerImplTest {
         VmExtraConfigServiceImpl extraConfigService = new VmExtraConfigServiceImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(extraConfigService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmExtraConfigService", extraConfigService);
+        // Slice 9: wire VmMigrationValidatorImpl. The existing migration tests in
+        // this class exercise validateStrictHostTagCheck (needs serviceOfferingDao
+        // + templateDao) and validateStorageAccessGroupsOnHosts (needs storageManager);
+        // the other validator methods are covered standalone in VmMigrationValidatorImplTest.
+        VmMigrationValidatorImpl migrationValidator = new VmMigrationValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "hostDao", hostDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "storageManager", storageManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "serviceOfferingDao", _serviceOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "templateDao", templateDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(migrationValidator, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmMigrationValidator", migrationValidator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

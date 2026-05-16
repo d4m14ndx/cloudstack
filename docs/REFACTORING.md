@@ -97,6 +97,7 @@ spies still work.
 | 6 | `VmLeaseService` | VM lease validation, create-time apply, update-time apply, detail write | 20 |
 | 7 | `VmAssignmentValidator` | assignVMToAccount pre-flight: VM movability, rule absence, snapshot absence, template access, account validity, caller access | 21 |
 | 8 | `VmExtraConfigService` | Hypervisor extra-config (KVM/Xen/VMware) decode + allow-list validation + persist | 12 |
+| 9 | `VmMigrationValidator` | VM (storage) migration pre-flight: caller/state/snapshot, dest hypervisor/SAGs/tags/dedication/maintenance | 19 |
 
 Each slice keeps the orchestration that needs spy-verified inner calls
 inside `UserVmManagerImpl` — the leaf methods become thin wrappers that

@@ -25,7 +25,6 @@ import static org.apache.cloudstack.api.ApiConstants.MIN_IOPS;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -591,6 +590,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmAssignmentValidator vmAssignmentValidator;
     @Inject
     private VmExtraConfigService vmExtraConfigService;
+    @Inject
+    private VmMigrationValidator vmMigrationValidator;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -6143,47 +6144,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private VMInstanceVO preVmStorageMigrationCheck(Long vmId) {
-        // access check - only root admin can migrate VM
-        Account caller = CallContext.current().getCallingAccount();
-        if (!_accountMgr.isRootAdmin(caller.getId())) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Caller is not a root admin, permission denied to migrate the VM");
-            }
-            throw new PermissionDeniedException("No permission to migrate VM, Only Root Admin can migrate a VM!");
-        }
-
-        VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        if (vm == null) {
-            throw new InvalidParameterValueException("Unable to find the VM by id=" + vmId);
-        }
-
-        if (vm.getState() != State.Stopped) {
-            InvalidParameterValueException ex = new InvalidParameterValueException("VM is not Stopped, unable to migrate the vm having the specified id");
-            ex.addProxyObject(vm.getUuid(), "vmId");
-            throw ex;
-        }
-
-        HypervisorType hypervisorType = vm.getHypervisorType();
-        List<HypervisorType> supportedHypervisorsForNonUserVMStorageMigration = HypervisorType.getListOfHypervisorsSupportingFunctionality(Functionality.VmStorageMigration)
-                .stream().filter(hypervisor -> !hypervisor.equals(HypervisorType.XenServer)).collect(Collectors.toList());
-        if (vm.getType() != VirtualMachine.Type.User && !supportedHypervisorsForNonUserVMStorageMigration.contains(hypervisorType)) {
-            throw new InvalidParameterValueException(String.format(
-                    "Unable to migrate storage of non-user VMs for hypervisor [%s]. Operation only supported for the following hypervisors: [%s].",
-                    hypervisorType, supportedHypervisorsForNonUserVMStorageMigration));
-        }
-
-        List<VolumeVO> vols = _volsDao.findByInstance(vm.getId());
-        if (vols.size() > 1 &&
-            !(HypervisorType.VMware.equals(hypervisorType) || HypervisorType.KVM.equals(hypervisorType))) {
-               throw new InvalidParameterValueException("Data disks attached to the vm, can not migrate. Need to detach data disks first");
-        }
-
-        // Check that Vm does not have VM Snapshots
-        if (_vmSnapshotDao.findByVm(vmId).size() > 0) {
-            throw new InvalidParameterValueException("Instance's disk cannot be migrated, please remove all the Instance Snapshots for this Instance");
-        }
-
-        return vm;
+        return vmMigrationValidator.preVmStorageMigrationCheck(vmId);
     }
 
     private VirtualMachine findMigratedVm(long vmId, VirtualMachine.Type vmType) {
@@ -6254,26 +6215,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void checkIfDestinationPoolHasSameStorageAccessGroups(StoragePool destPool, VMInstanceVO vm) {
-        Long hostId = vm.getHostId();
-        if (hostId != null) {
-            Host host = _hostDao.findById(hostId);
-            if (!storageManager.checkIfHostAndStoragePoolHasCommonStorageAccessGroups(host, destPool)) {
-                throw new InvalidParameterValueException(String.format("Destination pool %s does not have matching storage access groups as host %s", destPool.getName(), host.getName()));
-            }
-        }
+        vmMigrationValidator.checkIfDestinationPoolHasSameStorageAccessGroups(destPool, vm);
     }
 
     private void checkDestinationHypervisorType(StoragePool destPool, VMInstanceVO vm) {
-        HypervisorType destHypervisorType = destPool.getHypervisor();
-        if (destHypervisorType == null) {
-            destHypervisorType = _clusterDao.findById(
-                    destPool.getClusterId()).getHypervisorType();
-        }
-
-        if (vm.getHypervisorType() != destHypervisorType && destHypervisorType != HypervisorType.Any) {
-            throw new InvalidParameterValueException("hypervisor is not compatible: dest: " + destHypervisorType.toString() + ", vm: " + vm.getHypervisorType().toString());
-        }
-
+        vmMigrationValidator.checkDestinationHypervisorType(destPool, vm);
     }
 
     public boolean isVMUsingLocalStorage(VMInstanceVO vm) {
@@ -6373,48 +6319,19 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected boolean checkEnforceStrictHostTagCheck(VMInstanceVO vm, HostVO host) {
-        ServiceOffering serviceOffering = serviceOfferingDao.findByIdIncludingRemoved(vm.getServiceOfferingId());
-        VirtualMachineTemplate template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-        return checkEnforceStrictHostTagCheck(host, serviceOffering, template);
+        return vmMigrationValidator.checkEnforceStrictHostTagCheck(vm, host);
     }
 
     private boolean checkEnforceStrictHostTagCheck(HostVO host, ServiceOffering serviceOffering, VirtualMachineTemplate template) {
-        Set<String> strictHostTags = UserVmManager.getStrictHostTags();
-        return host.checkHostServiceOfferingAndTemplateTags(serviceOffering, template, strictHostTags);
+        return vmMigrationValidator.checkEnforceStrictHostTagCheck(host, serviceOffering, template);
     }
 
     protected void validateStorageAccessGroupsOnHosts(Host srcHost, Host destinationHost) {
-        String[] storageAccessGroupsOnSrcHost = storageManager.getStorageAccessGroups(null, null, null, srcHost.getId());
-        String[] storageAccessGroupsOnDestHost = storageManager.getStorageAccessGroups(null, null, null, destinationHost.getId());
-
-        List<String> srcHostStorageAccessGroupsList = storageAccessGroupsOnSrcHost != null ? Arrays.asList(storageAccessGroupsOnSrcHost) : Collections.emptyList();
-        List<String> destHostStorageAccessGroupsList = storageAccessGroupsOnDestHost != null ? Arrays.asList(storageAccessGroupsOnDestHost) : Collections.emptyList();
-
-        if (CollectionUtils.isEmpty(srcHostStorageAccessGroupsList)) {
-            return;
-        }
-
-        if (CollectionUtils.isEmpty(destHostStorageAccessGroupsList)) {
-            throw new CloudRuntimeException("Source host has storage access groups, but destination host has none.");
-        }
-
-        if (!destHostStorageAccessGroupsList.containsAll(srcHostStorageAccessGroupsList)) {
-            throw new CloudRuntimeException("Storage access groups on the source and destination hosts did not match.");
-        }
+        vmMigrationValidator.validateStorageAccessGroupsOnHosts(srcHost, destinationHost);
     }
 
     protected void validateStrictHostTagCheck(VMInstanceVO vm, HostVO host) {
-        ServiceOffering serviceOffering = serviceOfferingDao.findByIdIncludingRemoved(vm.getServiceOfferingId());
-        VirtualMachineTemplate template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-
-        if (!checkEnforceStrictHostTagCheck(host, serviceOffering, template)) {
-            Set<String> missingTags = host.getHostServiceOfferingAndTemplateMissingTags(serviceOffering, template, UserVmManager.getStrictHostTags());
-            logger.error("Cannot deploy VM: {} to host : {} due to tag mismatch. host tags: {}, " +
-                            "strict host tags: {} serviceOffering tags: {}, template tags: {}, missing tags: {}",
-                    vm, host, host.getHostTags(), UserVmManager.getStrictHostTags(), serviceOffering.getHostTag(), template.getTemplateTag(), missingTags);
-            throw new InvalidParameterValueException(String.format("Cannot deploy VM, destination host: %s " +
-                    "is not compatible for the VM", host.getName()));
-        }
+        vmMigrationValidator.validateStrictHostTagCheck(vm, host);
     }
 
     private DeployDestination checkVmMigrationDestination(VMInstanceVO vm, Host srcHost, Host destinationHost) throws VirtualMachineMigrationException {
@@ -6475,35 +6392,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private boolean isOnSupportedHypevisorForMigration(VMInstanceVO vm) {
-        return (vm.getHypervisorType().equals(HypervisorType.XenServer) ||
-                vm.getHypervisorType().equals(HypervisorType.VMware) ||
-                vm.getHypervisorType().equals(HypervisorType.KVM) ||
-                vm.getHypervisorType().equals(HypervisorType.Hyperv) ||
-                vm.getHypervisorType().equals(HypervisorType.LXC) ||
-                vm.getHypervisorType().equals(HypervisorType.Simulator));
+        return vmMigrationValidator.isOnSupportedHypevisorForMigration(vm);
     }
 
     private boolean checkIfHostIsDedicated(HostVO host) {
-        long hostId = host.getId();
-        DedicatedResourceVO dedicatedHost = _dedicatedDao.findByHostId(hostId);
-        DedicatedResourceVO dedicatedClusterOfHost = _dedicatedDao.findByClusterId(host.getClusterId());
-        DedicatedResourceVO dedicatedPodOfHost = _dedicatedDao.findByPodId(host.getPodId());
-        if (dedicatedHost != null || dedicatedClusterOfHost != null || dedicatedPodOfHost != null) {
-            return true;
-        } else {
-            return false;
-        }
+        return vmMigrationValidator.checkIfHostIsDedicated(host);
     }
 
     private void checkIfHostOfVMIsInPrepareForMaintenanceState(VirtualMachine vm, String operation) {
-        long hostId = vm.getHostId();
-        HostVO host = _hostDao.findById(hostId);
-        if (host.getResourceState() != ResourceState.PrepareForMaintenance) {
-            return;
-        }
-
-        logger.debug("Host is in PrepareForMaintenance state - {} VM operation on the VM: {} is not allowed", operation, vm);
-        throw new InvalidParameterValueException(String.format("%s VM operation on the VM: %s is not allowed as host is preparing for maintenance mode", operation, vm));
+        vmMigrationValidator.checkIfHostOfVMIsInPrepareForMaintenanceState(vm, operation);
     }
 
     private Long accountOfDedicatedHost(HostVO host) {
