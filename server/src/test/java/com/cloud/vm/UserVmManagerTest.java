@@ -253,6 +253,14 @@ public class UserVmManagerTest {
         org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "userVmDao", _vmDao);
         org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "accountManager", _accountMgr);
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmUpdateValidator", updateValidator);
+        // Slice 7: wire VmAssignmentValidatorImpl. testMoveVmToUser{1,2} exercise the
+        // assign-to-account flow which now routes through this validator. Only the
+        // AccountManager dependency is reached in the access-check failure path; the
+        // network/snapshot DAOs are only consulted after access succeeds, so the
+        // existing tests don't need DAO mocks here.
+        VmAssignmentValidatorImpl assignValidator = new VmAssignmentValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmAssignmentValidator", assignValidator);
     }
 
     @Test

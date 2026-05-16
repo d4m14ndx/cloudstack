@@ -548,6 +548,17 @@ public class UserVmManagerImplTest {
         VmLeaseServiceImpl leaseService = new VmLeaseServiceImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(leaseService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmLeaseService", leaseService);
+        // Slice 7: wire VmAssignmentValidatorImpl with the existing assign-flow mocks
+        // so the moveVmToUser orchestration tests and the per-helper tests still
+        // exercise the same code paths through the manager's delegating wrappers.
+        VmAssignmentValidatorImpl assignValidator = new VmAssignmentValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "portForwardingDao", portForwardingRulesDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "rulesDao", firewallRulesDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "loadBalancerVMMapDao", loadBalancerVmMapDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "ipAddressDao", ipAddressDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "snapshotDao", snapshotDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmAssignmentValidator", assignValidator);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

@@ -273,7 +273,6 @@ import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.LoadBalancerVMMapDao;
-import com.cloud.network.dao.LoadBalancerVMMapVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
@@ -287,8 +286,6 @@ import com.cloud.network.router.CommandSetupHelper;
 import com.cloud.network.router.NetworkHelper;
 import com.cloud.network.router.VpcVirtualNetworkApplianceManager;
 import com.cloud.network.rules.FirewallManager;
-import com.cloud.network.rules.FirewallRuleVO;
-import com.cloud.network.rules.PortForwardingRuleVO;
 import com.cloud.network.rules.RulesManager;
 import com.cloud.network.rules.dao.PortForwardingRulesDao;
 import com.cloud.network.security.SecurityGroup;
@@ -604,6 +601,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmUpdateValidator vmUpdateValidator;
     @Inject
     private VmLeaseService vmLeaseService;
+    @Inject
+    private VmAssignmentValidator vmAssignmentValidator;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -7235,15 +7234,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateIfVmSupportsMigration(UserVmVO vm, Long vmId) {
-        logger.trace("Validating if VM [{}] exists and is not in state [{}].", vmId, State.Running);
-
-        if (vm == null) {
-            throw new InvalidParameterValueException(String.format("There is no VM by ID [%s].", vmId));
-        } else if (vm.getState() == State.Running) {
-            throw new InvalidParameterValueException(String.format("Unable to move VM [%s] in [%s] state.", vm, vm.getState()));
-        } else if (UserVmManager.SHAREDFSVM.equals(vm.getUserVmType())) {
-            throw new InvalidParameterValueException("Migration is not supported for Shared FileSystem Instances.");
-        }
+        vmAssignmentValidator.validateIfVmSupportsMigration(vm, vmId);
     }
 
     /**
@@ -7254,41 +7245,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      * @throws InvalidParameterValueException
      */
     protected void validateIfVmHasNoRules(UserVmVO vm, Long vmId) throws InvalidParameterValueException {
-        logger.trace("Validating if VM [{}] has no Port Forwarding, Static Nat, Load Balancing or One to One Nat rules.", vm);
-
-        List<PortForwardingRuleVO> portForwardingRules = _portForwardingDao.listByVm(vmId);
-        if (CollectionUtils.isNotEmpty(portForwardingRules)) {
-            throw new InvalidParameterValueException(String.format("Remove any Port Forwarding rules for VM [%s] before assigning it to another user.", vm));
-        }
-
-        List<FirewallRuleVO> staticNatRules = _rulesDao.listStaticNatByVmId(vmId);
-        if (CollectionUtils.isNotEmpty(staticNatRules)) {
-            throw new InvalidParameterValueException(String.format("Remove the StaticNat rules for VM [%s] before assigning it to another user.", vm));
-        }
-
-        List<LoadBalancerVMMapVO> loadBalancerVmMaps = _loadBalancerVMMapDao.listByInstanceId(vmId);
-        if (CollectionUtils.isNotEmpty(loadBalancerVmMaps)) {
-            throw new InvalidParameterValueException(String.format("Remove the Load Balancing rules for VM [%s] before assigning it to another user.", vm));
-        }
-
-        List<IPAddressVO> ips = _ipAddressDao.findAllByAssociatedVmId(vmId);
-        for (IPAddressVO ip : ips) {
-            if (ip.isOneToOneNat()) {
-                throw new InvalidParameterValueException(String.format("Remove the One to One Nat rule for VM [%s] for IP [%s].", vm, ip));
-            }
-        }
+        vmAssignmentValidator.validateIfVmHasNoRules(vm, vmId);
     }
 
     protected void validateIfVolumesHaveNoSnapshots(List<VolumeVO> volumes) throws InvalidParameterValueException {
-        logger.trace("Verifying if there are any snapshots for any of the VM volumes.");
-        for (VolumeVO volume : volumes) {
-            logger.trace("Verifying snapshots for volume [{}].", volume);
-            List<SnapshotVO> snapshots = _snapshotDao.listByStatusNotIn(volume.getId(), Snapshot.State.Destroyed, Snapshot.State.Error);
-            if (CollectionUtils.isNotEmpty(snapshots)) {
-                throw new InvalidParameterValueException(String.format("Snapshots exist for volume [%s]. Detach volume or remove snapshots for the volume before assigning VM to "
-                        + "another user.", volume.getName()));
-            }
-        }
+        vmAssignmentValidator.validateIfVolumesHaveNoSnapshots(volumes);
     }
 
     /**
@@ -7319,19 +7280,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateIfNewOwnerHasAccessToTemplate(UserVmVO vm, Account newAccount, VirtualMachineTemplate template) {
-        logger.trace("Validating if new owner [{}] has access to the template specified for VM [{}].", newAccount, vm);
-
-        if (template == null) {
-            throw new InvalidParameterValueException(String.format("Template for VM [%s] cannot be found.", vm.getUuid()));
-        }
-
-        logger.debug("Verifying if new owner [{}] has access to the template [{}].", newAccount, template.getUuid());
-        try {
-            _accountMgr.checkAccess(newAccount, AccessType.UseEntry, true, template);
-        } catch (PermissionDeniedException e) {
-            String newMsg = String.format("New owner [%s] does not have access to the template specified for VM [%s].", newAccount, vm);
-            throw new PermissionDeniedException(newMsg, e);
-        }
+        vmAssignmentValidator.validateIfNewOwnerHasAccessToTemplate(vm, newAccount, template);
     }
 
     /**
@@ -7535,32 +7484,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      */
     protected void validateOldAndNewAccounts(Account oldAccount, Account newAccount, Long oldAccountId, String newAccountName, Long domainId)
             throws InvalidParameterValueException {
-
-        logger.trace("Validating old [{}] and new accounts [{}].", oldAccount, newAccount);
-
-        if (oldAccount == null) {
-            throw new InvalidParameterValueException(String.format("Invalid old account [%s] for VM in domain [%s].", oldAccountId, domainId));
-        }
-
-        if (newAccount == null) {
-            throw new InvalidParameterValueException(String.format("Invalid new account [%s] for VM in domain [%s].", newAccountName, domainId));
-        }
-
-        if (newAccount.getState() == Account.State.DISABLED) {
-            throw new InvalidParameterValueException(String.format("The new account owner [%s] is disabled.", newAccount));
-        }
-
-        if (oldAccount.getAccountId() == newAccount.getAccountId()) {
-            throw new InvalidParameterValueException(String.format("The new account [%s] is the same as the old account.", newAccount));
-        }
+        vmAssignmentValidator.validateOldAndNewAccounts(oldAccount, newAccount, oldAccountId, newAccountName, domainId);
     }
 
     protected void checkCallerAccessToAccounts(Account caller, Account oldAccount, Account newAccount) {
-        logger.trace("Verifying if caller [{}] has access to old account [{}].", caller, oldAccount);
-        _accountMgr.checkAccess(caller, null, true, oldAccount);
-
-        logger.trace("Verifying if caller [{}] has access to new account [{}].", caller, newAccount);
-        _accountMgr.checkAccess(caller, null, true, newAccount);
+        vmAssignmentValidator.checkCallerAccessToAccounts(caller, oldAccount, newAccount);
     }
 
     protected Boolean isResourceCountRunningVmsOnlyEnabled() {
