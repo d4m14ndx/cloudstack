@@ -127,7 +127,6 @@ import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
 import com.cloud.agent.api.MigrateCommand;
 import com.cloud.agent.api.MigrateVmToPoolAnswer;
-import com.cloud.agent.api.ModifyTargetsCommand;
 import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.PlugNicAnswer;
 import com.cloud.agent.api.PlugNicCommand;
@@ -463,6 +462,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     ExtensionDetailsDao extensionDetailsDao;
     @Inject
     private VmServiceOfferingUpgradeManager vmServiceOfferingUpgradeManager;
+    @Inject
+    private VmIscsiTargetManager vmIscsiTargetManager;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -828,61 +829,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     private List<Map<String, String>> getTargets(Long hostId, long vmId) {
-        List<Map<String, String>> targets = new ArrayList<>();
-
-        HostVO hostVO = _hostDao.findById(hostId);
-
-        if (hostVO == null || hostVO.getHypervisorType() != HypervisorType.VMware) {
-            return targets;
-        }
-
-        List<VolumeVO> volumes = _volsDao.findByInstance(vmId);
-
-        if (CollectionUtils.isEmpty(volumes)) {
-            return targets;
-        }
-
-        for (VolumeVO volume : volumes) {
-            StoragePoolVO storagePoolVO = _storagePoolDao.findById(volume.getPoolId());
-
-            if (storagePoolVO != null && storagePoolVO.isManaged()) {
-                Map<String, String> target = new HashMap<>();
-
-                target.put(ModifyTargetsCommand.STORAGE_HOST, storagePoolVO.getHostAddress());
-                target.put(ModifyTargetsCommand.STORAGE_PORT, String.valueOf(storagePoolVO.getPort()));
-                target.put(ModifyTargetsCommand.IQN, volume.get_iScsiName());
-
-                targets.add(target);
-            }
-        }
-
-        return targets;
+        return vmIscsiTargetManager.getTargets(hostId, vmId);
     }
 
     private void removeDynamicTargets(long hostId, List<Map<String, String>> targets) {
-        ModifyTargetsCommand cmd = new ModifyTargetsCommand();
-
-        cmd.setTargets(targets);
-        cmd.setApplyToAllHostsInCluster(true);
-        cmd.setAdd(false);
-        cmd.setTargetTypeToRemove(ModifyTargetsCommand.TargetTypeToRemove.DYNAMIC);
-
-        sendModifyTargetsCommand(cmd, hostId);
-    }
-
-    private void sendModifyTargetsCommand(ModifyTargetsCommand cmd, long hostId) {
-        Answer answer = _agentMgr.easySend(hostId, cmd);
-
-        if (answer == null) {
-            logger.warn("Unable to get an answer to the modify targets command. Targets [{}].",
-                    () -> cmd.getTargets().stream().map(target -> target.toString()).collect(Collectors.joining(", ")));
-            return;
-        }
-
-        if (!answer.getResult()) {
-            logger.warn("Unable to modify targets [{}] on the host [{}].",
-                    () -> cmd.getTargets().stream().map(target -> target.toString()).collect(Collectors.joining(", ")), () -> hostId);
-        }
+        vmIscsiTargetManager.removeDynamicTargets(hostId, targets);
     }
 
     @Override

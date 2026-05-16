@@ -341,6 +341,17 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(upgradeManager, "serviceOfferingDao", serviceOfferingDaoMock);
         ReflectionTestUtils.setField(upgradeManager, "entityMgr", _entityMgr);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", upgradeManager);
+
+        // Wire a real VmIscsiTargetManager backed by the same DAO/agent
+        // mocks so the delegating wrappers in VirtualMachineManagerImpl
+        // (getTargets/removeDynamicTargets) behave like the original
+        // inline implementations during expunge/unmanage flows.
+        VmIscsiTargetManagerImpl iscsiTargetManager = new VmIscsiTargetManagerImpl();
+        ReflectionTestUtils.setField(iscsiTargetManager, "hostDao", hostDaoMock);
+        ReflectionTestUtils.setField(iscsiTargetManager, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(iscsiTargetManager, "storagePoolDao", storagePoolDaoMock);
+        ReflectionTestUtils.setField(iscsiTargetManager, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmIscsiTargetManager", iscsiTargetManager);
     }
 
     @After
