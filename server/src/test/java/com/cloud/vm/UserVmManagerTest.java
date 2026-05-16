@@ -226,6 +226,23 @@ public class UserVmManagerTest {
 
         List<VMSnapshotVO> mockList = new ArrayList<>();
 
+        // Wire up the Phase 4 VmNicService extraction with the test's existing mocks
+        // so the updateNicIpForVirtualMachine tests below continue to work.
+        VmNicServiceImpl nicService = new VmNicServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "nicDao", _nicDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "itMgr", _itMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "ipAddrMgr", _ipAddrMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "ipAddressDao", _ipAddressDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vlanDao", _vlanDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkOfferingDao", _networkOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "dcDao", _dcDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmSnapshotDao", _vmSnapshotDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmNicService", nicService);
     }
 
     @Test

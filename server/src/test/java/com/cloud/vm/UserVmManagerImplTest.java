@@ -516,6 +516,18 @@ public class UserVmManagerImplTest {
         ServiceOfferingValidatorImpl validator = new ServiceOfferingValidatorImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(validator, "serviceOfferingDetailsDao", serviceOfferingDetailsDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "serviceOfferingValidator", validator);
+        // Same wiring approach for the Phase 4 VmNicService extraction: build a real
+        // VmNicServiceImpl backed by the test's mocked DAOs/managers so the 13 tests
+        // that exercise validateOrReplaceMacAddress / updateVirtualMachineNic through
+        // the manager continue to work.
+        VmNicServiceImpl nicService = new VmNicServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmDao", userVmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "nicDao", nicDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkModel", networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "itMgr", virtualMachineManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmNicService", nicService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 

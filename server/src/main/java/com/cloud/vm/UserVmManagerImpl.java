@@ -208,7 +208,6 @@ import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.DedicatedResourceVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.Pod;
-import com.cloud.dc.Vlan;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ClusterDao;
@@ -240,7 +239,6 @@ import com.cloud.exception.AffinityConflictException;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.CloudException;
 import com.cloud.exception.ConcurrentOperationException;
-import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InsufficientServerCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
@@ -394,7 +392,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.exception.ExceptionProxyObject;
 import com.cloud.utils.exception.ExecutionException;
 import com.cloud.utils.fsm.NoTransitionException;
-import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.VirtualMachine.State;
 import com.cloud.vm.dao.DomainRouterDao;
@@ -602,6 +599,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmGroupService vmGroupService;
     @Inject
     private ServiceOfferingValidator serviceOfferingValidator;
+    @Inject
+    private VmNicService vmNicService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1406,556 +1405,37 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_NIC_CREATE, eventDescription = "Creating NIC", async = true)
     public UserVm addNicToVirtualMachine(AddNicToVMCmd cmd) throws InvalidParameterValueException, PermissionDeniedException, CloudRuntimeException {
-        Long vmId = cmd.getVmId();
-        Long networkId = cmd.getNetworkId();
-        String ipAddress = cmd.getIpAddress();
-        String macAddress = cmd.getMacAddress();
-        Account caller = CallContext.current().getCallingAccount();
-
-        UserVmVO vmInstance = _vmDao.findById(vmId);
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("Unable to find an Instance with ID " + vmId);
-        }
-
-        // Check that Vm does not have VM Snapshots
-        if (_vmSnapshotDao.findByVm(vmId).size() > 0) {
-            throw new InvalidParameterValueException("NIC cannot be added to Instance with Instance Snapshots");
-        }
-
-        NetworkVO network = _networkDao.findById(networkId);
-        if (network == null) {
-            throw new InvalidParameterValueException("Unable to find a Network with ID " + networkId);
-        }
-
-        if (UserVmManager.SHAREDFSVM.equals(vmInstance.getUserVmType()) &&  network.getGuestType() == Network.GuestType.Shared) {
-            if ((network.getAclType() != ControlledEntity.ACLType.Account) ||
-                    (network.getDomainId() != vmInstance.getDomainId()) ||
-                    (network.getAccountId() != vmInstance.getAccountId())) {
-                throw new InvalidParameterValueException("Shared network which is not Account scoped and not belonging to the same account can not be added to a Shared FileSystem Instance");
-            }
-        }
-
-        Account vmOwner = _accountMgr.getAccount(vmInstance.getAccountId());
-        _networkModel.checkNetworkPermissions(vmOwner, network);
-
-        checkIfNetExistsForVM(vmInstance, network);
-
-        macAddress = validateOrReplaceMacAddress(macAddress, network);
-
-        if (_nicDao.findByNetworkIdAndMacAddress(networkId, macAddress) != null) {
-            throw new CloudRuntimeException("A NIC with this MAC address exists for network: " + network.getUuid());
-        }
-
-        NicProfile profile = new NicProfile(ipAddress, null, macAddress);
-        if (ipAddress != null) {
-            if (!(NetUtils.isValidIp4(ipAddress) || NetUtils.isValidIp6(ipAddress))) {
-                throw new InvalidParameterValueException("Invalid format for IP address parameter: " + ipAddress);
-            }
-        }
-
-        // Perform permission check on VM
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        // Verify that zone is not Basic
-        DataCenterVO dc = _dcDao.findById(vmInstance.getDataCenterId());
-        if (dc.getNetworkType() == DataCenter.NetworkType.Basic) {
-            throw new CloudRuntimeException(String.format("Zone %s, has a NetworkType of Basic. Can't add a new NIC to a Instance on a Basic Network", dc));
-        }
-
-        //ensure network belongs in zone
-        if (network.getDataCenterId() != vmInstance.getDataCenterId()) {
-            throw new CloudRuntimeException(String.format("%s is in zone: %s but %s is in zone: %s",
-                    vmInstance, dc, network, dataCenterDao.findById(network.getDataCenterId())));
-        }
-
-        if (_networkModel.getNicInNetwork(vmInstance.getId(),network.getId()) != null) {
-            logger.debug("Instance {} already in network {} going to add another NIC", vmInstance, network);
-        } else {
-            //* get all vms hostNames in the network
-            List<String> hostNames = _vmInstanceDao.listDistinctHostNames(network.getId());
-            //* verify that there are no duplicates
-            if (hostNames.contains(vmInstance.getHostName())) {
-                throw new CloudRuntimeException("Network " + network.getName() + " already has an Instance with host name: " + vmInstance.getHostName());
-            }
-        }
-
-        setNicAsDefaultIfNeeded(vmInstance, profile);
-
-        NicProfile guestNic = null;
-        boolean cleanUp = true;
-
-        try {
-            guestNic = _itMgr.addVmToNetwork(vmInstance, network, profile);
-            saveExtraDhcpOptions(guestNic.getId(), cmd.getDhcpOptionsMap());
-            _networkMgr.configureExtraDhcpOptions(network, guestNic.getId(), cmd.getDhcpOptionsMap());
-            cleanUp = false;
-        } catch (ResourceUnavailableException e) {
-            throw new CloudRuntimeException("Unable to add NIC to " + vmInstance + ": " + e);
-        } catch (InsufficientCapacityException e) {
-            throw new CloudRuntimeException("Insufficient capacity when adding NIC to " + vmInstance + ": " + e);
-        } catch (ConcurrentOperationException e) {
-            throw new CloudRuntimeException("Concurrent operations on adding NIC to " + vmInstance + ": " + e);
-        } finally {
-            if (cleanUp) {
-                try {
-                    _itMgr.removeVmFromNetwork(vmInstance, network, null);
-                } catch (ResourceUnavailableException e) {
-                    throw new CloudRuntimeException("Error while cleaning up NIC " + e);
-                }
-            }
-        }
-        CallContext.current().putContextParameter(Nic.class, guestNic.getUuid());
-        logger.debug(String.format("Successful addition of %s from %s through %s", network, vmInstance, guestNic));
-        return _vmDao.findById(vmInstance.getId());
+        return vmNicService.addNicToVirtualMachine(cmd);
     }
 
     /**
-     * Set NIC as default if VM has no default NIC
-     * @param vmInstance VM instance to be checked
-     * @param nicProfile NIC profile to be updated
-     */
-    public void setNicAsDefaultIfNeeded(UserVmVO vmInstance, NicProfile nicProfile) {
-        if (_networkModel.getDefaultNic(vmInstance.getId()) == null) {
-            logger.debug(String.format("Setting NIC %s as default as Instance %s has no default NIC.", nicProfile.getName(), vmInstance.getName()));
-            nicProfile.setDefaultNic(true);
-        }
-    }
-
-    /**
-     * duplicated in {@see VirtualMachineManagerImpl} for a {@see VMInstanceVO}
-     */
-    private void checkIfNetExistsForVM(VirtualMachine virtualMachine, Network network) {
-        List<NicVO> allNics = _nicDao.listByVmId(virtualMachine.getId());
-        for (NicVO nic : allNics) {
-            if (nic.getNetworkId() == network.getId()) {
-                throw new CloudRuntimeException("A NIC already exists for VM:" + virtualMachine.getInstanceName() + " in network: " + network.getUuid());
-            }
-        }
-    }
-
-    /**
-     * If the given MAC address is invalid it replaces the given MAC with the next available MAC address
+     * Kept for back-compat — exercised by existing tests. Delegates to
+     * {@link VmNicService}.
      */
     protected String validateOrReplaceMacAddress(String macAddress, NetworkVO network) {
-        if (!NetUtils.isValidMac(macAddress)) {
-            try {
-                macAddress = _networkModel.getNextAvailableMacAddressInNetwork(network.getId());
-            } catch (InsufficientAddressCapacityException e) {
-                throw new CloudRuntimeException(String.format("A MAC address cannot be generated for this NIC in the network [%s] ", network));
-            }
-        }
-        return macAddress;
-    }
-
-    private void saveExtraDhcpOptions(long nicId, Map<Integer, String> dhcpOptions) {
-        List<NicExtraDhcpOptionVO> nicExtraDhcpOptionVOList = dhcpOptions
-                .entrySet()
-                .stream()
-                .map(entry -> new NicExtraDhcpOptionVO(nicId, entry.getKey(), entry.getValue()))
-                .collect(Collectors.toList());
-
-        _nicExtraDhcpOptionDao.saveExtraDhcpOptions(nicExtraDhcpOptionVOList);
+        return vmNicService.validateOrReplaceMacAddress(macAddress, network);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_NIC_DELETE, eventDescription = "Removing NIC", async = true)
     public UserVm removeNicFromVirtualMachine(RemoveNicFromVMCmd cmd) throws InvalidParameterValueException, PermissionDeniedException, CloudRuntimeException {
-        Long vmId = cmd.getVmId();
-        Long nicId = cmd.getNicId();
-        Account caller = CallContext.current().getCallingAccount();
-
-        UserVmVO vmInstance = _vmDao.findById(vmId);
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("Unable to find an Instance with ID " + vmId);
-        }
-
-        // Check that Vm does not have VM Snapshots
-        if (_vmSnapshotDao.findByVm(vmId).size() > 0) {
-            throw new InvalidParameterValueException("NIC cannot be removed from Instance with Instance Snapshots");
-        }
-
-        NicVO nic = _nicDao.findById(nicId);
-        if (nic == null) {
-            throw new InvalidParameterValueException("Unable to find a NIC with ID " + nicId);
-        }
-
-        NetworkVO network = _networkDao.findById(nic.getNetworkId());
-        if (network == null) {
-            throw new InvalidParameterValueException("Unable to find a Network with ID " + nic.getNetworkId());
-        }
-
-        // Perform permission check on VM
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        // Verify that zone is not Basic
-        DataCenterVO dc = _dcDao.findById(vmInstance.getDataCenterId());
-        if (dc.getNetworkType() == DataCenter.NetworkType.Basic) {
-            throw new InvalidParameterValueException(String.format("Zone %s, has a NetworkType of Basic. Can't remove a NIC from a VM on a Basic Network", dc));
-        }
-
-        // check to see if nic is attached to VM
-        if (nic.getInstanceId() != vmId) {
-            throw new InvalidParameterValueException(nic + " is not a NIC on " + vmInstance);
-        }
-
-        // don't delete default NIC on a user VM
-        if (nic.isDefaultNic() && vmInstance.getType() == VirtualMachine.Type.User) {
-            throw new InvalidParameterValueException("Unable to remove NIC from " + vmInstance + " in " + network + ", NIC is default.");
-        }
-
-        // if specified nic is associated with PF/LB/Static NAT
-        if (_rulesMgr.listAssociatedRulesForGuestNic(nic).size() > 0) {
-            throw new InvalidParameterValueException("Unable to remove NIC from " + vmInstance + " in " + network + ", NIC has associated Port forwarding or Load balancer or Static NAT rules.");
-        }
-
-        boolean nicremoved = false;
-        try {
-            nicremoved = _itMgr.removeNicFromVm(vmInstance, nic);
-        } catch (ResourceUnavailableException e) {
-            throw new CloudRuntimeException("Unable to remove " + network + " from " + vmInstance + ": " + e);
-
-        } catch (ConcurrentOperationException e) {
-            throw new CloudRuntimeException("Concurrent operations on removing " + network + " from " + vmInstance + ": " + e);
-        }
-
-        if (!nicremoved) {
-            throw new CloudRuntimeException("Unable to remove " + network + " from " + vmInstance);
-        }
-
-        logger.debug("Successful removal of " + network + " from " + vmInstance);
-        return _vmDao.findById(vmInstance.getId());
+        return vmNicService.removeNicFromVirtualMachine(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_NIC_UPDATE, eventDescription = "Creating NIC", async = true)
     public UserVm updateDefaultNicForVirtualMachine(UpdateDefaultNicForVMCmd cmd) throws InvalidParameterValueException, CloudRuntimeException {
-        Long vmId = cmd.getVmId();
-        Long nicId = cmd.getNicId();
-        Account caller = CallContext.current().getCallingAccount();
-
-        UserVmVO vmInstance = _vmDao.findById(vmId);
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("Unable to find an Instance with ID " + vmId);
-        }
-
-        // Check that Vm does not have VM Snapshots
-        if (_vmSnapshotDao.findByVm(vmId).size() > 0) {
-            throw new InvalidParameterValueException("NIC cannot be updated for Instance with Instance Snapshots");
-        }
-
-        NicVO nic = _nicDao.findById(nicId);
-        if (nic == null) {
-            throw new InvalidParameterValueException("Unable to find a NIC with ID " + nicId);
-        }
-        NetworkVO network = _networkDao.findById(nic.getNetworkId());
-        if (network == null) {
-            throw new InvalidParameterValueException("Unable to find a Network with ID " + nic.getNetworkId());
-        }
-
-        // Perform permission check on VM
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        // Verify that zone is not Basic
-        DataCenterVO dc = _dcDao.findById(vmInstance.getDataCenterId());
-        if (dc.getNetworkType() == DataCenter.NetworkType.Basic) {
-            throw new CloudRuntimeException(String.format("Zone %s, has a NetworkType of Basic. Can't change default NIC on a Basic Network", dc));
-        }
-
-        // no need to check permissions for network, we'll enumerate the ones they already have access to
-        Network existingdefaultnet = _networkModel.getDefaultNetworkForVm(vmId);
-
-        //check to see if nic is attached to VM
-        if (nic.getInstanceId() != vmId) {
-            throw new InvalidParameterValueException(nic + " is not a NIC on  " + vmInstance);
-        }
-        // if current default equals chosen new default, Throw an exception
-        if (nic.isDefaultNic()) {
-            throw new CloudRuntimeException("refusing to set default NIC because chosen NIC is already the default");
-        }
-
-        //make sure the VM is Running or Stopped
-        if ((vmInstance.getState() != State.Running) && (vmInstance.getState() != State.Stopped)) {
-            throw new CloudRuntimeException("refusing to set default " + vmInstance + " is not Running or Stopped");
-        }
-
-        NicProfile existing = null;
-        List<NicProfile> nicProfiles = _networkMgr.getNicProfiles(vmInstance);
-        for (NicProfile nicProfile : nicProfiles) {
-            if (nicProfile.isDefaultNic() && existingdefaultnet != null && nicProfile.getNetworkId() == existingdefaultnet.getId()) {
-                existing = nicProfile;
-            }
-        }
-
-        if (existing == null) {
-            logger.warn("Failed to update default NIC, no NIC profile found for existing default Network");
-            throw new CloudRuntimeException("Failed to find a NIC profile for the existing default Network. This is bad and probably means some sort of configuration corruption");
-        }
-
-        Network oldDefaultNetwork = null;
-        oldDefaultNetwork = _networkModel.getDefaultNetworkForVm(vmId);
-        String oldNicIdString = Long.toString(_networkModel.getDefaultNic(vmId).getId());
-        long oldNetworkOfferingId = -1L;
-
-        if (oldDefaultNetwork != null) {
-            oldNetworkOfferingId = oldDefaultNetwork.getNetworkOfferingId();
-        }
-        NicVO existingVO = _nicDao.findById(existing.id);
-        Integer chosenID = nic.getDeviceId();
-        Integer existingID = existing.getDeviceId();
-
-        Network newdefault = null;
-        if (_itMgr.updateDefaultNicForVM(vmInstance, nic, existingVO)) {
-            newdefault = _networkModel.getDefaultNetworkForVm(vmId);
-        }
-
-        if (newdefault == null) {
-            nic.setDefaultNic(false);
-            nic.setDeviceId(chosenID);
-            existingVO.setDefaultNic(true);
-            existingVO.setDeviceId(existingID);
-
-            nic = _nicDao.persist(nic);
-            _nicDao.persist(existingVO);
-
-            newdefault = _networkModel.getDefaultNetworkForVm(vmId);
-            if (newdefault.getId() == existingdefaultnet.getId()) {
-                throw new CloudRuntimeException("Setting a default nic failed, and we had no default nic, but we were able to set it back to the original");
-            }
-            throw new CloudRuntimeException("Failed to change default nic to " + nic + " and now we have no default");
-        } else if (newdefault.getId() == nic.getNetworkId()) {
-            logger.debug("successfully set default network to " + network + " for " + vmInstance);
-            String nicIdString = Long.toString(nic.getId());
-            long newNetworkOfferingId = network.getNetworkOfferingId();
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_REMOVE, vmInstance.getAccountId(), vmInstance.getDataCenterId(), vmInstance.getId(),
-                    oldNicIdString, oldNetworkOfferingId, null, 1L, VirtualMachine.class.getName(), vmInstance.getUuid(), vmInstance.isDisplay());
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_ASSIGN, vmInstance.getAccountId(), vmInstance.getDataCenterId(), vmInstance.getId(), nicIdString,
-                    newNetworkOfferingId, null, 1L, VirtualMachine.class.getName(), vmInstance.getUuid(), vmInstance.isDisplay());
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_REMOVE, vmInstance.getAccountId(), vmInstance.getDataCenterId(), vmInstance.getId(), nicIdString,
-                    newNetworkOfferingId, null, 0L, VirtualMachine.class.getName(), vmInstance.getUuid(), vmInstance.isDisplay());
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_ASSIGN, vmInstance.getAccountId(), vmInstance.getDataCenterId(), vmInstance.getId(),
-                    oldNicIdString, oldNetworkOfferingId, null, 0L, VirtualMachine.class.getName(), vmInstance.getUuid(), vmInstance.isDisplay());
-
-            if (vmInstance.getState() == State.Running) {
-                try {
-                    VirtualMachineProfile vmProfile = new VirtualMachineProfileImpl(vmInstance);
-                    User callerUser = _accountMgr.getActiveUser(CallContext.current().getCallingUserId());
-                    ReservationContext context = new ReservationContextImpl(null, null, callerUser, caller);
-                    DeployDestination dest = new DeployDestination(dc, null, null, null);
-                    _networkMgr.prepare(vmProfile, dest, context);
-                } catch (final Exception e) {
-                    logger.info("Got exception: ", e);
-                }
-            }
-
-            return _vmDao.findById(vmInstance.getId());
-        }
-
-        throw new CloudRuntimeException(String.format("something strange happened, new default network(%s) is not null, and is not equal to the network(%d) of the chosen nic", newdefault, nic.getNetworkId()));
+        return vmNicService.updateDefaultNicForVirtualMachine(cmd);
     }
 
     @Override
     public UserVm updateNicIpForVirtualMachine(UpdateVmNicIpCmd cmd) {
-        Long nicId = cmd.getNicId();
-        String ipaddr = cmd.getIpaddress();
-        Account caller = CallContext.current().getCallingAccount();
-
-        //check whether the nic belongs to user vm.
-        NicVO nicVO = _nicDao.findById(nicId);
-        if (nicVO == null) {
-            throw new InvalidParameterValueException("There is no nic for the " + nicId);
-        }
-
-        if (nicVO.getVmType() != VirtualMachine.Type.User) {
-            throw new InvalidParameterValueException("The nic is not belongs to user vm");
-        }
-
-        UserVm vm = _vmDao.findById(nicVO.getInstanceId());
-        if (vm == null) {
-            throw new InvalidParameterValueException("There is no vm with the nic");
-        }
-
-        Network network = _networkDao.findById(nicVO.getNetworkId());
-        if (network == null) {
-            throw new InvalidParameterValueException("There is no network with the nic");
-        }
-        // Don't allow to update vm nic ip if network is not in Implemented/Setup/Allocated state
-        if (!(network.getState() == Network.State.Allocated || network.getState() == Network.State.Implemented || network.getState() == Network.State.Setup)) {
-            throw new InvalidParameterValueException("Network is not in the right state to update vm nic ip. Correct states are: " + Network.State.Allocated + ", " + Network.State.Implemented + ", "
-                    + Network.State.Setup);
-        }
-
-        NetworkOfferingVO offering = _networkOfferingDao.findByIdIncludingRemoved(network.getNetworkOfferingId());
-        if (offering == null) {
-            throw new InvalidParameterValueException("There is no network offering with the network");
-        }
-        if (!_networkModel.listNetworkOfferingServices(offering.getId()).isEmpty() && vm.getState() != State.Stopped) {
-            InvalidParameterValueException ex = new InvalidParameterValueException(
-                    "VM is not Stopped, unable to update the vm nic having the specified id");
-            ex.addProxyObject(vm.getUuid(), "vmId");
-            throw ex;
-        }
-
-        // verify permissions
-        _accountMgr.checkAccess(caller, null, true, vm);
-        Account ipOwner = _accountDao.findByIdIncludingRemoved(vm.getAccountId());
-
-        // verify ip address
-        logger.debug("Calling the IP allocation ...");
-        DataCenter dc = _dcDao.findById(network.getDataCenterId());
-        if (dc == null) {
-            throw new InvalidParameterValueException("There is no dc with the NIC");
-        }
-        if (dc.getNetworkType() == NetworkType.Advanced && network.getGuestType() == Network.GuestType.Isolated) {
-            try {
-                ipaddr = _ipAddrMgr.allocateGuestIP(network, ipaddr);
-            } catch (InsufficientAddressCapacityException e) {
-                throw new InvalidParameterValueException(String.format("Allocating IP to guest NIC %s failed, for insufficient address capacity", nicVO));
-            }
-            if (ipaddr == null) {
-                throw new InvalidParameterValueException(String.format("Allocating IP to guest NIC %s failed, please choose another IP", nicVO));
-            }
-
-            if (nicVO.getIPv4Address() != null) {
-                updatePublicIpDnatVmIp(vm.getId(), network.getId(), nicVO.getIPv4Address(), ipaddr);
-                updateLoadBalancerRulesVmIp(vm.getId(), network.getId(), nicVO.getIPv4Address(), ipaddr);
-                updatePortForwardingRulesVmIp(vm.getId(), network.getId(), nicVO.getIPv4Address(), ipaddr);
-            }
-
-        } else if (dc.getNetworkType() == NetworkType.Basic || network.getGuestType()  == Network.GuestType.Shared) {
-            //handle the basic networks here
-            //for basic zone, need to provide the podId to ensure proper ip alloation
-            Long podId = null;
-            if (dc.getNetworkType() == NetworkType.Basic) {
-                podId = vm.getPodIdToDeployIn();
-                if (podId == null) {
-                    throw new InvalidParameterValueException("Instance Pod ID is null in Basic zone; can't decide the range for IP allocation");
-                }
-            }
-
-            try {
-                ipaddr = _ipAddrMgr.allocatePublicIpForGuestNic(network, podId, ipOwner, ipaddr);
-                if (ipaddr == null) {
-                    throw new InvalidParameterValueException("Allocating IP to guest NIC " + nicVO.getUuid() + " failed, please choose another IP");
-                }
-
-                final IPAddressVO newIp = _ipAddressDao.findByIpAndSourceNetworkId(network.getId(), ipaddr);
-                final Vlan vlan = _vlanDao.findById(newIp.getVlanId());
-                nicVO.setIPv4Gateway(vlan.getVlanGateway());
-                nicVO.setIPv4Netmask(vlan.getVlanNetmask());
-
-                final IPAddressVO ip = _ipAddressDao.findByIpAndSourceNetworkId(nicVO.getNetworkId(), nicVO.getIPv4Address());
-                if (ip != null) {
-                    Transaction.execute(new TransactionCallbackNoReturn() {
-                        @Override
-                        public void doInTransactionWithoutResult(TransactionStatus status) {
-                            _ipAddrMgr.markIpAsUnavailable(ip.getId());
-                            _ipAddressDao.unassignIpAddress(ip.getId());
-                        }
-                    });
-                }
-            } catch (InsufficientAddressCapacityException e) {
-                logger.error("Allocating IP to guest NIC {} failed, for insufficient address capacity", nicVO);
-                return null;
-            }
-        } else {
-            throw new InvalidParameterValueException("UpdateVmNicIpCmd is not supported in L2 network");
-        }
-
-        logger.debug("Updating IPv4 address of NIC " + nicVO + " to " + ipaddr + "/" + nicVO.getIPv4Netmask() + " with gateway " + nicVO.getIPv4Gateway());
-        nicVO.setIPv4Address(ipaddr);
-        _nicDao.persist(nicVO);
-
-        return vm;
+        return vmNicService.updateNicIpForVirtualMachine(cmd);
     }
 
     @Override
     public UserVm updateVirtualMachineNic(UpdateVmNicCmd cmd) {
-        Long nicId = cmd.getNicId();
-        Boolean isNicEnabled = cmd.isEnabled();
-        Account caller = CallContext.current().getCallingAccount();
-
-        NicVO nic = _nicDao.findById(nicId);
-        if (nic == null) {
-            throw new InvalidParameterValueException("Unable to find the specified NIC.");
-        }
-
-        UserVmVO vmInstance = _vmDao.findById(nic.getInstanceId());
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("Unable to find a virtual machine associated with the specified NIC.");
-        }
-
-        if (vmInstance.getHypervisorType() != HypervisorType.KVM) {
-            throw new InvalidParameterValueException("Updating the VM NIC is only supported by the KVM hypervisor.");
-        }
-
-        NetworkVO network = _networkDao.findById(nic.getNetworkId());
-        if (network == null) {
-            throw new InvalidParameterValueException("Unable to find NIC's network.");
-        }
-
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        if (isNicEnabled == null) {
-            return vmInstance;
-        }
-
-        boolean success = false;
-        try {
-            success = _itMgr.updateVmNic(vmInstance, nic, isNicEnabled);
-        } catch (ResourceUnavailableException e) {
-            throw new CloudRuntimeException(String.format("Unable to update NIC %s of VM %s in network %s due to: %s.", nic, vmInstance, network.getUuid(), e.getMessage()));
-        } catch (ConcurrentOperationException e) {
-            throw new CloudRuntimeException(String.format("Concurrent operations while updating NIC %s for VM %s: %s.", nic, vmInstance, e.getMessage()));
-        }
-
-        if (!success) {
-            throw new CloudRuntimeException(String.format("Failed to update NIC %s of VM %s in network %s.", nic, vmInstance, network.getUuid()));
-        }
-
-        logger.debug("Successfully updated NIC {} in network {} for VM {}.", nic, network.getUuid(), vmInstance);
-        return vmInstance;
-    }
-
-    private void updatePublicIpDnatVmIp(long vmId, long networkId, String oldIp, String newIp) {
-        if (!_networkModel.areServicesSupportedInNetwork(networkId, Service.StaticNat)) {
-            return;
-        }
-        List<IPAddressVO> publicIps = _ipAddressDao.listByAssociatedVmId(vmId);
-        for (IPAddressVO publicIp : publicIps) {
-            if (oldIp.equals(publicIp.getVmIp()) && publicIp.getAssociatedWithNetworkId() == networkId) {
-                publicIp.setVmIp(newIp);
-                _ipAddressDao.persist(publicIp);
-            }
-        }
-    }
-
-    private void updateLoadBalancerRulesVmIp(long vmId, long networkId, String oldIp, String newIp) {
-        if (!_networkModel.areServicesSupportedInNetwork(networkId, Service.Lb)) {
-            return;
-        }
-        List<LoadBalancerVMMapVO> loadBalancerVMMaps = _loadBalancerVMMapDao.listByInstanceId(vmId);
-        for (LoadBalancerVMMapVO map : loadBalancerVMMaps) {
-            long lbId = map.getLoadBalancerId();
-            FirewallRuleVO rule = _rulesDao.findById(lbId);
-            if (oldIp.equals(map.getInstanceIp()) && networkId == rule.getNetworkId()) {
-                map.setInstanceIp(newIp);
-                _loadBalancerVMMapDao.persist(map);
-            }
-        }
-    }
-
-    private void updatePortForwardingRulesVmIp(long vmId, long networkId, String oldIp, String newIp) {
-        if (!_networkModel.areServicesSupportedInNetwork(networkId, Service.PortForwarding)) {
-            return;
-        }
-        List<PortForwardingRuleVO> firewallRules = _portForwardingDao.listByVm(vmId);
-        for (PortForwardingRuleVO firewallRule : firewallRules) {
-            FirewallRuleVO rule = _rulesDao.findById(firewallRule.getId());
-            if (oldIp.equals(firewallRule.getDestinationIpAddress().toString()) && networkId == rule.getNetworkId()) {
-                firewallRule.setDestinationIpAddress(new Ip(newIp));
-                _portForwardingDao.persist(firewallRule);
-            }
-        }
+        return vmNicService.updateVirtualMachineNic(cmd);
     }
 
     @Override
