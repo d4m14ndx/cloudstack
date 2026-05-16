@@ -31,6 +31,7 @@ import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.network.IpAddress;
+import com.cloud.network.element.VpcProvider;
 import com.cloud.network.Network;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
@@ -216,4 +217,11 @@ public interface VpcManager {
      * Returns true if the network is part of a VPC, and the VPC is created from conserve mode enabled VPC offering
      */
     boolean isNetworkOnVpcEnabledConserveMode(Network network);
+
+    /**
+     * Returns the cached list of {@link VpcProvider} network elements (lazily initialized from
+     * the VPC virtual-router provider). Used by static-route, ACL and other VPC sub-services
+     * that need to apply state through the configured provider.
+     */
+    List<VpcProvider> getVpcElements();
 }
