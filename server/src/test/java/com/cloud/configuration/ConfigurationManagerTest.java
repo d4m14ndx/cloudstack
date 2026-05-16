@@ -254,6 +254,26 @@ public class ConfigurationManagerTest {
 
         when(configurationMgr._vlanDao.acquireInLockTable(anyLong(), anyInt())).thenReturn(vlan);
 
+        // Phase 4 Spring-component decomposition: pod CRUD was extracted into
+        // PodServiceImpl. The tests below exercise that behavior through the
+        // manager's delegating wrappers, so wire up a real PodServiceImpl
+        // backed by the existing DAO mocks.
+        PodServiceImpl podService = new PodServiceImpl();
+        ReflectionTestUtils.setField(podService, "_podDao", _podDao);
+        ReflectionTestUtils.setField(podService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(podService, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(podService, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(podService, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(podService, "_configDao", _configDao);
+        ReflectionTestUtils.setField(podService, "messageBus", messageBus);
+        ReflectionTestUtils.setField(podService, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(podService, "_volumeDao", _volumeDao);
+        ReflectionTestUtils.setField(podService, "_hostDao", _hostDao);
+        ReflectionTestUtils.setField(podService, "_vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(podService, "_clusterDao", _clusterDao);
+        ReflectionTestUtils.setField(podService, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(configurationMgr, "podService", podService);
+
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
         dedicateIdField.set(dedicatePublicIpRangesCmd, 1L);
