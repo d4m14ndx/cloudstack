@@ -242,6 +242,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     @Inject
     private AccountDao _accountDao;
     @Inject
+    private AccountLookupService accountLookupService;
+    @Inject
     private ConfigurationDao _configDao;
     @Inject
     private ResourceCountDao _resourceCountDao;
@@ -2747,65 +2749,52 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public Account getActiveAccountByName(String accountName, Long domainId) {
-        if (accountName == null || domainId == null) {
-            throw new InvalidParameterValueException("Both accountName and domainId are required for finding active account in the system");
-        } else {
-            return _accountDao.findActiveAccount(accountName, domainId);
-        }
+        return accountLookupService.getActiveAccountByName(accountName, domainId);
     }
 
     @Override
     public UserAccount getActiveUserAccount(String username, Long domainId) {
-        return userAccountDao.getUserAccount(username, domainId);
+        return accountLookupService.getActiveUserAccount(username, domainId);
     }
 
     @Override
     public List<UserAccount> getActiveUserAccountByEmail(String email, Long domainId) {
-        List<UserAccountVO> userAccountByEmail = userAccountDao.getUserAccountByEmail(email, domainId);
-        List<UserAccount> userAccounts = userAccountByEmail.stream()
-                .map(userAccountVO -> (UserAccount) userAccountVO)
-                .collect(Collectors.toList());
-        return userAccounts;
+        return accountLookupService.getActiveUserAccountByEmail(email, domainId);
     }
 
     @Override
     public Account getActiveAccountById(long accountId) {
-        return _accountDao.findById(accountId);
+        return accountLookupService.getActiveAccountById(accountId);
     }
 
     @Override
     public Account getAccount(long accountId) {
-        return _accountDao.findByIdIncludingRemoved(accountId);
+        return accountLookupService.getAccount(accountId);
     }
 
     @Override
     public RoleType getRoleType(Account account) {
-        if (account == null) {
-            return RoleType.Unknown;
-        }
-        return RoleType.getByAccountType(account.getType());
+        return accountLookupService.getRoleType(account);
     }
 
     @Override
     public User getActiveUser(long userId) {
-        return _userDao.findById(userId);
+        return accountLookupService.getActiveUser(userId);
     }
 
     @Override
     public User getUserIncludingRemoved(long userId) {
-        return _userDao.findByIdIncludingRemoved(userId);
+        return accountLookupService.getUserIncludingRemoved(userId);
     }
 
     @Override
     public User getActiveUserByRegistrationToken(String registrationToken) {
-        return _userDao.findUserByRegistrationToken(registrationToken);
+        return accountLookupService.getActiveUserByRegistrationToken(registrationToken);
     }
 
     @Override
     public void markUserRegistered(long userId) {
-        UserVO userForUpdate = _userDao.createForUpdate();
-        userForUpdate.setRegistered(true);
-        _userDao.update(userId, userForUpdate);
+        accountLookupService.markUserRegistered(userId);
     }
 
     @Override
@@ -3950,12 +3939,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public UserAccount getUserAccountById(Long userId) {
-        UserAccount userAccount = userAccountDao.findById(userId);
-        if (userAccount != null) {
-            Map<String, String> details = _userDetailsDao.listDetailsKeyPairs(userId);
-            userAccount.setDetails(details);
-        }
-        return userAccount;
+        return accountLookupService.getUserAccountById(userId);
     }
 
     @Override
