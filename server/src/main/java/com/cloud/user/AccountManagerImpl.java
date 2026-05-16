@@ -74,7 +74,6 @@ import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.UpdateAccountCmd;
@@ -243,6 +242,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     private AccountDao _accountDao;
     @Inject
     private AccountLookupService accountLookupService;
+    @Inject
+    private ApiKeyPermissionService apiKeyPermissionService;
     @Inject
     private ConfigurationDao _configDao;
     @Inject
@@ -3290,55 +3291,24 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     private void validateKeyPairIsNotNull(ApiKeyPair keyPair) {
-        if (keyPair == null) {
-            logger.info("Keypair not found.");
-            throw new InvalidParameterValueException("Could not complete request.");
-        }
+        apiKeyPermissionService.validateKeyPairIsNotNull(keyPair);
     }
 
     private void validateAccessingKeyPairPermissionsIsSupersetOfAccessedKeyPair(ApiKeyPair keyPair, BaseCmd cmd) {
-        if (!isAccessingKeypairSuperset(keyPair, cmd)) {
-            logger.info("Accessing API key pair [{}] has less permissions than accessed API key pair.", keyPair.getId());
-            throw new PermissionDeniedException("Could not complete request.");
-        }
+        apiKeyPermissionService.validateAccessingKeyPairPermissionsIsSupersetOfAccessedKeyPair(keyPair, cmd);
     }
 
     private Boolean isAccessingKeypairSuperset(ApiKeyPair accessedKeyPair, BaseCmd cmd) {
-        String apiKey = getAccessingApiKey(cmd);
-        if (apiKey == null) {
-            return Boolean.TRUE;
-        }
-        ApiKeyPair accessingKeyPair = apiKeyPairService.findByApiKey(apiKey);
-        return isApiKeySupersetOfPermission(new ArrayList<>(getAllKeypairPermissions(accessingKeyPair.getApiKey())), new ArrayList<>(getAllKeypairPermissions(accessedKeyPair.getApiKey())));
+        return apiKeyPermissionService.isAccessingKeypairSuperset(accessedKeyPair, cmd);
     }
 
     @Override
     public String getAccessingApiKey(BaseCmd cmd) {
-        try {
-            if (cmd instanceof BaseAsyncCmd && ((BaseAsyncCmd) cmd).getJob().toString().contains("\"signature\"")) {
-                return parseApiKeyFromAsyncJob((BaseAsyncCmd) cmd);
-            }
-            boolean accessedByApiKey = cmd.getFullUrlParams().containsKey(ApiConstants.SIGNATURE);
-            String accessingApiKey = cmd.getFullUrlParams().get("apiKey");
-            if (accessedByApiKey) {
-                return accessingApiKey;
-            }
-        } catch (NullPointerException e) {
-            logger.info("Accessing API through session.");
-        }
-        return null;
-    }
-
-    private String parseApiKeyFromAsyncJob(BaseAsyncCmd cmd) {
-        String jobString = cmd.getJob().toString();
-        int indexOfApiKey = jobString.indexOf("apiKey") + 9;
-        return jobString.substring(indexOfApiKey, jobString.indexOf("\"", indexOfApiKey));
+        return apiKeyPermissionService.getAccessingApiKey(cmd);
     }
 
     private Boolean isApiKeySupersetOfPermission(List<RolePermissionEntity> baseKeyPairPermissions, List<RolePermissionEntity> comparedPermissions) {
-        Map<String, RolePermissionEntity> apiNameToBaseKeyPermissions = roleService.getRoleRulesAndPermissions(baseKeyPairPermissions);
-
-        return roleService.roleHasPermission(apiNameToBaseKeyPermissions, comparedPermissions);
+        return apiKeyPermissionService.isApiKeySupersetOfPermission(baseKeyPairPermissions, comparedPermissions);
     }
 
     private void removeApiKeyPairIfExpired(ApiKeyPair apiKeyPair) {
@@ -3567,13 +3537,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public List<RolePermissionEntity> getAllKeypairPermissions(String apiKey) {
-        if (apiKey == null) {
-            throw new InvalidParameterValueException("API key not present in the request's URL and, thus, unable to fetch API key rules.");
-        }
-        ApiKeyPair apiKeyPair = keyPairManager.findByApiKey(apiKey);
-        Account account = _accountDao.findById(apiKeyPair.getAccountId());
-        List<ApiKeyPairPermission> keyPairPermissions = keyPairManager.findAllPermissionsByKeyPairId(apiKeyPair.getId(), account.getRoleId());
-        return new ArrayList<>(keyPairPermissions);
+        return apiKeyPermissionService.getAllKeypairPermissions(apiKey);
     }
 
     private String createUserApiKey(long userId, ApiKeyPairVO newApiKeyPair) {

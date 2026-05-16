@@ -227,6 +227,21 @@ public class AccountManagentImplTestBase {
         org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userAccountDao", userAccountDao);
         org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userDetailsDao", userDetailsDaoMock);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountLookupService", accountLookupService);
+        // Phase 4 slice (2nd): wire ApiKeyPermissionServiceImpl so AccountManagerImpl's
+        // delegating wrappers (getAccessingApiKey, getAllKeypairPermissions, the
+        // private isAccessingKeypairSuperset / validateKeyPair* helpers) still
+        // exercise the same code paths the legacy tests assert on. We share the
+        // apiKeyPairService and roleService mocks that the existing test subclasses
+        // already inject into accountManagerImpl via @InjectMocks (legacy
+        // expectations like Mockito.when(roleService...) only stub the
+        // accountManagerImpl-side instances).
+        ApiKeyPermissionServiceImpl apiKeyPermissionService = new ApiKeyPermissionServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "apiKeyPairService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyPermissionService", apiKeyPermissionService);
         CallContext.register(callingUser, callingAccount);
     }
 
