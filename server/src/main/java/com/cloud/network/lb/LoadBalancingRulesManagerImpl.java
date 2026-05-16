@@ -117,7 +117,6 @@ import com.cloud.network.dao.LoadBalancerVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.dao.SslCertVO;
 import com.cloud.network.element.LoadBalancingServiceProvider;
 import com.cloud.network.lb.LoadBalancingRule.LbAutoScalePolicy;
 import com.cloud.network.lb.LoadBalancingRule.LbAutoScaleVmGroup;
@@ -274,6 +273,8 @@ public class LoadBalancingRulesManagerImpl<Type> extends ManagerBase implements 
     EntityManager _entityMgr;
     @Inject
     LoadBalancerCertMapDao _lbCertMapDao;
+    @Inject
+    LoadBalancerCertService loadBalancerCertService;
 
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
@@ -1279,10 +1280,7 @@ public class LoadBalancingRulesManagerImpl<Type> extends ManagerBase implements 
 
     @Override
     public boolean assignSSLCertToLoadBalancerRule(Long lbId, String certName, String publicCert, String privateKey) {
-        logger.error("Calling the manager for LB");
-        LoadBalancerVO loadBalancer = _lbDao.findById(lbId);
-
-        return false;  //TODO
+        return loadBalancerCertService.assignSSLCertToLoadBalancerRule(lbId, certName, publicCert, privateKey);
     }
 
     @Override
@@ -1293,142 +1291,21 @@ public class LoadBalancingRulesManagerImpl<Type> extends ManagerBase implements 
 
     @Override
     public LbSslCert getLbSslCert(long lbRuleId) {
-        LoadBalancerCertMapVO lbCertMap = _lbCertMapDao.findByLbRuleId(lbRuleId);
-
-        if (lbCertMap == null)
-            return null;
-
-        SslCertVO certVO = _entityMgr.findById(SslCertVO.class, lbCertMap.getCertId());
-        if (certVO == null) {
-            logger.warn("Cert rule with cert ID " + lbCertMap.getCertId() + " but Cert is not found");
-            return null;
-        }
-
-        return new LbSslCert(certVO.getCertificate(), certVO.getKey(), certVO.getPassword(), certVO.getChain(), certVO.getFingerPrint(), lbCertMap.isRevoke());
+        return loadBalancerCertService.getLbSslCert(lbRuleId);
     }
 
     @Override
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_LB_CERT_ASSIGN, eventDescription = "assigning certificate to load balancer", async = true)
     public boolean assignCertToLoadBalancer(long lbRuleId, Long certId, boolean forced) {
-        CallContext caller = CallContext.current();
-
-        LoadBalancerVO loadBalancer = _lbDao.findById(lbRuleId);
-        if (loadBalancer == null) {
-            throw new InvalidParameterValueException("Invalid load balancer id: " + lbRuleId);
-        }
-
-        SslCertVO certVO = _entityMgr.findById(SslCertVO.class, certId);
-        if (certVO == null) {
-            throw new InvalidParameterValueException("Invalid certificate id: " + certId);
-        }
-
-        _accountMgr.checkAccess(caller.getCallingAccount(), null, true, loadBalancer);
-
-        // check if LB and Cert belong to the same account
-        if (loadBalancer.getAccountId() != certVO.getAccountId()) {
-            throw new InvalidParameterValueException("Access denied for Account " + certVO.getAccountId());
-        }
-
-        String capability = getLBCapability(loadBalancer.getNetworkId(), Capability.SslTermination.getName());
-        if (capability == null) {
-            throw new InvalidParameterValueException("Ssl termination not supported by the loadbalancer");
-        }
-
-        validateCertMapRule(lbRuleId, forced);
-
-        //check for correct port
-        if (loadBalancer.getLbProtocol() == null || !(loadBalancer.getLbProtocol().equals(NetUtils.SSL_PROTO)))
-            throw new InvalidParameterValueException("Bad LB protocol: Expected ssl got " + loadBalancer.getLbProtocol());
-
-        boolean success = false;
-        FirewallRule.State backupState = loadBalancer.getState();
-
-        try {
-
-            loadBalancer.setState(FirewallRule.State.Add);
-            _lbDao.persist(loadBalancer);
-            LoadBalancerCertMapVO certMap = new LoadBalancerCertMapVO(lbRuleId, certId, false);
-            _lbCertMapDao.persist(certMap);
-            applyLoadBalancerConfig(loadBalancer.getId());
-            success = true;
-        } catch (ResourceUnavailableException e) {
-            if (isRollBackAllowedForProvider(loadBalancer)) {
-
-                loadBalancer.setState(backupState);
-                _lbDao.persist(loadBalancer);
-                LoadBalancerCertMapVO certMap = _lbCertMapDao.findByLbRuleId(lbRuleId);
-                _lbCertMapDao.remove(certMap.getId());
-                logger.debug("LB Rollback rule: {} while adding cert", loadBalancer);
-            }
-            logger.warn("Unable to apply the load balancer config because resource is unavailable.", e);
-        }
-        return success;
-    }
-
-    private void validateCertMapRule(long lbRuleId, boolean forced) {
-        //check if the lb is already bound
-        LoadBalancerCertMapVO certMapRule = _lbCertMapDao.findByLbRuleId(lbRuleId);
-        if (certMapRule != null) {
-            if (!forced) {
-                throw new InvalidParameterValueException("Another certificate is already bound to the LB");
-            }
-            logger.debug("Another certificate is already bound to the LB, removing it");
-            removeCertFromLoadBalancer(lbRuleId);
-        }
+        return loadBalancerCertService.assignCertToLoadBalancer(lbRuleId, certId, forced);
     }
 
     @Override
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_LB_CERT_REMOVE, eventDescription = "removing certificate from load balancer", async = true)
     public boolean removeCertFromLoadBalancer(long lbRuleId) {
-        CallContext caller = CallContext.current();
-
-        LoadBalancerVO loadBalancer = _lbDao.findById(lbRuleId);
-        LoadBalancerCertMapVO lbCertMap = _lbCertMapDao.findByLbRuleId(lbRuleId);
-
-        if (loadBalancer == null) {
-            throw new InvalidParameterValueException("Invalid load balancer value: " + lbRuleId);
-        }
-
-        if (lbCertMap == null) {
-            throw new InvalidParameterValueException("No certificate is bound to lb with id: " + lbRuleId);
-        }
-
-        _accountMgr.checkAccess(caller.getCallingAccount(), null, true, loadBalancer);
-
-        boolean success = false;
-        FirewallRule.State backupState = loadBalancer.getState();
-        try {
-
-            loadBalancer.setState(FirewallRule.State.Add);
-            _lbDao.persist(loadBalancer);
-            lbCertMap.setRevoke(true);
-            _lbCertMapDao.persist(lbCertMap);
-
-            if (!applyLoadBalancerConfig(lbRuleId)) {
-                logger.warn("Failed to remove cert from load balancer rule {}", loadBalancer);
-                CloudRuntimeException ex = new CloudRuntimeException(String.format("Failed to remove certificate load balancer rule %s", loadBalancer));
-                ex.addProxyObject(loadBalancer.getUuid(), "loadBalancerId");
-                throw ex;
-            }
-            success = true;
-        } catch (ResourceUnavailableException e) {
-            if (isRollBackAllowedForProvider(loadBalancer)) {
-                lbCertMap.setRevoke(false);
-                _lbCertMapDao.persist(lbCertMap);
-                loadBalancer.setState(backupState);
-                _lbDao.persist(loadBalancer);
-                logger.debug(String.format("Rolled back certificate removal lb %s", loadBalancer));
-            }
-            logger.warn("Unable to apply the load balancer config because resource is unavailable.", e);
-            if (!success) {
-                CloudRuntimeException ex = new CloudRuntimeException(String.format("Failed to remove certificate from load balancer rule %s", loadBalancer));
-                ex.addProxyObject(loadBalancer.getUuid(), "loadBalancerId");
-                throw ex;
-            }
-        }
-        return success;
+        return loadBalancerCertService.removeCertFromLoadBalancer(lbRuleId);
     }
 
     private boolean removeFromLoadBalancerInternal(long loadBalancerId, List<Long> instanceIds, boolean rollBack, Map<Long, List<String>> vmIdIpMap, boolean isAutoScaleVM) {
@@ -2396,11 +2273,7 @@ public class LoadBalancingRulesManagerImpl<Type> extends ManagerBase implements 
     }
 
     private void removeCertMapIfExists(LoadBalancerVO lb) {
-        LoadBalancerCertMapVO loadBalancerCertMapVO = _lbCertMapDao.findByLbRuleId(lb.getId());
-        if (loadBalancerCertMapVO != null) {
-            logger.debug("Removing SSL cert for load balancer %s as the new protocol is not ssl but %s", lb, lb.getLbProtocol());
-            _lbCertMapDao.remove(loadBalancerCertMapVO.getId());
-        }
+        loadBalancerCertService.removeCertMapIfExists(lb);
     }
 
     @Override

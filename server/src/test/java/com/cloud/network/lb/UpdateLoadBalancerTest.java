@@ -83,6 +83,7 @@ public class UpdateLoadBalancerTest {
         _lbMgr._lb2stickinesspoliciesDao = Mockito.mock(LBStickinessPolicyDao.class);
         _lbMgr._lb2VmMapDao = Mockito.mock(LoadBalancerVMMapDao.class);
         _lbMgr._lbCertMapDao = Mockito.mock(LoadBalancerCertMapDao.class);
+        _lbMgr.loadBalancerCertService = Mockito.mock(LoadBalancerCertService.class);
         _lbMgr._lbDao = lbDao;
         _lbMgr._lbProviders = new ArrayList<LoadBalancingServiceProvider>();
         _lbMgr._lbProviders.add(lbServiceProvider);
