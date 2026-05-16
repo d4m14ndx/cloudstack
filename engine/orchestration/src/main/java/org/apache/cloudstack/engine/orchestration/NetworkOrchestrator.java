@@ -445,6 +445,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     @Inject
     NetworkModel _networkModel;
     @Inject
+    NetworkProviderResolutionService networkProviderResolutionService;
+    @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
     ClusterDao clusterDao;
@@ -3916,55 +3918,22 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public UserDataServiceProvider getPasswordResetProvider(final Network network) {
-        final String passwordProvider = _ntwkSrvcDao.getProviderForServiceInNetwork(network.getId(), Service.UserData);
-
-        if (passwordProvider == null) {
-            logger.debug("Network {} doesn't support service {}", network, Service.UserData.getName());
-            return null;
-        }
-
-        return (UserDataServiceProvider) _networkModel.getElementImplementingProvider(passwordProvider);
+        return networkProviderResolutionService.getPasswordResetProvider(network);
     }
 
     @Override
     public UserDataServiceProvider getSSHKeyResetProvider(final Network network) {
-        final String SSHKeyProvider = _ntwkSrvcDao.getProviderForServiceInNetwork(network.getId(), Service.UserData);
-
-        if (SSHKeyProvider == null) {
-            logger.debug("Network {} doesn't support service", network, Service.UserData.getName());
-            return null;
-        }
-
-        return (UserDataServiceProvider) _networkModel.getElementImplementingProvider(SSHKeyProvider);
+        return networkProviderResolutionService.getSSHKeyResetProvider(network);
     }
 
     @Override
     public DhcpServiceProvider getDhcpServiceProvider(final Network network) {
-        final String DhcpProvider = _ntwkSrvcDao.getProviderForServiceInNetwork(network.getId(), Service.Dhcp);
-
-        if (DhcpProvider == null) {
-            logger.debug("Network {} doesn't support service {}", network, Service.Dhcp.getName());
-            return null;
-        }
-
-        final NetworkElement element = _networkModel.getElementImplementingProvider(DhcpProvider);
-        if (element instanceof DhcpServiceProvider) {
-            return (DhcpServiceProvider) element;
-        } else {
-            return null;
-        }
+        return networkProviderResolutionService.getDhcpServiceProvider(network);
     }
 
     @Override
     public DnsServiceProvider getDnsServiceProvider(final Network network) {
-        final String dnsProvider = _ntwkSrvcDao.getProviderForServiceInNetwork(network.getId(), Service.Dns);
-
-        if (dnsProvider == null) {
-            logger.debug("Network {} doesn't support service {}", network, Service.Dhcp.getName());
-            return null;
-        }
-
-        return (DnsServiceProvider) _networkModel.getElementImplementingProvider(dnsProvider);
+        return networkProviderResolutionService.getDnsServiceProvider(network);
     }
 
     protected boolean isSharedNetworkWithServices(final Network network) {
@@ -4637,84 +4606,23 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         _stateMachine = Network.State.getStateMachine();
     }
 
-    private Map<Service, Set<Provider>> getServiceProvidersMap(final long networkId) {
-        final Map<Service, Set<Provider>> map = new HashMap<>();
-        final List<NetworkServiceMapVO> nsms = _ntwkSrvcDao.getServicesInNetwork(networkId);
-        for (final NetworkServiceMapVO nsm : nsms) {
-            Set<Provider> providers = map.get(Service.getService(nsm.getService()));
-            if (providers == null) {
-                providers = new HashSet<>();
-            }
-            providers.add(Provider.getProvider(nsm.getProvider()));
-            map.put(Service.getService(nsm.getService()), providers);
-        }
-        return map;
-    }
-
     @Override
     public List<Provider> getProvidersForServiceInNetwork(final Network network, final Service service) {
-        final Map<Service, Set<Provider>> service2ProviderMap = getServiceProvidersMap(network.getId());
-        if (service2ProviderMap.get(service) != null) {
-            final List<Provider> providers = new ArrayList<>(service2ProviderMap.get(service));
-            return providers;
-        }
-        return null;
+        return networkProviderResolutionService.getProvidersForServiceInNetwork(network, service);
     }
 
     protected List<NetworkElement> getElementForServiceInNetwork(final Network network, final Service service) {
-        final List<NetworkElement> elements = new ArrayList<>();
-        final List<Provider> providers = getProvidersForServiceInNetwork(network, service);
-        //Only support one provider now
-        if (providers == null) {
-            logger.error("Cannot find {} provider for network {}", service.getName(), network);
-            return null;
-        }
-        if (providers.size() != 1 && service != Service.Lb) {
-            //support more than one LB providers only
-            logger.error("Found {} {} providers for network! {}", providers.size(), service.getName(), network);
-            return null;
-        }
-
-        for (final Provider provider : providers) {
-            final NetworkElement element = _networkModel.getElementImplementingProvider(provider.getName());
-            logger.info("Let {} handle {} in network {}", element.getName(), service.getName(), network);
-            elements.add(element);
-        }
-        return elements;
+        return networkProviderResolutionService.getElementForServiceInNetwork(network, service);
     }
 
     @Override
     public StaticNatServiceProvider getStaticNatProviderForNetwork(final Network network) {
-        //only one provider per Static nat service is supoprted
-        final NetworkElement element = getElementForServiceInNetwork(network, Service.StaticNat).get(0);
-        assert element instanceof StaticNatServiceProvider;
-        return (StaticNatServiceProvider) element;
+        return networkProviderResolutionService.getStaticNatProviderForNetwork(network);
     }
 
     @Override
     public LoadBalancingServiceProvider getLoadBalancingProviderForNetwork(final Network network, final Scheme lbScheme) {
-        final List<NetworkElement> lbElements = getElementForServiceInNetwork(network, Service.Lb);
-        NetworkElement lbElement = null;
-        if (lbElements.size() > 1) {
-            String providerName;
-            //get network offering details
-            final NetworkOffering off = _entityMgr.findById(NetworkOffering.class, network.getNetworkOfferingId());
-            if (lbScheme == Scheme.Public) {
-                providerName = _ntwkOffDetailsDao.getDetail(off.getId(), NetworkOffering.Detail.PublicLbProvider);
-            } else {
-                providerName = _ntwkOffDetailsDao.getDetail(off.getId(), NetworkOffering.Detail.InternalLbProvider);
-            }
-            if (providerName == null) {
-                throw new InvalidParameterValueException("Can't find Lb provider supporting scheme " + lbScheme.toString() + " in network " + network);
-            }
-            lbElement = _networkModel.getElementImplementingProvider(providerName);
-        } else if (lbElements.size() == 1) {
-            lbElement = lbElements.get(0);
-        }
-
-        assert lbElement != null;
-        assert lbElement instanceof LoadBalancingServiceProvider;
-        return (LoadBalancingServiceProvider) lbElement;
+        return networkProviderResolutionService.getLoadBalancingProviderForNetwork(network, lbScheme);
     }
 
     @Override
