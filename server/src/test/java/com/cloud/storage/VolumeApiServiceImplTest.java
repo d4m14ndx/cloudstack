@@ -478,6 +478,21 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(compatibilityService, "serviceOfferingDao", serviceOfferingDao);
         ReflectionTestUtils.setField(compatibilityService, "diskOfferingDao", _diskOfferingDao);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "diskOfferingCompatibilityService", compatibilityService);
+
+        // Phase 4 (parallel slice, 2nd): wire VolumeAttachValidatorImpl with the
+        // same DAO mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (checkForBackups, getRequiredPrimaryStorageSizeForVolumeAttach,
+        // checkForVMSnapshots, excludeLocalStorageIfNeeded, checkDeviceId,
+        // validateRootVolumeDetachAttach, checkForMatchingHypervisorTypesIf)
+        // forward to this service so existing spy-based tests keep exercising
+        // the same code paths.
+        VolumeAttachValidatorImpl attachValidator = new VolumeAttachValidatorImpl();
+        ReflectionTestUtils.setField(attachValidator, "vmSnapshotDao", _vmSnapshotDao);
+        ReflectionTestUtils.setField(attachValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(attachValidator, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(attachValidator, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(attachValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachValidator", attachValidator);
     }
 
     /**
