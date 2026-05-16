@@ -16,7 +16,6 @@
 // under the License.
 package com.cloud.server;
 
-import java.lang.reflect.Field;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -985,6 +984,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected SshKeyPairService sshKeyPairService;
     @Inject
+    protected AuditTrailService auditTrailService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -1223,56 +1224,12 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public boolean archiveEvents(final ArchiveEventsCmd cmd) {
-        final Account caller = getCaller();
-        final List<Long> ids = cmd.getIds();
-        boolean result = true;
-        List<Long> permittedAccountIds = new ArrayList<>();
-
-        if (_accountService.isNormalUser(caller.getId()) || caller.getType() == Account.Type.PROJECT) {
-            permittedAccountIds.add(caller.getId());
-        } else {
-            final DomainVO domain = _domainDao.findById(caller.getDomainId());
-            final List<Long> permittedDomainIds = _domainDao.getDomainChildrenIds(domain.getPath());
-            permittedAccountIds = _accountDao.getAccountIdsForDomains(permittedDomainIds);
-        }
-
-        final List<EventVO> events = _eventDao.listToArchiveOrDeleteEvents(ids, cmd.getType(), cmd.getStartDate(), cmd.getEndDate(), permittedAccountIds);
-        final ControlledEntity[] sameOwnerEvents = events.toArray(new ControlledEntity[events.size()]);
-        _accountMgr.checkAccess(CallContext.current().getCallingAccount(), null, false, sameOwnerEvents);
-
-        if (ids != null && events.size() < ids.size()) {
-            return false;
-        }
-        _eventDao.archiveEvents(events);
-        return result;
+        return auditTrailService.archiveEvents(cmd);
     }
 
     @Override
     public boolean deleteEvents(final DeleteEventsCmd cmd) {
-        final Account caller = getCaller();
-        final List<Long> ids = cmd.getIds();
-        boolean result = true;
-        List<Long> permittedAccountIds = new ArrayList<>();
-
-        if (_accountMgr.isNormalUser(caller.getId()) || caller.getType() == Account.Type.PROJECT) {
-            permittedAccountIds.add(caller.getId());
-        } else {
-            final DomainVO domain = _domainDao.findById(caller.getDomainId());
-            final List<Long> permittedDomainIds = _domainDao.getDomainChildrenIds(domain.getPath());
-            permittedAccountIds = _accountDao.getAccountIdsForDomains(permittedDomainIds);
-        }
-
-        final List<EventVO> events = _eventDao.listToArchiveOrDeleteEvents(ids, cmd.getType(), cmd.getStartDate(), cmd.getEndDate(), permittedAccountIds);
-        final ControlledEntity[] sameOwnerEvents = events.toArray(new ControlledEntity[events.size()]);
-        _accountMgr.checkAccess(CallContext.current().getCallingAccount(), null, false, sameOwnerEvents);
-
-        if (ids != null && events.size() < ids.size()) {
-            return false;
-        }
-        for (final EventVO event : events) {
-            _eventDao.remove(event.getId());
-        }
-        return result;
+        return auditTrailService.deleteEvents(cmd);
     }
 
     @Override
@@ -3492,52 +3449,17 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public Pair<List<? extends Alert>, Integer> searchForAlerts(final ListAlertsCmd cmd) {
-        final Filter searchFilter = new Filter(AlertVO.class, "lastSent", false, cmd.getStartIndex(), cmd.getPageSizeVal());
-        final SearchCriteria<AlertVO> sc = _alertDao.createSearchCriteria();
-
-        final Object id = cmd.getId();
-        final Object type = cmd.getType();
-        final Object keyword = cmd.getKeyword();
-        final Object name = cmd.getName();
-
-        final Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), null);
-        if (id != null) {
-            sc.addAnd("id", SearchCriteria.Op.EQ, id);
-        }
-        if (zoneId != null) {
-            sc.addAnd("data_center_id", SearchCriteria.Op.EQ, zoneId);
-        }
-
-        if (keyword != null) {
-            final SearchCriteria<AlertVO> ssc = _alertDao.createSearchCriteria();
-            ssc.addOr("subject", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-
-            sc.addAnd("subject", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (type != null) {
-            sc.addAnd("type", SearchCriteria.Op.EQ, type);
-        }
-
-        if (name != null) {
-            sc.addAnd("name", SearchCriteria.Op.EQ, name);
-        }
-
-        sc.addAnd("archived", SearchCriteria.Op.EQ, false);
-        final Pair<List<AlertVO>, Integer> result = _alertDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return auditTrailService.searchForAlerts(cmd);
     }
 
     @Override
     public boolean archiveAlerts(final ArchiveAlertsCmd cmd) {
-        final Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), null);
-        return _alertDao.archiveAlert(cmd.getIds(), cmd.getType(), cmd.getStartDate(), cmd.getEndDate(), zoneId);
+        return auditTrailService.archiveAlerts(cmd);
     }
 
     @Override
     public boolean deleteAlerts(final DeleteAlertsCmd cmd) {
-        final Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), null);
-        return _alertDao.deleteAlert(cmd.getIds(), cmd.getType(), cmd.getStartDate(), cmd.getEndDate(), zoneId);
+        return auditTrailService.deleteAlerts(cmd);
     }
 
     Pair<Boolean, List<Long>> getHostIdsForCapacityListing(Long zoneId, Long podId, Long clusterId, Integer capacityType, String tag) {
@@ -5491,20 +5413,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public String[] listEventTypes() {
-        final Object eventObj = new EventTypes();
-        final Class<EventTypes> c = EventTypes.class;
-        final Field[] fields = c.getFields();
-        final String[] eventTypes = new String[fields.length];
-        try {
-            int i = 0;
-            for (final Field field : fields) {
-                eventTypes[i++] = field.get(eventObj).toString();
-            }
-            return eventTypes;
-        } catch (final IllegalArgumentException | IllegalAccessException e) {
-            logger.error("Error while listing Event Types", e);
-        }
-        return null;
+        return auditTrailService.listEventTypes();
     }
 
     @Override
