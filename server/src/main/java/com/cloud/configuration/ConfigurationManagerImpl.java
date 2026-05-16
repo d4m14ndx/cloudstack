@@ -220,7 +220,6 @@ import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.host.dao.HostTagsDao;
 import com.cloud.hypervisor.ExternalProvisioner;
-import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.kvm.dpdk.DpdkHelper;
 import com.cloud.network.IpAddress;
@@ -1431,32 +1430,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * @return boolean indicating whether the value is valid.
      */
     protected boolean validateValueType(String value, Class<?> type) {
-        if (type == String.class || type == Character.class) {
-            return true;
-        }
-
-        try {
-            if (type == Boolean.class) {
-                return value.equals("true") || value.equals("false");
-            } else if (type == Integer.class) {
-                Integer.parseInt(value);
-            } else if (type == Long.class) {
-                Long.parseLong(value);
-            } else if (type == Short.class) {
-                Short.parseShort(value);
-            } else if (type == Float.class) {
-                float floatValue = Float.parseFloat(value);
-                return !Float.isInfinite(floatValue);
-            } else if (type == Double.class) {
-                double doubleValue = Double.parseDouble(value);
-                return !Double.isInfinite(doubleValue);
-            } else {
-                return false;
-            }
-            return true;
-        } catch (NullPointerException | NumberFormatException e) {
-            return false;
-        }
+        return ConfigurationValueValidator.validateValueType(value, type);
     }
 
     /**
@@ -1561,48 +1535,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     }
 
     protected Pair<Boolean, String> validateCommaSeparatedKeyValueConfigWithPositiveIntegerValues(String value) {
-        try {
-            if (StringUtils.isNotEmpty(value)) {
-                String[] commands = value.split(",");
-                for (String command : commands) {
-                    command = command.trim();
-                    if (!command.contains("=")) {
-                        String errorMessage = String.format("Validation failed: Command '%s' does not contain '='.", command);
-                        return new Pair<>(false, errorMessage);
-                    }
-
-                    String[] parts = command.split("=");
-                    if (parts.length != 2) {
-                        String errorMessage = String.format("Validation failed: Command '%s' is not properly formatted.", command);
-                        return new Pair<>(false, errorMessage);
-                    }
-
-                    String commandName = parts[0].trim();
-                    String valueString = parts[1].trim();
-
-                    if (commandName.isEmpty()) {
-                        String errorMessage = String.format("Validation failed: Command name is missing in '%s'.", command);
-                        return new Pair<>(false, errorMessage);
-                    }
-
-                    try {
-                        int num = Integer.parseInt(valueString);
-                        if (num <= 0) {
-                            String errorMessage = String.format("Validation failed: The value for command '%s' is not greater than 0. Invalid value: %d", commandName, num);
-                            return new Pair<>(false, errorMessage);
-                        }
-                    } catch (NumberFormatException e) {
-                        String errorMessage = String.format("Validation failed: The value for command '%s' is not a valid integer. Invalid value: %s", commandName, valueString);
-                        return new Pair<>(false, errorMessage);
-                    }
-                }
-            }
-
-            return new Pair<>(true, "");
-        } catch (Exception e) {
-            String errorMessage = String.format("Validation failed: An error occurred while parsing the command string. Error: %s", e.getMessage());
-            return new Pair<>(false, errorMessage);
-        }
+        return ConfigurationValueValidator.validateCommaSeparatedKeyValueConfigWithPositiveIntegerValues(value);
     }
 
     /**
@@ -1614,44 +1547,22 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * </ul>
      */
     protected boolean shouldValidateConfigRange(String name, String value, Config configuration) {
-        if (value == null) {
-            logger.debug("Not proceeding with configuration [{}]'s range validation, as its provided value is null.", name);
-            return false;
-        }
-
-        if (configuration == null) {
-            logger.debug("Not proceeding with configuration [{}]'s range validation, as it uses ConfigKey instead of Config.", name);
-            return false;
-        }
-
-        if (configuration.getRange() == null) {
-            logger.debug("Not proceeding with configuration [{}]'s range validation, as it does not have a specified range.", name);
-            return false;
-        }
-
-        logger.debug("Proceeding with configuration [{}]'s range validation.", name);
-        return true;
+        return ConfigurationValueValidator.shouldValidateConfigRange(name, value, configuration);
     }
 
     /**
      * A valid value should be an integer between min and max (the values from the range).
      */
     protected String validateIfIntValueIsInRange(String name, String value, String range) {
-        final String[] options = range.split("-");
-        final int min = Integer.parseInt(options[0]);
-        final int max = Integer.parseInt(options[1]);
-        final int val = Integer.parseInt(value);
-        if (val < min || val > max) {
-            logger.error("Invalid value for configuration [{}]. Please enter a value in the range [{}].", name, range);
-            return String.format("The provided value is not valid for this configuration. Please enter an integer in the range: [%s]", range);
-        }
-        return null;
+        return ConfigurationValueValidator.validateIfIntValueIsInRange(name, value, range);
     }
 
     /**
      * Checks if the value for the configuration is valid for any of the ranges selected.
      */
     protected String validateIfStringValueIsInRange(String name, String value, String... range) {
+        // Orchestration stays here so that test spies can still mock the
+        // protected validateRange* methods on instances.
         List<String> message = new ArrayList<>();
         String errMessage = "";
         for (String rangeOption : range) {
@@ -1686,15 +1597,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * Checks if the value is a private IP according to {@link NetUtils#isSiteLocalAddress(String)}.
      */
     protected String validateRangePrivateIp(String name, String value) {
-        try {
-            if (NetUtils.isSiteLocalAddress(value)) {
-                return null;
-            }
-            logger.error("Value [{}] is not a valid private IP range for configuration [{}].", value, name);
-        } catch (final NullPointerException e) {
-            logger.error("Error while parsing IP address for [{}].", name);
-        }
-        return "a valid site local IP address";
+        return ConfigurationValueValidator.validateRangePrivateIp(name, value);
     }
 
     /**
@@ -1703,23 +1606,14 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * Both of these are invalid values and will return an error message.
      */
     protected String validateRangeHypervisorList(String value) {
-        final String[] hypervisors = value.split(",");
-        for (final String hypervisor : hypervisors) {
-            if (HypervisorType.getType(hypervisor) == HypervisorType.Any || HypervisorType.getType(hypervisor) == HypervisorType.None) {
-                return "a valid hypervisor type";
-            }
-        }
-        return null;
+        return ConfigurationValueValidator.validateRangeHypervisorList(value);
     }
 
     /**
      * Valid values are instance names, the only restriction is that they may not have hyphens, spaces or plus signs.
      */
     protected String validateRangeInstanceName(String value) {
-        if (NetUtils.verifyInstanceName(value)) {
-            return null;
-        }
-        return "a valid instance name (instance names cannot contain hyphens, spaces or plus signs)";
+        return ConfigurationValueValidator.validateRangeInstanceName(value);
     }
 
     /**
@@ -1727,14 +1621,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * Max length for FQDN is 253 + 2, code adds xxx-xxx-xxx-xxx to domain name when creating URL.
      */
     protected String validateRangeDomainName(String value) {
-        String domainName = value;
-        if (value.startsWith("*")) {
-            domainName = value.substring(2);
-        }
-        if (domainName.length() >= 238 || !domainName.matches(DOMAIN_NAME_PATTERN)) {
-            return "a valid domain name";
-        }
-        return null;
+        return ConfigurationValueValidator.validateRangeDomainName(value);
     }
 
     /**
@@ -1742,14 +1629,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
      * a valid value is any option within this list.
      */
     protected String validateRangeOther(String name, String value, String rangeOption) {
-        final String[] options = rangeOption.split(",");
-        for (final String option : options) {
-            if (option.trim().equalsIgnoreCase(value)) {
-                return null;
-            }
-        }
-        logger.error("Invalid value for configuration [{}].", name);
-        return String.format("a valid value for this configuration (Options are: [%s])", rangeOption);
+        return ConfigurationValueValidator.validateRangeOther(name, value, rangeOption);
     }
 
 
