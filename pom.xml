@@ -191,6 +191,7 @@
         <cs.caffeine.version>3.1.8</cs.caffeine.version>
         <cs.protobuf.version>3.25.6</cs.protobuf.version>
         <cs.micrometer.version>1.13.6</cs.micrometer.version>
+        <cs.opentelemetry.version>1.43.0</cs.opentelemetry.version>
     </properties>
 
     <distributionManagement>
@@ -761,6 +762,13 @@
                 <groupId>io.micrometer</groupId>
                 <artifactId>micrometer-registry-prometheus</artifactId>
                 <version>${cs.micrometer.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${cs.opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

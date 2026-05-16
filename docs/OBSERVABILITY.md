@@ -1,5 +1,78 @@
 # Observability
 
+## Distributed tracing (OpenTelemetry)
+
+Every incoming HTTP request to the management server is wrapped in an
+OpenTelemetry `SERVER` span via `TracingFilter`. W3C trace context
+(`traceparent` header) from upstream callers is honored, so traces span
+across services.
+
+### Configure exporter
+
+The SDK is initialized via [OTel autoconfigure](https://opentelemetry.io/docs/zero-code/java/spring-boot-starter/),
+so all standard `OTEL_*` env vars work without code changes:
+
+```bash
+export OTEL_SERVICE_NAME=cloudstack-management
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_TRACES_SAMPLER=parentbased_traceidratio
+export OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+Defaults applied when env is missing:
+- `OTEL_SERVICE_NAME=cloudstack-management`
+- 10% trace sampling rate
+
+To **disable** trace export entirely (in-process spans still created, just not sent):
+
+```bash
+export OTEL_TRACES_EXPORTER=none
+```
+
+### Excluded endpoints
+
+The filter skips `/health/*` and `/metrics` to avoid flooding the trace store
+with low-value probe spans.
+
+### Add custom spans
+
+Anywhere in the server module:
+
+```java
+import com.cloud.observability.TracingHolder;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
+
+Span span = TracingHolder.tracer().spanBuilder("vm.deploy")
+        .setAttribute("vm.template.id", templateId)
+        .startSpan();
+try (Scope ignored = span.makeCurrent()) {
+    // ... work ...
+} catch (Throwable t) {
+    span.recordException(t);
+    throw t;
+} finally {
+    span.end();
+}
+```
+
+### Full auto-instrumentation (optional)
+
+For zero-code instrumentation of JDBC, HTTP clients, Spring, and more, run
+the management server with the [OTel Java agent](https://github.com/open-telemetry/opentelemetry-java-instrumentation):
+
+```bash
+java -javaagent:opentelemetry-javaagent.jar \
+     -Dotel.service.name=cloudstack-management \
+     -Dotel.exporter.otlp.endpoint=http://otel-collector:4318 \
+     -jar cloud-client-ui.jar
+```
+
+The agent and our in-code instrumentation coexist; both contribute spans to
+the same trace.
+
 ## Metrics endpoint (Prometheus)
 
 The management server exposes JVM and process metrics in Prometheus text
