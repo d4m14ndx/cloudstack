@@ -99,12 +99,10 @@ import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMNetworkMapDao;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 import org.apache.cloudstack.engine.service.api.OrchestrationService;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProvider;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
@@ -125,8 +123,6 @@ import org.apache.cloudstack.query.QueryService;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
 import org.apache.cloudstack.snapshot.SnapshotHelper;
-import org.apache.cloudstack.storage.command.DeleteCommand;
-import org.apache.cloudstack.storage.command.DettachCommand;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
@@ -158,7 +154,6 @@ import com.cloud.agent.api.GetVmNetworkStatsAnswer;
 import com.cloud.agent.api.GetVmNetworkStatsCommand;
 import com.cloud.agent.api.GetVolumeStatsAnswer;
 import com.cloud.agent.api.GetVolumeStatsCommand;
-import com.cloud.agent.api.ModifyTargetsCommand;
 import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.RestoreVMSnapshotAnswer;
 import com.cloud.agent.api.RestoreVMSnapshotCommand;
@@ -166,7 +161,6 @@ import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.VmDiskStatsEntry;
 import com.cloud.agent.api.VmNetworkStatsEntry;
 import com.cloud.agent.api.VolumeStatsEntry;
-import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.agent.api.to.deployasis.OVFNetworkTO;
@@ -600,6 +594,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmUsageEventPublisher vmUsageEventPublisher;
     @Inject
     private VmDisplayFlagService vmDisplayFlagService;
+    @Inject
+    private VmRootVolumeStorageCleanupService vmRootVolumeStorageCleanupService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -7761,137 +7757,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
+    /**
+     * Thin wrapper preserved on {@link UserVmManagerImpl} so the call
+     * site inside {@code restoreVirtualMachine} stays unchanged. The
+     * actual hypervisor-aware managed-storage cleanup lives in
+     * {@link VmRootVolumeStorageCleanupService} (slice 18 of the Phase 4
+     * Spring-component decomposition).
+     */
     private void handleManagedStorage(UserVmVO vm, VolumeVO root) {
-        if (Volume.State.Allocated.equals(root.getState())) {
-            return;
-        }
-
-        StoragePoolVO storagePool = _storagePoolDao.findById(root.getPoolId());
-
-        if (storagePool != null && storagePool.isManaged()) {
-            Long hostId = vm.getHostId() != null ? vm.getHostId() : vm.getLastHostId();
-
-            if (hostId != null) {
-                // default findById() won't search entries with removed field not null
-                Host host = _hostDao.findById(hostId);
-                if (host == null) {
-                    logger.warn("Host {} not found", hostId);
-                    return;
-                }
-
-                VolumeInfo volumeInfo = volFactory.getVolume(root.getId());
-
-                final Command cmd;
-
-                if (host.getHypervisorType() == HypervisorType.XenServer) {
-                    DiskTO disk = new DiskTO(volumeInfo.getTO(), root.getDeviceId(), root.getPath(), root.getVolumeType());
-
-                    // it's OK in this case to send a detach command to the host for a root volume as this
-                    // will simply lead to the SR that supports the root volume being removed
-                    cmd = new DettachCommand(disk, vm.getInstanceName());
-
-                    DettachCommand detachCommand = (DettachCommand)cmd;
-
-                    detachCommand.setManaged(true);
-
-                    detachCommand.setStorageHost(storagePool.getHostAddress());
-                    detachCommand.setStoragePort(storagePool.getPort());
-
-                    detachCommand.set_iScsiName(root.get_iScsiName());
-                }
-                else if (host.getHypervisorType() == HypervisorType.VMware) {
-                    PrimaryDataStore primaryDataStore = (PrimaryDataStore)volumeInfo.getDataStore();
-                    Map<String, String> details = primaryDataStore.getDetails();
-
-                    if (details == null) {
-                        details = new HashMap<>();
-
-                        primaryDataStore.setDetails(details);
-                    }
-
-                    details.put(DiskTO.MANAGED, Boolean.TRUE.toString());
-
-                    cmd = new DeleteCommand(volumeInfo.getTO());
-                }
-                else if (host.getHypervisorType() == HypervisorType.KVM) {
-                    cmd = null;
-                }
-                else {
-                    throw new CloudRuntimeException("This hypervisor type is not supported on managed storage for this command.");
-                }
-
-                if (cmd != null) {
-                    Commands cmds = new Commands(Command.OnError.Stop);
-
-                    cmds.addCommand(cmd);
-
-                    try {
-                        _agentMgr.send(hostId, cmds);
-                    } catch (Exception ex) {
-                        throw new CloudRuntimeException(ex.getMessage());
-                    }
-
-                    if (!cmds.isSuccessful()) {
-                        for (Answer answer : cmds.getAnswers()) {
-                            if (!answer.getResult()) {
-                                logger.warn("Failed to reset vm {} due to: {}", vm, answer.getDetails());
-
-                                throw new CloudRuntimeException("Unable to reset " + vm + " due to " + answer.getDetails());
-                            }
-                        }
-                    }
-                }
-
-                // root.getPoolId() should be null if the VM we are detaching the disk from has never been started before
-                DataStore dataStore = root.getPoolId() != null ? _dataStoreMgr.getDataStore(root.getPoolId(), DataStoreRole.Primary) : null;
-
-                volumeMgr.revokeAccess(volFactory.getVolume(root.getId()), host, dataStore);
-
-                if (dataStore != null) {
-                    handleTargetsForVMware(host.getId(), storagePool.getHostAddress(), storagePool.getPort(), root.get_iScsiName());
-                }
-            }
-        }
-    }
-
-    private void handleTargetsForVMware(long hostId, String storageAddress, int storagePort, String iScsiName) {
-        HostVO host = _hostDao.findById(hostId);
-
-        if (host.getHypervisorType() == HypervisorType.VMware) {
-            ModifyTargetsCommand cmd = new ModifyTargetsCommand();
-
-            List<Map<String, String>> targets = new ArrayList<>();
-
-            Map<String, String> target = new HashMap<>();
-
-            target.put(ModifyTargetsCommand.STORAGE_HOST, storageAddress);
-            target.put(ModifyTargetsCommand.STORAGE_PORT, String.valueOf(storagePort));
-            target.put(ModifyTargetsCommand.IQN, iScsiName);
-
-            targets.add(target);
-
-            cmd.setTargets(targets);
-            cmd.setApplyToAllHostsInCluster(true);
-            cmd.setAdd(false);
-            cmd.setTargetTypeToRemove(ModifyTargetsCommand.TargetTypeToRemove.DYNAMIC);
-
-            sendModifyTargetsCommand(cmd, host);
-        }
-    }
-
-    private void sendModifyTargetsCommand(ModifyTargetsCommand cmd, HostVO host) {
-        Answer answer = _agentMgr.easySend(host.getId(), cmd);
-
-        if (answer == null) {
-            String msg = "Unable to get an answer to the modify targets command";
-
-            logger.warn(msg);
-        }
-        else if (!answer.getResult()) {
-            String msg = String.format("Unable to modify target on the following host: %s", host);
-
-            logger.warn(msg);
-        }
+        vmRootVolumeStorageCleanupService.cleanupRootVolumeOnManagedStorage(vm, root);
     }
 
     @Override
