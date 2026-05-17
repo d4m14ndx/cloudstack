@@ -17,7 +17,6 @@
 package com.cloud.storage;
 
 import static com.cloud.configuration.ConfigurationManagerImpl.SystemVMUseLocalStorage;
-import static com.cloud.utils.NumbersUtil.toHumanReadableSize;
 
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
@@ -96,7 +95,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotService;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateService;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateService.TemplateApiResult;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
@@ -167,11 +165,8 @@ import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.StorageFilerTO;
 import com.cloud.agent.manager.Commands;
-import com.cloud.api.ApiDBUtils;
 import com.cloud.api.query.dao.TemplateJoinDao;
-import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityManager;
-import com.cloud.capacity.CapacityState;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManagerListener;
@@ -208,13 +203,11 @@ import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Grouping;
-import com.cloud.org.Grouping.AllocationState;
 import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.server.ConfigurationServer;
 import com.cloud.server.ManagementServer;
 import com.cloud.server.ManagementService;
-import com.cloud.server.StatsCollector;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
@@ -397,6 +390,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     protected HostStorageAccessService hostStorageAccessService;
     @Inject
     protected ImageStoreLifecycleService imageStoreLifecycleService;
+    @Inject
+    protected StorageCapacityService storageCapacityService;
     @Inject
     protected ObjectStoreDao _objectStoreDao;
 
@@ -1871,74 +1866,12 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public BigDecimal getStorageOverProvisioningFactor(Long poolId) {
-        return new BigDecimal(CapacityManager.StorageOverprovisioningFactor.valueIn(poolId));
+        return storageCapacityService.getStorageOverProvisioningFactor(poolId);
     }
 
     @Override
     public void createCapacityEntry(StoragePoolVO storagePool, short capacityType, long allocated) {
-        SearchCriteria<CapacityVO> capacitySC = _capacityDao.createSearchCriteria();
-        capacitySC.addAnd("hostOrPoolId", SearchCriteria.Op.EQ, storagePool.getId());
-        capacitySC.addAnd("dataCenterId", SearchCriteria.Op.EQ, storagePool.getDataCenterId());
-        capacitySC.addAnd("capacityType", SearchCriteria.Op.EQ, capacityType);
-
-        List<CapacityVO> capacities = _capacityDao.search(capacitySC, null);
-
-        long totalOverProvCapacity;
-        if (storagePool.getPoolType().supportsOverProvisioning()) {
-            // All this is for the inaccuracy of floats for big number multiplication.
-            BigDecimal overProvFactor = getStorageOverProvisioningFactor(storagePool.getId());
-            totalOverProvCapacity = overProvFactor.multiply(new BigDecimal(storagePool.getCapacityBytes())).longValue();
-            logger.debug("Found storage pool {} of type {} with overprovisioning factor {}", storagePool, storagePool.getPoolType(), overProvFactor);
-            logger.debug("Total over provisioned capacity calculated is {} * {}", overProvFactor, toHumanReadableSize(storagePool.getCapacityBytes()));
-        } else {
-            logger.debug("Found storage pool {} of type {}", storagePool, storagePool.getPoolType());
-            totalOverProvCapacity = storagePool.getCapacityBytes();
-        }
-
-        logger.debug("Total over provisioned capacity of the pool {} is {}", storagePool, toHumanReadableSize(totalOverProvCapacity));
-        CapacityState capacityState = CapacityState.Enabled;
-        if (storagePool.getScope() == ScopeType.ZONE) {
-            DataCenterVO dc = _dcDao.findById(storagePool.getDataCenterId());
-            AllocationState allocationState = dc.getAllocationState();
-            capacityState = (allocationState == AllocationState.Disabled) ? CapacityState.Disabled : CapacityState.Enabled;
-        } else {
-            if (storagePool.getClusterId() != null) {
-                ClusterVO cluster = ApiDBUtils.findClusterById(storagePool.getClusterId());
-                if (cluster != null) {
-                    AllocationState allocationState = _configMgr.findClusterAllocationState(cluster);
-                    capacityState = (allocationState == AllocationState.Disabled) ? CapacityState.Disabled : CapacityState.Enabled;
-                }
-            }
-        }
-
-        if (storagePool.getScope() == ScopeType.HOST) {
-            List<StoragePoolHostVO> stoargePoolHostVO = _storagePoolHostDao.listByPoolId(storagePool.getId());
-
-            if (stoargePoolHostVO != null && !stoargePoolHostVO.isEmpty()) {
-                HostVO host = _hostDao.findById(stoargePoolHostVO.get(0).getHostId());
-
-                if (host != null) {
-                    capacityState = (host.getResourceState() == ResourceState.Disabled) ? CapacityState.Disabled : CapacityState.Enabled;
-                }
-            }
-        }
-
-        if (capacities.size() == 0) {
-            CapacityVO capacity = new CapacityVO(storagePool.getId(), storagePool.getDataCenterId(), storagePool.getPodId(), storagePool.getClusterId(), allocated, totalOverProvCapacity,
-                    capacityType);
-            capacity.setCapacityState(capacityState);
-            _capacityDao.persist(capacity);
-        } else {
-            CapacityVO capacity = capacities.get(0);
-            if (capacity.getTotalCapacity() != totalOverProvCapacity || allocated != capacity.getUsedCapacity() || capacity.getCapacityState() != capacityState) {
-                capacity.setTotalCapacity(totalOverProvCapacity);
-                capacity.setUsedCapacity(allocated);
-                capacity.setCapacityState(capacityState);
-                _capacityDao.update(capacity.getId(), capacity);
-            }
-        }
-        logger.debug("Successfully set Capacity - {} for capacity type - {} , DataCenterId - {}, Pool - {}, PodId {}",
-                toHumanReadableSize(totalOverProvCapacity), capacityType, storagePool.getDataCenterId(), storagePool, storagePool.getPodId());
+        storageCapacityService.createCapacityEntry(storagePool, capacityType, allocated);
     }
 
     @Override
@@ -2969,83 +2902,17 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public CapacityVO getSecondaryStorageUsedStats(Long hostId, Long zoneId) {
-        SearchCriteria<HostVO> sc = _hostDao.createSearchCriteria();
-        if (zoneId != null) {
-            sc.addAnd("dataCenterId", SearchCriteria.Op.EQ, zoneId);
-        }
-
-        List<Long> hosts = new ArrayList<>();
-        if (hostId != null) {
-            hosts.add(hostId);
-        } else {
-            List<DataStore> stores = _dataStoreMgr.getImageStoresByScope(new ZoneScope(zoneId));
-            if (stores != null) {
-                for (DataStore store : stores) {
-                    hosts.add(store.getId());
-                }
-            }
-        }
-
-        CapacityVO capacity = new CapacityVO(hostId, zoneId, null, null, 0, 0, Capacity.CAPACITY_TYPE_SECONDARY_STORAGE);
-        for (Long id : hosts) {
-            StorageStats stats = ApiDBUtils.getSecondaryStorageStatistics(id);
-            if (stats == null) {
-                continue;
-            }
-            capacity.setUsedCapacity(stats.getByteUsed() + capacity.getUsedCapacity());
-            capacity.setTotalCapacity(stats.getCapacityBytes() + capacity.getTotalCapacity());
-        }
-
-        return capacity;
-    }
-
-    private CapacityVO getStoragePoolUsedStatsInternal(Long zoneId, Long podId, Long clusterId, List<Long> poolIds, Long poolId) {
-        SearchCriteria<StoragePoolVO> sc = _storagePoolDao.createSearchCriteria();
-        List<StoragePoolVO> pools = new ArrayList<>();
-
-        if (zoneId != null) {
-            sc.addAnd("dataCenterId", SearchCriteria.Op.EQ, zoneId);
-        }
-        if (podId != null) {
-            sc.addAnd("podId", SearchCriteria.Op.EQ, podId);
-        }
-        if (clusterId != null) {
-            sc.addAnd("clusterId", SearchCriteria.Op.EQ, clusterId);
-        }
-        if (CollectionUtils.isNotEmpty(poolIds)) {
-            sc.addAnd("id", SearchCriteria.Op.IN, poolIds.toArray());
-        }
-        if (poolId != null) {
-            sc.addAnd("id", SearchCriteria.Op.EQ, poolId);
-        }
-        sc.addAnd("parent", SearchCriteria.Op.EQ, 0L);
-        if (poolId != null) {
-            pools.add(_storagePoolDao.findById(poolId));
-        } else {
-            pools = _storagePoolDao.search(sc, null);
-        }
-
-        CapacityVO capacity = new CapacityVO(poolId, zoneId, podId, clusterId, 0, 0, Capacity.CAPACITY_TYPE_STORAGE);
-        for (StoragePoolVO primaryDataStoreVO : pools) {
-            StorageStats stats = ApiDBUtils.getStoragePoolStatistics(primaryDataStoreVO.getId());
-            if (stats == null) {
-                continue;
-            }
-            capacity.setUsedCapacity(stats.getByteUsed() + capacity.getUsedCapacity());
-            capacity.setTotalCapacity(stats.getCapacityBytes() + capacity.getTotalCapacity());
-        }
-        return capacity;
-
+        return storageCapacityService.getSecondaryStorageUsedStats(hostId, zoneId);
     }
 
     @Override
     public CapacityVO getStoragePoolUsedStats(Long poolId, Long clusterId, Long podId, Long zoneId) {
-        return getStoragePoolUsedStatsInternal(zoneId, podId, clusterId, null, poolId);
+        return storageCapacityService.getStoragePoolUsedStats(poolId, clusterId, podId, zoneId);
     }
 
     @Override
     public CapacityVO getStoragePoolUsedStats(Long zoneId, Long podId, Long clusterId, List<Long> poolIds) {
-        return getStoragePoolUsedStatsInternal(zoneId, podId, clusterId, poolIds, null);
+        return storageCapacityService.getStoragePoolUsedStats(zoneId, podId, clusterId, poolIds);
     }
 
     @Override
@@ -3182,202 +3049,34 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         }
     }
 
-    private boolean checkUsagedSpace(StoragePool pool) {
-        // Managed storage does not currently deal with accounting for physically used space (only provisioned space). Just return true if "pool" is managed.
-        if (pool.isManaged() && !canPoolProvideStorageStats(pool)) {
-            return true;
-        }
-
-        long totalSize = pool.getCapacityBytes();
-        long usedSize = getUsedSize(pool);
-        double usedPercentage = ((double)usedSize / (double)totalSize);
-        double storageUsedThreshold = CapacityManager.StorageCapacityDisableThreshold.valueIn(pool.getId());
-        if (logger.isDebugEnabled()) {
-            logger.debug("Checking pool {} for storage, totalSize: {}, usedBytes: {}, usedPct: {}, disable threshold: {}", pool, pool.getCapacityBytes(), pool.getUsedBytes(), usedPercentage, storageUsedThreshold);
-        }
-        if (usedPercentage >= storageUsedThreshold) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Insufficient space on pool: {} since its usage percentage: {} has crossed the pool.storage.capacity.disablethreshold: {}", pool, usedPercentage, storageUsedThreshold);
-            }
-            return false;
-        }
-        return true;
-    }
-
-    private long getUsedSize(StoragePool pool) {
-        if (pool.getStorageProviderName().equalsIgnoreCase(DataStoreProvider.DEFAULT_PRIMARY) || canPoolProvideStorageStats(pool)) {
-            return (pool.getUsedBytes());
-        }
-
-        StatsCollector sc = StatsCollector.getInstance();
-        if (sc != null) {
-            StorageStats stats = sc.getStoragePoolStats(pool.getId());
-            if (stats == null) {
-                stats = sc.getStorageStats(pool.getId());
-            }
-            if (stats != null) {
-                return (stats.getByteUsed());
-            }
-        }
-
-        return 0;
-    }
-
-    protected boolean checkIfPoolIopsCapacityNull(StoragePool pool) {
-        // Only IOPS-guaranteed primary storage like SolidFire is using/setting IOPS.
-        // This check returns true for storage that does not specify IOPS.
-        if (pool.getCapacityIops() == null) {
-            logger.info("Storage pool {} does not supply IOPS capacity, assuming enough capacity", pool);
-
-            return true;
-        }
-        return false;
-    }
-
-    protected boolean storagePoolHasEnoughIops(long requestedIops, List<Pair<Volume, DiskProfile>> requestedVolumes, StoragePool pool, boolean skipPoolNullIopsCheck) {
-        if (!skipPoolNullIopsCheck && checkIfPoolIopsCapacityNull(pool)) {
-            return true;
-        }
-        StoragePoolVO storagePoolVo = _storagePoolDao.findById(pool.getId());
-        long currentIops = _capacityMgr.getUsedIops(storagePoolVo);
-        long futureIops = currentIops + requestedIops;
-        boolean hasEnoughIops = futureIops <= pool.getCapacityIops();
-        String hasCapacity = hasEnoughIops ? "has" : "does not have";
-        logger.debug(String.format("Pool [%s] %s enough IOPS to allocate volumes [%s].", pool, hasCapacity, requestedVolumes));
-        return hasEnoughIops;
-    }
-
     @Override
     public boolean storagePoolHasEnoughIops(List<Pair<Volume, DiskProfile>> requestedVolumes, StoragePool pool) {
-        if (requestedVolumes == null || requestedVolumes.isEmpty() || pool == null) {
-            logger.debug(String.format("Cannot check if storage [%s] has enough IOPS to allocate volumes [%s].", pool, requestedVolumes));
-            return false;
-        }
-        if (checkIfPoolIopsCapacityNull(pool)) {
-            return true;
-        }
-        long requestedIops = 0;
-        for (Pair<Volume, DiskProfile> volumeDiskProfilePair : requestedVolumes) {
-            Volume requestedVolume = volumeDiskProfilePair.first();
-            DiskProfile diskProfile = volumeDiskProfilePair.second();
-            Long minIops = requestedVolume.getMinIops();
-            if (requestedVolume.getDiskOfferingId() != diskProfile.getDiskOfferingId()) {
-                minIops = diskProfile.getMinIops();
-            }
-
-            if (minIops != null && minIops > 0) {
-                requestedIops += minIops;
-            }
-        }
-        return storagePoolHasEnoughIops(requestedIops, requestedVolumes, pool, true);
+        return storageCapacityService.storagePoolHasEnoughIops(requestedVolumes, pool);
     }
 
     @Override
     public boolean storagePoolHasEnoughIops(Long requestedIops, StoragePool pool) {
-        if (pool == null) {
-            return false;
-        }
-        if (requestedIops == null || requestedIops == 0) {
-            return true;
-        }
-        return storagePoolHasEnoughIops(requestedIops, new ArrayList<>(), pool, false);
+        return storageCapacityService.storagePoolHasEnoughIops(requestedIops, pool);
     }
 
     @Override
     public boolean storagePoolHasEnoughSpace(Long size, StoragePool pool) {
-        if (size == null || size == 0) {
-            return true;
-        }
-        final StoragePoolVO poolVO = _storagePoolDao.findById(pool.getId());
-        long allocatedSizeWithTemplate = _capacityMgr.getAllocatedPoolCapacity(poolVO, null);
-        return checkPoolforSpace(pool, allocatedSizeWithTemplate, size);
+        return storageCapacityService.storagePoolHasEnoughSpace(size, pool);
     }
 
     @Override
     public boolean storagePoolHasEnoughSpace(List<Pair<Volume, DiskProfile>> volumeDiskProfilePairs, StoragePool pool) {
-        return storagePoolHasEnoughSpace(volumeDiskProfilePairs, pool, null);
+        return storageCapacityService.storagePoolHasEnoughSpace(volumeDiskProfilePairs, pool);
     }
 
     @Override
     public boolean storagePoolHasEnoughSpace(List<Pair<Volume, DiskProfile>> volumeDiskProfilesList, StoragePool pool, Long clusterId) {
-        if (CollectionUtils.isEmpty(volumeDiskProfilesList)) {
-            logger.debug(String.format("Cannot check if pool [%s] has enough space to allocate volumes because the volumes list is empty.", pool));
-            return false;
-        }
-
-        if (!checkUsagedSpace(pool)) {
-            logger.debug(String.format("Cannot allocate pool [%s] because there is not enough space in this pool.", pool));
-            return false;
-        }
-
-        // allocated space includes templates
-        if (logger.isDebugEnabled()) {
-            logger.debug("Destination pool: {}", pool);
-        }
-        // allocated space includes templates
-        final StoragePoolVO poolVO = _storagePoolDao.findById(pool.getId());
-        long allocatedSizeWithTemplate = _capacityMgr.getAllocatedPoolCapacity(poolVO, null);
-        long totalAskingSize = 0;
-
-        for (Pair<Volume, DiskProfile> volumeDiskProfilePair : volumeDiskProfilesList) {
-            // refreshing the volume from the DB to get latest hv_ss_reserve (hypervisor snapshot reserve) field
-            // I could have just assigned this to "volume", but decided to make a new variable for it so that it
-            // might be clearer that this "volume" in "volumeDiskProfilesList" still might have an old value for hv_ss_reverse.
-            Volume volume = volumeDiskProfilePair.first();
-            DiskProfile diskProfile = volumeDiskProfilePair.second();
-            VolumeVO volumeVO = volumeDao.findById(volume.getId());
-
-            if (volumeVO.getHypervisorSnapshotReserve() == null) {
-                // update the volume's hv_ss_reserve (hypervisor snapshot reserve) from a disk offering (used for managed storage)
-                volService.updateHypervisorSnapshotReserveForVolume(getDiskOfferingVO(volumeVO), volumeVO.getId(), getHypervisorType(volumeVO));
-
-                // hv_ss_reserve field might have been updated; refresh from DB to make use of it in getDataObjectSizeIncludingHypervisorSnapshotReserve
-                volumeVO = volumeDao.findById(volume.getId());
-            }
-
-            // this if statement should resolve to true at most once per execution of the for loop its contained within (for a root disk that is
-            // to leverage a template)
-            if (volume.getTemplateId() != null) {
-                VMTemplateVO tmpl = _templateDao.findByIdIncludingRemoved(volume.getTemplateId());
-
-                if (tmpl != null && !ImageFormat.ISO.equals(tmpl.getFormat())) {
-                    allocatedSizeWithTemplate = _capacityMgr.getAllocatedPoolCapacity(poolVO, tmpl);
-                }
-            }
-
-            if (logger.isDebugEnabled()) {
-                logger.debug("Pool ID for the volume {} is {}", volumeVO, volumeVO.getPoolId());
-            }
-
-            // A ready-state volume is already allocated in a pool, so the asking size is zero for it.
-            // In case the volume is moving across pools or is not ready yet, the asking size has to be computed.
-            if ((volumeVO.getState() != Volume.State.Ready) || (volumeVO.getPoolId() != pool.getId())) {
-                totalAskingSize += getDataObjectSizeIncludingHypervisorSnapshotReserve(volumeVO, diskProfile, poolVO);
-
-                totalAskingSize += getAskingSizeForTemplateBasedOnClusterAndStoragePool(volumeVO.getTemplateId(), clusterId, poolVO);
-            }
-        }
-
-        return checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize);
+        return storageCapacityService.storagePoolHasEnoughSpace(volumeDiskProfilesList, pool, clusterId);
     }
 
     @Override
     public boolean storagePoolHasEnoughSpaceForResize(StoragePool pool, long currentSize, long newSize) {
-        if (!checkUsagedSpace(pool)) {
-            return false;
-        }
-        if (logger.isDebugEnabled()) {
-            logger.debug("Destination pool: {}", pool);
-        }
-        long totalAskingSize = newSize - currentSize;
-
-        if (totalAskingSize <= 0) {
-            return true;
-        } else {
-            final StoragePoolVO poolVO = _storagePoolDao.findById(pool.getId());
-            final long allocatedSizeWithTemplate = _capacityMgr.getAllocatedPoolCapacity(poolVO, null);
-            return checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, true);
-        }
+        return storageCapacityService.storagePoolHasEnoughSpaceForResize(pool, currentSize, newSize);
     }
 
     protected Answer getCheckDatastorePolicyComplianceAnswer(String storagePolicyId, StoragePool pool) throws StorageUnavailableException {
@@ -3438,160 +3137,6 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         return true;
     }
 
-    protected boolean checkPoolforSpace(StoragePool pool, long allocatedSizeWithTemplate, long totalAskingSize) {
-        return checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, false);
-    }
-
-    protected boolean checkPoolforSpace(StoragePool pool, long allocatedSizeWithTemplate, long totalAskingSize, boolean forVolumeResize) {
-        // allocated space includes templates
-        StoragePoolVO poolVO = _storagePoolDao.findById(pool.getId());
-
-        long totalOverProvCapacity;
-
-        if (pool.getPoolType().supportsOverProvisioning()) {
-            BigDecimal overProvFactor = getStorageOverProvisioningFactor(pool.getId());
-
-            totalOverProvCapacity = overProvFactor.multiply(new BigDecimal(pool.getCapacityBytes())).longValue();
-
-            logger.debug("Found storage pool {} of type {} with overprovisioning factor {}", pool, pool.getPoolType(), overProvFactor);
-            logger.debug("Total over provisioned capacity calculated is {} * {}", overProvFactor, toHumanReadableSize(pool.getCapacityBytes()));
-        } else {
-            totalOverProvCapacity = pool.getCapacityBytes();
-
-            logger.debug("Found storage pool {} of type {}", poolVO, pool.getPoolType());
-        }
-
-        logger.debug("Total capacity of the pool {} is {}", poolVO, toHumanReadableSize(totalOverProvCapacity));
-
-        double storageAllocatedThreshold = CapacityManager.StorageAllocatedCapacityDisableThreshold.valueIn(pool.getId());
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("Checking pool: {} for storage allocation , maxSize : {}, " +
-                    "totalAllocatedSize : {}, askingSize : {}, allocated disable threshold: {}",
-                    pool, toHumanReadableSize(totalOverProvCapacity), toHumanReadableSize(allocatedSizeWithTemplate), toHumanReadableSize(totalAskingSize), storageAllocatedThreshold);
-        }
-
-        double usedPercentage = (allocatedSizeWithTemplate + totalAskingSize) / (double)(totalOverProvCapacity);
-
-        if (usedPercentage > storageAllocatedThreshold) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Insufficient un-allocated capacity on: {} for storage " +
-                        "allocation since its allocated percentage: {} has crossed the allocated" +
-                        " pool.storage.allocated.capacity.disablethreshold: {}",
-                        pool, usedPercentage, storageAllocatedThreshold);
-            }
-            if (!forVolumeResize) {
-                return false;
-            }
-            if (!AllowVolumeReSizeBeyondAllocation.valueIn(pool.getId())) {
-                logger.debug(String.format("Skipping the pool %s as %s is false", pool, AllowVolumeReSizeBeyondAllocation.key()));
-                return false;
-            }
-
-            double storageAllocatedThresholdForResize = CapacityManager.StorageAllocatedCapacityDisableThresholdForVolumeSize.valueIn(pool.getId());
-            if (usedPercentage > storageAllocatedThresholdForResize) {
-                logger.debug(String.format("Skipping the pool %s since its allocated percentage: %s has crossed the allocated %s: %s",
-                        pool, usedPercentage, CapacityManager.StorageAllocatedCapacityDisableThresholdForVolumeSize.key(), storageAllocatedThresholdForResize));
-                return false;
-            }
-        }
-
-        if (totalOverProvCapacity < (allocatedSizeWithTemplate + totalAskingSize)) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Insufficient un-allocated capacity on: {} for storage " +
-                        "allocation, not enough storage, maxSize : {}, totalAllocatedSize : {}, " +
-                        "askingSize : {}", pool, toHumanReadableSize(totalOverProvCapacity),
-                        toHumanReadableSize(allocatedSizeWithTemplate), toHumanReadableSize(totalAskingSize));
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Storage plug-ins for managed storage can be designed in such a way as to store a template on the primary storage once and
-     * make use of it via storage-side cloning.
-     *
-     * This method determines how many more bytes it will need for the template (if the template is already stored on the primary storage,
-     * then the answer is 0).
-     */
-    private long getAskingSizeForTemplateBasedOnClusterAndStoragePool(Long templateId, Long clusterId, StoragePoolVO storagePoolVO) {
-        if (templateId == null || clusterId == null || storagePoolVO == null || !storagePoolVO.isManaged()) {
-            return 0;
-        }
-
-        VMTemplateVO tmpl = _templateDao.findByIdIncludingRemoved(templateId);
-
-        if (tmpl == null || ImageFormat.ISO.equals(tmpl.getFormat())) {
-            return 0;
-        }
-
-        HypervisorType hypervisorType = tmpl.getHypervisorType();
-
-        // The getSupportsResigning method is applicable for XenServer as a UUID-resigning patch may or may not be installed on those hypervisor hosts.
-        if (_clusterDao.getSupportsResigning(clusterId) || HypervisorType.VMware.equals(hypervisorType) || HypervisorType.KVM.equals(hypervisorType)) {
-            return getBytesRequiredForTemplate(tmpl, storagePoolVO);
-        }
-
-        return 0;
-    }
-
-    private long getDataObjectSizeIncludingHypervisorSnapshotReserve(Volume volume, DiskProfile diskProfile, StoragePool pool) {
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
-        DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-
-        if (storeDriver instanceof PrimaryDataStoreDriver) {
-            PrimaryDataStoreDriver primaryStoreDriver = (PrimaryDataStoreDriver)storeDriver;
-
-            VolumeInfo volumeInfo = volFactory.getVolume(volume.getId());
-            if (volume.getDiskOfferingId() != diskProfile.getDiskOfferingId()) {
-                return diskProfile.getSize();
-            }
-            return primaryStoreDriver.getDataObjectSizeIncludingHypervisorSnapshotReserve(volumeInfo, pool);
-        }
-
-        return volume.getSize();
-    }
-
-    private DiskOfferingVO getDiskOfferingVO(Volume volume) {
-        Long diskOfferingId = volume.getDiskOfferingId();
-
-        return _diskOfferingDao.findById(diskOfferingId);
-    }
-
-    private HypervisorType getHypervisorType(Volume volume) {
-        Long instanceId = volume.getInstanceId();
-
-        VMInstanceVO vmInstance = _vmInstanceDao.findById(instanceId);
-
-        if (vmInstance != null) {
-            return vmInstance.getHypervisorType();
-        }
-
-        return null;
-    }
-
-    private long getBytesRequiredForTemplate(VMTemplateVO tmpl, StoragePool pool) {
-        if (tmplFactory.isTemplateMarkedForDirectDownload(tmpl.getId())) {
-            return tmpl.getSize();
-        }
-
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
-        DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-
-        if (storeDriver instanceof PrimaryDataStoreDriver) {
-            PrimaryDataStoreDriver primaryStoreDriver = (PrimaryDataStoreDriver)storeDriver;
-
-            TemplateInfo templateInfo = tmplFactory.getReadyTemplateOnImageStore(tmpl.getId(), pool.getDataCenterId());
-
-            return primaryStoreDriver.getBytesRequiredForTemplate(templateInfo, pool);
-        }
-
-        return tmpl.getSize();
-    }
-
     @Override
     public boolean storagePoolCompatibleWithVolumePool(StoragePool pool, Volume volume) {
         if (pool == null || volume == null) {
@@ -3628,8 +3173,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public void createCapacityEntry(long poolId) {
-        StoragePoolVO storage = _storagePoolDao.findById(poolId);
-        createCapacityEntry(storage, Capacity.CAPACITY_TYPE_STORAGE_ALLOCATED, 0);
+        storageCapacityService.createCapacityEntry(poolId);
     }
 
     @Override
@@ -4078,18 +3622,6 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public CapacityVO getObjectStorageUsedStats(Long zoneId) {
-        List<ObjectStoreVO> objectStores = _objectStoreDao.listObjectStores();
-        Long allocated = 0L;
-        Long total = 0L;
-        for (ObjectStoreVO objectStore: objectStores) {
-            if (objectStore.getAllocatedSize() != null) {
-                allocated += objectStore.getAllocatedSize();
-            }
-            if (objectStore.getTotalSize() != null) {
-                total += objectStore.getTotalSize();
-            }
-        }
-        CapacityVO capacity = new CapacityVO(null, zoneId, null, null, allocated, total, Capacity.CAPACITY_TYPE_OBJECT_STORAGE);
-        return capacity;
+        return storageCapacityService.getObjectStorageUsedStats(zoneId);
     }
 }
