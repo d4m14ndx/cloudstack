@@ -129,6 +129,16 @@ public class ResourceManagerImplTest {
     @Mock
     private StoragePoolHostDao storagePoolHostDao;
 
+    /**
+     * Real {@link HostAgentSshServiceImpl} wired with the same mocks so the
+     * existing tests that call {@code resourceManager.getHostCredentials(...)}
+     * and {@code resourceManager.connectAndRestartAgentOnHost(...)} continue
+     * to exercise the real SSH-credential and agent-restart logic (which now
+     * lives in the slice) rather than a no-op mock.
+     */
+    @Spy
+    private HostAgentSshServiceImpl hostAgentSshService = new HostAgentSshServiceImpl();
+
     @Spy
     @InjectMocks
     private ResourceManagerImpl resourceManager = new ResourceManagerImpl();
@@ -190,6 +200,16 @@ public class ResourceManagerImplTest {
     @Before
     public void setup() throws Exception {
         closeable = MockitoAnnotations.openMocks(this);
+        // Wire the slice with the same mocks the manager uses, so the
+        // delegated getHostCredentials / connectAndRestartAgentOnHost /
+        // doUpdateHostPassword paths see the same DAOs and agent.
+        hostAgentSshService.hostDao = hostDao;
+        hostAgentSshService.hostDetailsDao = Mockito.mock(com.cloud.host.dao.HostDetailsDao.class);
+        hostAgentSshService.configurationDao = configurationDao;
+        hostAgentSshService.agentManager = agentManager;
+        Field sshSliceField = ResourceManagerImpl.class.getDeclaredField("hostAgentSshService");
+        sshSliceField.setAccessible(true);
+        sshSliceField.set(resourceManager, hostAgentSshService);
         when(host.getType()).thenReturn(Host.Type.Routing);
         when(host.getId()).thenReturn(hostId);
         when(host.getResourceState()).thenReturn(ResourceState.Enabled);
