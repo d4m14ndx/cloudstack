@@ -159,8 +159,6 @@ import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.offering.DiskOffering;
 import com.cloud.org.Cluster;
 import com.cloud.org.Grouping;
-import com.cloud.projects.Project;
-import com.cloud.projects.ProjectManager;
 import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.resourcelimit.CheckedReservation;
@@ -355,8 +353,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     @Inject
     protected DomainDao domainDao;
     @Inject
-    protected ProjectManager projectManager;
-    @Inject
     protected StoragePoolDetailsDao storagePoolDetailsDao;
     @Inject
     private BackupDao backupDao;
@@ -376,6 +372,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private VolumeAttachValidator volumeAttachValidator;
     @Inject
     private VolumeResizeValidator volumeResizeValidator;
+    @Inject
+    private VolumeAccountAssignmentService volumeAccountAssignmentService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -4237,22 +4235,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     protected void updateVolumeAccount(Account oldAccount, VolumeVO volume, Account newAccount) {
-        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_DELETE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                Volume.class.getName(), volume.getUuid(), volume.isDisplayVolume());
-        DiskOfferingVO diskOfferingVO = _diskOfferingDao.findById(volume.getDiskOfferingId());
-        _resourceLimitMgr.decrementVolumeResourceCount(oldAccount.getAccountId(), true, volume.getSize(),
-                diskOfferingVO);
-
-        volume.setAccountId(newAccount.getAccountId());
-        volume.setDomainId(newAccount.getDomainId());
-        _volsDao.persist(volume);
-        _resourceLimitMgr.incrementVolumeResourceCount(newAccount.getAccountId(), true, volume.getSize(),
-                diskOfferingVO);
-        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_CREATE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                volume.getDiskOfferingId(), volume.getTemplateId(), volume.getSize(), Volume.class.getName(),
-                volume.getUuid(), volume.getInstanceId(), volume.isDisplayVolume());
-
-        volService.moveVolumeOnSecondaryStorageToAnotherAccount(volume, oldAccount, newAccount);
+        volumeAccountAssignmentService.updateVolumeAccount(oldAccount, volume, newAccount);
     }
 
     /**
@@ -4260,23 +4243,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      * Throws {@link InvalidParameterValueException}.
      * */
     protected void validateAccounts(String newAccountUuid, VolumeVO volume, Account oldAccount, Account newAccount) {
-        if (oldAccount == null) {
-            throw new InvalidParameterValueException(String.format("The current account of the volume [%s] is invalid.",
-                    ReflectionToStringBuilderUtils.reflectOnlySelectedFields(volume, "name", "uuid")));
-        }
-
-        if (newAccount == null) {
-            throw new InvalidParameterValueException(String.format("UUID of the destination account is invalid. No account was found with UUID [%s].", newAccountUuid));
-        }
-
-        if (newAccount.getState() == Account.State.DISABLED || newAccount.getState() == Account.State.LOCKED) {
-            throw new InvalidParameterValueException(String.format("Unable to assign volume to destination account [%s], as it is in [%s] state.", newAccount,
-                    newAccount.getState().toString()));
-        }
-
-        if (oldAccount.getAccountId() == newAccount.getAccountId()) {
-            throw new InvalidParameterValueException(String.format("The new account and the old account are the same [%s].", oldAccount));
-        }
+        volumeAccountAssignmentService.validateAccounts(newAccountUuid, volume, oldAccount, newAccount);
     }
 
     /**
@@ -4285,44 +4252,11 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      * Throws {@link PermissionDeniedException} if volume is attached to a VM or if it has snapshots.
      * */
     protected void validateVolume(String volumeUuid, VolumeVO volume) {
-        if (volume == null) {
-            throw new InvalidParameterValueException(String.format("No volume was found with UUID [%s].", volumeUuid));
-        }
-
-        String volumeToString = ReflectionToStringBuilderUtils.reflectOnlySelectedFields(volume, "id", "name", "uuid");
-
-        if (volume.getInstanceId() != null) {
-            VMInstanceVO vmInstanceVo = _vmInstanceDao.findById(volume.getInstanceId());
-            String msg = String.format("Volume [%s] is attached to [%s], so it cannot be moved to a different account.", volumeToString, vmInstanceVo);
-            logger.error(msg);
-            throw new PermissionDeniedException(msg);
-        }
-
-        List<SnapshotVO> snapshots = _snapshotDao.listByStatusNotIn(volume.getId(), Snapshot.State.Destroyed, Snapshot.State.Error);
-        if (CollectionUtils.isNotEmpty(snapshots)) {
-            throw new PermissionDeniedException(String.format("Volume [%s] has snapshots. Remove the volume's snapshots before assigning it to another account.", volumeToString));
-        }
+        volumeAccountAssignmentService.validateVolume(volumeUuid, volume);
     }
 
     protected Account getAccountOrProject(String projectUuid, Long accountId, Long projectId, Account caller) {
-        if (projectId != null && accountId != null) {
-            throw new InvalidParameterValueException("Both 'accountid' and 'projectid' were informed. You must inform only one of them.");
-        }
-
-        if (projectId != null) {
-            Project project = projectManager.getProject(projectId);
-            if (project == null) {
-                throw new InvalidParameterValueException(String.format("Unable to find project [%s]", projectUuid));
-            }
-
-            if (!projectManager.canAccessProjectAccount(caller, project.getProjectAccountId())) {
-                throw new PermissionDeniedException(String.format("Account [%s] does not have access to project [%s].", caller, projectUuid));
-            }
-
-            return _accountMgr.getAccount(project.getProjectAccountId());
-        }
-
-        return  _accountMgr.getActiveAccountById(accountId);
+        return volumeAccountAssignmentService.getAccountOrProject(projectUuid, accountId, projectId, caller);
     }
 
     private Optional<String> setExtractVolumeSearchCriteria(SearchCriteria<VolumeDataStoreVO> sc, VolumeVO volume) {
