@@ -248,7 +248,6 @@ import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.Nic;
 import com.cloud.vm.Nic.ReservationStrategy;
 import com.cloud.vm.NicExtraDhcpOptionVO;
-import com.cloud.vm.NicIpAlias;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.NicVO;
 import com.cloud.vm.ReservationContext;
@@ -264,7 +263,6 @@ import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.NicExtraDhcpOptionDao;
 import com.cloud.vm.dao.NicIpAliasDao;
-import com.cloud.vm.dao.NicIpAliasVO;
 import com.cloud.vm.dao.NicSecondaryIpDao;
 import com.cloud.vm.dao.NicSecondaryIpVO;
 import com.cloud.vm.dao.UserVmDao;
@@ -446,6 +444,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NetworkModel _networkModel;
     @Inject
     NetworkProviderResolutionService networkProviderResolutionService;
+    @Inject
+    NicDhcpCleanupService nicDhcpCleanupService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -2668,48 +2668,16 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     public boolean isDhcpAccrossMultipleSubnetsSupported(final DhcpServiceProvider dhcpServiceProvider) {
-
-        final Map<Network.Capability, String> capabilities = dhcpServiceProvider.getCapabilities().get(Network.Service.Dhcp);
-        final String supportsMultipleSubnets = capabilities.get(Network.Capability.DhcpAccrossMultipleSubnets);
-        if (supportsMultipleSubnets != null && Boolean.valueOf(supportsMultipleSubnets)) {
-            return true;
-        }
-        return false;
+        return nicDhcpCleanupService.isDhcpAccrossMultipleSubnetsSupported(dhcpServiceProvider);
     }
 
     private boolean isLastNicInSubnet(final NicVO nic) {
-        if (_nicDao.listByNetworkIdTypeAndGatewayAndBroadcastUri(nic.getNetworkId(), VirtualMachine.Type.User, nic.getIPv4Gateway(), nic.getBroadcastUri()).size() > 1) {
-            return false;
-        }
-        return true;
+        return nicDhcpCleanupService.isLastNicInSubnet(nic);
     }
 
-    @DB
     @Override
     public void removeDhcpServiceInSubnet(final Nic nic) {
-        final Network network = _networksDao.findById(nic.getNetworkId());
-        final DhcpServiceProvider dhcpServiceProvider = getDhcpServiceProvider(network);
-        try {
-            final NicIpAliasVO ipAlias = _nicIpAliasDao.findByGatewayAndNetworkIdAndState(nic.getIPv4Gateway(), network.getId(), NicIpAlias.State.active);
-            if (ipAlias != null) {
-                ipAlias.setState(NicIpAlias.State.revoked);
-                Transaction.execute(new TransactionCallbackNoReturn() {
-                    @Override
-                    public void doInTransactionWithoutResult(final TransactionStatus status) {
-                        _nicIpAliasDao.update(ipAlias.getId(), ipAlias);
-                        final IPAddressVO aliasIpaddressVo = _publicIpAddressDao.findByIpAndSourceNetworkId(ipAlias.getNetworkId(), ipAlias.getIp4Address());
-                        _publicIpAddressDao.unassignIpAddress(aliasIpaddressVo.getId());
-                    }
-                });
-                if (!dhcpServiceProvider.removeDhcpSupportForSubnet(network)) {
-                    logger.warn("Failed to remove the IP alias on the router, marking it as removed in db and freed the allocated IP {}", ipAlias.getIp4Address());
-                }
-            }
-        } catch (final ResourceUnavailableException e) {
-            //failed to remove the dhcpconfig on the router.
-            logger.info("Unable to delete the IP alias due to unable to contact the virtualrouter.");
-        }
-
+        nicDhcpCleanupService.removeDhcpServiceInSubnet(nic);
     }
 
     @Override
@@ -3810,27 +3778,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
      */
     @Override
     public void cleanupNicDhcpDnsEntry(Network network, VirtualMachineProfile vmProfile, NicProfile nicProfile) {
-
-        final List<Provider> networkProviders = getNetworkProviders(network.getId());
-        for (final NetworkElement element : networkElements) {
-            if (networkProviders.contains(element.getProvider())) {
-                if (!_networkModel.isProviderEnabledInPhysicalNetwork(_networkModel.getPhysicalNetworkId(network), element.getProvider().getName())) {
-                    throw new CloudRuntimeException("Service provider " + element.getProvider().getName() + " either doesn't exist or is not enabled in physical network id: "
-                            + network.getPhysicalNetworkId());
-                }
-                if (vmProfile.getType() == Type.User && element.getProvider() != null) {
-                    if (_networkModel.areServicesSupportedInNetwork(network.getId(), Service.Dhcp)
-                            && _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.Dhcp, element.getProvider()) && element instanceof DhcpServiceProvider) {
-                        final DhcpServiceProvider sp = (DhcpServiceProvider) element;
-                        try {
-                            sp.removeDhcpEntry(network, nicProfile, vmProfile);
-                        } catch (ResourceUnavailableException e) {
-                            logger.error("Failed to remove dhcp-dns entry due to: ", e);
-                        }
-                    }
-                }
-            }
-        }
+        nicDhcpCleanupService.cleanupNicDhcpDnsEntry(network, vmProfile, nicProfile);
     }
 
     /**

@@ -148,6 +148,20 @@ public class NetworkOrchestratorTest extends TestCase {
         resolutionService.entityManager = testOrchestrator._entityMgr;
         testOrchestrator.networkProviderResolutionService = resolutionService;
 
+        // Wire a real NicDhcpCleanupServiceImpl sharing the same mocks so that
+        // assertions on _ntwkSrvcDao / _networkModel / _nicDao made by tests
+        // that exercise removeNic -> cleanupNicDhcpDnsEntry still work.
+        NicDhcpCleanupServiceImpl dhcpCleanupService = new NicDhcpCleanupServiceImpl();
+        dhcpCleanupService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        dhcpCleanupService.networkModel = testOrchestrator._networkModel;
+        dhcpCleanupService.networksDao = testOrchestrator._networksDao;
+        dhcpCleanupService.nicDao = testOrchestrator._nicDao;
+        dhcpCleanupService.nicIpAliasDao = testOrchestrator._nicIpAliasDao;
+        dhcpCleanupService.publicIpAddressDao = testOrchestrator._publicIpAddressDao;
+        dhcpCleanupService.networkProviderResolutionService = resolutionService;
+        dhcpCleanupService.networkElements = new ArrayList<>();
+        testOrchestrator.nicDhcpCleanupService = dhcpCleanupService;
+
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
         Map<Network.Capability, String> capabilities = new HashMap<Network.Capability, String>();
