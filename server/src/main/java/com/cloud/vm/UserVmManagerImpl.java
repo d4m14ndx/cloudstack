@@ -593,6 +593,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmDestroyPermissionService vmDestroyPermissionService;
     @Inject
+    private VmHostNameUniquenessService vmHostNameUniquenessService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -3448,21 +3450,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void verifyExtraDhcpOptionsNetwork(Map<String, Map<Integer, String>> dhcpOptionsMap, List<NetworkVO> networkList) throws InvalidParameterValueException {
-        if (dhcpOptionsMap != null) {
-            for (String networkUuid : dhcpOptionsMap.keySet()) {
-                boolean networkFound = false;
-                for (NetworkVO network : networkList) {
-                    if (network.getUuid().equals(networkUuid)) {
-                        networkFound = true;
-                        break;
-                    }
-                }
-
-                if (!networkFound) {
-                    throw new InvalidParameterValueException("VM does not has a nic in the Network (" + networkUuid + ") that is specified in the extra dhcp options.");
-                }
-            }
-        }
+        vmHostNameUniquenessService.verifyExtraDhcpOptionsNetwork(dhcpOptionsMap, networkList);
     }
 
     public void checkNameForRFCCompliance(String name) {
@@ -4023,84 +4011,19 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private List<NetworkVO> getNetworksWithSameNetworkDomainInDomains(List<NetworkVO> networkList, boolean checkSubDomains) {
-        Set<String> uniqueNtwkDomains = networkList.stream().map(NetworkVO::getNetworkDomain).collect(Collectors.toSet());
-        Set<Long> domainIdList = new HashSet<>();
-        for (Network network : networkList) {
-            domainIdList.add(network.getDomainId());
-        }
-        Set<Long> finalDomainIdSet = new HashSet<>(domainIdList);
-        if (checkSubDomains) {
-            for (Long domainId : domainIdList) {
-                DomainVO domain = _domainDao.findById(domainId);
-                List<Long> childDomainIds = _domainDao.getDomainChildrenIds(domain.getPath());
-                finalDomainIdSet.addAll(childDomainIds);
-            }
-        }
-        return _networkDao.listByNetworkDomainsAndDomainIds(uniqueNtwkDomains, finalDomainIdSet);
+        return vmHostNameUniquenessService.getNetworksWithSameNetworkDomainInDomains(networkList, checkSubDomains);
     }
 
     private List<NetworkVO> getNetworksForCheckUniqueHostName(List<NetworkVO> networkList) {
-        List<NetworkVO> finalNetworkList;
-        Set<String> uniqueNtwkDomains;
-        switch (VmDistinctHostNameScope.value()) {
-            case "global":
-                uniqueNtwkDomains = networkList.stream().map(NetworkVO::getNetworkDomain).collect(Collectors.toSet());
-                finalNetworkList = _networkDao.listByNetworkDomains(uniqueNtwkDomains);
-                break;
-            case "domain":
-                finalNetworkList = getNetworksWithSameNetworkDomainInDomains(networkList, false);
-                break;
-            case "subdomain":
-                finalNetworkList = getNetworksWithSameNetworkDomainInDomains(networkList, true);
-                break;
-            case "account":
-                uniqueNtwkDomains = networkList.stream().map(NetworkVO::getNetworkDomain).collect(Collectors.toSet());
-                Set<Long> accountIds = networkList.stream().map(Network::getAccountId).collect(Collectors.toSet());
-                finalNetworkList = _networkDao.listByNetworkDomainsAndAccountIds(uniqueNtwkDomains, accountIds);
-                break;
-            default:
-                Set<Long> vpcIds = networkList.stream().map(Network::getVpcId).filter(Objects::nonNull).collect(Collectors.toSet());
-                finalNetworkList = new ArrayList<>(networkList);
-                for (Long vpcId : vpcIds) {
-                    finalNetworkList.addAll(_networkDao.listByVpc(vpcId));
-                }
-                break;
-        }
-        return finalNetworkList;
+        return vmHostNameUniquenessService.getNetworksForCheckUniqueHostName(networkList);
     }
 
     private Map<String, Set<Long>> getNetworkIdPerNetworkDomain(List<NetworkVO> networkList) {
-        Map<String, Set<Long>> ntwkDomains = new HashMap<>();
-
-        List<NetworkVO> updatedNetworkList = getNetworksForCheckUniqueHostName(networkList);
-        for (Network network : updatedNetworkList) {
-            String ntwkDomain = network.getNetworkDomain();
-            Set<Long> ntwkIds;
-            if (!ntwkDomains.containsKey(ntwkDomain)) {
-                ntwkIds = new HashSet<>();
-            } else {
-                ntwkIds = ntwkDomains.get(ntwkDomain);
-            }
-            ntwkIds.add(network.getId());
-            ntwkDomains.put(ntwkDomain, ntwkIds);
-        }
-        return ntwkDomains;
+        return vmHostNameUniquenessService.getNetworkIdPerNetworkDomain(networkList);
     }
 
     private void checkIfHostNameUniqueInNtwkDomain(String hostName, List<NetworkVO> networkList) {
-        // Check that hostName is unique
-        Map<String, Set<Long>> ntwkDomains = getNetworkIdPerNetworkDomain(networkList);
-        for (Entry<String, Set<Long>> ntwkDomain : ntwkDomains.entrySet()) {
-            for (Long ntwkId : ntwkDomain.getValue()) {
-                // * get all vms hostNames in the network
-                List<String> hostNames = _vmInstanceDao.listDistinctHostNames(ntwkId);
-                // * verify that there are no duplicates
-                if (hostNames.contains(hostName)) {
-                    throw new InvalidParameterValueException("The vm with hostName " + hostName + " already exists in the network domain: " + ntwkDomain.getKey() + "; network="
-                            + ((_networkModel.getNetwork(ntwkId) != null) ? _networkModel.getNetwork(ntwkId).getName() : "<unknown>"));
-                }
-            }
-        }
+        vmHostNameUniquenessService.checkIfHostNameUniqueInNtwkDomain(hostName, networkList);
     }
 
     private String generateHostName(String uuidName) {

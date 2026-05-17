@@ -100,6 +100,7 @@ spies still work.
 | 9 | `VmMigrationValidator` | VM (storage) migration pre-flight: caller/state/snapshot, dest hypervisor/SAGs/tags/dedication/maintenance | 19 |
 | 10 | `VmCreationValidator` | createVirtualMachine pre-flight: service-offering / template / details / min-max IOPS | 23 |
 | 11 | `VmDestroyPermissionService` | destroy/expunge/force-stop permission cluster (admin + global config + role API access + Kubernetes plugin veto) | 13 |
+| 13 | `VmHostNameUniquenessService` | hostname uniqueness across `vm.distinct.hostname.scope` (global/domain/subdomain/account/network+VPC) + extra-DHCP-option network presence check | 23 |
 
 Each slice keeps the orchestration that needs spy-verified inner calls
 inside `UserVmManagerImpl` — the leaf methods become thin wrappers that
