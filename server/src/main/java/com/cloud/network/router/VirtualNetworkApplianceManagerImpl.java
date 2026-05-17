@@ -26,8 +26,6 @@ import java.math.BigInteger;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -93,14 +91,12 @@ import com.cloud.agent.api.CheckS2SVpnConnectionsCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetDomRVersionAnswer;
 import com.cloud.agent.api.GetDomRVersionCmd;
-import com.cloud.agent.api.GetRouterAlertsAnswer;
 import com.cloud.agent.api.NetworkUsageAnswer;
 import com.cloud.agent.api.NetworkUsageCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.check.CheckSshCommand;
 import com.cloud.agent.api.routing.AggregationControlCommand;
 import com.cloud.agent.api.routing.AggregationControlCommand.Action;
-import com.cloud.agent.api.routing.GetRouterAlertsCommand;
 import com.cloud.agent.api.routing.GetRouterMonitorResultsAnswer;
 import com.cloud.agent.api.routing.GetRouterMonitorResultsCommand;
 import com.cloud.agent.api.routing.GroupAnswer;
@@ -176,8 +172,6 @@ import com.cloud.network.dao.MonitoringServiceVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.dao.OpRouterMonitorServiceDao;
-import com.cloud.network.dao.OpRouterMonitorServiceVO;
 import com.cloud.network.dao.RemoteAccessVpnDao;
 import com.cloud.network.dao.RouterHealthCheckResultDao;
 import com.cloud.network.dao.RouterHealthCheckResultVO;
@@ -318,7 +312,6 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Inject NetworkService _networkSvc;
     @Inject protected MonitoringServiceDao _monitorServiceDao;
     @Inject protected VpcDao _vpcDao;
-    @Inject OpRouterMonitorServiceDao _opRouterMonitorServiceDao;
 
     @Inject protected NetworkTopologyContext _networkTopologyContext;
 
@@ -343,6 +336,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Inject protected CommandSetupHelper _commandSetupHelper;
     @Inject ManagementServer mgr;
     @Inject protected RouterUpgradeService routerUpgradeService;
+    @Inject protected RouterAlertsService routerAlertsService;
     @Inject
     RoutedIpv4Manager routedIpv4Manager;
     @Inject
@@ -1748,86 +1742,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     }
 
     protected void getRouterAlerts() {
-        try {
-            final List<DomainRouterVO> routers = _routerDao.listByStateAndManagementServer(VirtualMachine.State.Running, mgmtSrvrId);
-
-            logger.debug("Found " + routers.size() + " running routers. ");
-            for (final DomainRouterVO router : routers) {
-                final Boolean serviceMonitoringFlag = SetServiceMonitor.valueIn(router.getDataCenterId());
-                // Skip the routers in VPC network or skip the routers where
-                // Monitor service is not enabled in the corresponding Zone
-                if (serviceMonitoringFlag == null || !serviceMonitoringFlag) {
-                    continue;
-                }
-                String controlIP = _routerControlHelper.getRouterControlIp(router.getId());
-
-                if (controlIP != null && !controlIP.equals("0.0.0.0")) {
-                    OpRouterMonitorServiceVO opRouterMonitorServiceVO = _opRouterMonitorServiceDao.findById(router.getId());
-
-                    GetRouterAlertsCommand command = getGetRouterAlertsCommand(opRouterMonitorServiceVO, controlIP);
-
-                    try {
-                        final Answer origAnswer = _agentMgr.easySend(router.getHostId(), command);
-                        GetRouterAlertsAnswer answer;
-
-                        if (origAnswer == null) {
-                            logger.warn("Unable to get alerts from router " + router.getHostName());
-                            continue;
-                        }
-                        if (origAnswer instanceof GetRouterAlertsAnswer) {
-                            answer = (GetRouterAlertsAnswer) origAnswer;
-                        } else {
-                            logger.warn("Unable to get alerts from router " + router.getHostName());
-                            continue;
-                        }
-                        if (!answer.getResult()) {
-                            logger.warn("Unable to get alerts from router " + router.getHostName() + " " + answer.getDetails());
-                            continue;
-                        }
-
-                        final String[] alerts = answer.getAlerts();
-                        if (alerts != null) {
-                            final String lastAlertTimeStamp = answer.getTimeStamp();
-                            final SimpleDateFormat sdfrmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                            sdfrmt.setLenient(false);
-                            try {
-                                sdfrmt.parse(lastAlertTimeStamp);
-                            } catch (final ParseException e) {
-                                logger.warn("Invalid last alert timestamp received while collecting alerts from router: " + router.getInstanceName());
-                                continue;
-                            }
-                            for (final String alert : alerts) {
-                                _alertMgr.sendAlert(AlertType.ALERT_TYPE_DOMAIN_ROUTER, router.getDataCenterId(), router.getPodIdToDeployIn(), "Monitoring Service on VR "
-                                        + router.getInstanceName(), alert);
-                            }
-                            if (opRouterMonitorServiceVO == null) {
-                                opRouterMonitorServiceVO = new OpRouterMonitorServiceVO(router.getId(), router.getHostName(), lastAlertTimeStamp);
-                                _opRouterMonitorServiceDao.persist(opRouterMonitorServiceVO);
-                            } else {
-                                opRouterMonitorServiceVO.setLastAlertTimestamp(lastAlertTimeStamp);
-                                _opRouterMonitorServiceDao.update(opRouterMonitorServiceVO.getId(), opRouterMonitorServiceVO);
-                            }
-                        }
-                    } catch (final Exception e) {
-                        logger.warn("Error while collecting alerts from router: " + router.getInstanceName(), e);
-                    }
-                }
-            }
-        } catch (final Exception e) {
-            logger.warn("Error while collecting alerts from router", e);
-        }
-    }
-
-    private static GetRouterAlertsCommand getGetRouterAlertsCommand(OpRouterMonitorServiceVO opRouterMonitorServiceVO, String controlIP) {
-        GetRouterAlertsCommand command;
-        if (opRouterMonitorServiceVO == null) {
-            command = new GetRouterAlertsCommand("1970-01-01 00:00:00"); // To avoid sending null value
-        } else {
-            command = new GetRouterAlertsCommand(opRouterMonitorServiceVO.getLastAlertTimestamp());
-        }
-
-        command.setAccessDetail(NetworkElementCommand.ROUTER_IP, controlIP);
-        return command;
+        routerAlertsService.getRouterAlerts();
     }
 
     @Override
