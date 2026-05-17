@@ -88,8 +88,6 @@ import com.cloud.configuration.ConfigurationManagerImpl;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.ASNumberVO;
 import com.cloud.dc.DataCenter;
-import com.cloud.dc.Vlan.VlanType;
-import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ASNumberDao;
 import com.cloud.dc.dao.DataCenterDao;
@@ -135,10 +133,8 @@ import com.cloud.network.dao.Site2SiteCustomerGatewayDao;
 import com.cloud.network.dao.Site2SiteCustomerGatewayVO;
 import com.cloud.network.dao.Site2SiteVpnConnectionDao;
 import com.cloud.network.dao.Site2SiteVpnConnectionVO;
-import com.cloud.network.element.NetrisProviderVO;
 import com.cloud.network.element.NetworkACLServiceProvider;
 import com.cloud.network.element.NetworkElement;
-import com.cloud.network.element.NsxProviderVO;
 import com.cloud.network.element.VpcProvider;
 import com.cloud.network.router.CommandSetupHelper;
 import com.cloud.network.router.NetworkHelper;
@@ -188,7 +184,6 @@ import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
-import com.cloud.utils.db.TransactionCallbackWithException;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
@@ -322,6 +317,8 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
     StaticRouteService staticRouteService;
     @Inject
     PrivateGatewayService privateGatewayService;
+    @Inject
+    VpcIpAllocationService vpcIpAllocationService;
 
     private final ScheduledExecutorService _executor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("VpcChecker"));
     private List<VpcProvider> vpcElements = null;
@@ -3011,90 +3008,22 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
     @ActionEvent(eventType = EventTypes.EVENT_NET_IP_ASSIGN, eventDescription = "associating Ip", async = true)
     public IpAddress associateIPToVpc(final long ipId, final long vpcId) throws ResourceAllocationException, ResourceUnavailableException, InsufficientAddressCapacityException,
             ConcurrentOperationException {
-        final Account caller = CallContext.current().getCallingAccount();
-        Account owner = null;
-
-        final IpAddress ipToAssoc = _ntwkModel.getIp(ipId);
-        if (ipToAssoc != null) {
-            _accountMgr.checkAccess(caller, null, true, ipToAssoc);
-            owner = _accountMgr.getAccount(ipToAssoc.getAllocatedToAccountId());
-        } else {
-            logger.debug("Unable to find ip address by id: " + ipId);
-            return null;
-        }
-
-        final Vpc vpc = vpcDao.findById(vpcId);
-        if (vpc == null) {
-            throw new InvalidParameterValueException("Invalid VPC id provided");
-        }
-
-        // check permissions
-        _accountMgr.checkAccess(caller, null, false, owner, vpc);
-
-        logger.debug(String.format("Associating IP [%s] to VPC [%s]", ipToAssoc, vpc));
-
-        final boolean isSourceNatFinal = isSrcNatIpRequired(vpc.getVpcOfferingId()) && getExistingSourceNatInVpc(vpc.getAccountId(), vpcId, false, false) == null;
-        try {
-            IPAddressVO updatedIpAddress = Transaction.execute((TransactionCallbackWithException<IPAddressVO, CloudRuntimeException>) status -> {
-                final IPAddressVO ip = _ipAddressDao.findById(ipId);
-                ip.setVpcId(vpcId);
-                ip.setSourceNat(isSourceNatFinal);
-                _ipAddressDao.update(ipId, ip);
-                _ipAddrMgr.markPublicIpAsAllocated(ip);
-                return _ipAddressDao.findById(ipId);
-            });
-
-            logger.debug(String.format("Successfully assigned IP [%s] to VPC [%s]", ipToAssoc, vpc));
-            CallContext.current().putContextParameter(IpAddress.class, ipToAssoc.getUuid());
-            return updatedIpAddress;
-        } catch (Exception e) {
-            String errorMessage = String.format("Failed to associate IP address [%s] to VPC [%s]", ipToAssoc, vpc);
-            logger.error(errorMessage, e);
-            throw new CloudRuntimeException(errorMessage, e);
-        }
+        return vpcIpAllocationService.associateIPToVpc(ipId, vpcId);
     }
 
     @Override
     public void unassignIPFromVpcNetwork(final long ipId, final long networkId) {
-        IPAddressVO ip = _ipAddressDao.findById(ipId);
-        Network network = _ntwkModel.getNetwork(networkId);
-        unassignIPFromVpcNetwork(ip, network);
+        vpcIpAllocationService.unassignIPFromVpcNetwork(ipId, networkId);
     }
 
     @Override
     public void unassignIPFromVpcNetwork(final IPAddressVO ip, final Network network) {
-        if (isIpAllocatedToVpc(ip)) {
-            return;
-        }
-
-        if (ip == null || ip.getVpcId() == null) {
-            return;
-        }
-
-        logger.debug("Releasing VPC ip address {} from vpc network {}", ip, network);
-
-        final long vpcId = ip.getVpcId();
-        boolean success = false;
-        try {
-            // unassign ip from the VPC router
-            success = _ipAddrMgr.applyIpAssociations(network, true);
-        } catch (final ResourceUnavailableException ex) {
-            throw new CloudRuntimeException("Failed to apply ip associations for network id=" + network + " as a part of unassigning ip " + ip + " from vpc", ex);
-        }
-
-        if (success) {
-            ip.setAssociatedWithNetworkId(null);
-            _ipAddressDao.update(ip.getId(), ip);
-            logger.debug("IP address {} is no longer associated with the network inside vpc {}", ip, vpcDao.findById(vpcId));
-        } else {
-            throw new CloudRuntimeException(String.format("Failed to apply ip associations for network %s as a part of unassigning ip %s from vpc", network, ip));
-        }
-        logger.debug("Successfully released VPC ip address " + ip + " back to VPC pool ");
+        vpcIpAllocationService.unassignIPFromVpcNetwork(ip, network);
     }
 
     @Override
     public boolean isIpAllocatedToVpc(final IpAddress ip) {
-        return ip != null && ip.getVpcId() != null && (ip.isOneToOneNat() || !_firewallDao.listByIp(ip.getId()).isEmpty());
+        return vpcIpAllocationService.isIpAllocatedToVpc(ip);
     }
 
     @DB
@@ -3137,74 +3066,16 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
     }
 
     protected IPAddressVO getExistingSourceNatInVpc(final long ownerId, final long vpcId, final boolean forNsx, final boolean forNetris) {
-
-        final List<IPAddressVO> addrs = listPublicIpsAssignedToVpc(ownerId, true, vpcId);
-
-        IPAddressVO sourceNatIp = null;
-        if (addrs.isEmpty()) {
-            return null;
-        } else {
-            // Account already has ip addresses
-            for (final IPAddressVO addr : addrs) {
-                if (addr.isSourceNat()) {
-                    if (!forNsx && !forNetris) {
-                        sourceNatIp = addr;
-                    } else {
-                        if (addr.isForSystemVms()) {
-                            sourceNatIp = addr;
-                        }
-                    }
-                    if (Objects.nonNull(sourceNatIp)) {
-                        return sourceNatIp;
-                    }
-                }
-            }
-
-            assert sourceNatIp != null : "How do we get a bunch of ip addresses but none of them are source nat? " + "account=" + ownerId + "; vpcId=" + vpcId;
-        }
-
-        return sourceNatIp;
+        return vpcIpAllocationService.getExistingSourceNatInVpc(ownerId, vpcId, forNsx, forNetris);
     }
 
     protected List<IPAddressVO> listPublicIpsAssignedToVpc(final long accountId, final Boolean sourceNat, final long vpcId) {
-        final SearchCriteria<IPAddressVO> sc = IpAddressSearch.create();
-        sc.setParameters("accountId", accountId);
-        sc.setParameters("vpcId", vpcId);
-
-        if (sourceNat != null) {
-            sc.addAnd("sourceNat", SearchCriteria.Op.EQ, sourceNat);
-        }
-        sc.setJoinParameters("virtualNetworkVlanSB", "vlanType", VlanType.VirtualNetwork);
-
-        return _ipAddressDao.search(sc, null);
+        return vpcIpAllocationService.listPublicIpsAssignedToVpc(accountId, sourceNat, vpcId);
     }
 
     @Override
     public PublicIp assignSourceNatIpAddressToVpc(final Account owner, final Vpc vpc, final Long podId) throws InsufficientAddressCapacityException, ConcurrentOperationException {
-        final long dcId = vpc.getZoneId();
-        NsxProviderVO nsxProvider = nsxProviderDao.findByZoneId(dcId);
-        boolean forNsx = nsxProvider != null;
-        NetrisProviderVO netrisProvider = netrisProviderDao.findByZoneId(dcId);
-        boolean forNetris = netrisProvider != null;
-
-        final IPAddressVO sourceNatIp = getExistingSourceNatInVpc(owner.getId(), vpc.getId(), forNsx, forNetris);
-
-        PublicIp ipToReturn = null;
-
-        if (sourceNatIp != null) {
-            ipToReturn = PublicIp.createFromAddrAndVlan(sourceNatIp, _vlanDao.findById(sourceNatIp.getVlanId()));
-        } else {
-            if (forNsx || forNetris) {
-                // Assign VR (helper VM) public NIC IP address from the separate provider Public IP range/pool
-                // NSX: VR uses Public IP from the system VM range
-                // Netris: VR uses Public IP from the non system VM range
-                ipToReturn = _ipAddrMgr.assignPublicIpAddress(dcId, podId, owner, Vlan.VlanType.VirtualNetwork, null, null, false, forNsx);
-            } else {
-                ipToReturn = _ipAddrMgr.assignDedicateIpAddress(owner, null, vpc.getId(), dcId, true);
-            }
-        }
-
-        return ipToReturn;
+        return vpcIpAllocationService.assignSourceNatIpAddressToVpc(owner, vpc, podId);
     }
 
     @Override
