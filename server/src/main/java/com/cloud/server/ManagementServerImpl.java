@@ -659,10 +659,6 @@ import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
-import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.CloudStackVersion;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
@@ -732,7 +728,6 @@ import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEvent;
-import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.EventVO;
 import com.cloud.event.dao.EventDao;
@@ -850,7 +845,6 @@ import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.net.MacAddress;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.security.CertificateHelper;
-import com.cloud.vm.ConsoleProxyVO;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.InstanceGroupVO;
@@ -865,7 +859,6 @@ import com.cloud.vm.VirtualMachine.State;
 import com.cloud.vm.VirtualMachineManager;
 import com.cloud.vm.VirtualMachineProfile;
 import com.cloud.vm.VirtualMachineProfileImpl;
-import com.cloud.vm.dao.ConsoleProxyDao;
 import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.InstanceGroupDao;
 import com.cloud.vm.dao.NicDao;
@@ -897,8 +890,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     private AlertManager _alertMgr;
     @Inject
     private IPAddressDao _publicIpAddressDao;
-    @Inject
-    private ConsoleProxyDao _consoleProxyDao;
     @Inject
     private ClusterDao _clusterDao;
     @Inject
@@ -984,6 +975,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected ConsoleAccessService consoleAccessService;
     @Inject
+    protected SystemVmLifecycleService systemVmLifecycleService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -1021,10 +1014,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     private PrimaryDataStoreDao _primaryDataStoreDao;
     @Inject
     private DataStoreManager dataStoreManager;
-    @Inject
-    private VolumeDataStoreDao _volumeStoreDao;
-    @Inject
-    private TemplateDataStoreDao _vmTemplateStoreDao;
     @Inject
     private IpAddressManager _ipAddressMgr;
     @Inject
@@ -3329,34 +3318,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     }
 
-    private ConsoleProxyVO startConsoleProxy(final long instanceId) {
-        return _consoleProxyMgr.startProxy(instanceId, true);
-    }
-
-    private ConsoleProxyVO stopConsoleProxy(final VMInstanceVO systemVm, final boolean isForced) throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        _itMgr.advanceStop(systemVm.getUuid(), isForced);
-        return _consoleProxyDao.findById(systemVm.getId());
-    }
-
-    private ConsoleProxyVO rebootConsoleProxy(final long instanceId) {
-        _consoleProxyMgr.rebootProxy(instanceId);
-        return _consoleProxyDao.findById(instanceId);
-    }
-
-    private ConsoleProxyVO forceRebootConsoleProxy(final VMInstanceVO systemVm)  throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        _itMgr.advanceStop(systemVm.getUuid(), false);
-        return _consoleProxyMgr.startProxy(systemVm.getId(), true);
-    }
-
-    protected ConsoleProxyVO destroyConsoleProxy(final long instanceId) {
-        final ConsoleProxyVO proxy = _consoleProxyDao.findById(instanceId);
-
-        if (_consoleProxyMgr.destroyProxy(instanceId)) {
-            return proxy;
-        }
-        return null;
-    }
-
     @Override
     public String getConsoleAccessUrlRoot(final long vmId) {
         return consoleAccessService.getConsoleAccessUrlRoot(vmId);
@@ -4344,51 +4305,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
         }
     }
 
-    private void cleanupDownloadUrlsInZone(final long zoneId) {
-        // clean download URLs when destroying ssvm
-        // clean only the volumes and templates of the zone to which ssvm belongs to
-        for (VolumeDataStoreVO volume :_volumeStoreDao.listVolumeDownloadUrlsByZoneId(zoneId)) {
-            volume.setExtractUrl(null);
-            _volumeStoreDao.update(volume.getId(), volume);
-        }
-        for (ImageStoreVO imageStore : _imgStoreDao.listStoresByZoneId(zoneId)) {
-            for (TemplateDataStoreVO template : _vmTemplateStoreDao.listTemplateDownloadUrlsByStoreId(imageStore.getId())) {
-                template.setExtractUrl(null);
-                template.setExtractUrlCreated(null);
-                _vmTemplateStoreDao.update(template.getId(), template);
-            }
-        }
-    }
-
-    private SecondaryStorageVmVO startSecondaryStorageVm(final long instanceId) {
-        return _secStorageVmMgr.startSecStorageVm(instanceId);
-    }
-
-    private SecondaryStorageVmVO stopSecondaryStorageVm(final VMInstanceVO systemVm, final boolean isForced)
-            throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        _itMgr.advanceStop(systemVm.getUuid(), isForced);
-        return _secStorageVmDao.findById(systemVm.getId());
-    }
-
-    public SecondaryStorageVmVO rebootSecondaryStorageVm(final long instanceId) {
-        _secStorageVmMgr.rebootSecStorageVm(instanceId);
-        return _secStorageVmDao.findById(instanceId);
-    }
-
-    private SecondaryStorageVmVO forceRebootSecondaryStorageVm(final VMInstanceVO systemVm)  throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        _itMgr.advanceStop(systemVm.getUuid(), false);
-        return _secStorageVmMgr.startSecStorageVm(systemVm.getId());
-    }
-
-    protected SecondaryStorageVmVO destroySecondaryStorageVm(final long instanceId) {
-        final SecondaryStorageVmVO secStorageVm = _secStorageVmDao.findById(instanceId);
-        cleanupDownloadUrlsInZone(secStorageVm.getDataCenterId());
-        if (_secStorageVmMgr.destroySecStorageVm(instanceId)) {
-            return secStorageVm;
-        }
-        return null;
-    }
-
     @Override
     public Pair<List<? extends VirtualMachine>, Integer> searchForSystemVm(final ListSystemVMsCmd cmd) {
         final String type = cmd.getSystemVmType();
@@ -4491,115 +4407,30 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public VirtualMachine.Type findSystemVMTypeById(final long instanceId) {
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(instanceId, VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-        if (systemVm == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find a system vm of specified instanceId");
-            ex.addProxyObject(String.valueOf(instanceId), "instanceId");
-            throw ex;
-        }
-        return systemVm.getType();
+        return systemVmLifecycleService.findSystemVMTypeById(instanceId);
     }
 
     @Override
     @ActionEvent(eventType = "", eventDescription = "", async = true)
     public VirtualMachine startSystemVM(final long vmId) {
-
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(vmId, VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-        if (systemVm == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("unable to find a system vm with specified vmId");
-            ex.addProxyObject(String.valueOf(vmId), "vmId");
-            throw ex;
-        }
-
-        if (systemVm.getType() == VirtualMachine.Type.ConsoleProxy) {
-            ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_PROXY_START, "starting console proxy Vm", vmId, ApiCommandResourceType.ConsoleProxy.toString());
-            return startConsoleProxy(vmId);
-        } else if (systemVm.getType() == VirtualMachine.Type.SecondaryStorageVm) {
-            ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_SSVM_START, "starting secondary storage Vm", vmId, ApiCommandResourceType.SystemVm.toString());
-            return startSecondaryStorageVm(vmId);
-        } else {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find a system vm with specified vmId");
-            ex.addProxyObject(systemVm.getUuid(), "vmId");
-            throw ex;
-        }
+        return systemVmLifecycleService.startSystemVM(vmId);
     }
 
     @Override
     @ActionEvent(eventType = "", eventDescription = "", async = true)
     public VMInstanceVO stopSystemVM(final StopSystemVmCmd cmd) throws ResourceUnavailableException, ConcurrentOperationException {
-        final Long id = cmd.getId();
-
-        // verify parameters
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(id, VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-        if (systemVm == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("unable to find a system vm with specified vmId");
-            ex.addProxyObject(id.toString(), "vmId");
-            throw ex;
-        }
-
-        try {
-            if (systemVm.getType() == VirtualMachine.Type.ConsoleProxy) {
-                ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_PROXY_STOP, "stopping console proxy VM", systemVm.getId(), ApiCommandResourceType.ConsoleProxy.toString());
-                return stopConsoleProxy(systemVm, cmd.isForced());
-            } else if (systemVm.getType() == VirtualMachine.Type.SecondaryStorageVm) {
-                ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_SSVM_STOP, "stopping secondary storage VM", systemVm.getId(), ApiCommandResourceType.SystemVm.toString());
-                return stopSecondaryStorageVm(systemVm, cmd.isForced());
-            }
-            return null;
-        } catch (final OperationTimedoutException e) {
-            throw new CloudRuntimeException("Unable to stop " + systemVm, e);
-        }
+        return systemVmLifecycleService.stopSystemVM(cmd);
     }
 
     @Override
     public VMInstanceVO rebootSystemVM(final RebootSystemVmCmd cmd) {
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(cmd.getId(), VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-
-        if (systemVm == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("unable to find a system VM with specified vmId");
-            ex.addProxyObject(cmd.getId().toString(), "vmId");
-            throw ex;
-        }
-
-        try {
-            if (systemVm.getType().equals(VirtualMachine.Type.ConsoleProxy)) {
-                ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_PROXY_REBOOT, "rebooting console proxy VM", systemVm.getId(), ApiCommandResourceType.ConsoleProxy.toString());
-                if (cmd.isForced()) {
-                    return forceRebootConsoleProxy(systemVm);
-                }
-                return rebootConsoleProxy(cmd.getId());
-            } else {
-                ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_SSVM_REBOOT, "rebooting secondary storage VM", systemVm.getId(), ApiCommandResourceType.SystemVm.toString());
-                if (cmd.isForced()) {
-                    return forceRebootSecondaryStorageVm(systemVm);
-                }
-                return rebootSecondaryStorageVm(cmd.getId());
-            }
-        } catch (final ResourceUnavailableException e) {
-            throw new CloudRuntimeException("Unable to reboot " + systemVm, e);
-        } catch (final OperationTimedoutException e) {
-            throw new CloudRuntimeException("Operation timed out - Unable to reboot " + systemVm, e);
-        }
+        return systemVmLifecycleService.rebootSystemVM(cmd);
     }
 
     @Override
     @ActionEvent(eventType = "", eventDescription = "", async = true)
     public VMInstanceVO destroySystemVM(final DestroySystemVmCmd cmd) {
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(cmd.getId(), VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-
-        if (systemVm == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("unable to find a system VM with specified vmId");
-            ex.addProxyObject(cmd.getId().toString(), "vmId");
-            throw ex;
-        }
-
-        if (systemVm.getType().equals(VirtualMachine.Type.ConsoleProxy)) {
-            ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_PROXY_DESTROY, "destroying console proxy VM", systemVm.getId(), ApiCommandResourceType.ConsoleProxy.toString());
-            return destroyConsoleProxy(cmd.getId());
-        } else {
-            ActionEventUtils.startNestedActionEvent(EventTypes.EVENT_SSVM_DESTROY, "destroying secondary storage VM", systemVm.getId(), ApiCommandResourceType.SystemVm.toString());
-            return destroySecondaryStorageVm(cmd.getId());
-        }
+        return systemVmLifecycleService.destroySystemVM(cmd);
     }
 
     private String signRequest(final String request, final String key) {
