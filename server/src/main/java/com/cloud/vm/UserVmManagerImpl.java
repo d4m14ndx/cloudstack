@@ -599,6 +599,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmUsageEventPublisher vmUsageEventPublisher;
     @Inject
+    private VmDisplayFlagService vmDisplayFlagService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -2512,31 +2514,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void updateDisplayVmFlag(Boolean isDisplayVm, Long id, UserVmVO vmInstance) {
-        vmInstance.setDisplayVm(isDisplayVm);
-
-        // Resource limit changes
-        ServiceOffering offering = serviceOfferingDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmInstance.getTemplateId());
-        if (isDisplayVm) {
-            resourceCountIncrement(vmInstance.getAccountId(), true, offering, template);
-        } else {
-            resourceCountDecrement(vmInstance.getAccountId(), true, offering, template);
-        }
-
-        // Usage
-        saveUsageEvent(vmInstance);
-
-        // take care of the root volume as well.
-        List<VolumeVO> rootVols = _volsDao.findByInstanceAndType(id, Volume.Type.ROOT);
-        if (!rootVols.isEmpty()) {
-            _volumeService.updateDisplay(rootVols.get(0), isDisplayVm);
-        }
-
-        // take care of the data volumes as well.
-        List<VolumeVO> dataVols = _volsDao.findByInstanceAndType(id, Volume.Type.DATADISK);
-        for (Volume dataVol : dataVols) {
-            _volumeService.updateDisplay(dataVol, isDisplayVm);
-        }
+        vmDisplayFlagService.applyDisplayFlag(isDisplayVm, id, vmInstance);
     }
 
     protected void validateInputsAndPermissionForUpdateVirtualMachineCommand(UpdateVMCmd cmd) {
