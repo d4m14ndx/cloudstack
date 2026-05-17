@@ -26,7 +26,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.UnknownHostException;
-import java.nio.file.Files;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
@@ -57,7 +56,6 @@ import java.util.stream.Stream;
 
 import jakarta.inject.Inject;
 
-import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.storage.CancelPrimaryStorageMaintenanceCmd;
@@ -88,7 +86,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
 import org.apache.cloudstack.engine.subsystem.api.storage.HostScope;
 import org.apache.cloudstack.engine.subsystem.api.storage.HypervisorHostListener;
-import org.apache.cloudstack.engine.subsystem.api.storage.ImageStoreProvider;
 import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
@@ -128,7 +125,6 @@ import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreObjectDownloadDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreObjectDownloadVO;
-import org.apache.cloudstack.storage.datastore.db.ImageStoreVO;
 import org.apache.cloudstack.storage.datastore.db.ObjectStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ObjectStoreDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.ObjectStoreVO;
@@ -173,7 +169,6 @@ import com.cloud.agent.api.to.StorageFilerTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.api.query.dao.TemplateJoinDao;
-import com.cloud.api.query.vo.TemplateJoinVO;
 import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.capacity.CapacityState;
@@ -182,7 +177,6 @@ import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManagerListener;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource.ResourceType;
-import com.cloud.cpu.CPU;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
@@ -211,7 +205,6 @@ import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuruManager;
-import com.cloud.network.router.VirtualNetworkApplianceManager;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Grouping;
@@ -241,7 +234,6 @@ import com.cloud.storage.listener.StoragePoolMonitor;
 import com.cloud.storage.listener.VolumeStateListener;
 import com.cloud.template.TemplateManager;
 import com.cloud.template.VirtualMachineTemplate;
-import com.cloud.upgrade.SystemVmTemplateRegistration;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.ResourceLimitService;
@@ -403,6 +395,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     protected PrimaryStorageMaintenanceService primaryStorageMaintenanceService;
     @Inject
     protected HostStorageAccessService hostStorageAccessService;
+    @Inject
+    protected ImageStoreLifecycleService imageStoreLifecycleService;
     @Inject
     protected ObjectStoreDao _objectStoreDao;
 
@@ -3659,260 +3653,29 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         return null;
     }
 
-    private String getValidTemplateName(Long zoneId, HypervisorType hType) {
-        String templateName = null;
-        if (hType.equals(HypervisorType.XenServer)) {
-            templateName = VirtualNetworkApplianceManager.RouterTemplateXen.valueIn(zoneId);
-        } else if (hType.equals(HypervisorType.KVM)) {
-            templateName = VirtualNetworkApplianceManager.RouterTemplateKvm.valueIn(zoneId);
-        } else if (hType.equals(HypervisorType.VMware)) {
-            templateName = VirtualNetworkApplianceManager.RouterTemplateVmware.valueIn(zoneId);
-        } else if (hType.equals(HypervisorType.Hyperv)) {
-            templateName = VirtualNetworkApplianceManager.RouterTemplateHyperV.valueIn(zoneId);
-        } else if (hType.equals(HypervisorType.LXC)) {
-            templateName = VirtualNetworkApplianceManager.RouterTemplateLxc.valueIn(zoneId);
-        }
-        return templateName;
-    }
     @Override
     public ImageStore discoverImageStore(String name, String url, String providerName, Long zoneId, Map details) throws IllegalArgumentException, DiscoveryException, InvalidParameterValueException {
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(providerName);
-
-        if (storeProvider == null) {
-            storeProvider = _dataStoreProviderMgr.getDefaultImageDataStoreProvider();
-            if (storeProvider == null) {
-                throw new InvalidParameterValueException("can't find image store provider: " + providerName);
-            }
-            providerName = storeProvider.getName(); // ignored passed provider name and use default image store provider name
-        }
-
-        ScopeType scopeType = ScopeType.ZONE;
-        if (zoneId == null) {
-            scopeType = ScopeType.REGION;
-        }
-
-        if (name == null) {
-            name = url;
-        }
-
-        ImageStoreVO imageStore = _imageStoreDao.findByName(name);
-        if (imageStore != null) {
-            throw new InvalidParameterValueException("The image store with name " + name + " already exists, try creating with another name");
-        }
-
-        // check if scope is supported by store provider
-        if (!((ImageStoreProvider)storeProvider).isScopeSupported(scopeType)) {
-            throw new InvalidParameterValueException("Image store provider " + providerName + " does not support scope " + scopeType);
-        }
-
-        // check if we have already image stores from other different providers,
-        // we currently are not supporting image stores from different
-        // providers co-existing
-        List<ImageStoreVO> imageStores = _imageStoreDao.listImageStores();
-        for (ImageStoreVO store : imageStores) {
-            if (!store.getProviderName().equalsIgnoreCase(providerName)) {
-                throw new InvalidParameterValueException("You can only add new image stores from the same provider " + store.getProviderName() + " already added");
-            }
-        }
-
-        if (zoneId != null) {
-            // Check if the zone exists in the system
-            DataCenterVO zone = _dcDao.findById(zoneId);
-            if (zone == null) {
-                throw new InvalidParameterValueException("Can't find zone by id " + zoneId);
-            }
-
-            Account account = CallContext.current().getCallingAccount();
-            if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(account.getId())) {
-                PermissionDeniedException ex = new PermissionDeniedException("Cannot perform this operation, Zone with specified id is currently disabled");
-                ex.addProxyObject(zone.getUuid(), "dcId");
-                throw ex;
-            }
-        }
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("zoneId", zoneId);
-        params.put("url", url);
-        params.put("name", name);
-        params.put("details", details);
-        params.put("scope", scopeType);
-        params.put("providerName", storeProvider.getName());
-        params.put("role", DataStoreRole.Image);
-
-        DataStoreLifeCycle lifeCycle = storeProvider.getDataStoreLifeCycle();
-
-        DataStore store;
-        try {
-            store = lifeCycle.initialize(params);
-        } catch (Exception e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Failed to add data store: " + e.getMessage(), e);
-            }
-            throw new CloudRuntimeException("Failed to add data store: " + e.getMessage(), e);
-        }
-
-        if (((ImageStoreProvider)storeProvider).needDownloadSysTemplate()) {
-            // trigger system vm template download
-            _imageSrv.downloadBootstrapSysTemplate(store);
-        } else {
-            // populate template_store_ref table
-            _imageSrv.addSystemVMTemplatesToSecondary(store);
-            _imageSrv.handleTemplateSync(store);
-            registerSystemVmTemplateOnFirstNfsStore(zoneId, providerName, url, store);
-        }
-
-        // associate builtin template with zones associated with this image store
-        associateCrosszoneTemplatesToZone(zoneId);
-
-        // duplicate cache store records to region wide storage
-        if (scopeType == ScopeType.REGION) {
-            duplicateCacheStoreRecordsToRegionStore(store.getId());
-        }
-
-        return (ImageStore)_dataStoreMgr.getDataStore(store.getId(), DataStoreRole.Image);
+        return imageStoreLifecycleService.discoverImageStore(name, url, providerName, zoneId, details);
     }
 
-    protected void registerSystemVmTemplateForHypervisorArch(final HypervisorType hypervisorType,
-                 final CPU.CPUArch arch, final Long zoneId, final String url, final DataStore store,
-                 final SystemVmTemplateRegistration systemVmTemplateRegistration, final String filePath,
-                 final Pair<String, Long> storeUrlAndId, final String nfsVersion) {
-        if (HypervisorType.Simulator.equals(hypervisorType)) {
-            return;
-        }
-        String templateName = getValidTemplateName(zoneId, hypervisorType);
-        VMTemplateVO registeredTemplate = systemVmTemplateRegistration.getRegisteredTemplate(templateName,
-                hypervisorType, arch, url);
-        TemplateDataStoreVO templateDataStoreVO = null;
-        if (registeredTemplate != null) {
-            templateDataStoreVO = _templateStoreDao.findByStoreTemplate(store.getId(), registeredTemplate.getId());
-            if (templateDataStoreVO != null) {
-                try {
-                    if (systemVmTemplateRegistration.validateIfSeeded(templateDataStoreVO, url,
-                            templateDataStoreVO.getInstallPath(), nfsVersion)) {
-                        return;
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to validated if template is seeded", e);
-                }
-            }
-        }
-        SystemVmTemplateRegistration.mountStore(storeUrlAndId.first(), filePath, nfsVersion);
-        if (registeredTemplate != null) {
-            systemVmTemplateRegistration.validateAndAddTemplateToStore(registeredTemplate, templateDataStoreVO, zoneId,
-                    storeUrlAndId.second(), filePath);
-        } else {
-            systemVmTemplateRegistration.validateAndRegisterNewTemplate(hypervisorType, arch, templateName, zoneId,
-                    storeUrlAndId.second(), filePath);
-        }
-    }
-
-    private void registerSystemVmTemplateOnFirstNfsStore(Long zoneId, String providerName, String url, DataStore store) {
-        if (zoneId == null || !DataStoreProvider.NFS_IMAGE.equals(providerName)) {
-            logger.debug("Skipping system VM template registration as either zoneId is null or {} " +
-                    "provider is not NFS", store);
-            return;
-        }
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(final TransactionStatus status) {
-                List<ImageStoreVO> stores = _imageStoreDao.listAllStoresInZoneExceptId(zoneId, providerName,
-                        DataStoreRole.Image, store.getId());
-                if (CollectionUtils.isEmpty(stores)) {
-                    List<Pair<HypervisorType, CPU.CPUArch>> hypervisorArchTypes =
-                            _clusterDao.listDistinctHypervisorsAndArchExcludingExternalType(zoneId);
-                    TransactionLegacy txn = TransactionLegacy.open("AutomaticTemplateRegister");
-                    SystemVmTemplateRegistration systemVmTemplateRegistration = new SystemVmTemplateRegistration();
-                    String filePath = null;
-                    try {
-                        filePath = Files.createTempDirectory(SystemVmTemplateRegistration.TEMPORARY_SECONDARY_STORE)
-                                .toString();
-                        Pair<String, Long> storeUrlAndId = new Pair<>(url, store.getId());
-                        String nfsVersion = imageStoreDetailsUtil.getNfsVersion(store.getId());
-                        for (Pair<HypervisorType, CPU.CPUArch> hypervisorArchType : hypervisorArchTypes) {
-                            try {
-                                registerSystemVmTemplateForHypervisorArch(hypervisorArchType.first(),
-                                        hypervisorArchType.second(), zoneId, url, store,
-                                        systemVmTemplateRegistration, filePath, storeUrlAndId, nfsVersion);
-                            } catch (CloudRuntimeException e) {
-                                SystemVmTemplateRegistration.unmountStore(filePath);
-                                logger.error("Failed to register system VM template for hypervisor: {} {}",
-                                        hypervisorArchType.first().name(), hypervisorArchType.second().name(), e);
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.error("Failed to register systemVM template(s) due to: ", e);
-                    } finally {
-                        SystemVmTemplateRegistration.unmountStore(filePath);
-                        txn.close();
-                    }
-                }
-            }
-        });
-    }
     @Override
     public ImageStore migrateToObjectStore(String name, String url, String providerName, Map<String, String> details) throws DiscoveryException, InvalidParameterValueException {
-        // check if current cloud is ready to migrate, we only support cloud with only NFS secondary storages
-        List<ImageStoreVO> imgStores = _imageStoreDao.listImageStores();
-        List<ImageStoreVO> nfsStores = new ArrayList<>();
-        if (imgStores != null && imgStores.size() > 0) {
-            for (ImageStoreVO store : imgStores) {
-                if (!store.getProviderName().equals(DataStoreProvider.NFS_IMAGE)) {
-                    throw new InvalidParameterValueException("We only support migrate NFS secondary storage to use object store!");
-                } else {
-                    nfsStores.add(store);
-                }
-            }
-        }
-        // convert all NFS secondary storage to staging store
-        if (nfsStores != null && nfsStores.size() > 0) {
-            for (ImageStoreVO store : nfsStores) {
-                long storeId = store.getId();
-
-                _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), store.getDataCenterId());
-
-                DataStoreProvider provider = _dataStoreProviderMgr.getDataStoreProvider(store.getProviderName());
-                DataStoreLifeCycle lifeCycle = provider.getDataStoreLifeCycle();
-                DataStore secStore = _dataStoreMgr.getDataStore(storeId, DataStoreRole.Image);
-                lifeCycle.migrateToObjectStore(secStore);
-                // update store_role in template_store_ref and snapshot_store_ref to ImageCache
-                _templateStoreDao.updateStoreRoleToCachce(storeId);
-                _snapshotStoreDao.updateStoreRoleToCache(storeId);
-            }
-        }
-        // add object store
-        return discoverImageStore(name, url, providerName, null, details);
+        return imageStoreLifecycleService.migrateToObjectStore(name, url, providerName, details);
     }
 
     @Override
     public ImageStore updateImageStore(UpdateImageStoreCmd cmd) {
-        return updateImageStoreStatus(cmd.getId(), cmd.getName(), cmd.getReadonly(), cmd.getCapacityBytes());
+        return imageStoreLifecycleService.updateImageStore(cmd);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_UPDATE_IMAGE_STORE_ACCESS_STATE,
-            eventDescription = "image store access updated")
     public ImageStore updateImageStoreStatus(Long id, String name, Boolean readonly, Long capacityBytes) {
-        // Input validation
-        ImageStoreVO imageStoreVO = _imageStoreDao.findById(id);
-        if (imageStoreVO == null) {
-            throw new IllegalArgumentException("Unable to find image store with ID: " + id);
-        }
-        if (com.cloud.utils.StringUtils.isNotBlank(name)) {
-            imageStoreVO.setName(name);
-        }
-        if (capacityBytes != null) {
-            imageStoreVO.setTotalSize(capacityBytes);
-        }
-        if (readonly != null) {
-            imageStoreVO.setReadonly(readonly);
-        }
-        _imageStoreDao.update(id, imageStoreVO);
-        return imageStoreVO;
+        return imageStoreLifecycleService.updateImageStoreStatus(id, name, readonly, capacityBytes);
     }
 
     @Override
     public ImageStore updateImageStoreStatus(Long id, Boolean readonly) {
-        return updateImageStoreStatus(id, null, readonly, null);
+        return imageStoreLifecycleService.updateImageStoreStatus(id, readonly);
     }
 
     /**
@@ -3986,196 +3749,19 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         }
     }
 
-    private void duplicateCacheStoreRecordsToRegionStore(long storeId) {
-        _templateStoreDao.duplicateCacheRecordsOnRegionStore(storeId);
-        _snapshotStoreDao.duplicateCacheRecordsOnRegionStore(storeId);
-        _volumeStoreDao.duplicateCacheRecordsOnRegionStore(storeId);
-    }
-
-    private void associateCrosszoneTemplatesToZone(Long zoneId) {
-        VMTemplateZoneVO tmpltZone;
-
-        List<VMTemplateVO> allTemplates = _vmTemplateDao.listAll();
-        List<Long> dcIds = new ArrayList<>();
-        if (zoneId != null) {
-            dcIds.add(zoneId);
-        } else {
-            List<DataCenterVO> dcs = _dcDao.listAll();
-            if (dcs != null) {
-                for (DataCenterVO dc : dcs) {
-                    dcIds.add(dc.getId());
-                }
-            }
-        }
-
-        for (VMTemplateVO vt : allTemplates) {
-            if (vt.isCrossZones()) {
-                for (Long dcId : dcIds) {
-                    tmpltZone = _vmTemplateZoneDao.findByZoneTemplate(dcId, vt.getId());
-                    if (tmpltZone == null) {
-                        VMTemplateZoneVO vmTemplateZone = new VMTemplateZoneVO(dcId, vt.getId(), new Date());
-                        _vmTemplateZoneDao.persist(vmTemplateZone);
-                    }
-                }
-            }
-        }
-    }
-
     @Override
     public boolean deleteImageStore(DeleteImageStoreCmd cmd) {
-        final long storeId = cmd.getId();
-        // Verify that image store exists
-        ImageStoreVO store = _imageStoreDao.findById(storeId);
-        if (store == null) {
-            throw new InvalidParameterValueException("Image store with id " + storeId + " doesn't exist");
-        }
-        _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), store.getDataCenterId());
-
-        // Verify that there are no live snapshot, template, volume on the image
-        // store to be deleted
-        List<SnapshotDataStoreVO> snapshots = _snapshotStoreDao.listByStoreId(storeId, DataStoreRole.Image);
-        if (snapshots != null && snapshots.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete image store with active snapshots backup!");
-        }
-        List<VolumeDataStoreVO> volumes = _volumeStoreDao.listByStoreId(storeId);
-        if (volumes != null && volumes.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete image store with active volumes backup!");
-        }
-
-        // search if there are user templates stored on this image store, excluding system, builtin templates
-        List<TemplateJoinVO> templates = _templateViewDao.listActiveTemplates(storeId);
-        if (templates != null && templates.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete image store with active Templates backup!");
-        }
-
-        // ready to delete
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                // first delete from image_store_details table, we need to do that since
-                // we are not actually deleting record from main
-                // image_data_store table, so delete cascade will not work
-                _imageStoreDetailsDao.deleteDetails(storeId);
-                _snapshotStoreDao.deletePrimaryRecordsForStore(storeId, DataStoreRole.Image);
-                _volumeStoreDao.deletePrimaryRecordsForStore(storeId);
-                _templateStoreDao.deletePrimaryRecordsForStore(storeId);
-                annotationDao.removeByEntityType(AnnotationService.EntityType.SECONDARY_STORAGE.name(), store.getUuid());
-                _imageStoreDao.remove(storeId);
-            }
-        });
-
-        return true;
+        return imageStoreLifecycleService.deleteImageStore(cmd);
     }
 
     @Override
     public ImageStore createSecondaryStagingStore(CreateSecondaryStagingStoreCmd cmd) {
-        String providerName = cmd.getProviderName();
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(providerName);
-
-        if (storeProvider == null) {
-            storeProvider = _dataStoreProviderMgr.getDefaultCacheDataStoreProvider();
-            if (storeProvider == null) {
-                throw new InvalidParameterValueException("can't find cache store provider: " + providerName);
-            }
-        }
-
-        Long dcId = cmd.getZoneId();
-
-        ScopeType scopeType = null;
-        String scope = cmd.getScope();
-        if (scope != null) {
-            try {
-                scopeType = Enum.valueOf(ScopeType.class, scope.toUpperCase());
-
-            } catch (Exception e) {
-                throw new InvalidParameterValueException("invalid scope for cache store " + scope);
-            }
-
-            if (scopeType != ScopeType.ZONE) {
-                throw new InvalidParameterValueException("Only zone wide cache storage is supported");
-            }
-        }
-
-        if (scopeType == ScopeType.ZONE && dcId == null) {
-            throw new InvalidParameterValueException("zone id can't be null, if scope is zone");
-        }
-
-        // Check if the zone exists in the system
-        DataCenterVO zone = _dcDao.findById(dcId);
-        if (zone == null) {
-            throw new InvalidParameterValueException("Can't find zone by id " + dcId);
-        }
-
-        Account account = CallContext.current().getCallingAccount();
-        if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(account.getId())) {
-            PermissionDeniedException ex = new PermissionDeniedException("Cannot perform this operation, Zone with specified id is currently disabled");
-            ex.addProxyObject(zone.getUuid(), "dcId");
-            throw ex;
-        }
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("zoneId", dcId);
-        params.put("url", cmd.getUrl());
-        params.put("name", cmd.getUrl());
-        params.put("details", cmd.getDetails());
-        params.put("scope", scopeType);
-        params.put("providerName", storeProvider.getName());
-        params.put("role", DataStoreRole.ImageCache);
-
-        DataStoreLifeCycle lifeCycle = storeProvider.getDataStoreLifeCycle();
-        DataStore store = null;
-        try {
-            store = lifeCycle.initialize(params);
-        } catch (Exception e) {
-            logger.debug("Failed to add data store: " + e.getMessage(), e);
-            throw new CloudRuntimeException("Failed to add data store: " + e.getMessage(), e);
-        }
-
-        return (ImageStore)_dataStoreMgr.getDataStore(store.getId(), DataStoreRole.ImageCache);
+        return imageStoreLifecycleService.createSecondaryStagingStore(cmd);
     }
 
     @Override
     public boolean deleteSecondaryStagingStore(DeleteSecondaryStagingStoreCmd cmd) {
-        final long storeId = cmd.getId();
-        // Verify that cache store exists
-        ImageStoreVO store = _imageStoreDao.findById(storeId);
-        if (store == null) {
-            throw new InvalidParameterValueException("Cache store with id " + storeId + " doesn't exist");
-        }
-        _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), store.getDataCenterId());
-
-        // Verify that there are no live snapshot, template, volume on the cache
-        // store that is currently referenced
-        List<SnapshotDataStoreVO> snapshots = _snapshotStoreDao.listActiveOnCache(storeId);
-        if (snapshots != null && snapshots.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete cache store with staging snapshots currently in use!");
-        }
-        List<VolumeDataStoreVO> volumes = _volumeStoreDao.listActiveOnCache(storeId);
-        if (volumes != null && volumes.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete cache store with staging Volumes currently in use!");
-        }
-
-        List<TemplateDataStoreVO> templates = _templateStoreDao.listActiveOnCache(storeId);
-        if (templates != null && templates.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete cache store with staging Templates currently in use!");
-        }
-
-        // ready to delete
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                // first delete from image_store_details table, we need to do that since
-                // we are not actually deleting record from main
-                // image_data_store table, so delete cascade will not work
-                _imageStoreDetailsDao.deleteDetails(storeId);
-                _snapshotStoreDao.deletePrimaryRecordsForStore(storeId, DataStoreRole.ImageCache);
-                _volumeStoreDao.deletePrimaryRecordsForStore(storeId);
-                _templateStoreDao.deletePrimaryRecordsForStore(storeId);
-                _imageStoreDao.remove(storeId);
-            }
-        });
-
-        return true;
+        return imageStoreLifecycleService.deleteSecondaryStagingStore(cmd);
     }
 
     protected class DownloadURLGarbageCollector implements Runnable {
