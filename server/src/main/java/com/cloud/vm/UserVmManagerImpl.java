@@ -595,6 +595,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmHostNameUniquenessService vmHostNameUniquenessService;
     @Inject
+    private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -2737,45 +2739,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void checkAndUpdateSecurityGroupForVM(List<Long> securityGroupIdList, UserVmVO vm, List<NetworkVO> networks) {
-        boolean isVMware = (vm.getHypervisorType() == HypervisorType.VMware);
-
-        if (securityGroupIdList != null && isVMware) {
-            throw new InvalidParameterValueException("Security group feature is not supported for VMware hypervisor");
-        } else if (securityGroupIdList != null) {
-            DataCenterVO zone = _dcDao.findById(vm.getDataCenterId());
-            List<Long> networkIds = new ArrayList<>();
-            try {
-                if (zone.getNetworkType() == NetworkType.Basic) {
-                    // Get default guest network in Basic zone
-                    Network defaultNetwork = _networkModel.getExclusiveGuestNetwork(zone.getId());
-                    networkIds.add(defaultNetwork.getId());
-                } else {
-                    networkIds = networks.stream().map(Network::getId).collect(Collectors.toList());
-                }
-            } catch (InvalidParameterValueException e) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug(e.getMessage(),e);
-                }
-            }
-
-            if (_networkModel.checkSecurityGroupSupportForNetwork(
-                            _accountMgr.getActiveAccountById(vm.getAccountId()),
-                            zone, networkIds, securityGroupIdList)
-            ) {
-                updateSecurityGroup(vm, securityGroupIdList);
-            }
-        }
+        vmSecurityGroupAssignmentService.checkAndUpdateSecurityGroupForVM(securityGroupIdList, vm, networks);
     }
 
     private void updateSecurityGroup(UserVmVO vm, List<Long> securityGroupIdList) {
-        if (vm.getState() == State.Stopped) {
-            // Remove instance from security groups
-            _securityGroupMgr.removeInstanceFromGroups(vm);
-            // Add instance in provided groups
-            _securityGroupMgr.addInstanceToGroups(vm, securityGroupIdList);
-        } else {
-            throw new InvalidParameterValueException(String.format("VM %s must be stopped prior to update security groups", vm.getUuid()));
-        }
+        vmSecurityGroupAssignmentService.updateSecurityGroup(vm, securityGroupIdList);
     }
 
     protected void updateUserData(UserVm vm) throws ResourceUnavailableException, InsufficientCapacityException {
@@ -5901,27 +5869,19 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected List<Long> getSecurityGroupIdList(SecurityGroupAction cmd) {
-        if (cmd.getSecurityGroupNameList() != null && cmd.getSecurityGroupIdList() != null) {
-            throw new InvalidParameterValueException("securitygroupids parameter is mutually exclusive with securitygroupnames parameter");
-        }
-
-        //transform group names to ids here
-        if (cmd.getSecurityGroupNameList() != null) {
-            List<Long> securityGroupIds = new ArrayList<>();
-            for (String groupName : cmd.getSecurityGroupNameList()) {
-                SecurityGroup sg = _securityGroupMgr.getSecurityGroup(groupName, cmd.getEntityOwnerId());
-                if (sg == null) {
-                    throw new InvalidParameterValueException("Unable to find group by name " + groupName);
-                } else {
-                    securityGroupIds.add(sg.getId());
-                }
-            }
-            return securityGroupIds;
-        } else {
-            return cmd.getSecurityGroupIdList();
-        }
+        return vmSecurityGroupAssignmentService.getSecurityGroupIdList(cmd);
     }
 
+    /**
+     * Spy-compat orchestration shim: the one-arg
+     * {@link #getSecurityGroupIdList(SecurityGroupAction)} above is a
+     * Mockito spy target in {@code UserVmManagerImplTest} —
+     * {@code testGetSecurityGroupIdList} stubs it and expects the VNF
+     * appliance code path here to call it. To preserve that
+     * verification we keep the VNF-injection branch in the god class,
+     * delegating to {@link VmSecurityGroupAssignmentService} only for
+     * the pure name-to-id resolution.
+     */
     protected List<Long> getSecurityGroupIdList(SecurityGroupAction cmd, DataCenter zone, VirtualMachineTemplate template, Account owner) {
         List<Long> securityGroupIdList = getSecurityGroupIdList(cmd);
         if (cmd instanceof DeployVnfApplianceCmd) {
