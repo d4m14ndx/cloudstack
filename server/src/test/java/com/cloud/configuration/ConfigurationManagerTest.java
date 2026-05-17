@@ -274,6 +274,39 @@ public class ConfigurationManagerTest {
         ReflectionTestUtils.setField(podService, "_vlanDao", _vlanDao);
         ReflectionTestUtils.setField(configurationMgr, "podService", podService);
 
+        // Phase 4 Spring-component decomposition: zone CRUD was extracted into
+        // ZoneServiceImpl. The zone tests below exercise that behavior through
+        // the manager's delegating wrappers, so wire up a real ZoneServiceImpl
+        // backed by the existing DAO mocks (and ad-hoc mocks for fields the
+        // legacy fixture didn't otherwise need).
+        ZoneServiceImpl zoneService = new ZoneServiceImpl();
+        ReflectionTestUtils.setField(zoneService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(zoneService, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(zoneService, "_accountDao", _accountDao);
+        ReflectionTestUtils.setField(zoneService, "_hostDao", _hostDao);
+        ReflectionTestUtils.setField(zoneService, "_podDao", _podDao);
+        ReflectionTestUtils.setField(zoneService, "_volumeDao", _volumeDao);
+        ReflectionTestUtils.setField(zoneService, "_vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(zoneService, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(zoneService, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(zoneService, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(zoneService, "_trafficTypeDao", Mockito.mock(com.cloud.network.dao.PhysicalNetworkTrafficTypeDao.class));
+        ReflectionTestUtils.setField(zoneService, "_imageStoreDao", _imageStoreDao);
+        ReflectionTestUtils.setField(zoneService, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(zoneService, "_capacityDao", Mockito.mock(com.cloud.capacity.dao.CapacityDao.class));
+        ReflectionTestUtils.setField(zoneService, "_dedicatedDao", Mockito.mock(com.cloud.dc.dao.DedicatedResourceDao.class));
+        ReflectionTestUtils.setField(zoneService, "_affinityGroupDao", Mockito.mock(org.apache.cloudstack.affinity.dao.AffinityGroupDao.class));
+        ReflectionTestUtils.setField(zoneService, "_affinityGroupService", Mockito.mock(org.apache.cloudstack.affinity.AffinityGroupService.class));
+        ReflectionTestUtils.setField(zoneService, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(zoneService, "_networkMgr", _networkMgr);
+        ReflectionTestUtils.setField(zoneService, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(zoneService, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(zoneService, "templateZoneDao", Mockito.mock(com.cloud.storage.dao.VMTemplateZoneDao.class));
+        ReflectionTestUtils.setField(zoneService, "annotationDao", Mockito.mock(org.apache.cloudstack.annotation.dao.AnnotationDao.class));
+        ReflectionTestUtils.setField(zoneService, "nsxProviderDao", Mockito.mock(com.cloud.network.dao.NsxProviderDao.class));
+        ReflectionTestUtils.setField(zoneService, "netrisProviderDao", Mockito.mock(com.cloud.network.dao.NetrisProviderDao.class));
+        ReflectionTestUtils.setField(configurationMgr, "zoneService", zoneService);
+
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
         dedicateIdField.set(dedicatePublicIpRangesCmd, 1L);
