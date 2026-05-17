@@ -226,6 +226,9 @@ public class VpcManagerImplTest {
         manager._firewallDao = firewallDao;
         manager._networkAclDao = networkACLDaoMock;
         manager.routedIpv4Manager = routedIpv4Manager;
+        PrivateGatewayServiceImpl privateGatewayServiceImpl = new PrivateGatewayServiceImpl();
+        ReflectionTestUtils.setField(privateGatewayServiceImpl, "networkAclDao", networkACLDaoMock);
+        ReflectionTestUtils.setField(manager, "privateGatewayService", privateGatewayServiceImpl);
         CallContext.register(Mockito.mock(User.class), Mockito.mock(Account.class));
         registerCallContext();
         overrideDefaultConfigValue(NetworkService.AllowUsersToSpecifyVRMtu, "_defaultValue", "false");
