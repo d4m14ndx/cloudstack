@@ -247,6 +247,16 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(spy, "hypervisorCapabilitiesService",
                 hypervisorCapabilitiesServiceMock);
 
+        // System VM lifecycle slice: wire a mock SystemVmLifecycleService so
+        // the startSystemVM/stopSystemVM/rebootSystemVM/destroySystemVM/
+        // findSystemVMTypeById delegating wrappers on the god class have a
+        // non-null collaborator. Focused tests live in
+        // SystemVmLifecycleServiceImplTest.
+        SystemVmLifecycleService systemVmLifecycleServiceMock =
+                Mockito.mock(SystemVmLifecycleService.class);
+        ReflectionTestUtils.setField(spy, "systemVmLifecycleService",
+                systemVmLifecycleServiceMock);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
