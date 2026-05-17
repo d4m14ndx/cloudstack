@@ -372,6 +372,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private VolumeAccountAssignmentService volumeAccountAssignmentService;
     @Inject
     private VolumeExtractService volumeExtractService;
+    @Inject
+    private VolumeHostTopologyService volumeHostTopologyService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -382,8 +384,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     static final List<HypervisorType> SupportedHypervisorsForVolResize = Arrays.asList(HypervisorType.KVM, HypervisorType.XenServer,
             HypervisorType.VMware, HypervisorType.Simulator, HypervisorType.Any, HypervisorType.None);
     private List<StoragePoolAllocator> _storagePoolAllocators;
-
-    private List<HypervisorType> supportingDefaultHV;
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
 
@@ -4295,71 +4295,19 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     private void verifyManagedStorage(Long storagePoolId, Long hostId) {
-        if (storagePoolId == null || hostId == null) {
-            return;
-        }
-
-        StoragePoolVO storagePoolVO = _storagePoolDao.findById(storagePoolId);
-
-        if (storagePoolVO == null || !storagePoolVO.isManaged()) {
-            return;
-        }
-
-        HostVO hostVO = _hostDao.findById(hostId);
-
-        if (hostVO == null) {
-            return;
-        }
-
-        if (!storageUtil.managedStoragePoolCanScale(storagePoolVO, hostVO.getClusterId(), hostVO.getId())) {
-            throw new CloudRuntimeException("Insufficient number of available " + getNameOfClusteredFileSystem(hostVO));
-        }
+        volumeHostTopologyService.verifyManagedStorage(storagePoolId, hostId);
     }
 
     private String getNameOfClusteredFileSystem(HostVO hostVO) {
-        HypervisorType hypervisorType = hostVO.getHypervisorType();
-
-        if (HypervisorType.XenServer.equals(hypervisorType)) {
-            return "SRs";
-        }
-
-        if (HypervisorType.VMware.equals(hypervisorType)) {
-            return "datastores";
-        }
-
-        return "clustered file systems";
+        return volumeHostTopologyService.getNameOfClusteredFileSystem(hostVO);
     }
 
     private HostVO getHostForVmVolumeAttachDetach(VirtualMachine vm, StoragePoolVO volumeStoragePool) {
-        HostVO host = null;
-        Pair<Long, Long> clusterAndHostId =  virtualMachineManager.findClusterAndHostIdForVm(vm.getId());
-        Long hostId = clusterAndHostId.second();
-        Long clusterId = clusterAndHostId.first();
-        if (hostId == null && clusterId != null &&
-                State.Stopped.equals(vm.getState()) &&
-                volumeStoragePool != null &&
-                !ScopeType.HOST.equals(volumeStoragePool.getScope())) {
-            List<HostVO> hosts = _hostDao.findHypervisorHostInCluster(clusterId);
-            if (!hosts.isEmpty()) {
-                host = hosts.get(0);
-            }
-        }
-        if (host == null && hostId != null) {
-            host = _hostDao.findById(hostId);
-        }
-        return host;
+        return volumeHostTopologyService.getHostForVmVolumeAttachDetach(vm, volumeStoragePool);
     }
 
     protected boolean isSendCommandForVmVolumeAttachDetach(HostVO host, StoragePoolVO volumeStoragePool) {
-        if (host == null || volumeStoragePool == null) {
-            return false;
-        }
-        boolean sendCommand = HypervisorType.VMware.equals(host.getHypervisorType());
-        if (HypervisorType.XenServer.equals(host.getHypervisorType()) &&
-                volumeStoragePool.isManaged()) {
-            sendCommand = true;
-        }
-        return sendCommand;
+        return volumeHostTopologyService.isSendCommandForVmVolumeAttachDetach(host, volumeStoragePool);
     }
 
     private VolumeVO sendAttachVolumeCommand(UserVmVO vm, VolumeVO volumeToAttach, Long deviceId) {
@@ -4576,110 +4524,31 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     private boolean isIothreadsSupported(UserVmVO vm) {
-        return vm.getHypervisorType() == HypervisorType.KVM
-                && vm.getDetails() != null
-                && vm.getDetail(VmDetailConstants.IOTHREADS) != null;
+        return volumeHostTopologyService.isIothreadsSupported(vm);
     }
 
     private String getIoPolicy(UserVmVO vm, long poolId) {
-        String ioPolicy = null;
-        if (vm.getHypervisorType() == HypervisorType.KVM && vm.getDetails() != null && vm.getDetail(VmDetailConstants.IO_POLICY) != null) {
-            ioPolicy = vm.getDetail(VmDetailConstants.IO_POLICY);
-            if (ApiConstants.IoDriverPolicy.STORAGE_SPECIFIC.toString().equals(ioPolicy)) {
-                String storageIoPolicyDriver = StorageManager.STORAGE_POOL_IO_POLICY.valueIn(poolId);
-                ioPolicy = storageIoPolicyDriver != null ? storageIoPolicyDriver : null;
-            }
-        }
-        return ioPolicy;
+        return volumeHostTopologyService.getIoPolicy(vm, poolId);
     }
 
     private void provideVMInfo(DataStore dataStore, long vmId, Long volumeId) {
-        DataStoreDriver dataStoreDriver = dataStore != null ? dataStore.getDriver() : null;
-
-        if (dataStoreDriver instanceof PrimaryDataStoreDriver) {
-            PrimaryDataStoreDriver storageDriver = (PrimaryDataStoreDriver)dataStoreDriver;
-            if (storageDriver.isVmInfoNeeded()) {
-                storageDriver.provideVmInfo(vmId, volumeId);
-            }
-        }
+        volumeHostTopologyService.provideVMInfo(dataStore, vmId, volumeId);
     }
 
     private int getMaxDataVolumesSupported(UserVmVO vm) {
-        Long hostId = vm.getHostId();
-        if (hostId == null) {
-            hostId = vm.getLastHostId();
-        }
-        HostVO host = _hostDao.findById(hostId);
-        Integer maxDataVolumesSupported = null;
-        if (host != null) {
-            _hostDao.loadDetails(host);
-            String hypervisorVersion = host.getDetail("product_version");
-            if (StringUtils.isBlank(hypervisorVersion)) {
-                hypervisorVersion = host.getHypervisorVersion();
-            }
-            maxDataVolumesSupported = _hypervisorCapabilitiesDao.getMaxDataVolumesLimit(host.getHypervisorType(), hypervisorVersion);
-        } else {
-            HypervisorType hypervisorType = vm.getHypervisorType();
-            if (hypervisorType != null && CollectionUtils.isNotEmpty(supportingDefaultHV) && supportingDefaultHV.contains(hypervisorType)) {
-                String hwVersion = getMinimumHypervisorVersionInDatacenter(vm.getDataCenterId(), hypervisorType);
-                maxDataVolumesSupported = _hypervisorCapabilitiesDao.getMaxDataVolumesLimit(hypervisorType, hwVersion);
-            }
-        }
-        if (maxDataVolumesSupported == null || maxDataVolumesSupported.intValue() <= 0) {
-            maxDataVolumesSupported = 6; // 6 data disks by default if nothing
-            // is specified in
-            // 'hypervisor_capabilities' table
-        }
-
-        return maxDataVolumesSupported.intValue();
+        return volumeHostTopologyService.getMaxDataVolumesSupported(vm);
     }
 
     protected String getMinimumHypervisorVersionInDatacenter(long datacenterId, HypervisorType hypervisorType) {
-        String defaultHypervisorVersion = "default";
-        if (hypervisorType == HypervisorType.Simulator) {
-            return defaultHypervisorVersion;
-        }
-        List<String> hwVersions = _hostDao.listOrderedHostsHypervisorVersionsInDatacenter(datacenterId, hypervisorType);
-        String minHwVersion = CollectionUtils.isNotEmpty(hwVersions) ? hwVersions.get(0) : defaultHypervisorVersion;
-        return StringUtils.isBlank(minHwVersion) ? defaultHypervisorVersion : minHwVersion;
+        return volumeHostTopologyService.getMinimumHypervisorVersionInDatacenter(datacenterId, hypervisorType);
     }
 
     private Long getDeviceId(UserVmVO vm, Long deviceId) {
-        // allocate deviceId
-        int maxDevices = getMaxDataVolumesSupported(vm) + 2; // add 2 to consider devices root volume and cdrom
-        int maxDeviceId = maxDevices - 1;
-        List<VolumeVO> vols = _volsDao.findByInstance(vm.getId());
-        if (deviceId != null) {
-            if (deviceId.longValue() < 0 || deviceId.longValue() > maxDeviceId || deviceId.longValue() == 3) {
-                throw new RuntimeException("deviceId should be 0,1,2,4-" + maxDeviceId);
-            }
-            for (VolumeVO vol : vols) {
-                if (vol.getDeviceId().equals(deviceId)) {
-                    throw new RuntimeException(String.format("deviceId %d is used by vol %s on vm %s", deviceId, vol, vm));
-                }
-            }
-        } else {
-            // allocate deviceId here
-            List<String> devIds = new ArrayList<String>();
-            for (int i = 1; i <= maxDeviceId; i++) {
-                devIds.add(String.valueOf(i));
-            }
-            devIds.remove("3");
-            for (VolumeVO vol : vols) {
-                devIds.remove(vol.getDeviceId().toString().trim());
-            }
-            if (devIds.isEmpty()) {
-                throw new RuntimeException(String.format("All device Ids are used by vm %s", vm));
-            }
-            deviceId = Long.parseLong(devIds.iterator().next());
-        }
-
-        return deviceId;
+        return volumeHostTopologyService.getDeviceId(vm, deviceId);
     }
 
     @Override
     public boolean configure(String name, Map<String, Object> params) {
-        supportingDefaultHV = _hypervisorCapabilitiesDao.getHypervisorsWithDefaultEntries();
         return true;
     }
 
