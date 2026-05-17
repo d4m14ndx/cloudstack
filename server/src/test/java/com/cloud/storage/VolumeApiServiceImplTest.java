@@ -112,6 +112,7 @@ import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.org.Grouping;
 import com.cloud.projects.Project;
 import com.cloud.projects.ProjectManager;
@@ -220,6 +221,10 @@ public class VolumeApiServiceImplTest {
     private SnapshotHelper snapshotHelper;
     @Mock
     VirtualMachineManager virtualMachineManager;
+    @Mock
+    private HypervisorCapabilitiesDao hypervisorCapabilitiesDaoMock;
+    @Mock
+    private StorageUtil storageUtilMock;
     @Mock
     HostPodDao podDao;
     @Mock
@@ -548,6 +553,23 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(extractService, "dataStoreMgr", dataStoreMgr);
         ReflectionTestUtils.setField(extractService, "accountManager", accountManagerMock);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeExtractService", extractService);
+
+        // Phase 4 (parallel slice, 6th): wire VolumeHostTopologyServiceImpl
+        // with the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (verifyManagedStorage, getNameOfClusteredFileSystem,
+        // getHostForVmVolumeAttachDetach, isSendCommandForVmVolumeAttachDetach,
+        // isIothreadsSupported, getIoPolicy, provideVMInfo,
+        // getMaxDataVolumesSupported, getMinimumHypervisorVersionInDatacenter,
+        // getDeviceId) forward to this service, so existing spy-based tests keep
+        // exercising the same code paths through the wrappers.
+        VolumeHostTopologyServiceImpl hostTopologyService = new VolumeHostTopologyServiceImpl();
+        ReflectionTestUtils.setField(hostTopologyService, "hostDao", _hostDao);
+        ReflectionTestUtils.setField(hostTopologyService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "hypervisorCapabilitiesDao", hypervisorCapabilitiesDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "virtualMachineManager", virtualMachineManager);
+        ReflectionTestUtils.setField(hostTopologyService, "storageUtil", storageUtilMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeHostTopologyService", hostTopologyService);
     }
 
     /**
