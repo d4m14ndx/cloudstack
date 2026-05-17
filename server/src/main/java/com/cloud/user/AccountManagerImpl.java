@@ -68,8 +68,6 @@ import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.UpdateAccountCmd;
 import org.apache.cloudstack.api.command.admin.user.DeleteUserCmd;
@@ -242,6 +240,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     private TwoFactorAuthenticationService twoFactorAuthenticationService;
     @Inject
     private AclSearchBuilderService aclSearchBuilderService;
+    @Inject
+    protected AccountOwnerResolverService accountOwnerResolverService;
     @Inject
     private ConfigurationDao _configDao;
     @Inject
@@ -2693,55 +2693,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public Account finalizeOwner(Account caller, String accountName, Long domainId, Long projectId) {
-        // don't default the owner to the system account
-        if (caller.getId() == Account.ACCOUNT_ID_SYSTEM && ((accountName == null || domainId == null) && projectId == null)) {
-            throw new InvalidParameterValueException("Account and domainId are needed for resource creation");
-        }
-
-        // projectId and account/domainId can't be specified together
-        if ((accountName != null && domainId != null) && projectId != null) {
-            throw new InvalidParameterValueException("ProjectId and account/domainId can't be specified together");
-        }
-
-        if (projectId != null) {
-            Project project = _projectMgr.getProject(projectId);
-            if (project == null) {
-                throw new InvalidParameterValueException("Unable to find project by id=" + projectId);
-            }
-
-            if (!_projectMgr.canAccessProjectAccount(caller, project.getProjectAccountId())) {
-                throw new PermissionDeniedException("Account " + caller + " is unauthorised to use project id=" + projectId);
-            }
-
-            return getAccount(project.getProjectAccountId());
-        }
-
-        if (isAdmin(caller.getId()) && accountName != null && domainId != null) {
-            Domain domain = _domainMgr.getDomain(domainId);
-            if (domain == null) {
-                throw new InvalidParameterValueException("Unable to find the domain by id=" + domainId);
-            }
-
-            Account owner = _accountDao.findActiveAccount(accountName, domainId);
-            if (owner == null) {
-                throw new InvalidParameterValueException(String.format("Unable to find account %s in domain %s", accountName, domain));
-            }
-            checkAccess(caller, domain);
-
-            return owner;
-        } else if (!isAdmin(caller.getId()) && accountName != null && domainId != null) {
-            if (!accountName.equals(caller.getAccountName()) || domainId != caller.getDomainId()) {
-                throw new PermissionDeniedException("Can't create/list resources for account " + accountName + " in domain " + domainId + ", permission denied");
-            } else {
-                return caller;
-            }
-        } else {
-            if (accountName != null && domainId == null) {
-                throw new InvalidParameterValueException("AccountName and domainId must be specified together");
-            }
-            // regular user can't create/list resources for other people
-            return caller;
-        }
+        return accountOwnerResolverService.finalizeOwner(caller, accountName, domainId, projectId);
     }
 
     @Override
@@ -3554,89 +3506,16 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public Long finalizeAccountId(final String accountName, final Long domainId, final Long projectId, final boolean enabledOnly) {
-        if (accountName != null) {
-            if (domainId == null) {
-                throw new InvalidParameterValueException("Account must be specified with domainId parameter");
-            }
-
-            final Domain domain = _domainMgr.getDomain(domainId);
-            if (domain == null) {
-                throw new InvalidParameterValueException("Unable to find domain by id");
-            }
-
-            final Account account = getActiveAccountByName(accountName, domainId);
-            if (account != null && account.getType() != Account.Type.PROJECT) {
-                if (!enabledOnly || account.getState() == Account.State.ENABLED) {
-                    return account.getId();
-                } else {
-                    throw new PermissionDeniedException(String.format("Can't add resources to the account %s in state=%s as it's no longer active", account, account.getState()));
-                }
-            } else {
-                // idList is not used anywhere, so removed it now
-                // List<IdentityProxy> idList = new ArrayList<IdentityProxy>();
-                // idList.add(new IdentityProxy("domain", domainId, "domainId"));
-                throw new InvalidParameterValueException("Unable to find account by name " + accountName + " in domain with specified id");
-            }
-        }
-
-        if (projectId != null) {
-            final Project project = _projectMgr.getProject(projectId);
-            if (project != null) {
-                if (!enabledOnly || project.getState() == Project.State.Active) {
-                    return project.getProjectAccountId();
-                } else {
-                    final PermissionDeniedException ex = new PermissionDeniedException(
-                            "Can't add resources to the project with specified projectId in state=" + project.getState() + " as it's no longer active");
-                    ex.addProxyObject(project.getUuid(), "projectId");
-                    throw ex;
-                }
-            } else {
-                throw new InvalidParameterValueException("Unable to find project by id");
-            }
-        }
-        return null;
+        return accountOwnerResolverService.finalizeAccountId(accountName, domainId, projectId, enabledOnly);
     }
 
     @Override
     public Long finalizeAccountId(Long accountId, String accountName, Long domainId, Long projectId) {
-        if (projectId != null) {
-            if (ObjectUtils.anyNotNull(accountId, accountName)) {
-                throw new ServerApiException(ApiErrorCode.PARAM_ERROR, "Project and account can not be specified together.");
-            }
-            return getActiveProjectAccountByProjectId(projectId);
-        }
-        if (accountId != null) {
-            if (getActiveAccountById(accountId) != null) {
-                return accountId;
-            }
-            throw new InvalidParameterValueException(String.format("Unable to find account with ID [%s].", accountId));
-        }
-
-        if (accountName == null && domainId == null) {
-            throw new ServerApiException(ApiErrorCode.PARAM_ERROR, String.format("Either %s or %s must be informed.", ApiConstants.ACCOUNT_ID, ApiConstants.PROJECT_ID));
-        }
-
-        try {
-            Account activeAccount = getActiveAccountByName(accountName, domainId);
-            if (activeAccount != null) {
-                return activeAccount.getId();
-            }
-        } catch (InvalidParameterValueException exception) {
-            throw new ServerApiException(ApiErrorCode.PARAM_ERROR, String.format("Both %s and %s are needed if using either. Consider using %s instead.",
-                    ApiConstants.ACCOUNT, ApiConstants.DOMAIN_ID, ApiConstants.ACCOUNT_ID));
-        }
-        throw new InvalidParameterValueException(String.format("Unable to find account by name [%s] on domain [%s].", accountName, domainId));
+        return accountOwnerResolverService.finalizeAccountId(accountId, accountName, domainId, projectId);
     }
 
     protected long getActiveProjectAccountByProjectId(long projectId) {
-        Project project = _projectMgr.getProject(projectId);
-        if (project == null) {
-            throw new ServerApiException(ApiErrorCode.PARAM_ERROR, String.format("Unable to find project with ID [%s].", projectId));
-        }
-        if (project.getState() != Project.State.Active) {
-            throw new ServerApiException(ApiErrorCode.PARAM_ERROR, String.format("Project with ID [%s] is not active.", projectId));
-        }
-        return project.getProjectAccountId();
+        return accountOwnerResolverService.getActiveProjectAccountByProjectId(projectId);
     }
 
     @Override
