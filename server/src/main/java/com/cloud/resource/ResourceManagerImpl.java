@@ -93,7 +93,6 @@ import com.cloud.agent.api.MaintainCommand;
 import com.cloud.agent.api.PropagateResourceEventCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
-import com.cloud.agent.api.UpdateHostPasswordCommand;
 import com.cloud.agent.api.VgpuTypesInfo;
 import com.cloud.agent.api.to.GPUDeviceTO;
 import com.cloud.agent.transport.Request;
@@ -207,8 +206,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.utils.ssh.SSHCmdHelper;
-import com.cloud.utils.ssh.SshException;
 import com.cloud.vm.UserVmManager;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
@@ -292,6 +289,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private HostQueryService hostQueryService;
     @Inject
     private HostLookupService hostLookupService;
+    @Inject
+    private HostAgentSshService hostAgentSshService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -3818,39 +3817,20 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     /**
-     * Get host credentials
+     * Get host credentials. Delegates to {@link HostAgentSshService}.
      * @throws CloudRuntimeException if username or password are not found
      */
     protected Ternary<String, String, String> getHostCredentials(HostVO host) {
-        _hostDao.loadDetails(host);
-        final String password = host.getDetail("password");
-        final String username = host.getDetail("username");
-        final String privateKey = _configDao.getValue("ssh.privatekey");
-        if ((password == null && privateKey == null) || username == null) {
-            throw new CloudRuntimeException("SSH to agent is enabled, but username and password or private key are not found");
-        }
-        return new Ternary<>(username, password, privateKey);
+        return hostAgentSshService.getHostCredentials(host);
     }
 
     /**
-     * True if agent is restarted via SSH. Assumes kvm.ssh.to.agent = true and host status is not Up
+     * Restart cloudstack-agent on the host via SSH. Assumes
+     * kvm.ssh.to.agent = true and host status is not Up. Delegates to
+     * {@link HostAgentSshService}.
      */
     protected void connectAndRestartAgentOnHost(HostVO host, String username, String password, String privateKey) {
-        final com.trilead.ssh2.Connection connection = SSHCmdHelper.acquireAuthorizedConnection(
-                host.getPrivateIpAddress(), _agentMgr.getHostSshPort(host), username, password, privateKey);
-        if (connection == null) {
-            throw new CloudRuntimeException(String.format("SSH to agent is enabled, but failed to connect to %s via IP address [%s].", host, host.getPrivateIpAddress()));
-        }
-        try {
-            SSHCmdHelper.SSHCmdResult result = SSHCmdHelper.sshExecuteCmdOneShot(
-                    connection, "service cloudstack-agent restart");
-            if (result.getReturnCode() != 0) {
-                throw new CloudRuntimeException(String.format("Could not restart agent on %s due to: %s", host, result.getStdErr()));
-            }
-            logger.debug("cloudstack-agent restart result: {}", result);
-        } catch (final SshException e) {
-            throw new CloudRuntimeException("SSH to agent is enabled, but agent restart failed", e);
-        }
+        hostAgentSshService.connectAndRestartAgentOnHost(host, username, password, privateKey);
     }
 
     public boolean cancelMaintenance(final long hostId) {
@@ -3920,24 +3900,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     private boolean doUpdateHostPassword(final long hostId) {
-        if (!_agentMgr.isAgentAttached(hostId)) {
-            return false;
-        }
-
-        DetailVO nv = _hostDetailsDao.findDetail(hostId, ApiConstants.USERNAME);
-        final String username = nv.getValue();
-        nv = _hostDetailsDao.findDetail(hostId, ApiConstants.PASSWORD);
-        final String password = nv.getValue();
-
-
-        final HostVO host = _hostDao.findById(hostId);
-        final String hostIpAddress = host.getPrivateIpAddress();
-
-        final UpdateHostPasswordCommand cmd = new UpdateHostPasswordCommand(username, password, hostIpAddress);
-        final Answer answer = _agentMgr.easySend(hostId, cmd);
-
-        logger.info("Result returned from update host password ==> " + answer.getDetails());
-        return answer.getResult();
+        return hostAgentSshService.doUpdateHostPassword(hostId);
     }
 
     @Override
