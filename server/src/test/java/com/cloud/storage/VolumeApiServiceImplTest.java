@@ -493,6 +493,25 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(attachValidator, "storagePoolDao", primaryDataStoreDaoMock);
         ReflectionTestUtils.setField(attachValidator, "volumeDao", volumeDaoMock);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachValidator", attachValidator);
+
+        // Phase 4 (parallel slice, 3rd): wire VolumeResizeValidatorImpl with the
+        // same DAO mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (isNotPossibleToResize, validateVolumeReadyStateAndHypervisorChecks,
+        // validateVolumeResizeWithNewDiskOfferingAndLoad) forward to this
+        // service. Inline call-sites in resizeVolume/changeDiskOfferingForVolumeInternal
+        // for validateIops / checkIfVolumeIsRootAndVmIsRunning also use the same
+        // service, so existing spy-based tests keep exercising the same code paths.
+        VolumeResizeValidatorImpl resizeValidator = new VolumeResizeValidatorImpl();
+        ReflectionTestUtils.setField(resizeValidator, "templateDao", templateDao);
+        ReflectionTestUtils.setField(resizeValidator, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "serviceOfferingDao", serviceOfferingDao);
+        ReflectionTestUtils.setField(resizeValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(resizeValidator, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(resizeValidator, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(resizeValidator, "configurationManager", _configMgr);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeResizeValidator", resizeValidator);
     }
 
     /**
