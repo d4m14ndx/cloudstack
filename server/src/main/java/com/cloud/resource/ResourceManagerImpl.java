@@ -86,8 +86,6 @@ import org.springframework.stereotype.Component;
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
-import com.cloud.agent.api.GetHostStatsAnswer;
-import com.cloud.agent.api.GetHostStatsCommand;
 import com.cloud.agent.api.GetVncPortAnswer;
 import com.cloud.agent.api.GetVncPortCommand;
 import com.cloud.agent.api.MaintainAnswer;
@@ -95,7 +93,6 @@ import com.cloud.agent.api.MaintainCommand;
 import com.cloud.agent.api.PropagateResourceEventCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.StartupRoutingCommand;
-import com.cloud.agent.api.UnsupportedAnswer;
 import com.cloud.agent.api.UpdateHostPasswordCommand;
 import com.cloud.agent.api.VgpuTypesInfo;
 import com.cloud.agent.api.to.GPUDeviceTO;
@@ -153,7 +150,6 @@ import com.cloud.host.DetailVO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
 import com.cloud.host.HostStats;
-import com.cloud.host.HostTagVO;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.host.Status.Event;
@@ -199,7 +195,6 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.GenericSearchBuilder;
 import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.JoinBuilder;
-import com.cloud.utils.db.QueryBuilder;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.SearchCriteria.Func;
@@ -295,6 +290,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private HostGpuService hostGpuService;
     @Inject
     private HostQueryService hostQueryService;
+    @Inject
+    private HostLookupService hostLookupService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -4062,59 +4059,22 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> listAllUpAndEnabledHosts(final Type type, final Long clusterId, final Long podId, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        if (type != null) {
-            sc.and(sc.entity().getType(), Op.EQ, type);
-        }
-        if (clusterId != null) {
-            sc.and(sc.entity().getClusterId(), Op.EQ, clusterId);
-        }
-        if (podId != null) {
-            sc.and(sc.entity().getPodId(), Op.EQ, podId);
-        }
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        sc.and(sc.entity().getResourceState(), Op.EQ, ResourceState.Enabled);
-        return sc.list();
+        return hostLookupService.listAllUpAndEnabledHosts(type, clusterId, podId, dcId);
     }
 
     @Override
     public List<HostVO> listAllHosts(final Type type, final Long clusterId, final Long podId, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        if (type != null) {
-            sc.and(sc.entity().getType(), Op.EQ, type);
-        }
-        if (clusterId != null) {
-            sc.and(sc.entity().getClusterId(), Op.EQ, clusterId);
-        }
-        if (podId != null) {
-            sc.and(sc.entity().getPodId(), Op.EQ, podId);
-        }
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        return sc.list();
+        return hostLookupService.listAllHosts(type, clusterId, podId, dcId);
     }
 
     @Override
     public List<HostVO> listAllUpHosts(Type type, Long clusterId, Long podId, long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        if (type != null) {
-            sc.and(sc.entity().getType(), Op.EQ, type);
-        }
-        if (clusterId != null) {
-            sc.and(sc.entity().getClusterId(), Op.EQ, clusterId);
-        }
-        if (podId != null) {
-            sc.and(sc.entity().getPodId(), Op.EQ, podId);
-        }
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        return sc.list();
+        return hostLookupService.listAllUpHosts(type, clusterId, podId, dcId);
     }
 
     @Override
     public List<HostVO> listAllUpAndEnabledNonHAHosts(final Type type, final Long clusterId, final Long podId, final long dcId) {
-        final String haTag = _haMgr.getHaTag();
-        return _hostDao.listAllUpAndEnabledNonHAHosts(type, clusterId, podId, dcId, haTag);
+        return hostLookupService.listAllUpAndEnabledNonHAHosts(type, clusterId, podId, dcId);
     }
 
     @Override
@@ -4134,28 +4094,12 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> listAllUpAndEnabledHostsInOneZoneByType(final Type type, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getType(), Op.EQ, type);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        sc.and(sc.entity().getResourceState(), Op.EQ, ResourceState.Enabled);
-        return sc.list();
+        return hostLookupService.listAllUpAndEnabledHostsInOneZoneByType(type, dcId);
     }
 
     @Override
     public List<HostVO> listAllNotInMaintenanceHostsInOneZone(final Type type, final Long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        if (dcId != null) {
-            sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        }
-        sc.and(sc.entity().getType(), Op.EQ, type);
-        sc.and(sc.entity().getResourceState(), Op.NIN,
-                ResourceState.Maintenance,
-                ResourceState.ErrorInMaintenance,
-                ResourceState.ErrorInPrepareForMaintenance,
-                ResourceState.PrepareForMaintenance,
-                ResourceState.Error);
-        return sc.list();
+        return hostLookupService.listAllNotInMaintenanceHostsInOneZone(type, dcId);
     }
 
     @Override
@@ -4199,45 +4143,17 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public HostStats getHostStatistics(final Host host) {
-        final Answer answer = _agentMgr.easySend(host.getId(), new GetHostStatsCommand(host.getGuid(), host.getName(), host.getId()));
-
-        if (answer instanceof UnsupportedAnswer) {
-            return null;
-        }
-
-        if (answer == null || !answer.getResult()) {
-            logger.warn("Unable to obtain {} statistics.", host);
-            return null;
-        } else {
-
-            // now construct the result object
-            if (answer instanceof GetHostStatsAnswer) {
-                return ((GetHostStatsAnswer)answer).getHostStats();
-            }
-        }
-        return null;
+        return hostLookupService.getHostStatistics(host);
     }
 
     @Override
     public Long getGuestOSCategoryId(final long hostId) {
-        final HostVO host = _hostDao.findById(hostId);
-        if (host == null) {
-            return null;
-        } else {
-            _hostDao.loadDetails(host);
-            final DetailVO detail = _hostDetailsDao.findDetail(hostId, "guest.os.category.id");
-            if (detail == null) {
-                return null;
-            } else {
-                return Long.parseLong(detail.getValue());
-            }
-        }
+        return hostLookupService.getGuestOSCategoryId(hostId);
     }
 
     @Override
     public String getHostTags(final long hostId) {
-        final List<String> hostTags = _hostTagsDao.getHostTags(hostId).parallelStream().map(HostTagVO::getTag).collect(Collectors.toList());
-        return StringUtils.listToCsvTags(hostTags);
+        return hostLookupService.getHostTags(hostId);
     }
 
     @Override
@@ -4259,32 +4175,17 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> listAllUpAndEnabledHostsInOneZoneByHypervisor(final HypervisorType type, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getHypervisorType(), Op.EQ, type);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        sc.and(sc.entity().getResourceState(), Op.EQ, ResourceState.Enabled);
-        return sc.list();
+        return hostLookupService.listAllUpAndEnabledHostsInOneZoneByHypervisor(type, dcId);
     }
 
     @Override
     public List<HostVO> listAllUpHostsInOneZoneByHypervisor(final HypervisorType type, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getHypervisorType(), Op.EQ, type);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        return sc.list();
+        return hostLookupService.listAllUpHostsInOneZoneByHypervisor(type, dcId);
     }
 
     @Override
     public List<HostVO> listAllUpAndEnabledHostsInOneZone(final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        sc.and(sc.entity().getResourceState(), Op.EQ, ResourceState.Enabled);
-
-        return sc.list();
+        return hostLookupService.listAllUpAndEnabledHostsInOneZone(dcId);
     }
 
     @Override
@@ -4299,22 +4200,12 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> listAllHostsInOneZoneNotInClusterByHypervisor(final HypervisorType type, final long dcId, final long clusterId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getHypervisorType(), Op.EQ, type);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getClusterId(), Op.NEQ, clusterId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        return sc.list();
+        return hostLookupService.listAllHostsInOneZoneNotInClusterByHypervisor(type, dcId, clusterId);
     }
 
     @Override
     public List<HostVO> listAllHostsInOneZoneNotInClusterByHypervisors(List<HypervisorType> types, final long dcId, final long clusterId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getHypervisorType(), Op.IN, types);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getClusterId(), Op.NEQ, clusterId);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        return sc.list();
+        return hostLookupService.listAllHostsInOneZoneNotInClusterByHypervisors(types, dcId, clusterId);
     }
 
     @Override
