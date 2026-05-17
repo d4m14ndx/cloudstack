@@ -400,6 +400,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @Inject
     protected DiskThrottlingService diskThrottlingService;
     @Inject
+    protected PrimaryStorageMaintenanceService primaryStorageMaintenanceService;
+    @Inject
     protected ObjectStoreDao _objectStoreDao;
 
     @Inject
@@ -2457,69 +2459,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @ActionEvent(eventType = EventTypes.EVENT_MAINTENANCE_PREPARE_PRIMARY_STORAGE,
             eventDescription = "preparing storage pool for maintenance", async = true)
     public PrimaryDataStoreInfo preparePrimaryStorageForMaintenance(Long primaryStorageId) throws ResourceUnavailableException, InsufficientCapacityException {
-        StoragePoolVO primaryStorage = null;
-        primaryStorage = _storagePoolDao.findById(primaryStorageId);
-
-        if (primaryStorage == null) {
-            String msg = "Unable to obtain lock on the storage pool record in preparePrimaryStorageForMaintenance()";
-            logger.error(msg);
-            throw new InvalidParameterValueException(msg);
-        }
-
-        if (!primaryStorage.getStatus().equals(StoragePoolStatus.Up) && !primaryStorage.getStatus().equals(StoragePoolStatus.ErrorInMaintenance)) {
-            throw new InvalidParameterValueException(String.format("Primary storage %s is not ready for migration, as the status is:%s", primaryStorage, primaryStorage.getStatus().toString()));
-        }
-
-        DataStoreProvider provider = _dataStoreProviderMgr.getDataStoreProvider(primaryStorage.getStorageProviderName());
-        DataStoreLifeCycle lifeCycle = provider.getDataStoreLifeCycle();
-        DataStore store = _dataStoreMgr.getDataStore(primaryStorage.getId(), DataStoreRole.Primary);
-
-        if (primaryStorage.getPoolType() == StoragePoolType.DatastoreCluster) {
-            if (primaryStorage.getStatus() == StoragePoolStatus.PrepareForMaintenance) {
-                throw new CloudRuntimeException(String.format("There is already a job running for preparation for maintenance of the storage pool %s", primaryStorage));
-            }
-            handlePrepareDatastoreClusterMaintenance(lifeCycle, primaryStorageId);
-        }
-        lifeCycle.maintain(store);
-
-        return (PrimaryDataStoreInfo)_dataStoreMgr.getDataStore(primaryStorage.getId(), DataStoreRole.Primary);
-    }
-
-    private void handlePrepareDatastoreClusterMaintenance(DataStoreLifeCycle lifeCycle, Long primaryStorageId) {
-        StoragePoolVO datastoreCluster = _storagePoolDao.findById(primaryStorageId);
-        datastoreCluster.setStatus(StoragePoolStatus.PrepareForMaintenance);
-        _storagePoolDao.update(datastoreCluster.getId(), datastoreCluster);
-
-        // Before preparing the datastorecluster to maintenance mode, the storagepools in the datastore cluster needs to put in maintenance
-        List<StoragePoolVO> childDatastores = _storagePoolDao.listChildStoragePoolsInDatastoreCluster(primaryStorageId);
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                for (StoragePoolVO childDatastore : childDatastores) {
-                    // set the pool state to prepare for maintenance, so that VMs will not migrate to the storagepools in the same cluster
-                    childDatastore.setStatus(StoragePoolStatus.PrepareForMaintenance);
-                    _storagePoolDao.update(childDatastore.getId(), childDatastore);
-                }
-            }
-        });
-        for (Iterator<StoragePoolVO> iteratorChildDatastore = childDatastores.listIterator(); iteratorChildDatastore.hasNext(); ) {
-            DataStore childStore = _dataStoreMgr.getDataStore(iteratorChildDatastore.next().getId(), DataStoreRole.Primary);
-            try {
-                lifeCycle.maintain(childStore);
-            } catch (Exception e) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Exception on maintenance preparation of one of the child datastores in datastore cluster {} with error {}", datastoreCluster, e);
-                }
-                // Set to ErrorInMaintenance state of all child storage pools and datastore cluster
-                for (StoragePoolVO childDatastore : childDatastores) {
-                    childDatastore.setStatus(StoragePoolStatus.ErrorInMaintenance);
-                    _storagePoolDao.update(childDatastore.getId(), childDatastore);
-                }
-                datastoreCluster.setStatus(StoragePoolStatus.ErrorInMaintenance);
-                _storagePoolDao.update(datastoreCluster.getId(), datastoreCluster);
-                throw new CloudRuntimeException(String.format("Failed to prepare maintenance mode for datastore cluster %s with error %s %s", datastoreCluster, e.getMessage(), e));
-            }
-        }
+        return primaryStorageMaintenanceService.preparePrimaryStorageForMaintenance(primaryStorageId);
     }
 
     @Override
@@ -2527,38 +2467,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @ActionEvent(eventType = EventTypes.EVENT_MAINTENANCE_CANCEL_PRIMARY_STORAGE,
             eventDescription = "canceling maintenance for primary storage pool", async = true)
     public PrimaryDataStoreInfo cancelPrimaryStorageForMaintenance(CancelPrimaryStorageMaintenanceCmd cmd) throws ResourceUnavailableException {
-        Long primaryStorageId = cmd.getId();
-        StoragePoolVO primaryStorage = null;
-
-        primaryStorage = _storagePoolDao.findById(primaryStorageId);
-
-        if (primaryStorage == null) {
-            String msg = "Unable to obtain lock on the storage pool in cancelPrimaryStorageForMaintenance()";
-            logger.error(msg);
-            throw new InvalidParameterValueException(msg);
-        }
-
-        if (primaryStorage.getStatus().equals(StoragePoolStatus.Up) || primaryStorage.getStatus().equals(StoragePoolStatus.PrepareForMaintenance)) {
-            throw new StorageUnavailableException("Primary storage " + primaryStorage + " is not ready to complete migration, as the status is:" + primaryStorage.getStatus().toString(),
-                    primaryStorageId);
-        }
-
-        DataStoreProvider provider = _dataStoreProviderMgr.getDataStoreProvider(primaryStorage.getStorageProviderName());
-        DataStoreLifeCycle lifeCycle = provider.getDataStoreLifeCycle();
-        DataStore store = _dataStoreMgr.getDataStore(primaryStorage.getId(), DataStoreRole.Primary);
-        if (primaryStorage.getPoolType() == StoragePoolType.DatastoreCluster) {
-            primaryStorage.setStatus(StoragePoolStatus.Up);
-            _storagePoolDao.update(primaryStorage.getId(), primaryStorage);
-            //FR41 need to handle when one of the primary stores is unable to cancel the maintenance mode
-            List<StoragePoolVO> childDatastores = _storagePoolDao.listChildStoragePoolsInDatastoreCluster(primaryStorageId);
-            for (StoragePoolVO childDatastore : childDatastores) {
-                DataStore childStore = _dataStoreMgr.getDataStore(childDatastore.getId(), DataStoreRole.Primary);
-                lifeCycle.cancelMaintain(childStore);
-            }
-        }
-        lifeCycle.cancelMaintain(store);
-
-        return (PrimaryDataStoreInfo)_dataStoreMgr.getDataStore(primaryStorage.getId(), DataStoreRole.Primary);
+        return primaryStorageMaintenanceService.cancelPrimaryStorageForMaintenance(cmd);
     }
 
     @Override
