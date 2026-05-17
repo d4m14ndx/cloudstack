@@ -119,12 +119,6 @@ import com.cloud.agent.api.CheckVirtualMachineCommand;
 import com.cloud.agent.api.ClusterVMMetaDataSyncAnswer;
 import com.cloud.agent.api.ClusterVMMetaDataSyncCommand;
 import com.cloud.agent.api.Command;
-import com.cloud.agent.api.GetVmDiskStatsAnswer;
-import com.cloud.agent.api.GetVmDiskStatsCommand;
-import com.cloud.agent.api.GetVmNetworkStatsAnswer;
-import com.cloud.agent.api.GetVmNetworkStatsCommand;
-import com.cloud.agent.api.GetVmStatsAnswer;
-import com.cloud.agent.api.GetVmStatsCommand;
 import com.cloud.agent.api.MigrateCommand;
 import com.cloud.agent.api.MigrateVmToPoolAnswer;
 import com.cloud.agent.api.PingRoutingCommand;
@@ -154,9 +148,6 @@ import com.cloud.agent.api.UnmanageInstanceCommand;
 import com.cloud.agent.api.UnregisterVMCommand;
 import com.cloud.agent.api.UpdateVmNicAnswer;
 import com.cloud.agent.api.UpdateVmNicCommand;
-import com.cloud.agent.api.VmDiskStatsEntry;
-import com.cloud.agent.api.VmNetworkStatsEntry;
-import com.cloud.agent.api.VmStatsEntry;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.DiskTO;
@@ -464,6 +455,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     private VmServiceOfferingUpgradeManager vmServiceOfferingUpgradeManager;
     @Inject
     private VmIscsiTargetManager vmIscsiTargetManager;
+    @Inject
+    private VmStatsCollector vmStatsCollector;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -6455,84 +6448,22 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public HashMap<Long, ? extends VmStats> getVirtualMachineStatistics(Host host, List<Long> vmIds) {
-        HashMap<Long, VmStatsEntry> vmStatsById = new HashMap<>();
-        if (CollectionUtils.isEmpty(vmIds)) {
-            return vmStatsById;
-        }
-        Map<String, Long> vmMap = _vmDao.getNameIdMapForVmIds(vmIds);
-        return getVirtualMachineStatistics(host, vmMap);
+        return vmStatsCollector.getVirtualMachineStatistics(host, vmIds);
     }
 
     @Override
     public HashMap<Long, ? extends VmStats> getVirtualMachineStatistics(Host host, Map<String, Long> vmInstanceNameIdMap) {
-        HashMap<Long, VmStatsEntry> vmStatsById = new HashMap<>();
-        if (MapUtils.isEmpty(vmInstanceNameIdMap)) {
-            return vmStatsById;
-        }
-        Answer answer = _agentMgr.easySend(host.getId(), new GetVmStatsCommand(
-                new ArrayList<>(vmInstanceNameIdMap.keySet()), host.getGuid(), host.getName()));
-        if (answer == null || !answer.getResult()) {
-            logger.warn("Unable to obtain VM statistics.");
-            return vmStatsById;
-        } else {
-            HashMap<String, VmStatsEntry> vmStatsByName = ((GetVmStatsAnswer)answer).getVmStatsMap();
-            if (vmStatsByName == null) {
-                logger.warn("Unable to obtain VM statistics.");
-                return vmStatsById;
-            }
-            for (Map.Entry<String, VmStatsEntry> entry : vmStatsByName.entrySet()) {
-                vmStatsById.put(vmInstanceNameIdMap.get(entry.getKey()), entry.getValue());
-            }
-        }
-        return vmStatsById;
+        return vmStatsCollector.getVirtualMachineStatistics(host, vmInstanceNameIdMap);
     }
 
     @Override
     public HashMap<Long, List<? extends VmDiskStats>> getVmDiskStatistics(Host host, Map<String, Long> vmInstanceNameIdMap) {
-        HashMap<Long, List<? extends  VmDiskStats>> vmDiskStatsById = new HashMap<>();
-        if (MapUtils.isEmpty(vmInstanceNameIdMap)) {
-            return vmDiskStatsById;
-        }
-        Answer answer = _agentMgr.easySend(host.getId(), new GetVmDiskStatsCommand(
-                new ArrayList<>(vmInstanceNameIdMap.keySet()), host.getGuid(), host.getName()));
-        if (answer == null || !answer.getResult()) {
-            logger.warn("Unable to obtain VM disk statistics.");
-            return vmDiskStatsById;
-        } else {
-            HashMap<String, List<VmDiskStatsEntry>> vmDiskStatsByName = ((GetVmDiskStatsAnswer)answer).getVmDiskStatsMap();
-            if (vmDiskStatsByName == null) {
-                logger.warn("Unable to obtain VM disk statistics.");
-                return vmDiskStatsById;
-            }
-            for (Map.Entry<String, List<VmDiskStatsEntry>> entry: vmDiskStatsByName.entrySet()) {
-                vmDiskStatsById.put(vmInstanceNameIdMap.get(entry.getKey()), entry.getValue());
-            }
-        }
-        return vmDiskStatsById;
+        return vmStatsCollector.getVmDiskStatistics(host, vmInstanceNameIdMap);
     }
 
     @Override
     public HashMap<Long, List<? extends VmNetworkStats>> getVmNetworkStatistics(Host host, Map<String, Long> vmInstanceNameIdMap) {
-        HashMap<Long, List<? extends VmNetworkStats>> vmNetworkStatsById = new HashMap<>();
-        if (MapUtils.isEmpty(vmInstanceNameIdMap)) {
-            return vmNetworkStatsById;
-        }
-        Answer answer = _agentMgr.easySend(host.getId(), new GetVmNetworkStatsCommand(
-                new ArrayList<>(vmInstanceNameIdMap.keySet()), host.getGuid(), host.getName()));
-        if (answer == null || !answer.getResult()) {
-            logger.warn("Unable to obtain VM network statistics.");
-            return vmNetworkStatsById;
-        } else {
-            HashMap<String, List<VmNetworkStatsEntry>> vmNetworkStatsByName = ((GetVmNetworkStatsAnswer)answer).getVmNetworkStatsMap();
-            if (vmNetworkStatsByName == null) {
-                logger.warn("Unable to obtain VM network statistics.");
-                return vmNetworkStatsById;
-            }
-            for (Map.Entry<String, List<VmNetworkStatsEntry>> entry: vmNetworkStatsByName.entrySet()) {
-                vmNetworkStatsById.put(vmInstanceNameIdMap.get(entry.getKey()), entry.getValue());
-            }
-        }
-        return vmNetworkStatsById;
+        return vmStatsCollector.getVmNetworkStatistics(host, vmInstanceNameIdMap);
     }
 
     protected boolean isDiskOfferingSuitableForVm(VMInstanceVO vm, VirtualMachineProfile profile, long podId, long clusterId, long hostId, long diskOfferingId) {
