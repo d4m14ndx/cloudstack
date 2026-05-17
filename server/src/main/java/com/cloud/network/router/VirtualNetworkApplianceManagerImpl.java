@@ -21,7 +21,6 @@ import com.cloud.api.ApiDBUtils;
 import static com.cloud.utils.NumbersUtil.toHumanReadableSize;
 import static com.cloud.vm.VirtualMachineManager.SystemVmEnableUserData;
 
-import java.lang.reflect.Type;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -46,9 +45,6 @@ import java.util.regex.Pattern;
 
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-
-import com.google.gson.JsonSyntaxException;
-import com.google.gson.reflect.TypeToken;
 
 import org.apache.cloudstack.acl.ApiKeyPairVO;
 import org.apache.cloudstack.alert.AlertService;
@@ -151,7 +147,6 @@ import com.cloud.network.NetworkService;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PublicIpAddress;
 import com.cloud.network.RemoteAccessVpn;
-import com.cloud.network.RouterHealthCheckResult;
 import com.cloud.network.Site2SiteCustomerGateway;
 import com.cloud.network.Site2SiteVpnConnection;
 import com.cloud.network.SshKeysDistriMonitor;
@@ -173,8 +168,6 @@ import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.RemoteAccessVpnDao;
-import com.cloud.network.dao.RouterHealthCheckResultDao;
-import com.cloud.network.dao.RouterHealthCheckResultVO;
 import com.cloud.network.dao.Site2SiteCustomerGatewayDao;
 import com.cloud.network.dao.Site2SiteVpnConnectionDao;
 import com.cloud.network.dao.Site2SiteVpnConnectionVO;
@@ -207,7 +200,6 @@ import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
-import com.cloud.serializer.GsonHelper;
 import com.cloud.server.ManagementServer;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
@@ -319,7 +311,6 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Inject DomainRouterJoinDao domainRouterJoinDao;
     @Inject PortForwardingRulesDao portForwardingDao;
     @Inject ApplicationLoadBalancerRuleDao applicationLoadBalancerRuleDao;
-    @Inject RouterHealthCheckResultDao routerHealthCheckResultDao;
     @Inject LBStickinessPolicyDao lbStickinessPolicyDao;
     @Inject NetworkServiceMapDao _ntwkSrvcDao;
 
@@ -337,6 +328,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
     @Inject ManagementServer mgr;
     @Inject protected RouterUpgradeService routerUpgradeService;
     @Inject protected RouterAlertsService routerAlertsService;
+    @Inject protected RouterHealthCheckResultsService routerHealthCheckResultsService;
     @Inject
     RoutedIpv4Manager routedIpv4Manager;
     @Inject
@@ -1203,151 +1195,12 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
         logger.warn("Unable to find a valid guest network or VPC to restart for recreating router {}", router);
     }
 
-    private Map<String, Map<String, RouterHealthCheckResultVO>> getHealthChecksFromDb(long routerId) {
-        List<RouterHealthCheckResultVO> healthChecksList = routerHealthCheckResultDao.getHealthCheckResults(routerId);
-        Map<String, Map<String, RouterHealthCheckResultVO>> healthCheckResults = new HashMap<>();
-        if (healthChecksList.isEmpty()) {
-            return healthCheckResults;
-        }
-
-        for (RouterHealthCheckResultVO healthCheck : healthChecksList) {
-            if (!healthCheckResults.containsKey(healthCheck.getCheckType())) {
-                healthCheckResults.put(healthCheck.getCheckType(), new HashMap<>());
-            }
-            healthCheckResults.get(healthCheck.getCheckType()).put(healthCheck.getCheckName(), healthCheck);
-        }
-
-        return healthCheckResults;
-    }
-
     private void resetRouterHealthChecksAndConnectivity(final long routerId, VirtualNetworkApplianceService.RouterHealthStatus connected, VirtualNetworkApplianceService.RouterHealthStatus writable, String message) {
-        routerHealthCheckResultDao.expungeHealthChecks(routerId);
-        updateRouterHealthCheckResult(routerId, CONNECTIVITY_TEST, "basic", connected, connected.equals(RouterHealthStatus.SUCCESS) ? "Successfully connected to router" : message);
-        updateRouterHealthCheckResult(routerId, FILESYSTEM_WRITABLE_TEST, "basic", writable, writable.equals(RouterHealthStatus.SUCCESS) ? "Successfully written to file system" : message);
-    }
-
-    private void updateRouterHealthCheckResult(final long routerId, String checkName, String checkType, VirtualNetworkApplianceService.RouterHealthStatus checkResult, String checkMessage) {
-        boolean newHealthCheckEntry = false;
-        RouterHealthCheckResultVO connectivityVO = routerHealthCheckResultDao.getRouterHealthCheckResult(routerId, checkName, checkType);
-        if (connectivityVO == null) {
-            connectivityVO = new RouterHealthCheckResultVO(routerId, checkName, checkType);
-            newHealthCheckEntry = true;
-        }
-
-        connectivityVO.setCheckResult(checkResult);
-        connectivityVO.setLastUpdateTime(new Date());
-        if (StringUtils.isNotEmpty(checkMessage)) {
-            connectivityVO.setCheckDetails(checkMessage.getBytes(com.cloud.utils.StringUtils.getPreferredCharset()));
-        }
-
-        if (newHealthCheckEntry) {
-            routerHealthCheckResultDao.persist(connectivityVO);
-        } else {
-            routerHealthCheckResultDao.update(connectivityVO.getId(), connectivityVO);
-        }
-    }
-
-    private RouterHealthCheckResultVO parseHealthCheckVOFromJson(final long routerId,
-                                                                 final String checkName, final String checkType, final Map<String, String> checkData,
-                                                                 final Map<String, Map<String, RouterHealthCheckResultVO>> checksInDb) {
-        RouterHealthStatus success = getRouterHealthStatus(checkData.get("success"));
-        Date lastUpdate = new Date(Long.parseLong(checkData.get("lastUpdate")));
-        double lastRunDuration = Double.parseDouble(checkData.get("lastRunDuration"));
-        String message = checkData.get("message");
-        final RouterHealthCheckResultVO hcVo;
-        boolean newEntry = false;
-        if (checksInDb.containsKey(checkType) && checksInDb.get(checkType).containsKey(checkName)) {
-            hcVo = checksInDb.get(checkType).get(checkName);
-        } else {
-            hcVo = new RouterHealthCheckResultVO(routerId, checkName, checkType);
-            newEntry = true;
-        }
-
-        hcVo.setCheckResult(success);
-        hcVo.setLastUpdateTime(lastUpdate);
-        if (StringUtils.isNotEmpty(message)) {
-            hcVo.setCheckDetails(message.getBytes(com.cloud.utils.StringUtils.getPreferredCharset()));
-        }
-
-        if (newEntry) {
-            routerHealthCheckResultDao.persist(hcVo);
-        } else {
-            routerHealthCheckResultDao.update(hcVo.getId(), hcVo);
-        }
-        logger.info("Found health check " + hcVo + " which took running duration (ms) " + lastRunDuration);
-        return hcVo;
-    }
-
-    private static RouterHealthStatus getRouterHealthStatus(String status) {
-        RouterHealthStatus success;
-        try {
-            success = RouterHealthStatus.valueOf(status.trim());
-        } catch (IllegalArgumentException | NullPointerException e) {
-            success = RouterHealthStatus.UNKNOWN;
-        }
-        return success;
-    }
-
-    /**
-     *
-     * @param checksJson JSON expected is
-     *                   {
-     *                      checkType1: {
-     *                          checkName1: {
-     *                              success: true/false,
-     *                              lastUpdate: date string,
-     *                              lastRunDuration: ms spent on test,
-     *                              message: detailed message from check execution
-     *                          },
-     *                          checkType2: .....
-     *                      },
-     *                      checkType2: ......
-     *                   }
-     * @return converts the above JSON into list of RouterHealthCheckResult.
-     */
-    private List<RouterHealthCheckResult> parseHealthCheckResults(
-            final Map<String, Map<String, Map<String, String>>> checksJson, final DomainRouterVO router) {
-        final Map<String, Map<String, RouterHealthCheckResultVO>> checksInDb = getHealthChecksFromDb(router.getId());
-        List<RouterHealthCheckResult> healthChecks = new ArrayList<>();
-        final String lastRunKey = "lastRun";
-        for (String checkType : checksJson.keySet()) {
-            if (checksJson.get(checkType).containsKey(lastRunKey)) { // Log last run of this check type run info
-                Map<String, String> lastRun = checksJson.get(checkType).get(lastRunKey);
-                logger.info("Found check types executed on VR " + checkType + ", start: " + lastRun.get("start") +
-                        ", end: " + lastRun.get("end") + ", duration: " + lastRun.get("duration"));
-            }
-
-            for (String checkName : checksJson.get(checkType).keySet()) {
-                if (lastRunKey.equals(checkName)) {
-                    continue;
-                }
-
-                try {
-                    final RouterHealthCheckResultVO hcVo = parseHealthCheckVOFromJson(
-                            router.getId(), checkName, checkType, checksJson.get(checkType).get(checkName), checksInDb);
-                    healthChecks.add(hcVo);
-                } catch (Exception ex) {
-                    logger.error("Skipping health check: Exception while parsing check result data for router {}, check type: {}, check name: {}:{}", router, checkType, checkName, ex.getLocalizedMessage(), ex);
-                }
-            }
-        }
-        return healthChecks;
+        routerHealthCheckResultsService.resetRouterHealthChecksAndConnectivity(routerId, connected, writable, message);
     }
 
     private void updateDbHealthChecksFromRouterResponse(final DomainRouterVO router, final String monitoringResult) {
-        if (StringUtils.isBlank(monitoringResult)) {
-            logger.warn("Attempted parsing empty monitoring results string for router {}", router);
-            return;
-        }
-
-        try {
-            logger.debug("Parsing and updating DB health check data for router: {} with data: {}", router, monitoringResult);
-            final Type t = new TypeToken<Map<String, Map<String, Map<String, String>>>>() {}.getType();
-            final Map<String, Map<String, Map<String, String>>> checks = GsonHelper.getGson().fromJson(monitoringResult, t);
-            parseHealthCheckResults(checks, router);
-        } catch (JsonSyntaxException ex) {
-            logger.error("Unable to parse the result of health checks due to " + ex.getLocalizedMessage(), ex);
-        }
+        routerHealthCheckResultsService.updateDbHealthChecksFromRouterResponse(router, monitoringResult);
     }
 
     private GetRouterMonitorResultsAnswer fetchAndUpdateRouterHealthChecks(DomainRouterVO router, boolean performFreshChecks) {
