@@ -842,7 +842,6 @@ import com.cloud.utils.PasswordGenerator;
 import com.cloud.utils.Ternary;
 import com.cloud.utils.component.ComponentLifecycle;
 import com.cloud.utils.concurrency.NamedThreadFactory;
-import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.GlobalLock;
@@ -850,9 +849,6 @@ import com.cloud.utils.db.JoinBuilder;
 import com.cloud.utils.db.JoinBuilder.JoinType;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
-import com.cloud.utils.db.Transaction;
-import com.cloud.utils.db.TransactionCallbackNoReturn;
-import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.net.MacAddress;
@@ -988,6 +984,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected HypervisorCapabilitiesService hypervisorCapabilitiesService;
     @Inject
+    protected HostCredentialsService hostCredentialsService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -1082,8 +1080,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     protected List<DeploymentPlanner> _planners;
 
-    private final List<HypervisorType> supportedHypervisors = new ArrayList<>();
-
     public List<DeploymentPlanner> getPlanners() {
         return _planners;
     }
@@ -1158,9 +1154,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
         if (_alertPurgeDelay != 0) {
             _alertExecutor.scheduleAtFixedRate(new AlertPurgeTask(), alertPurgeInterval, alertPurgeInterval, TimeUnit.SECONDS);
         }
-
-        supportedHypervisors.add(HypervisorType.KVM);
-        supportedHypervisors.add(HypervisorType.XenServer);
 
         return true;
     }
@@ -5290,61 +5283,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public String getVMPassword(GetVMPasswordCmd cmd) {
-        Account caller = getCaller();
-        long vmId = cmd.getId();
-        UserVmVO vm = _userVmDao.findById(vmId);
-
-        if (vm == null) {
-            throw new InvalidParameterValueException(String.format("No instance found with id [%s].", vmId));
-        }
-
-        _accountMgr.checkAccess(caller, null, true, vm);
-
-        _userVmDao.loadDetails(vm);
-        String password = vm.getDetail("Encrypted.Password");
-
-        if (StringUtils.isEmpty(password)) {
-            throw new InvalidParameterValueException(String.format("No password found for Instance [%s]. When the Instance's SSH keypair is changed, the current encrypted password is "
-              + "removed due to inconsistency in the encryption, as the new SSH keypair is different from which the password was encrypted. To get a new password, it must be reseted.", vm));
-        }
-
-        return password;
-    }
-
-    private boolean updateHostsInCluster(final UpdateHostPasswordCmd command) {
-        // get all the hosts in this cluster
-        final List<Long> hostIds = _hostDao.listIdsByClusterId(command.getClusterId());
-
-        String userNameWithoutSpaces = StringUtils.deleteWhitespace(command.getUsername());
-        if (StringUtils.isBlank(userNameWithoutSpaces)) {
-            throw new InvalidParameterValueException("Username should be non empty string");
-        }
-
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(final TransactionStatus status) {
-                for (final Long hostId : hostIds) {
-                    logger.debug("Changing password for {}", () -> _hostDao.findById(hostId));
-                    // update password for this host
-                    final DetailVO nv = _detailsDao.findDetail(hostId, ApiConstants.USERNAME);
-                    if (nv == null) {
-                        final DetailVO nvu = new DetailVO(hostId, ApiConstants.USERNAME, userNameWithoutSpaces);
-                        _detailsDao.persist(nvu);
-                        final DetailVO nvp = new DetailVO(hostId, ApiConstants.PASSWORD, DBEncryptionUtil.encrypt(command.getPassword()));
-                        _detailsDao.persist(nvp);
-                    } else if (nv.getValue().equals(userNameWithoutSpaces)) {
-                        final DetailVO nvp = _detailsDao.findDetail(hostId, ApiConstants.PASSWORD);
-                        nvp.setValue(DBEncryptionUtil.encrypt(command.getPassword()));
-                        _detailsDao.persist(nvp);
-                    } else {
-                        // if one host in the cluster has diff username then
-                        // rollback to maintain consistency
-                        throw new InvalidParameterValueException("The username is not same for all hosts, please modify passwords for individual hosts.");
-                    }
-                }
-            }
-        });
-        return true;
+        return hostCredentialsService.getVMPassword(cmd);
     }
 
     /**
@@ -5353,64 +5292,13 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Override
     @DB
     public boolean updateClusterPassword(final UpdateHostPasswordCmd command) {
-        if (command.getClusterId() == null) {
-            throw new InvalidParameterValueException("You should provide a cluster id.");
-        }
-
-        final ClusterVO cluster = ApiDBUtils.findClusterById(command.getClusterId());
-        if (cluster == null || !supportedHypervisors.contains(cluster.getHypervisorType())) {
-            throw new InvalidParameterValueException("This operation is not supported for this hypervisor type");
-        }
-        return updateHostsInCluster(command);
+        return hostCredentialsService.updateClusterPassword(command);
     }
 
     @Override
     @DB
     public boolean updateHostPassword(final UpdateHostPasswordCmd cmd) {
-        if (cmd.getHostId() == null) {
-            throw new InvalidParameterValueException("You should provide an host id.");
-        }
-
-        final HostVO host = _hostDao.findById(cmd.getHostId());
-
-        if (host.getHypervisorType() == HypervisorType.XenServer) {
-            throw new InvalidParameterValueException("Single host update is not supported by XenServer hypervisors. Please try again informing the Cluster ID.");
-        }
-
-        if (!supportedHypervisors.contains(host.getHypervisorType())) {
-            throw new InvalidParameterValueException("This operation is not supported for this hypervisor type");
-        }
-
-        String userNameWithoutSpaces = StringUtils.deleteWhitespace(cmd.getUsername());
-        if (StringUtils.isBlank(userNameWithoutSpaces)) {
-            throw new InvalidParameterValueException("Username should be non empty string");
-        }
-
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(final TransactionStatus status) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Changing password for host {}", host);
-                }
-                // update password for this host
-                final DetailVO nv = _detailsDao.findDetail(host.getId(), ApiConstants.USERNAME);
-                if (nv == null) {
-                    final DetailVO nvu = new DetailVO(host.getId(), ApiConstants.USERNAME, userNameWithoutSpaces);
-                    _detailsDao.persist(nvu);
-                    final DetailVO nvp = new DetailVO(host.getId(), ApiConstants.PASSWORD, DBEncryptionUtil.encrypt(cmd.getPassword()));
-                    _detailsDao.persist(nvp);
-                } else if (nv.getValue().equals(userNameWithoutSpaces)) {
-                    final DetailVO nvp = _detailsDao.findDetail(host.getId(), ApiConstants.PASSWORD);
-                    nvp.setValue(DBEncryptionUtil.encrypt(cmd.getPassword()));
-                    _detailsDao.persist(nvp);
-                } else {
-                    // if one host in the cluster has diff username then
-                    // rollback to maintain consistency
-                    throw new InvalidParameterValueException("The username is not same for the hosts..");
-                }
-            }
-        });
-        return true;
+        return hostCredentialsService.updateHostPassword(cmd);
     }
 
     @Override
