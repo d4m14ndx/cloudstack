@@ -275,6 +275,15 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(spy, "configurationListingService",
                 configurationListingServiceImpl);
 
+        // Infrastructure usage slice: wire a mock InfrastructureUsageService so
+        // the listCapacities/listTopConsumedResources/getMemoryOrCpuCapacityByHost
+        // delegating wrappers on the god class have a non-null collaborator.
+        // Focused tests live in InfrastructureUsageServiceImplTest.
+        InfrastructureUsageService infrastructureUsageServiceMock =
+                Mockito.mock(InfrastructureUsageService.class);
+        ReflectionTestUtils.setField(spy, "infrastructureUsageService",
+                infrastructureUsageServiceMock);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
