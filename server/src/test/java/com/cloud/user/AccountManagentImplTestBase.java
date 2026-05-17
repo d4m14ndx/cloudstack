@@ -242,6 +242,27 @@ public class AccountManagentImplTestBase {
                 org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
         org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "accountDao", _accountDao);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyPermissionService", apiKeyPermissionService);
+        // Phase 4 slice (3rd): wire ApiKeyLifecycleServiceImpl so AccountManagerImpl's
+        // delegating wrappers (findUserByApiKey, getKeyPairById, getKeyPairByApiKey,
+        // getLatestUserKeyPair, the private createUserApiKey / createUserSecretKey /
+        // validateAndPersistKeyPairAndPermissions / internalDeleteApiKey /
+        // removeApiKeyPairIfExpired helpers) still exercise the same code paths the
+        // legacy createApiKeyAndSecretKey and deleteApiKey tests assert on. Share the
+        // apiKeyPairDao, apiKeyPairPermissionsDao and roleService mocks that the
+        // existing test subclasses already inject into accountManagerImpl, plus the
+        // apiKeyPermissionService we just constructed above.
+        ApiKeyLifecycleServiceImpl apiKeyLifecycleService = new ApiKeyLifecycleServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPairDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPairPermissionsDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairPermissionsDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPermissionService", apiKeyPermissionService);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyLifecycleService", apiKeyLifecycleService);
         CallContext.register(callingUser, callingAccount);
     }
 

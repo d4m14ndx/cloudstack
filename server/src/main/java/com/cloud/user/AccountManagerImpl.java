@@ -20,7 +20,6 @@ import static org.apache.cloudstack.resourcedetail.UserDetailVO.PasswordChangeRe
 
 import java.net.InetAddress;
 import java.net.URLEncoder;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -38,9 +37,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
-import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
@@ -51,13 +48,11 @@ import com.cloud.user.dao.UserAccountDao;
 import com.cloud.user.dao.UserDao;
 import org.apache.cloudstack.acl.APIChecker;
 import org.apache.cloudstack.acl.ApiKeyPairManagerImpl;
-import org.apache.cloudstack.acl.ApiKeyPairPermissionVO;
 import org.apache.cloudstack.acl.ApiKeyPairVO;
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.InfrastructureEntity;
 import org.apache.cloudstack.acl.QuerySelector;
 import org.apache.cloudstack.acl.Role;
-import org.apache.cloudstack.acl.RolePermission;
 import org.apache.cloudstack.acl.RolePermissionEntity;
 import org.apache.cloudstack.acl.RoleService;
 import org.apache.cloudstack.acl.RoleType;
@@ -244,6 +239,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     private AccountLookupService accountLookupService;
     @Inject
     private ApiKeyPermissionService apiKeyPermissionService;
+    @Inject
+    private ApiKeyLifecycleService apiKeyLifecycleService;
     @Inject
     private ConfigurationDao _configDao;
     @Inject
@@ -3166,14 +3163,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public Ternary<User, Account, ApiKeyPair> findUserByApiKey(String apiKey) {
-        ApiKeyPairVO keyPairVO = apiKeyPairDao.findByApiKey(apiKey);
-        if (keyPairVO == null) {
-            return null;
-        }
-
-        User user = _userDao.getUser(keyPairVO.getUserId());
-        Account account = _accountDao.findById(keyPairVO.getAccountId());
-        return new Ternary<>(user, account, keyPairVO);
+        return apiKeyLifecycleService.findUserByApiKey(apiKey);
     }
 
     @Override
@@ -3312,9 +3302,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     private void removeApiKeyPairIfExpired(ApiKeyPair apiKeyPair) {
-        if (apiKeyPair.hasEndDatePassed()) {
-            internalDeleteApiKey(apiKeyPair);
-        }
+        apiKeyLifecycleService.removeApiKeyPairIfExpired(apiKeyPair);
     }
 
     public void deleteApiKey(DeleteUserKeysCmd cmd) {
@@ -3353,11 +3341,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     private void internalDeleteApiKey(ApiKeyPair keyPair) {
-        List<ApiKeyPairPermissionVO> permissions = apiKeyPairPermissionsDao.findAllByApiKeyPairId(keyPair.getId());
-        for (ApiKeyPairPermission permission : permissions) {
-            apiKeyPairPermissionsDao.remove(permission.getId());
-        }
-        apiKeyPairDao.remove(keyPair.getId());
+        apiKeyLifecycleService.internalDeleteApiKey(keyPair);
     }
 
     private void addKeypairResponse(ApiKeyPair keyPair, List<ApiKeyPairResponse> responses, ListUserKeysCmd cmd) {
@@ -3383,7 +3367,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public ApiKeyPair getKeyPairById(Long id) {
-        return apiKeyPairDao.findById(id);
+        return apiKeyLifecycleService.getKeyPairById(id);
     }
 
     protected void preventRootDomainAdminAccessToRootAdminKeys(User caller, ControlledEntity account) {
@@ -3401,7 +3385,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public ApiKeyPair getKeyPairByApiKey(String apiKey) {
-        return apiKeyPairDao.findByApiKey(apiKey);
+        return apiKeyLifecycleService.getKeyPairByApiKey(apiKey);
     }
 
     @Override
@@ -3508,31 +3492,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     @DB
     private ApiKeyPairVO validateAndPersistKeyPairAndPermissions(Account account, ApiKeyPairVO newApiKeyPair,
                                                                  List<Map<String, Object>> rules, RegisterUserKeysCmd cmd) {
-        String accessingApiKey = getAccessingApiKey(cmd);
-        final Role accountRole = roleService.findRole(account.getRoleId());
-        List<RolePermissionEntity> allPermissions = accessingApiKey == null ?
-                roleService.findAllRolePermissionsEntityBy(accountRole.getId(), true) : getAllKeypairPermissions(accessingApiKey);
-
-        List<RolePermissionEntity> permissions = new ArrayList<>();
-        for (Map<String, Object> ruleDetail : rules) {
-            String rule = ruleDetail.get(ApiConstants.RULE).toString();
-            RolePermission.Permission rulePermission = (RolePermission.Permission) ruleDetail.get(ApiConstants.PERMISSION);
-            String ruleDescription = (String) ruleDetail.get(ApiConstants.DESCRIPTION);
-            permissions.add(new ApiKeyPairPermissionVO(0, rule, rulePermission, ruleDescription));
-        }
-
-        if (!isApiKeySupersetOfPermission(allPermissions, permissions)) {
-            throw new InvalidParameterValueException(String.format("The key pair being created has a bigger set of permissions than the account [%s] " +
-                    "that owns it. This is not allowed.", account.getUuid()));
-        }
-
-        ApiKeyPairVO savedApiKeyPair = apiKeyPairDao.persist(newApiKeyPair);
-        permissions.forEach(permission -> {
-            ApiKeyPairPermissionVO permissionVO = (ApiKeyPairPermissionVO) permission;
-            permissionVO.setApiKeyPairId(savedApiKeyPair.getId());
-            apiKeyPairPermissionsDao.persist(permissionVO);
-        });
-        return savedApiKeyPair;
+        return apiKeyLifecycleService.validateAndPersistKeyPairAndPermissions(account, newApiKeyPair, rules, cmd);
     }
 
     @Override
@@ -3541,57 +3501,15 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     private String createUserApiKey(long userId, ApiKeyPairVO newApiKeyPair) {
-        try {
-            String encodedKey;
-            ApiKeyPair keyPair;
-            int retryLimit = 10;
-            do {
-                // FIXME: what algorithm should we use for API keys?
-                KeyGenerator generator = KeyGenerator.getInstance("HmacSHA1");
-                SecretKey key = generator.generateKey();
-                encodedKey = Base64.encodeBase64URLSafeString(key.getEncoded());
-                keyPair = apiKeyPairDao.findByApiKey(encodedKey);
-                retryLimit--;
-            } while ((keyPair != null) && (retryLimit >= 0));
-
-            if (keyPair != null) {
-                return null;
-            }
-            newApiKeyPair.setApiKey(encodedKey);
-            return encodedKey;
-        } catch (NoSuchAlgorithmException ex) {
-            logger.error("error generating secret key for user {}", userAccountDao.findById(userId), ex);
-        }
-        return null;
+        return apiKeyLifecycleService.createUserApiKey(userId, newApiKeyPair);
     }
 
     private String createUserSecretKey(long userId, ApiKeyPairVO newApiKeyPair) {
-        try {
-            String encodedKey;
-            int retryLimit = 10;
-            ApiKeyPairVO keyPairVO;
-            do {
-                KeyGenerator generator = KeyGenerator.getInstance("HmacSHA1");
-                SecretKey key = generator.generateKey();
-                encodedKey = Base64.encodeBase64URLSafeString(key.getEncoded());
-                keyPairVO = apiKeyPairDao.findBySecretKey(encodedKey);
-                retryLimit--;
-            } while ((keyPairVO != null) && (retryLimit >= 0));
-
-            if (keyPairVO != null) {
-                return null;
-            }
-
-            newApiKeyPair.setSecretKey(encodedKey);
-            return encodedKey;
-        } catch (NoSuchAlgorithmException ex) {
-            logger.error("error generating secret key for user {}", userAccountDao.findById(userId), ex);
-        }
-        return null;
+        return apiKeyLifecycleService.createUserSecretKey(userId, newApiKeyPair);
     }
 
     public ApiKeyPair getLatestUserKeyPair(Long userId) {
-        return ApiDBUtils.searchForLatestUserKeyPair(userId);
+        return apiKeyLifecycleService.getLatestUserKeyPair(userId);
     }
 
     @Override
