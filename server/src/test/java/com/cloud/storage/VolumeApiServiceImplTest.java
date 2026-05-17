@@ -529,6 +529,25 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(accountAssignmentService, "resourceLimitMgr", resourceLimitServiceMock);
         ReflectionTestUtils.setField(accountAssignmentService, "volumeService", volumeServiceMock);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAccountAssignmentService", accountAssignmentService);
+
+        // Phase 4 (parallel slice, 5th): wire VolumeExtractServiceImpl with the
+        // same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (setExtractVolumeSearchCriteria and
+        // orchestrateExtractVolume) forward to this service, and the public
+        // extractVolume path now goes through validateExtractRequest on the
+        // same component, so any future manager-level tests on the extract
+        // path continue to exercise the same code through the wrappers.
+        VolumeExtractServiceImpl extractService = new VolumeExtractServiceImpl();
+        ReflectionTestUtils.setField(extractService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(extractService, "volumeStoreDao", volumeDataStoreDaoMock);
+        ReflectionTestUtils.setField(extractService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(extractService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(extractService, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(extractService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(extractService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(extractService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(extractService, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeExtractService", extractService);
     }
 
     /**
