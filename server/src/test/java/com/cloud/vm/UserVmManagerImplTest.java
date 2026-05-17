@@ -616,6 +616,22 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "networkModel", networkModel);
         org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmSecurityGroupAssignmentService", securityGroupAssignmentService);
+        // Slice 15: wire VmCredentialResetServiceImpl so the finalizeUserData /
+        // updateUserData / applyUserData / encryptAndStorePassword /
+        // removeEncryptedPasswordFromUserVmVoDetails wrappers don't NPE.
+        // The existing finalizeUserData / resetVMUserData tests in this class
+        // rely on the same userDataDao / userDataManager / networkModel / nicDao
+        // mocks that are already declared here, so we pass them through.
+        VmCredentialResetServiceImpl credentialResetService = new VmCredentialResetServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "templateDao", templateDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "nicDao", nicDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkModel", networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "userDataDao", userDataDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "userDataManager", userDataManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "userVmDao", userVmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmCredentialResetService", credentialResetService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
