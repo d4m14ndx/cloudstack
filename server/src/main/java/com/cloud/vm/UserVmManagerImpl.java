@@ -18,7 +18,6 @@ package com.cloud.vm;
 
 import static com.cloud.hypervisor.Hypervisor.HypervisorType.Functionality;
 import static com.cloud.storage.Volume.IOPS_LIMIT;
-import static com.cloud.utils.NumbersUtil.toHumanReadableSize;
 import static org.apache.cloudstack.api.ApiConstants.MAX_IOPS;
 import static org.apache.cloudstack.api.ApiConstants.MIN_IOPS;
 
@@ -147,19 +146,13 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
-import com.cloud.agent.api.GetVmDiskStatsAnswer;
-import com.cloud.agent.api.GetVmDiskStatsCommand;
 import com.cloud.agent.api.GetVmIpAddressCommand;
-import com.cloud.agent.api.GetVmNetworkStatsAnswer;
-import com.cloud.agent.api.GetVmNetworkStatsCommand;
 import com.cloud.agent.api.GetVolumeStatsAnswer;
 import com.cloud.agent.api.GetVolumeStatsCommand;
 import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.RestoreVMSnapshotAnswer;
 import com.cloud.agent.api.RestoreVMSnapshotCommand;
 import com.cloud.agent.api.StartAnswer;
-import com.cloud.agent.api.VmDiskStatsEntry;
-import com.cloud.agent.api.VmNetworkStatsEntry;
 import com.cloud.agent.api.VolumeStatsEntry;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
@@ -181,8 +174,6 @@ import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.DedicatedResourceVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.Pod;
-import com.cloud.dc.Vlan.VlanType;
-import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.DedicatedResourceDao;
@@ -328,7 +319,6 @@ import com.cloud.user.AccountVO;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
-import com.cloud.user.UserStatisticsVO;
 import com.cloud.user.UserVO;
 import com.cloud.user.VmDiskStatisticsVO;
 import com.cloud.user.dao.AccountDao;
@@ -348,7 +338,6 @@ import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.GlobalLock;
-import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionCallbackWithException;
@@ -596,6 +585,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmDisplayFlagService vmDisplayFlagService;
     @Inject
     private VmRootVolumeStorageCleanupService vmRootVolumeStorageCleanupService;
+    @Inject
+    private VmStatsCollectionService vmStatsCollectionService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -4208,110 +4199,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     @Override
-    public void collectVmNetworkStatistics (final UserVm userVm) {
-        if (!userVm.getHypervisorType().equals(HypervisorType.KVM)) {
-            return;
-        }
-        logger.debug("Collect vm network statistics from host before stopping Vm");
-        long hostId = userVm.getHostId();
-        List<String> vmNames = new ArrayList<>();
-        vmNames.add(userVm.getInstanceName());
-        final HostVO host = _hostDao.findById(hostId);
-        Account account = _accountMgr.getAccount(userVm.getAccountId());
-
-        GetVmNetworkStatsAnswer networkStatsAnswer = null;
-        try {
-            networkStatsAnswer = (GetVmNetworkStatsAnswer) _agentMgr.easySend(hostId, new GetVmNetworkStatsCommand(vmNames, host.getGuid(), host.getName()));
-        } catch (Exception e) {
-            logger.warn("Error while collecting network stats for vm: {} from host: {}", userVm, host, e);
-            return;
-        }
-        if (networkStatsAnswer != null) {
-            if (!networkStatsAnswer.getResult()) {
-                logger.warn("Error while collecting network stats vm: {} from host: {}; details: {}", userVm, host, networkStatsAnswer.getDetails());
-                return;
-            }
-            try {
-                final GetVmNetworkStatsAnswer networkStatsAnswerFinal = networkStatsAnswer;
-                Transaction.execute(new TransactionCallbackNoReturn() {
-                    @Override
-                    public void doInTransactionWithoutResult(TransactionStatus status) {
-                        HashMap<String, List<VmNetworkStatsEntry>> vmNetworkStatsByName = networkStatsAnswerFinal.getVmNetworkStatsMap();
-                        if (vmNetworkStatsByName == null) {
-                            return;
-                        }
-                        List<VmNetworkStatsEntry> vmNetworkStats = vmNetworkStatsByName.get(userVm.getInstanceName());
-                        if (vmNetworkStats == null) {
-                            return;
-                        }
-
-                        for (VmNetworkStatsEntry vmNetworkStat:vmNetworkStats) {
-                            SearchCriteria<NicVO> sc_nic = _nicDao.createSearchCriteria();
-                            sc_nic.addAnd("macAddress", SearchCriteria.Op.EQ, vmNetworkStat.getMacAddress());
-                            NicVO nic = _nicDao.search(sc_nic, null).get(0);
-                            List<VlanVO> vlan = _vlanDao.listVlansByNetworkId(nic.getNetworkId());
-                            if (vlan == null || vlan.size() == 0 || vlan.get(0).getVlanType() != VlanType.DirectAttached)
-                            {
-                                break; // only get network statistics for DirectAttached network (shared networks in Basic zone and Advanced zone with/without SG)
-                            }
-                            UserStatisticsVO previousvmNetworkStats = _userStatsDao.findBy(userVm.getAccountId(), userVm.getDataCenterId(), nic.getNetworkId(), nic.getIPv4Address(), userVm.getId(), "UserVm");
-                            if (previousvmNetworkStats == null) {
-                                previousvmNetworkStats = new UserStatisticsVO(userVm.getAccountId(), userVm.getDataCenterId(),nic.getIPv4Address(), userVm.getId(), "UserVm", nic.getNetworkId());
-                                _userStatsDao.persist(previousvmNetworkStats);
-                            }
-                            UserStatisticsVO vmNetworkStat_lock = _userStatsDao.lock(userVm.getAccountId(), userVm.getDataCenterId(), nic.getNetworkId(), nic.getIPv4Address(), userVm.getId(), "UserVm");
-
-                            if ((vmNetworkStat.getBytesSent() == 0) && (vmNetworkStat.getBytesReceived() == 0)) {
-                                logger.debug("bytes sent and received are all 0. Not updating user_statistics");
-                                continue;
-                            }
-
-                            if (vmNetworkStat_lock == null) {
-                                logger.warn("unable to find vm network stats from host for account: {} with vm: {} and nic: {}", account, userVm, nic);
-                                continue;
-                            }
-
-                            if (previousvmNetworkStats != null
-                                    && ((previousvmNetworkStats.getCurrentBytesSent() != vmNetworkStat_lock.getCurrentBytesSent())
-                                            || (previousvmNetworkStats.getCurrentBytesReceived() != vmNetworkStat_lock.getCurrentBytesReceived()))) {
-                                logger.debug("vm network stats changed from the time GetNmNetworkStatsCommand was sent. " +
-                                        "Ignoring current answer. Host: " + host  + " . VM: " + vmNetworkStat.getVmName() +
-                                        " Sent(Bytes): " + toHumanReadableSize(vmNetworkStat.getBytesSent()) + " Received(Bytes): " + toHumanReadableSize(vmNetworkStat.getBytesReceived()));
-                                continue;
-                            }
-
-                            if (vmNetworkStat_lock.getCurrentBytesSent() > vmNetworkStat.getBytesSent()) {
-                                if (logger.isDebugEnabled()) {
-                                   logger.debug("Sent # of bytes that's less than the last one.  Assuming something went wrong and persisting it. Host: {} . VM: {} Reported: {} Stored: {}",
-                                           host, vmNetworkStat.getVmName(), toHumanReadableSize(vmNetworkStat.getBytesSent()), toHumanReadableSize(vmNetworkStat_lock.getCurrentBytesSent()));
-                                }
-                                vmNetworkStat_lock.setNetBytesSent(vmNetworkStat_lock.getNetBytesSent() + vmNetworkStat_lock.getCurrentBytesSent());
-                            }
-                            vmNetworkStat_lock.setCurrentBytesSent(vmNetworkStat.getBytesSent());
-
-                            if (vmNetworkStat_lock.getCurrentBytesReceived() > vmNetworkStat.getBytesReceived()) {
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Received # of bytes that's less than the last one.  Assuming something went wrong and persisting it. Host: {} . VM: {} Reported: {} Stored: {}",
-                                            host, vmNetworkStat.getVmName(), toHumanReadableSize(vmNetworkStat.getBytesReceived()), toHumanReadableSize(vmNetworkStat_lock.getCurrentBytesReceived()));
-                                }
-                                vmNetworkStat_lock.setNetBytesReceived(vmNetworkStat_lock.getNetBytesReceived() + vmNetworkStat_lock.getCurrentBytesReceived());
-                            }
-                            vmNetworkStat_lock.setCurrentBytesReceived(vmNetworkStat.getBytesReceived());
-
-                            if (! _dailyOrHourly) {
-                                //update agg bytes
-                                vmNetworkStat_lock.setAggBytesReceived(vmNetworkStat_lock.getNetBytesReceived() + vmNetworkStat_lock.getCurrentBytesReceived());
-                                vmNetworkStat_lock.setAggBytesSent(vmNetworkStat_lock.getNetBytesSent() + vmNetworkStat_lock.getCurrentBytesSent());
-                            }
-
-                            _userStatsDao.update(vmNetworkStat_lock.getId(), vmNetworkStat_lock);
-                        }
-                    }
-                });
-            } catch (Exception e) {
-                logger.warn("Unable to update vm network statistics for vm: {} from host: {}", userVm, host, e);
-            }
-        }
+    public void collectVmNetworkStatistics(final UserVm userVm) {
+        vmStatsCollectionService.collectVmNetworkStatistics(userVm);
     }
 
     @Override
@@ -5110,141 +4999,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public void collectVmDiskStatistics(final UserVm userVm) {
-        // Only supported for KVM and VMware
-        if (!(userVm.getHypervisorType().equals(HypervisorType.KVM) || userVm.getHypervisorType().equals(HypervisorType.VMware))) {
-            return;
-        }
-        logger.debug("Collect vm disk statistics from host before stopping VM");
-        if (userVm.getHostId() == null) {
-            logger.error("Unable to collect vm disk statistics for VM as the host is null, skipping VM disk statistics collection");
-            return;
-        }
-        long hostId = userVm.getHostId();
-        List<String> vmNames = new ArrayList<>();
-        vmNames.add(userVm.getInstanceName());
-        final HostVO host = _hostDao.findById(hostId);
-        Account account = _accountMgr.getAccount(userVm.getAccountId());
-
-        GetVmDiskStatsAnswer diskStatsAnswer = null;
-        try {
-            diskStatsAnswer = (GetVmDiskStatsAnswer)_agentMgr.easySend(hostId, new GetVmDiskStatsCommand(vmNames, host.getGuid(), host.getName()));
-        } catch (Exception e) {
-            logger.warn("Error while collecting disk stats for vm: {} from host: {}", userVm, host, e);
-            return;
-        }
-        if (diskStatsAnswer != null) {
-            if (!diskStatsAnswer.getResult()) {
-                logger.warn("Error while collecting disk stats vm: {} from host: {}; details: {}", userVm, host, diskStatsAnswer.getDetails());
-                return;
-            }
-            try {
-                final GetVmDiskStatsAnswer diskStatsAnswerFinal = diskStatsAnswer;
-                Transaction.execute(new TransactionCallbackNoReturn() {
-                    @Override
-                    public void doInTransactionWithoutResult(TransactionStatus status) {
-                        HashMap<String, List<VmDiskStatsEntry>> vmDiskStatsByName = diskStatsAnswerFinal.getVmDiskStatsMap();
-                        if (vmDiskStatsByName == null) {
-                            return;
-                        }
-                        List<VmDiskStatsEntry> vmDiskStats = vmDiskStatsByName.get(userVm.getInstanceName());
-                        if (vmDiskStats == null) {
-                            return;
-                        }
-
-                        for (VmDiskStatsEntry vmDiskStat : vmDiskStats) {
-                            SearchCriteria<VolumeVO> sc_volume = _volsDao.createSearchCriteria();
-                            sc_volume.addAnd("path", SearchCriteria.Op.LIKE, vmDiskStat.getPath() + "%");
-                            List<VolumeVO> volumes = _volsDao.search(sc_volume, null);
-                            if ((volumes == null) || (volumes.size() == 0)) {
-                                break;
-                            }
-                            VolumeVO volume = volumes.get(0);
-                            VmDiskStatisticsVO previousVmDiskStats = _vmDiskStatsDao.findBy(userVm.getAccountId(), userVm.getDataCenterId(), userVm.getId(), volume.getId());
-                            VmDiskStatisticsVO vmDiskStat_lock = _vmDiskStatsDao.lock(userVm.getAccountId(), userVm.getDataCenterId(), userVm.getId(), volume.getId());
-
-                            if ((vmDiskStat.getIORead() == 0) && (vmDiskStat.getIOWrite() == 0) && (vmDiskStat.getBytesRead() == 0) && (vmDiskStat.getBytesWrite() == 0)) {
-                                logger.debug("Read/Write of IO and Bytes are both 0. Not updating vm_disk_statistics");
-                                continue;
-                            }
-
-                            if (vmDiskStat_lock == null) {
-                                logger.warn("unable to find vm disk stats from host for account: {} with vm: {} and volume: {}", account, userVm, volume);
-                                continue;
-                            }
-
-                            if (previousVmDiskStats != null
-                                    && ((previousVmDiskStats.getCurrentIORead() != vmDiskStat_lock.getCurrentIORead()) || ((previousVmDiskStats.getCurrentIOWrite() != vmDiskStat_lock
-                                    .getCurrentIOWrite())
-                                            || (previousVmDiskStats.getCurrentBytesRead() != vmDiskStat_lock.getCurrentBytesRead()) || (previousVmDiskStats
-                                                    .getCurrentBytesWrite() != vmDiskStat_lock.getCurrentBytesWrite())))) {
-                                logger.debug("vm disk stats changed from the time" +
-                                        " GetVmDiskStatsCommand was sent. Ignoring current " +
-                                        "answer. Host: {} . VM: {} IO Read: {} IO Write: {} " +
-                                        "Bytes Read: {} Bytes Write: {}",
-                                        host, vmDiskStat, vmDiskStat.getIORead(), vmDiskStat.getIOWrite(),
-                                        vmDiskStat.getBytesRead(), vmDiskStat.getBytesWrite());
-                                continue;
-                            }
-
-                            if (vmDiskStat_lock.getCurrentIORead() > vmDiskStat.getIORead()) {
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Read # of IO that's less than " +
-                                            "the last one.  Assuming something went wrong and " +
-                                            "persisting it. Host: {} . VM: {} Reported: {} Stored: {}",
-                                            host, vmDiskStat, vmDiskStat.getIORead(), vmDiskStat_lock.getCurrentIORead());
-                                }
-                                vmDiskStat_lock.setNetIORead(vmDiskStat_lock.getNetIORead() + vmDiskStat_lock.getCurrentIORead());
-                            }
-                            vmDiskStat_lock.setCurrentIORead(vmDiskStat.getIORead());
-                            if (vmDiskStat_lock.getCurrentIOWrite() > vmDiskStat.getIOWrite()) {
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Write # of IO that's less than " +
-                                            "the last one. Assuming something went wrong and " +
-                                            "persisting it. Host: {}. VM: {} Reported: {} Stored: {}",
-                                            host, vmDiskStat, vmDiskStat.getIOWrite(), vmDiskStat_lock.getCurrentIOWrite());
-                                }
-                                vmDiskStat_lock.setNetIOWrite(vmDiskStat_lock.getNetIOWrite() + vmDiskStat_lock.getCurrentIOWrite());
-                            }
-                            vmDiskStat_lock.setCurrentIOWrite(vmDiskStat.getIOWrite());
-                            if (vmDiskStat_lock.getCurrentBytesRead() > vmDiskStat.getBytesRead()) {
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Read # of Bytes that's less " +
-                                            "than the last one. Assuming something went wrong and" +
-                                            " persisting it. Host: {} . VM: {} Reported: {} Stored: {}",
-                                            host, vmDiskStat, toHumanReadableSize(vmDiskStat.getBytesRead()),
-                                            toHumanReadableSize(vmDiskStat_lock.getCurrentBytesRead()));
-                                }
-                                vmDiskStat_lock.setNetBytesRead(vmDiskStat_lock.getNetBytesRead() + vmDiskStat_lock.getCurrentBytesRead());
-                            }
-                            vmDiskStat_lock.setCurrentBytesRead(vmDiskStat.getBytesRead());
-                            if (vmDiskStat_lock.getCurrentBytesWrite() > vmDiskStat.getBytesWrite()) {
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Write # of Bytes that's less " +
-                                            "than the last one.  Assuming something went wrong " +
-                                            "and persisting it. Host: {} . VM: {} Reported: {} Stored: {}",
-                                            host, vmDiskStat, toHumanReadableSize(vmDiskStat.getBytesWrite()),
-                                            toHumanReadableSize(vmDiskStat_lock.getCurrentBytesWrite()));
-                                }
-                                vmDiskStat_lock.setNetBytesWrite(vmDiskStat_lock.getNetBytesWrite() + vmDiskStat_lock.getCurrentBytesWrite());
-                            }
-                            vmDiskStat_lock.setCurrentBytesWrite(vmDiskStat.getBytesWrite());
-
-                            if (!_dailyOrHourly) {
-                                //update agg bytes
-                                vmDiskStat_lock.setAggIORead(vmDiskStat_lock.getNetIORead() + vmDiskStat_lock.getCurrentIORead());
-                                vmDiskStat_lock.setAggIOWrite(vmDiskStat_lock.getNetIOWrite() + vmDiskStat_lock.getCurrentIOWrite());
-                                vmDiskStat_lock.setAggBytesRead(vmDiskStat_lock.getNetBytesRead() + vmDiskStat_lock.getCurrentBytesRead());
-                                vmDiskStat_lock.setAggBytesWrite(vmDiskStat_lock.getNetBytesWrite() + vmDiskStat_lock.getCurrentBytesWrite());
-                            }
-
-                            _vmDiskStatsDao.update(vmDiskStat_lock.getId(), vmDiskStat_lock);
-                        }
-                    }
-                });
-            } catch (Exception e) {
-                logger.warn("Unable to update VM disk statistics for {} from {}", userVm, host, e);
-            }
-        }
+        vmStatsCollectionService.collectVmDiskStatistics(userVm);
     }
 
     @Override
