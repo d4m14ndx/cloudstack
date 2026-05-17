@@ -41,6 +41,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -58,6 +59,7 @@ public class DedicateGuestVlanRangesTest {
 
 
     NetworkServiceImpl networkService = new NetworkServiceImpl();
+    DedicatedGuestVlanRangeServiceImpl dedicatedGuestVlanRangeService = new DedicatedGuestVlanRangeServiceImpl();
 
     DedicateGuestVlanRangeCmd dedicateGuestVlanRangesCmd = new DedicateGuestVlanRangeCmdExtn();
     Class<?> _dedicateGuestVlanRangeClass = dedicateGuestVlanRangesCmd.getClass().getSuperclass();
@@ -86,6 +88,15 @@ public class DedicateGuestVlanRangesTest {
     public void setup() throws Exception {
         closeable = MockitoAnnotations.openMocks(this);
 
+        dedicatedGuestVlanRangeService.accountManager = _accountMgr;
+        dedicatedGuestVlanRangeService.accountDao = _accountDao;
+        dedicatedGuestVlanRangeService.projectManager = _projectMgr;
+        dedicatedGuestVlanRangeService.physicalNetworkDao = _physicalNetworkDao;
+        dedicatedGuestVlanRangeService.dcVnetDao = _dataCenterVnetDao;
+        dedicatedGuestVlanRangeService.accountGuestVlanMapDao = _accountGuestVlanMapDao;
+        ReflectionTestUtils.setField(networkService, "dedicatedGuestVlanRangeService", dedicatedGuestVlanRangeService);
+
+        // Legacy aliases so post-extraction stubs that read networkService fields continue to work.
         networkService._accountMgr = _accountMgr;
         networkService._accountDao = _accountDao;
         networkService._projectMgr = _projectMgr;
@@ -94,8 +105,8 @@ public class DedicateGuestVlanRangesTest {
         networkService._accountGuestVlanMapDao = _accountGuestVlanMapDao;
 
         Account account = new AccountVO("testaccount", 1, "networkdomain", Account.Type.NORMAL, UUID.randomUUID().toString());
-        when(networkService._accountMgr.getAccount(anyLong())).thenReturn(account);
-        when(networkService._accountDao.findActiveAccount(anyString(), anyLong())).thenReturn(account);
+        when(_accountMgr.getAccount(anyLong())).thenReturn(account);
+        when(_accountDao.findActiveAccount(anyString(), anyLong())).thenReturn(account);
 
         UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
 
