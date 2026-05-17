@@ -62,6 +62,8 @@ import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.NetrisProviderDao;
 import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
+import com.cloud.network.element.NetrisProviderVO;
+import com.cloud.network.element.NsxProviderVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
@@ -458,5 +460,73 @@ public class ZoneServiceImplTest {
 
         Mockito.verify(_networkOfferingDao).listSystemNetworkOfferings();
         Mockito.verifyNoInteractions(_networkMgr);
+    }
+
+    // ------------------------------------------------------------------
+    // deleteZone — NSX / Netris provider cleanup (migrated from
+    // ConfigurationManagerImplTest.testDeleteZoneDelegatesToZoneService)
+    // ------------------------------------------------------------------
+
+    /**
+     * Helper: stub every deletability guard to allow deletion, and make
+     * _zoneDao.remove() return the given value.
+     */
+    private void stubZoneDeletable(DataCenterVO zone, boolean removeResult) {
+        Mockito.when(_zoneDao.findById(ZONE_ID)).thenReturn(zone);
+        Mockito.when(_hostDao.listEnabledIdsByDataCenterId(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_podDao.listByDataCenterId(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_privateIpAddressDao.countIPs(ZONE_ID, true)).thenReturn(0);
+        Mockito.when(_publicIpAddressDao.countIPs(ZONE_ID, true)).thenReturn(0);
+        Mockito.when(_vmInstanceDao.listByZoneId(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_volumeDao.findByDc(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_physicalNetworkDao.listByZone(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_imageStoreDao.findByZone(Mockito.any(ZoneScope.class), Mockito.eq(null))).thenReturn(Collections.emptyList());
+        Mockito.when(_vlanDao.listByZone(ZONE_ID)).thenReturn(Collections.emptyList());
+        Mockito.when(_zoneDao.remove(ZONE_ID)).thenReturn(removeResult);
+        Mockito.when(_dedicatedDao.findByZoneId(ZONE_ID)).thenReturn(null);
+    }
+
+    @Test
+    public void testDeleteZoneRemovesNsxProviderWhenZoneHasNsxProvider() {
+        DataCenterVO zone = Mockito.mock(DataCenterVO.class);
+        Mockito.when(zone.getId()).thenReturn(ZONE_ID);
+        Mockito.when(zone.getUuid()).thenReturn(UUID.randomUUID().toString());
+        stubZoneDeletable(zone, true);
+
+        NsxProviderVO nsxProvider = Mockito.mock(NsxProviderVO.class);
+        Mockito.when(nsxProvider.getId()).thenReturn(10L);
+        Mockito.when(nsxProviderDao.findByZoneId(ZONE_ID)).thenReturn(nsxProvider);
+        Mockito.when(netrisProviderDao.findByZoneId(ZONE_ID)).thenReturn(null);
+
+        DeleteZoneCmd cmd = Mockito.mock(DeleteZoneCmd.class);
+        Mockito.when(cmd.getId()).thenReturn(ZONE_ID);
+
+        boolean result = service.deleteZone(cmd);
+
+        assertTrue(result);
+        Mockito.verify(nsxProviderDao, Mockito.times(1)).remove(Mockito.anyLong());
+        Mockito.verify(netrisProviderDao, Mockito.never()).remove(Mockito.anyLong());
+    }
+
+    @Test
+    public void testDeleteZoneRemovesNetrisProviderWhenZoneHasNetrisProvider() {
+        DataCenterVO zone = Mockito.mock(DataCenterVO.class);
+        Mockito.when(zone.getId()).thenReturn(ZONE_ID);
+        Mockito.when(zone.getUuid()).thenReturn(UUID.randomUUID().toString());
+        stubZoneDeletable(zone, true);
+
+        Mockito.when(nsxProviderDao.findByZoneId(ZONE_ID)).thenReturn(null);
+        NetrisProviderVO netrisProvider = Mockito.mock(NetrisProviderVO.class);
+        Mockito.when(netrisProvider.getId()).thenReturn(20L);
+        Mockito.when(netrisProviderDao.findByZoneId(ZONE_ID)).thenReturn(netrisProvider);
+
+        DeleteZoneCmd cmd = Mockito.mock(DeleteZoneCmd.class);
+        Mockito.when(cmd.getId()).thenReturn(ZONE_ID);
+
+        boolean result = service.deleteZone(cmd);
+
+        assertTrue(result);
+        Mockito.verify(nsxProviderDao, Mockito.never()).remove(Mockito.anyLong());
+        Mockito.verify(netrisProviderDao, Mockito.times(1)).remove(Mockito.anyLong());
     }
 }
