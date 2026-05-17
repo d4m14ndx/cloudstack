@@ -261,6 +261,13 @@ public class UserVmManagerTest {
         VmAssignmentValidatorImpl assignValidator = new VmAssignmentValidatorImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "accountManager", _accountMgr);
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmAssignmentValidator", assignValidator);
+        // Slice 15: wire VmCredentialResetServiceImpl so applyUserData /
+        // updateUserData / finalizeUserData / encryptAndStorePassword /
+        // removeEncryptedPasswordFromUserVmVoDetails wrappers work.
+        VmCredentialResetServiceImpl credentialResetService = new VmCredentialResetServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmCredentialResetService", credentialResetService);
     }
 
     @Test

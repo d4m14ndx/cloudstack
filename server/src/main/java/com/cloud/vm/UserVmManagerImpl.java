@@ -334,7 +334,6 @@ import com.cloud.user.AccountVO;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
-import com.cloud.user.UserData;
 import com.cloud.user.UserStatisticsVO;
 import com.cloud.user.UserVO;
 import com.cloud.user.VmDiskStatisticsVO;
@@ -352,7 +351,6 @@ import com.cloud.utils.Pair;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.crypt.DBEncryptionUtil;
-import com.cloud.utils.crypt.RSAHelper;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.GlobalLock;
@@ -596,6 +594,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmHostNameUniquenessService vmHostNameUniquenessService;
     @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
+    @Inject
+    private VmCredentialResetService vmCredentialResetService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1072,7 +1072,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void removeEncryptedPasswordFromUserVmVoDetails(long vmId) {
-        vmInstanceDetailsDao.removeDetail(vmId, VmDetailConstants.ENCRYPTED_PASSWORD);
+        vmCredentialResetService.removeEncryptedPasswordFromUserVmVoDetails(vmId);
     }
 
     private boolean resetVMSSHKeyInternal(Long vmId, String sshPublicKeys, String keypairnames) throws ResourceUnavailableException, InsufficientCapacityException {
@@ -2747,12 +2747,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void updateUserData(UserVm vm) throws ResourceUnavailableException, InsufficientCapacityException {
-        boolean result = updateUserDataInternal(vm);
-        if (result) {
-            logger.debug("User data successfully updated for vm id:  {}", vm);
-        } else {
-            throw new CloudRuntimeException("Failed to reset userdata for the virtual machine ");
-        }
+        vmCredentialResetService.updateUserData(vm);
     }
 
     private void updateDns(UserVmVO vm, String hostName) throws ResourceUnavailableException, InsufficientCapacityException {
@@ -2785,43 +2780,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    private boolean updateUserDataInternal(UserVm vm) throws ResourceUnavailableException, InsufficientCapacityException {
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-
-        List<? extends Nic> nics = _nicDao.listByVmId(vm.getId());
-        if (nics == null || nics.isEmpty()) {
-            logger.error("unable to find any nics for vm {}", vm);
-            return false;
-        }
-
-        boolean userDataApplied = false;
-        for (Nic nic : nics) {
-            userDataApplied |= applyUserData(template.getHypervisorType(), vm, nic);
-        }
-        return userDataApplied;
-    }
-
     protected boolean applyUserData(HypervisorType hyperVisorType, UserVm vm, Nic nic) throws ResourceUnavailableException, InsufficientCapacityException {
-        Network network = _networkDao.findById(nic.getNetworkId());
-        NicProfile nicProfile = new NicProfile(nic, network, null, null, null, _networkModel.isSecurityGroupSupportedInNetwork(network), _networkModel.getNetworkTag(
-                hyperVisorType, network));
-        VirtualMachineProfile vmProfile = new VirtualMachineProfileImpl(vm);
-
-        if (_networkModel.areServicesSupportedByNetworkOffering(network.getNetworkOfferingId(), Service.UserData)) {
-            UserDataServiceProvider element = _networkModel.getUserDataUpdateProvider(network);
-            if (element == null) {
-                throw new CloudRuntimeException("Can't find network element for " + Service.UserData.getName() + " provider needed for UserData update");
-            }
-            boolean result = element.saveUserData(network, nicProfile, vmProfile);
-            if (!result) {
-                logger.error("Failed to update userdata for vm " + vm + " and nic " + nic);
-            } else {
-                return true;
-            }
-        } else {
-            logger.debug("Not applying userdata for nic {} in vm {} because it is not supported in network {}", nic, vmProfile, network);
-        }
-        return false;
+        return vmCredentialResetService.applyUserData(hyperVisorType, vm, nic);
     }
 
     @Override
@@ -5425,60 +5385,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public String finalizeUserData(String userData, Long userDataId, VirtualMachineTemplate template) {
-        if (StringUtils.isEmpty(userData) && userDataId == null && (template == null || template.getUserDataId() == null)) {
-            return null;
-        }
-
-        if (userDataId != null && StringUtils.isNotEmpty(userData)) {
-            throw new InvalidParameterValueException("Both userdata and userdata ID inputs are not allowed, please provide only one");
-        }
-        if (template != null && template.getUserDataId() != null) {
-            switch (template.getUserDataOverridePolicy()) {
-                case DENYOVERRIDE:
-                    if (StringUtils.isNotEmpty(userData) || userDataId != null) {
-                        String msg = String.format("UserData input is not allowed here since template %s is configured to deny any userdata", template.getName());
-                        throw new CloudRuntimeException(msg);
-                    }
-                case ALLOWOVERRIDE:
-                    if (userDataId != null) {
-                        UserData apiUserDataVO = userDataDao.findById(userDataId);
-                        return apiUserDataVO.getUserData();
-                    } else if (StringUtils.isNotEmpty(userData)) {
-                        return userData;
-                    } else {
-                        UserData templateUserDataVO = userDataDao.findById(template.getUserDataId());
-                        if (templateUserDataVO == null) {
-                            String msg = String.format("UserData linked to the template %s is not found", template.getName());
-                            throw new CloudRuntimeException(msg);
-                        }
-                        return templateUserDataVO.getUserData();
-                    }
-                case APPEND:
-                    UserData templateUserDataVO = userDataDao.findById(template.getUserDataId());
-                    if (templateUserDataVO == null) {
-                        String msg = String.format("UserData linked to the template %s is not found", template.getName());
-                        throw new CloudRuntimeException(msg);
-                    }
-                    if (userDataId != null) {
-                        UserData apiUserDataVO = userDataDao.findById(userDataId);
-                        return userDataManager.concatenateUserData(templateUserDataVO.getUserData(), apiUserDataVO.getUserData(), null);
-                    } else if (StringUtils.isNotEmpty(userData)) {
-                        return userDataManager.concatenateUserData(templateUserDataVO.getUserData(), userData, null);
-                    } else {
-                        return templateUserDataVO.getUserData();
-                    }
-                default:
-                    String msg = String.format("This userdataPolicy %s is not supported for use with this feature", template.getUserDataOverridePolicy().toString());
-                    throw new CloudRuntimeException(msg);            }
-        } else {
-            if (userDataId != null) {
-                UserData apiUserDataVO = userDataDao.findById(userDataId);
-                return apiUserDataVO.getUserData();
-            } else if (StringUtils.isNotEmpty(userData)) {
-                return userData;
-            }
-        }
-        return null;
+        return vmCredentialResetService.finalizeUserData(userData, userDataId, template);
     }
 
     private void verifyServiceOffering(BaseDeployVMCmd cmd, ServiceOffering serviceOffering) {
@@ -8066,20 +7973,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void encryptAndStorePassword(UserVmVO vm, String password) {
-        String sshPublicKeys = vm.getDetail(VmDetailConstants.SSH_PUBLIC_KEY);
-        if (sshPublicKeys != null && !sshPublicKeys.equals("") && password != null && !password.equals("saved_password")) {
-            if (!sshPublicKeys.startsWith("ssh-rsa")) {
-                logger.warn("Only RSA public keys can be used to encrypt a vm password.");
-                return;
-            }
-            String encryptedPasswd = RSAHelper.encryptWithSSHPublicKey(sshPublicKeys, password);
-            if (encryptedPasswd == null) {
-                throw new CloudRuntimeException("Error encrypting password");
-            }
-
-            vm.setDetail(VmDetailConstants.ENCRYPTED_PASSWORD, encryptedPasswd);
-            _vmDao.saveDetails(vm);
-        }
+        vmCredentialResetService.encryptAndStorePassword(vm, password);
     }
 
     @Override
