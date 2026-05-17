@@ -680,11 +680,8 @@ import com.cloud.agent.api.CheckGuestOsMappingCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetHypervisorGuestOsNamesAnswer;
 import com.cloud.agent.api.GetHypervisorGuestOsNamesCommand;
-import com.cloud.agent.api.GetVncPortAnswer;
-import com.cloud.agent.api.GetVncPortCommand;
 import com.cloud.agent.api.PatchSystemVmAnswer;
 import com.cloud.agent.api.PatchSystemVmCommand;
-import com.cloud.agent.api.proxy.AllowConsoleAccessCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.manager.Commands;
 import com.cloud.agent.manager.allocator.HostAllocator;
@@ -766,7 +763,6 @@ import com.cloud.hypervisor.HypervisorCapabilitiesVO;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.hypervisor.kvm.dpdk.DpdkHelper;
-import com.cloud.info.ConsoleProxyInfo;
 import com.cloud.network.IpAddress;
 import com.cloud.network.IpAddressManager;
 import com.cloud.network.IpAddressManagerImpl;
@@ -985,6 +981,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     protected HypervisorCapabilitiesService hypervisorCapabilitiesService;
     @Inject
     protected HostCredentialsService hostCredentialsService;
+    @Inject
+    protected ConsoleAccessService consoleAccessService;
     @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
@@ -3331,10 +3329,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     }
 
-    protected ConsoleProxyInfo getConsoleProxyForVm(final long dataCenterId, final VMInstanceVO userVm) {
-        return _consoleProxyMgr.assignProxy(dataCenterId, userVm);
-    }
-
     private ConsoleProxyVO startConsoleProxy(final long instanceId) {
         return _consoleProxyMgr.startProxy(instanceId, true);
     }
@@ -3365,81 +3359,22 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public String getConsoleAccessUrlRoot(final long vmId) {
-        final VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        if (vm != null) {
-            final ConsoleProxyInfo proxy = getConsoleProxyForVm(vm.getDataCenterId(), vm);
-            if (proxy != null) {
-                return proxy.getProxyImageUrl();
-            }
-        }
-        return null;
+        return consoleAccessService.getConsoleAccessUrlRoot(vmId);
     }
 
     @Override
     public Pair<Boolean, String> setConsoleAccessForVm(long vmId, String sessionUuid) {
-        final VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        if (vm == null) {
-            return new Pair<>(false, "Cannot find an instance with id = " + vmId);
-        }
-        final ConsoleProxyInfo proxy = getConsoleProxyForVm(vm.getDataCenterId(), vm);
-        if (proxy == null) {
-            return new Pair<>(false, "Cannot find a console proxy for the instance " + vmId);
-        }
-        AllowConsoleAccessCommand cmd = new AllowConsoleAccessCommand(sessionUuid);
-        HostVO hostVO = _hostDao.findByTypeNameAndZoneId(vm.getDataCenterId(), proxy.getProxyName(), Type.ConsoleProxy);
-        if (hostVO == null) {
-            return new Pair<>(false, "Cannot find a console proxy agent for CPVM with name " + proxy.getProxyName());
-        }
-        Answer answer;
-        try {
-            answer = _agentMgr.send(hostVO.getId(), cmd);
-        } catch (AgentUnavailableException | OperationTimedoutException e) {
-            String errorMsg = "Could not send allow session command to CPVM: " + e.getMessage();
-            logger.error(errorMsg, e);
-            return new Pair<>(false, errorMsg);
-        }
-        boolean result = false;
-        String details = "null answer";
-
-        if (answer != null) {
-            result = answer.getResult();
-            details = answer.getDetails();
-        }
-        return new Pair<>(result, details);
+        return consoleAccessService.setConsoleAccessForVm(vmId, sessionUuid);
     }
 
     @Override
     public String getConsoleAccessAddress(long vmId) {
-        final VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        if (vm != null) {
-            final ConsoleProxyInfo proxy = getConsoleProxyForVm(vm.getDataCenterId(), vm);
-            return proxy != null ? proxy.getProxyAddress() : null;
-        }
-        return null;
+        return consoleAccessService.getConsoleAccessAddress(vmId);
     }
 
     @Override
     public Pair<String, Integer> getVncPort(final VirtualMachine vm) {
-        if (vm.getHostId() == null) {
-            logger.warn("Instance " + vm.getHostName() + " does not have host, return -1 for its VNC port");
-            return new Pair<>(null, -1);
-        }
-
-        if (logger.isTraceEnabled()) {
-            logger.trace("Trying to retrieve VNC port from agent about Instance " + vm.getHostName());
-        }
-
-        GetVncPortAnswer answer;
-        if (vm.getState() == State.Migrating && vm.getLastHostId() != null) {
-            answer = (GetVncPortAnswer)_agentMgr.easySend(vm.getLastHostId(), new GetVncPortCommand(vm.getId(), vm.getInstanceName()));
-        } else {
-            answer = (GetVncPortAnswer)_agentMgr.easySend(vm.getHostId(), new GetVncPortCommand(vm.getId(), vm.getInstanceName()));
-        }
-        if (answer != null && answer.getResult()) {
-            return new Pair<>(answer.getAddress(), answer.getPort());
-        }
-
-        return new Pair<>(null, -1);
+        return consoleAccessService.getVncPort(vm);
     }
 
     @Override
