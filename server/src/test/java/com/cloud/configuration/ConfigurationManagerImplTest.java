@@ -71,7 +71,6 @@ import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.resourcedetail.DiskOfferingDetailVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
-import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.junit.Assert;
 import org.junit.Before;
@@ -114,6 +113,8 @@ public class ConfigurationManagerImplTest {
     ConfigurationManagerImpl configurationManagerImplSpy;
     @Mock
     ZoneService zoneService;
+    @Mock
+    ConfigurationResetService configurationResetService;
     @Mock
     ConfigDepot configDepot;
     @Mock
@@ -844,24 +845,17 @@ public class ConfigurationManagerImplTest {
 
     @Test
     public void testResetConfigurations() {
-        Long poolId = 1L;
         ResetCfgCmd cmd = Mockito.mock(ResetCfgCmd.class);
-        Mockito.when(cmd.getCfgName()).thenReturn("pool.storage.capacity.disablethreshold");
-        Mockito.when(cmd.getStoragepoolId()).thenReturn(poolId);
-        Mockito.when(cmd.getZoneId()).thenReturn(null);
-        Mockito.when(cmd.getClusterId()).thenReturn(null);
-        Mockito.when(cmd.getAccountId()).thenReturn(null);
-        Mockito.when(cmd.getDomainId()).thenReturn(null);
-        Mockito.when(cmd.getImageStoreId()).thenReturn(null);
 
         ConfigurationVO cfg = new ConfigurationVO("Advanced", "DEFAULT", "test", "pool.storage.capacity.disablethreshold", null, "description");
         cfg.setScope(10);
         cfg.setDefaultValue(".85");
-        Mockito.when(configDao.findByName("pool.storage.capacity.disablethreshold")).thenReturn(cfg);
-        Mockito.when(storagePoolDao.findById(poolId)).thenReturn(Mockito.mock(StoragePoolVO.class));
+        Pair<Configuration, String> expected = new Pair<>(cfg, ".85");
+        Mockito.when(configurationResetService.resetConfiguration(cmd)).thenReturn(expected);
 
         Pair<Configuration, String> result = configurationManagerImplSpy.resetConfiguration(cmd);
         Assert.assertEquals(".85", result.second());
+        Mockito.verify(configurationResetService, times(1)).resetConfiguration(cmd);
     }
 
     @Test
