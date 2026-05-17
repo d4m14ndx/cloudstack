@@ -277,6 +277,20 @@ public class AccountManagentImplTestBase {
         org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "userDetailsDao", userDetailsDaoMock);
         org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "accountService", _accountService);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "twoFactorAuthenticationService", twoFactorAuthenticationService);
+        // Phase 4 slice (6th): wire AccountOwnerResolverServiceImpl so AccountManagerImpl's
+        // delegating wrappers (finalizeOwner, both finalizeAccountId overloads,
+        // getActiveProjectAccountByProjectId) still exercise the same code paths
+        // the legacy tests assert on. The service delegates security checks and
+        // active-account lookups back through AccountService, so we wire it with
+        // the same accountManagerImpl spy that the existing tests already inject.
+        AccountOwnerResolverServiceImpl accountOwnerResolverService = new AccountOwnerResolverServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "projectManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_projectMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "accountService", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountOwnerResolverService", accountOwnerResolverService);
         CallContext.register(callingUser, callingAccount);
     }
 
