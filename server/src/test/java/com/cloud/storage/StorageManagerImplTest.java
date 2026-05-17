@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.dao.HostPodDao;
@@ -61,7 +60,6 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.cloud.agent.AgentManager;
@@ -90,7 +88,6 @@ import com.cloud.storage.dao.VolumeDao;
 import com.cloud.user.AccountManagerImpl;
 import com.cloud.utils.Pair;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.dao.VMInstanceDao;
 
@@ -170,6 +167,9 @@ public class StorageManagerImplTest {
 
     @Mock
     DataStoreManager dataStoreMgr;
+
+    @Mock
+    StorageCapacityService storageCapacityService;
 
     @Before
     public void setUp() {
@@ -352,119 +352,26 @@ public class StorageManagerImplTest {
         }
     }
 
-    @Test
-    public void testStoragePoolHasEnoughIopsNullPoolIops() {
-        StoragePool pool = Mockito.mock(StoragePool.class);
-        Mockito.when(pool.getCapacityIops()).thenReturn(null);
-        List<Pair<Volume, DiskProfile>> list = List.of(new Pair<>(Mockito.mock(Volume.class), Mockito.mock(DiskProfile.class)));
-        assertTrue(storageManagerImpl.storagePoolHasEnoughIops(100L, list, pool, false));
-    }
+    // Phase 4 (slice 6): IOPS / space pre-allocation checks were extracted
+    // into StorageCapacityServiceImpl. Focused tests live in
+    // StorageCapacityServiceImplTest. The thin delegating wrappers on
+    // StorageManagerImpl are covered by testStoragePoolHasEnoughIopsDelegates
+    // and testStoragePoolHasEnoughSpaceDelegates below.
 
     @Test
-    public void testStoragePoolHasEnoughIopsSuccess() {
+    public void testStoragePoolHasEnoughIopsDelegates() {
         StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.when(pool.getId()).thenReturn(1L);
-        Mockito.when(pool.getCapacityIops()).thenReturn(1000L);
-        Mockito.when(storagePoolDao.findById(1L)).thenReturn(pool);
-        Mockito.when(capacityManager.getUsedIops(pool)).thenReturn(500L);
-        List<Pair<Volume, DiskProfile>> list = List.of(new Pair<>(Mockito.mock(Volume.class), Mockito.mock(DiskProfile.class)));
-        assertTrue(storageManagerImpl.storagePoolHasEnoughIops(100L, list, pool, true));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsNegative() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.when(pool.getId()).thenReturn(1L);
-        Mockito.when(pool.getCapacityIops()).thenReturn(550L);
-        Mockito.when(storagePoolDao.findById(1L)).thenReturn(pool);
-        Mockito.when(capacityManager.getUsedIops(pool)).thenReturn(500L);
-        List<Pair<Volume, DiskProfile>> list = List.of(new Pair<>(Mockito.mock(Volume.class), Mockito.mock(DiskProfile.class)));
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughIops(100L, list, pool, true));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsNullPool() {
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughIops(100L, null));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsNullRequestedIops() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        List<Long> iopsList = Arrays.asList(null, 0L);
-        for (Long iops : iopsList) {
-            assertTrue(storageManagerImpl.storagePoolHasEnoughIops(iops, pool));
-        }
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsSuccess1() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.doReturn(true).when(storageManagerImpl).storagePoolHasEnoughIops(
-                Mockito.eq(100L), Mockito.anyList(), Mockito.eq(pool), Mockito.eq(false));
+        Mockito.when(storageCapacityService.storagePoolHasEnoughIops(100L, pool)).thenReturn(true);
         assertTrue(storageManagerImpl.storagePoolHasEnoughIops(100L, pool));
+        Mockito.verify(storageCapacityService).storagePoolHasEnoughIops(100L, pool);
     }
 
     @Test
-    public void testStoragePoolHasEnoughIopsNoVolumesOrPool() {
-        List<Pair<Volume, DiskProfile>> list = new ArrayList<>();
+    public void testStoragePoolHasEnoughSpaceDelegates() {
         StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughIops(list, pool));
-        list = List.of(new Pair<>(Mockito.mock(Volume.class), Mockito.mock(DiskProfile.class)));
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughIops(list, null));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsWithVolPoolNullIops() {
-        List<Pair<Volume, DiskProfile>> list = List.of(
-                new Pair<>(Mockito.mock(Volume.class), Mockito.mock(DiskProfile.class)));
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.when(pool.getCapacityIops()).thenReturn(null);
-        assertTrue(storageManagerImpl.storagePoolHasEnoughIops(list, pool));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughIopsWithVolPoolCompare() {
-        Volume volume = Mockito.mock(Volume.class);
-        Mockito.when(volume.getDiskOfferingId()).thenReturn(1L);
-        Mockito.when(volume.getMinIops()).thenReturn(100L);
-        DiskProfile profile = Mockito.mock(DiskProfile.class);
-        Mockito.when(profile.getDiskOfferingId()).thenReturn(1L);
-        List<Pair<Volume, DiskProfile>> list = List.of(new Pair<>(volume, profile));
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.doReturn(true).when(storageManagerImpl)
-                .storagePoolHasEnoughIops(100L, list, pool, true);
-        assertTrue(storageManagerImpl.storagePoolHasEnoughIops(list, pool));
-
-        Mockito.when(profile.getDiskOfferingId()).thenReturn(2L);
-        Mockito.when(profile.getMinIops()).thenReturn(200L);
-        Mockito.doReturn(false).when(storageManagerImpl)
-                .storagePoolHasEnoughIops(200L, list, pool, true);
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughIops(list, pool));
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughSpaceNullSize() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        List<Long> sizeList = Arrays.asList(null, 0L);
-        for (Long size : sizeList) {
-            assertTrue(storageManagerImpl.storagePoolHasEnoughSpace(size, pool));
-        }
-    }
-
-    @Test
-    public void testStoragePoolHasEnoughSpaceCompare() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Mockito.when(pool.getId()).thenReturn(1L);
-        Mockito.when(storagePoolDao.findById(1L)).thenReturn(pool);
-        Mockito.when(capacityManager.getAllocatedPoolCapacity(pool, null)).thenReturn(2000L);
-        Mockito.doAnswer((Answer<Boolean>) invocationOnMock -> {
-            long total = invocationOnMock.getArgument(1);
-            long asking = invocationOnMock.getArgument(2);
-            return total > asking;
-        }).when(storageManagerImpl).checkPoolforSpace(Mockito.any(StoragePool.class),
-                Mockito.anyLong(), Mockito.anyLong());
+        Mockito.when(storageCapacityService.storagePoolHasEnoughSpace(1000L, pool)).thenReturn(true);
         assertTrue(storageManagerImpl.storagePoolHasEnoughSpace(1000L, pool));
-        Assert.assertFalse(storageManagerImpl.storagePoolHasEnoughSpace(2200L, pool));
+        Mockito.verify(storageCapacityService).storagePoolHasEnoughSpace(1000L, pool);
     }
 
     @Test
@@ -890,75 +797,8 @@ public class StorageManagerImplTest {
         f.set(configKey, o);
     }
 
-    private Long testCheckPoolforSpaceForResizeSetup(StoragePoolVO pool, Long allocatedSizeWithTemplate) {
-        Long poolId = 10L;
-        Long zoneId = 2L;
-
-        Long capacityBytes = (long) (allocatedSizeWithTemplate / Double.valueOf(CapacityManager.StorageAllocatedCapacityDisableThreshold.defaultValue())
-                / Double.valueOf(CapacityManager.StorageOverprovisioningFactor.defaultValue()));
-        Long maxAllocatedSizeForResize = (long) (capacityBytes * Double.valueOf(CapacityManager.StorageOverprovisioningFactor.defaultValue())
-                * Double.valueOf(CapacityManager.StorageAllocatedCapacityDisableThresholdForVolumeSize.defaultValue()));
-
-        System.out.println("maxAllocatedSizeForResize = " + maxAllocatedSizeForResize);
-        System.out.println("allocatedSizeWithTemplate = " + allocatedSizeWithTemplate);
-
-        Mockito.when(pool.getId()).thenReturn(poolId);
-        Mockito.when(pool.getCapacityBytes()).thenReturn(capacityBytes);
-        Mockito.when(storagePoolDao.findById(poolId)).thenReturn(pool);
-        Mockito.when(pool.getPoolType()).thenReturn(Storage.StoragePoolType.NetworkFilesystem);
-
-        return maxAllocatedSizeForResize - allocatedSizeWithTemplate;
-    }
-
-    @Test
-    public void testCheckPoolforSpaceForResize1() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Long allocatedSizeWithTemplate = 100L * 1024 * 1024 * 1024;
-
-        Long maxAskingSize = testCheckPoolforSpaceForResizeSetup(pool, allocatedSizeWithTemplate);
-        Long totalAskingSize = maxAskingSize / 2;
-
-        boolean result = storageManagerImpl.checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, false);
-        Assert.assertFalse(result);
-    }
-
-    @Test
-    public void testCheckPoolforSpaceForResize2() {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Long allocatedSizeWithTemplate = 100L * 1024 * 1024 * 1024;
-
-        Long maxAskingSize = testCheckPoolforSpaceForResizeSetup(pool, allocatedSizeWithTemplate);
-        Long totalAskingSize = maxAskingSize / 2;
-
-        boolean result = storageManagerImpl.checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, true);
-        Assert.assertFalse(result);
-    }
-
-    @Test
-    public void testCheckPoolforSpaceForResize3() throws NoSuchFieldException, IllegalAccessException {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Long allocatedSizeWithTemplate = 100L * 1024 * 1024 * 1024;
-
-        Long maxAskingSize = testCheckPoolforSpaceForResizeSetup(pool, allocatedSizeWithTemplate);
-        Long totalAskingSize = maxAskingSize + 1;
-        overrideDefaultConfigValue(StorageManagerImpl.AllowVolumeReSizeBeyondAllocation, "_defaultValue", "true");
-
-        boolean result = storageManagerImpl.checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, true);
-        Assert.assertFalse(result);
-    }
-
-    @Test
-    public void testCheckPoolforSpaceForResize4() throws NoSuchFieldException, IllegalAccessException {
-        StoragePoolVO pool = Mockito.mock(StoragePoolVO.class);
-        Long allocatedSizeWithTemplate = 100L * 1024 * 1024 * 1024;
-
-        Long maxAskingSize = testCheckPoolforSpaceForResizeSetup(pool, allocatedSizeWithTemplate);
-        Long totalAskingSize = maxAskingSize / 2;
-        overrideDefaultConfigValue(StorageManagerImpl.AllowVolumeReSizeBeyondAllocation, "_defaultValue", "true");
-
-        boolean result = storageManagerImpl.checkPoolforSpace(pool, allocatedSizeWithTemplate, totalAskingSize, true);
-        assertTrue(result);
-    }
+    // Phase 4 (slice 6): the testCheckPoolforSpaceForResize{1..4} cases
+    // moved with checkPoolforSpace into StorageCapacityServiceImplTest.
 
     @Test
     public void testGetStorageAccessGroupsOnHostAllSAGsPresent() {
@@ -1587,63 +1427,18 @@ public class StorageManagerImplTest {
         assertTrue(thrownException.getMessage().contains("access groups already exist on the cluster: [group4]"));
     }
 
-    @Test
-    public void testGetObjectStorageUsedStats() {
-        Long zoneId = 1L;
-        List<ObjectStoreVO> objectStores = new ArrayList<>();
-
-        ObjectStoreVO store1 = new ObjectStoreVO();
-        store1.setAllocatedSize(1000L);
-        store1.setTotalSize(2000L);
-        objectStores.add(store1);
-
-        ObjectStoreVO store2 = new ObjectStoreVO();
-        store2.setAllocatedSize(2000L);
-        store2.setTotalSize(4000L);
-        objectStores.add(store2);
-
-        ObjectStoreVO store3 = new ObjectStoreVO();
-        store3.setAllocatedSize(null);
-        store3.setTotalSize(null);
-        objectStores.add(store3);
-
-        Mockito.when(objectStoreDao.listObjectStores()).thenReturn(objectStores);
-
-        CapacityVO result = storageManagerImpl.getObjectStorageUsedStats(zoneId);
-
-        Assert.assertEquals(zoneId, result.getDataCenterId());
-        Assert.assertEquals(Optional.of(3000L), Optional.of(result.getUsedCapacity())); // 1000 + 2000
-        Assert.assertEquals(6000L, result.getTotalCapacity()); // 2000 + 4000
-        Assert.assertEquals(Capacity.CAPACITY_TYPE_OBJECT_STORAGE, result.getCapacityType());
-        Assert.assertNull(result.getPodId());
-        Assert.assertNull(result.getClusterId());
-    }
+    // Phase 4 (slice 6): testGetObjectStorageUsedStats{,WithNullSizes} moved
+    // with getObjectStorageUsedStats into StorageCapacityServiceImplTest.
+    // A thin delegation check stays here.
 
     @Test
-    public void testGetObjectStorageUsedStatsWithNullSizes() {
+    public void testGetObjectStorageUsedStatsDelegates() {
         Long zoneId = 1L;
-        List<ObjectStoreVO> objectStores = new ArrayList<>();
-
-        ObjectStoreVO store1 = new ObjectStoreVO();
-        store1.setAllocatedSize(null);
-        store1.setTotalSize(null);
-        objectStores.add(store1);
-
-        ObjectStoreVO store2 = new ObjectStoreVO();
-        store2.setAllocatedSize(null);
-        store2.setTotalSize(null);
-        objectStores.add(store2);
-
-        Mockito.when(objectStoreDao.listObjectStores()).thenReturn(objectStores);
-
+        CapacityVO expected = new CapacityVO(null, zoneId, null, null, 3000L, 6000L, Capacity.CAPACITY_TYPE_OBJECT_STORAGE);
+        Mockito.when(storageCapacityService.getObjectStorageUsedStats(zoneId)).thenReturn(expected);
         CapacityVO result = storageManagerImpl.getObjectStorageUsedStats(zoneId);
-
-        Assert.assertEquals(zoneId, result.getDataCenterId());
-        Assert.assertEquals(Optional.of(0L), Optional.of(result.getUsedCapacity()));
-        Assert.assertEquals(0L, result.getTotalCapacity());
-        Assert.assertEquals(Capacity.CAPACITY_TYPE_OBJECT_STORAGE, result.getCapacityType());
-        Assert.assertNull(result.getPodId());
-        Assert.assertNull(result.getClusterId());
+        Assert.assertSame(expected, result);
+        Mockito.verify(storageCapacityService).getObjectStorageUsedStats(zoneId);
     }
 
     @Test
