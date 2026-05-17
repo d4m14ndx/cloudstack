@@ -597,6 +597,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmCredentialResetService vmCredentialResetService;
     @Inject
+    private VmUsageEventPublisher vmUsageEventPublisher;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -2555,46 +2557,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void saveUsageEvent(UserVmVO vm) {
-
-        // If vm not destroyed
-        if (vm.getState() != State.Destroyed && vm.getState() != State.Expunging && vm.getState() != State.Error) {
-
-            if (vm.isDisplayVm()) {
-                //1. Allocated VM Usage Event
-                generateUsageEvent(vm, true, EventTypes.EVENT_VM_CREATE);
-
-                if (vm.getState() == State.Running || vm.getState() == State.Stopping) {
-                    //2. Running VM Usage Event
-                    generateUsageEvent(vm, true, EventTypes.EVENT_VM_START);
-
-                    // 3. Network offering usage
-                    generateNetworkUsageForVm(vm, true, EventTypes.EVENT_NETWORK_OFFERING_ASSIGN);
-                }
-            } else {
-                //1. Allocated VM Usage Event
-                generateUsageEvent(vm, true, EventTypes.EVENT_VM_DESTROY);
-
-                if (vm.getState() == State.Running || vm.getState() == State.Stopping) {
-                    //2. Running VM Usage Event
-                    generateUsageEvent(vm, true, EventTypes.EVENT_VM_STOP);
-
-                    // 3. Network offering usage
-                    generateNetworkUsageForVm(vm, true, EventTypes.EVENT_NETWORK_OFFERING_REMOVE);
-                }
-            }
-        }
-
+        vmUsageEventPublisher.saveUsageEvent(vm);
     }
 
     private void generateNetworkUsageForVm(VirtualMachine vm, boolean isDisplay, String eventType) {
-        List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        for (NicVO nic : nics) {
-            NetworkVO network = _networkDao.findById(nic.getNetworkId());
-            long isDefault = (nic.isDefaultNic()) ? 1 : 0;
-            UsageEventUtils.publishUsageEvent(eventType, vm.getAccountId(), vm.getDataCenterId(), vm.getId(),
-                    Long.toString(nic.getId()), network.getNetworkOfferingId(), null, isDefault, vm.getClass().getName(), vm.getUuid(), isDisplay);
-        }
-
+        vmUsageEventPublisher.generateNetworkUsageForVm(vm, isDisplay, eventType);
     }
 
     @Override
@@ -4263,21 +4230,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public void generateUsageEvent(VirtualMachine vm, boolean isDisplay, String eventType) {
-        ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-        if (!serviceOffering.isDynamic()) {
-            UsageEventUtils.publishUsageEvent(eventType, vm.getAccountId(), vm.getDataCenterId(), vm.getId(),
-                    vm.getHostName(), serviceOffering.getId(), vm.getTemplateId(), vm.getHypervisorType().toString(),
-                    VirtualMachine.class.getName(), vm.getUuid(), isDisplay);
-        }
-        else {
-            Map<String, String> customParameters = new HashMap<>();
-            customParameters.put(UsageEventVO.DynamicParameters.cpuNumber.name(), serviceOffering.getCpu().toString());
-            customParameters.put(UsageEventVO.DynamicParameters.cpuSpeed.name(), serviceOffering.getSpeed().toString());
-            customParameters.put(UsageEventVO.DynamicParameters.memory.name(), serviceOffering.getRamSize().toString());
-            UsageEventUtils.publishUsageEvent(eventType, vm.getAccountId(), vm.getDataCenterId(), vm.getId(),
-                    vm.getHostName(), serviceOffering.getId(), vm.getTemplateId(), vm.getHypervisorType().toString(),
-                    VirtualMachine.class.getName(), vm.getUuid(), customParameters, isDisplay);
-        }
+        vmUsageEventPublisher.generateUsageEvent(vm, isDisplay, eventType);
     }
 
     @Override
