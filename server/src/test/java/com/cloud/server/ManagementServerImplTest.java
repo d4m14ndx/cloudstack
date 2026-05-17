@@ -237,6 +237,16 @@ public class ManagementServerImplTest {
         AuditTrailService auditTrailServiceMock = Mockito.mock(AuditTrailService.class);
         ReflectionTestUtils.setField(spy, "auditTrailService", auditTrailServiceMock);
 
+        // Hypervisor capabilities slice: wire a mock
+        // HypervisorCapabilitiesService so the listHypervisorCapabilities
+        // and updateHypervisorCapabilities delegating wrappers on the god
+        // class have a non-null collaborator. Focused tests live in
+        // HypervisorCapabilitiesServiceImplTest.
+        HypervisorCapabilitiesService hypervisorCapabilitiesServiceMock =
+                Mockito.mock(HypervisorCapabilitiesService.class);
+        ReflectionTestUtils.setField(spy, "hypervisorCapabilitiesService",
+                hypervisorCapabilitiesServiceMock);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method

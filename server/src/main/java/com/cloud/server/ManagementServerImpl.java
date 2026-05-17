@@ -986,6 +986,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected AuditTrailService auditTrailService;
     @Inject
+    protected HypervisorCapabilitiesService hypervisorCapabilitiesService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -5419,120 +5421,12 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Override
     public Pair<List<? extends HypervisorCapabilities>, Integer> listHypervisorCapabilities(final Long id, final HypervisorType hypervisorType, final String keyword, final Long startIndex,
             final Long pageSizeVal) {
-        final Filter searchFilter = new Filter(HypervisorCapabilitiesVO.class, "id", true, startIndex, pageSizeVal);
-        final SearchCriteria<HypervisorCapabilitiesVO> sc = _hypervisorCapabilitiesDao.createSearchCriteria();
-
-        if (id != null) {
-            sc.addAnd("id", SearchCriteria.Op.EQ, id);
-        }
-
-        if (hypervisorType != null) {
-            sc.addAnd("hypervisorType", SearchCriteria.Op.EQ, hypervisorType);
-        }
-
-        if (keyword != null) {
-            final SearchCriteria<HypervisorCapabilitiesVO> ssc = _hypervisorCapabilitiesDao.createSearchCriteria();
-            ssc.addOr("hypervisorType", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            sc.addAnd("hypervisorType", SearchCriteria.Op.SC, ssc);
-        }
-
-        final Pair<List<HypervisorCapabilitiesVO>, Integer> result = _hypervisorCapabilitiesDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
-    }
-
-    protected HypervisorCapabilitiesVO getHypervisorCapabilitiesForUpdate(final Long id, final String hypervisorStr, final String hypervisorVersion) {
-        if (id == null && StringUtils.isAllEmpty(hypervisorStr, hypervisorVersion)) {
-            throw new InvalidParameterValueException("Either ID or hypervisor and hypervisor version must be specified");
-        }
-        if (id != null) {
-            if (!StringUtils.isAllBlank(hypervisorStr, hypervisorVersion)) {
-                throw new InvalidParameterValueException("ID can not be specified together with hypervisor and hypervisor version");
-            }
-            HypervisorCapabilitiesVO hpvCapabilities = _hypervisorCapabilitiesDao.findById(id, true);
-            if (hpvCapabilities == null) {
-                final InvalidParameterValueException ex = new InvalidParameterValueException("unable to find the hypervisor capabilities for specified id");
-                ex.addProxyObject(id.toString(), "Id");
-                throw ex;
-            }
-            return hpvCapabilities;
-        }
-        if (StringUtils.isAnyBlank(hypervisorStr, hypervisorVersion)) {
-            throw new InvalidParameterValueException("Hypervisor and hypervisor version must be specified together");
-        }
-        HypervisorType hypervisorType = HypervisorType.getType(hypervisorStr);
-        if (hypervisorType == HypervisorType.None) {
-            throw new InvalidParameterValueException("Invalid hypervisor specified");
-        }
-        HypervisorCapabilitiesVO hpvCapabilities = _hypervisorCapabilitiesDao.findByHypervisorTypeAndVersion(hypervisorType, hypervisorVersion);
-        if (hpvCapabilities == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find the hypervisor capabilities for specified hypervisor and hypervisor version");
-            ex.addProxyObject(hypervisorStr, "hypervisor");
-            ex.addProxyObject(hypervisorVersion, "hypervisorVersion");
-            throw ex;
-        }
-        return hpvCapabilities;
+        return hypervisorCapabilitiesService.listHypervisorCapabilities(id, hypervisorType, keyword, startIndex, pageSizeVal);
     }
 
     @Override
     public HypervisorCapabilities updateHypervisorCapabilities(UpdateHypervisorCapabilitiesCmd cmd) {
-        Long id = cmd.getId();
-        final String hypervisorStr = cmd.getHypervisor();
-        final String hypervisorVersion = cmd.getHypervisorVersion();
-        final Boolean securityGroupEnabled = cmd.getSecurityGroupEnabled();
-        final Long maxGuestsLimit = cmd.getMaxGuestsLimit();
-        final Integer maxDataVolumesLimit = cmd.getMaxDataVolumesLimit();
-        final Boolean storageMotionSupported = cmd.getStorageMotionSupported();
-        final Integer maxHostsPerClusterLimit = cmd.getMaxHostsPerClusterLimit();
-        final Boolean vmSnapshotEnabled = cmd.getVmSnapshotEnabled();
-        HypervisorCapabilitiesVO hpvCapabilities = getHypervisorCapabilitiesForUpdate(id, hypervisorStr, hypervisorVersion);
-
-        final boolean updateNeeded = securityGroupEnabled != null || maxGuestsLimit != null ||
-                maxDataVolumesLimit != null || storageMotionSupported != null || maxHostsPerClusterLimit != null ||
-                vmSnapshotEnabled != null;
-        if (!updateNeeded) {
-            return hpvCapabilities;
-        }
-        if (StringUtils.isNotBlank(hypervisorVersion) && !hpvCapabilities.getHypervisorVersion().equals(hypervisorVersion)) {
-            logger.debug(String.format("Hypervisor capabilities for hypervisor: %s and version: %s does not exist, creating a copy from the parent version: %s for update.", hypervisorStr, hypervisorVersion, hpvCapabilities.getHypervisorVersion()));
-            HypervisorCapabilitiesVO copy = new HypervisorCapabilitiesVO(hpvCapabilities);
-            copy.setHypervisorVersion(hypervisorVersion);
-            hpvCapabilities = _hypervisorCapabilitiesDao.persist(copy);
-        }
-
-        id = hpvCapabilities.getId();
-        hpvCapabilities = _hypervisorCapabilitiesDao.createForUpdate(id);
-
-        if (securityGroupEnabled != null) {
-            hpvCapabilities.setSecurityGroupEnabled(securityGroupEnabled);
-        }
-
-        if (maxGuestsLimit != null) {
-            hpvCapabilities.setMaxGuestsLimit(maxGuestsLimit);
-        }
-
-        if (maxDataVolumesLimit != null) {
-            hpvCapabilities.setMaxDataVolumesLimit(maxDataVolumesLimit);
-        }
-
-        if (storageMotionSupported != null) {
-            hpvCapabilities.setStorageMotionSupported(storageMotionSupported);
-        }
-
-        if (maxHostsPerClusterLimit != null) {
-            hpvCapabilities.setMaxHostsPerCluster(maxHostsPerClusterLimit);
-        }
-
-        if (vmSnapshotEnabled != null) {
-            hpvCapabilities.setVmSnapshotEnabled(vmSnapshotEnabled);
-        }
-
-        if (_hypervisorCapabilitiesDao.update(id, hpvCapabilities)) {
-            hpvCapabilities = _hypervisorCapabilitiesDao.findById(id);
-            CallContext.current().setEventDetails("Hypervisor Capabilities ID: " + hpvCapabilities.getUuid());
-            return hpvCapabilities;
-        } else {
-            return null;
-        }
+        return hypervisorCapabilitiesService.updateHypervisorCapabilities(cmd);
     }
 
     @Override
