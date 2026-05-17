@@ -425,9 +425,9 @@ public class ConfigurationManagerImplTest {
     @Test
     public void testDeleteZoneDelegatesToZoneService() {
         // The full NSX/Netris provider cleanup behavior now lives in ZoneServiceImpl
-        // and is covered by ZoneServiceImplTest. ConfigurationManagerImpl.deleteZone
-        // is now a one-line delegating wrapper, so we just verify the delegation.
-        // TODO: port the original NSX-cleanup behavior assertion into ZoneServiceImplTest.
+        // and is covered by ZoneServiceImplTest#testDeleteZoneRemovesNsxProviderWhenZoneHasNsxProvider
+        // and ZoneServiceImplTest#testDeleteZoneRemovesNetrisProviderWhenZoneHasNetrisProvider.
+        // ConfigurationManagerImpl.deleteZone is now a one-line delegating wrapper.
         when(zoneService.deleteZone(deleteZoneCmd)).thenReturn(true);
 
         boolean result = configurationManagerImplSpy.deleteZone(deleteZoneCmd);
