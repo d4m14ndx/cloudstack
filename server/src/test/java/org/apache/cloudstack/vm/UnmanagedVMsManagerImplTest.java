@@ -250,6 +250,8 @@ public class UnmanagedVMsManagerImplTest {
     private SnapshotDao snapshotDao;
     @Mock
     private UnmanagedInstanceNicValidator unmanagedInstanceNicValidator;
+    @Mock
+    private UnmanagedInstanceDiskValidator unmanagedInstanceDiskValidator;
 
     @Mock
     private VMInstanceVO virtualMachine;
@@ -368,11 +370,34 @@ public class UnmanagedVMsManagerImplTest {
         userVm.setInstanceName(instance.getName());
         userVm.setHostName(instance.getName());
         StoragePoolVO poolVO = Mockito.mock(StoragePoolVO.class);
-        when(poolVO.getDataCenterId()).thenReturn(1L);
-        when(poolVO.getClusterId()).thenReturn(clusterVO.getId());
+        // These pool stubs are no longer reached through the manager (disk lookup
+        // is delegated to the mocked UnmanagedInstanceDiskValidator below) but
+        // a few tests still depend on the poolVO being properly shaped if they
+        // pull it back out of storage maps; keep them lenient.
+        Mockito.lenient().when(poolVO.getDataCenterId()).thenReturn(1L);
+        Mockito.lenient().when(poolVO.getClusterId()).thenReturn(clusterVO.getId());
         List<StoragePoolVO> pools = new ArrayList<>();
         pools.add(poolVO);
-        when(primaryDataStoreDao.listPoolByHostPath(Mockito.anyString(), Mockito.anyString())).thenReturn(pools);
+        Mockito.lenient().when(primaryDataStoreDao.listPoolByHostPath(Mockito.anyString(), Mockito.anyString())).thenReturn(pools);
+        // Disk-validation flow is exercised end-to-end through the manager wrappers
+        // (extracted into UnmanagedInstanceDiskValidator); for orchestration tests
+        // we stub the validator with sensible defaults so the import path can
+        // continue past the disk-mapping step. Each disk in the fixture is treated
+        // as the root, and the resolved storage pool is the same one wired above.
+        Mockito.lenient().when(unmanagedInstanceDiskValidator.getRootAndDataDisks(
+                Mockito.anyList(), Mockito.anyMap())).thenAnswer(inv -> {
+            List<UnmanagedInstanceTO.Disk> disks = inv.getArgument(0);
+            UnmanagedInstanceTO.Disk root = disks.isEmpty() ? null : disks.get(0);
+            List<UnmanagedInstanceTO.Disk> dataDisks = disks.size() > 1
+                    ? new ArrayList<>(disks.subList(1, disks.size()))
+                    : new ArrayList<>();
+            return new Pair<>(root, dataDisks);
+        });
+        Mockito.lenient().when(unmanagedInstanceDiskValidator.getStoragePool(
+                Mockito.any(UnmanagedInstanceTO.Disk.class), Mockito.any(DataCenter.class),
+                Mockito.any(), Mockito.any())).thenReturn(poolVO);
+        Mockito.lenient().when(unmanagedInstanceDiskValidator.storagePoolSupportsDiskOffering(
+                Mockito.any(), Mockito.any())).thenReturn(true);
         when(userVmManager.importVM(nullable(DataCenter.class), nullable(Host.class), nullable(VirtualMachineTemplate.class), nullable(String.class), nullable(String.class),
                 nullable(Account.class), nullable(String.class), nullable(Account.class), nullable(Boolean.class), nullable(String.class),
                 nullable(Long.class), nullable(Long.class), nullable(ServiceOffering.class), nullable(String.class), nullable(Long.class),
@@ -461,7 +486,9 @@ public class UnmanagedVMsManagerImplTest {
         ImportUnmanagedInstanceCmd importUnmanageInstanceCmd = Mockito.mock(ImportUnmanagedInstanceCmd.class);
         when(importUnmanageInstanceCmd.getName()).thenReturn("TestInstance");
         when(importUnmanageInstanceCmd.getDomainId()).thenReturn(null);
-        when(volumeApiService.doesStoragePoolSupportDiskOffering(any(StoragePool.class), any())).thenReturn(true);
+        // Disk-pool compatibility is now stubbed on the extracted disk validator
+        // in setUp(); the volumeApiService stub that used to live here is no
+        // longer reached through the manager.
         try (MockedStatic<UsageEventUtils> ignored = Mockito.mockStatic(UsageEventUtils.class);
              MockedConstruction<CheckedReservation> mockCheckedReservation = Mockito.mockConstruction(CheckedReservation.class)) {
             unmanagedVMsManager.importUnmanagedInstance(importUnmanageInstanceCmd);
@@ -841,8 +868,13 @@ public class UnmanagedVMsManagerImplTest {
         when(dataStore.getTO()).thenReturn(dataStoreTO);
 
         StoragePoolVO destPool = mock(StoragePoolVO.class);
-        when(destPool.getDataCenterId()).thenReturn(zoneId);
-        when(destPool.getClusterId()).thenReturn(null);
+        // The destPool/zone/cluster wiring and listPoolByHostPath stub used to
+        // satisfy the disk-validation path inside the manager; that path is now
+        // delegated to the mocked UnmanagedInstanceDiskValidator. Keep the
+        // stubs lenient — some tests still need them for the temporary-storage
+        // branch, others now skip them entirely.
+        Mockito.lenient().when(destPool.getDataCenterId()).thenReturn(zoneId);
+        Mockito.lenient().when(destPool.getClusterId()).thenReturn(null);
         when(destPool.getPoolType()).thenReturn(Storage.StoragePoolType.NetworkFilesystem);
         StoragePoolVO zoneDestPool = mock(StoragePoolVO.class);
         if (selectTemporaryStorage) {
@@ -852,11 +884,11 @@ public class UnmanagedVMsManagerImplTest {
             when(dataStoreManager.getPrimaryDataStore(temporaryStoragePoolId)).thenReturn(dataStore);
         } else {
             ImageStoreVO imageStoreVO = mock(ImageStoreVO.class);
-            when(imageStoreVO.getId()).thenReturn(1L);
+            Mockito.lenient().when(imageStoreVO.getId()).thenReturn(1L);
             when(imageStoreDao.findOneByZoneAndProtocol(zoneId, "nfs")).thenReturn(imageStoreVO);
             when(dataStoreManager.getDataStore(1L, DataStoreRole.Image)).thenReturn(dataStore);
         }
-        when(primaryDataStoreDao.listPoolByHostPath(Mockito.anyString(), Mockito.anyString())).thenReturn(List.of(destPool));
+        Mockito.lenient().when(primaryDataStoreDao.listPoolByHostPath(Mockito.anyString(), Mockito.anyString())).thenReturn(List.of(destPool));
         when(primaryDataStoreDao.findClusterWideStoragePoolsByHypervisorAndPoolType(clusterId, Hypervisor.HypervisorType.KVM, Storage.StoragePoolType.NetworkFilesystem)).thenReturn(List.of(destPool));
         when(primaryDataStoreDao.findZoneWideStoragePoolsByHypervisorAndPoolType(zoneId, Hypervisor.HypervisorType.KVM, Storage.StoragePoolType.NetworkFilesystem)).thenReturn(List.of(zoneDestPool));
 
@@ -901,7 +933,10 @@ public class UnmanagedVMsManagerImplTest {
 
         when(importVmTasksManager.createImportVMTaskRecord(any(DataCenter.class), any(Account.class), anyLong(), anyString(),
                 anyString(), anyString(), anyString(), any(Host.class), any(Host.class))).thenReturn(importVMTaskVO);
-        when(volumeApiService.doesStoragePoolSupportDiskOffering(any(StoragePool.class), any(DiskOffering.class))).thenReturn(true);
+        // Pool-offering compatibility is now stubbed on the extracted disk
+        // validator in setUp(); the validateSelectedConversionStoragePoolForVddk
+        // tests stub volumeApiService directly when they need it.
+        Mockito.lenient().when(volumeApiService.doesStoragePoolSupportDiskOffering(any(StoragePool.class), any(DiskOffering.class))).thenReturn(true);
 
         ConvertInstanceAnswer convertInstanceAnswer = mock(ConvertInstanceAnswer.class);
         ImportConvertedInstanceAnswer convertImportedInstanceAnswer = mock(ImportConvertedInstanceAnswer.class);
@@ -984,7 +1019,10 @@ public class UnmanagedVMsManagerImplTest {
         storagePools.add(storagePool);
         when(primaryDataStoreDao.findLocalStoragePoolsByHostAndTags(anyLong(), any())).thenReturn(storagePools);
         when(primaryDataStoreDao.findById(anyLong())).thenReturn(storagePool);
-        when(volumeApiService.doesStoragePoolSupportDiskOffering(any(StoragePool.class), any())).thenReturn(true);
+        // Pool-offering compatibility is now stubbed on the extracted disk
+        // validator in setUp(); the direct volumeApiService stub is no longer
+        // reached through the manager for this flow.
+        Mockito.lenient().when(volumeApiService.doesStoragePoolSupportDiskOffering(any(StoragePool.class), any())).thenReturn(true);
         StoragePoolHostVO storagePoolHost = Mockito.mock(StoragePoolHostVO.class);
         when(storagePoolHostDao.findByPoolHost(anyLong(), anyLong())).thenReturn(storagePoolHost);
         try (MockedStatic<UsageEventUtils> ignored = Mockito.mockStatic(UsageEventUtils.class);
