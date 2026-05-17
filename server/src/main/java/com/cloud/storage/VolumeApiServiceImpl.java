@@ -374,6 +374,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private VolumeExtractService volumeExtractService;
     @Inject
     private VolumeHostTopologyService volumeHostTopologyService;
+    @Inject
+    private VolumeMigrationValidator volumeMigrationValidator;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -3526,29 +3528,15 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     private void checkVmStateForMigration(VMInstanceVO vm, VolumeVO vol) {
-        List<State> suitableVmStatesForMigration = List.of(State.Stopped, State.Running, State.Shutdown);
-
-        if (!suitableVmStatesForMigration.contains(vm.getState())) {
-            logger.debug(String.format(
-                    "Unable to migrate volume: [%s] Id: [%s] because the VM: [%s] Id: [%s] is in state [%s], which is not supported for migration.",
-                    vol.getName(), vol.getId(), vm.getInstanceName(), vm.getUuid(), vm.getState()
-            ));
-
-            throw new CloudRuntimeException(String.format(
-                    "Volume migration is not allowed when the VM is in the %s state. Supported states are: %s.",
-                    vm.getState(), suitableVmStatesForMigration
-            ));
-        }
+        volumeMigrationValidator.checkVmStateForMigration(vm, vol);
     }
 
     private boolean isSourceOrDestNotOnStorPool(StoragePoolVO storagePoolVO, StoragePoolVO destinationStoragePoolVo) {
-        return storagePoolVO.getPoolType() != Storage.StoragePoolType.StorPool
-                || destinationStoragePoolVo.getPoolType() != Storage.StoragePoolType.StorPool;
+        return volumeMigrationValidator.isSourceOrDestNotOnStorPool(storagePoolVO, destinationStoragePoolVo);
     }
 
     private boolean isSourceAndDestOnStorPool(StoragePoolVO storagePoolVO, StoragePoolVO destinationStoragePoolVo) {
-        return storagePoolVO.getPoolType() == Storage.StoragePoolType.StorPool
-                && destinationStoragePoolVo.getPoolType() == Storage.StoragePoolType.StorPool;
+        return volumeMigrationValidator.isSourceAndDestOnStorPool(storagePoolVO, destinationStoragePoolVo);
     }
 
     /**
@@ -3563,27 +3551,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      * If all checks pass, we move forward returning the disk offering object.
      */
     private DiskOfferingVO retrieveAndValidateNewDiskOffering(MigrateVolumeCmd cmd) {
-        Long newDiskOfferingId = cmd.getNewDiskOfferingId();
-        if (newDiskOfferingId == null) {
-            return null;
-        }
-        DiskOfferingVO newDiskOffering = _diskOfferingDao.findById(newDiskOfferingId);
-        if (newDiskOffering == null) {
-            throw new InvalidParameterValueException(String.format("The disk offering informed is not valid [id=%s].", newDiskOfferingId));
-        }
-        if (newDiskOffering.getRemoved() != null) {
-            throw new InvalidParameterValueException(String.format("We cannot assign a removed disk offering [id=%s] to a volume. ", newDiskOffering.getUuid()));
-        }
-        Account caller = CallContext.current().getCallingAccount();
-        DataCenter zone = null;
-        Volume volume = _volsDao.findById(cmd.getId());
-        if (volume == null) {
-            throw new InvalidParameterValueException(String.format("Provided volume id is not valid: %s", cmd.getId()));
-        }
-        zone = _dcDao.findById(volume.getDataCenterId());
-
-        _accountMgr.checkAccess(caller, newDiskOffering, zone);
-        return newDiskOffering;
+        return volumeMigrationValidator.retrieveAndValidateNewDiskOffering(cmd);
     }
 
     /**
