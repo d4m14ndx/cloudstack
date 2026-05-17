@@ -104,6 +104,7 @@ spies still work.
 | 14 | `VmSecurityGroupAssignmentService` | security-group ID resolution (names→IDs, mutex check, VNF-appliance default group injection) + stopped-VM security-group reassignment (`checkAndUpdateSecurityGroupForVM` / `updateSecurityGroup`) | 20 |
 | 15 | `VmCredentialResetService` | userdata propagation (`updateUserData`, `applyUserData`), userdata finalization (`finalizeUserData`), password encryption (`encryptAndStorePassword`), SSH-key detail cleanup (`removeEncryptedPasswordFromUserVmVoDetails`) | 21 |
 | 16 | `VmUsageEventPublisher` | VM-level usage event publishing (`generateUsageEvent` with dynamic-offering parameter support), per-NIC network-offering events (`generateNetworkUsageForVm`), and the state-aware bulk publish fired on `displayVm` flips (`saveUsageEvent`) | 20 |
+| 17 | `VmDisplayFlagService` | `displayVm` flag mutation: set flag on the VO, conditional VM resource-count increment/decrement (suppressed when `resource.count.running.vms.only` is on), bulk usage-event publication via `VmUsageEventPublisher`, and ROOT + DATADISK volume display cascade | 15 |
 
 Each slice keeps the orchestration that needs spy-verified inner calls
 inside `UserVmManagerImpl` — the leaf methods become thin wrappers that
