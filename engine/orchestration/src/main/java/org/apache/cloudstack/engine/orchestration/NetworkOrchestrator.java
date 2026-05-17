@@ -83,8 +83,6 @@ import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.deployasis.OVFNetworkTO;
 import com.cloud.alert.AlertManager;
-import com.cloud.api.query.dao.DomainRouterJoinDao;
-import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.bgp.BGPService;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource;
@@ -331,8 +329,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     @Inject
     DomainRouterDao routerDao;
     @Inject
-    DomainRouterJoinDao routerJoinDao;
-    @Inject
     RemoteAccessVpnDao _remoteAccessVpnDao;
     @Inject
     VpcVirtualNetworkApplianceService _routerService;
@@ -446,6 +442,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NetworkProviderResolutionService networkProviderResolutionService;
     @Inject
     NicDhcpCleanupService nicDhcpCleanupService;
+    @Inject
+    NicProfileMtuService nicProfileMtuService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -1159,10 +1157,10 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         final NicProfile vmNic = new NicProfile(vo, network, vo.getBroadcastUri(), vo.getIsolationUri(), networkRate, _networkModel.isSecurityGroupSupportedInNetwork(network),
                 _networkModel.getNetworkTag(vm.getHypervisorType(), network));
         if (vm.getType() == Type.DomainRouter) {
-            Pair<NetworkVO, VpcVO> networks = getGuestNetworkRouterAndVpcDetails(vm.getId());
-            setMtuDetailsInVRNic(networks, network, vo);
+            Pair<NetworkVO, VpcVO> networks = nicProfileMtuService.getGuestNetworkRouterAndVpcDetails(vm.getId());
+            nicProfileMtuService.setMtuDetailsInVRNic(networks, network, vo);
             _nicDao.update(vo.getId(), vo);
-            setMtuInVRNicProfile(networks, network.getTrafficType(), vmNic);
+            nicProfileMtuService.setMtuInVRNicProfile(networks, network.getTrafficType(), vmNic);
         }
         return new Pair<>(vmNic, Integer.valueOf(deviceId));
     }
@@ -1199,59 +1197,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         }
         boolean isForProvider = vlanDetail.getValue().equalsIgnoreCase("true");
         return isForProvider && !ip.isForSystemVms();
-    }
-
-    private void setMtuDetailsInVRNic(final Pair<NetworkVO, VpcVO> networks, Network network, NicVO vo) {
-        if (TrafficType.Public == network.getTrafficType()) {
-            if (networks == null) {
-                return;
-            }
-            NetworkVO networkVO = networks.first();
-            VpcVO vpcVO = networks.second();
-            if (vpcVO != null) {
-                vo.setMtu(vpcVO.getPublicMtu());
-            } else {
-                vo.setMtu(networkVO.getPublicMtu());
-            }
-        } else if (TrafficType.Guest == network.getTrafficType()) {
-            vo.setMtu(network.getPrivateMtu());
-        }
-    }
-
-    private void setMtuInVRNicProfile(final Pair<NetworkVO, VpcVO> networks, TrafficType trafficType, NicProfile vmNic) {
-        if (networks == null) {
-            return;
-        }
-        NetworkVO networkVO = networks.first();
-        VpcVO vpcVO = networks.second();
-        if (networkVO != null) {
-            if (TrafficType.Public == trafficType) {
-                if (vpcVO != null) {
-                    vmNic.setMtu(vpcVO.getPublicMtu());
-                } else {
-                    vmNic.setMtu(networkVO.getPublicMtu());
-                }
-            } else if (TrafficType.Guest == trafficType) {
-                vmNic.setMtu(networkVO.getPrivateMtu());
-            }
-        }
-    }
-
-    private Pair<NetworkVO, VpcVO> getGuestNetworkRouterAndVpcDetails(long routerId) {
-        List<DomainRouterJoinVO> routerVo = routerJoinDao.getRouterByIdAndTrafficType(routerId, TrafficType.Guest);
-        if (routerVo.isEmpty()) {
-            routerVo = routerJoinDao.getRouterByIdAndTrafficType(routerId, TrafficType.Public);
-            if (routerVo.isEmpty()) {
-                return null;
-            }
-        }
-        DomainRouterJoinVO guestRouterDetails = routerVo.get(0);
-        VpcVO vpc = null;
-        if (guestRouterDetails.getVpcId() != 0)  {
-            vpc = _entityMgr.findById(VpcVO.class, guestRouterDetails.getVpcId());
-        }
-        long networkId = guestRouterDetails.getNetworkId();
-        return new Pair<>(_networksDao.findById(networkId), vpc);
     }
 
     /**
@@ -2170,8 +2115,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
             final NetworkVO network = implemented.second();
             final NicProfile profile = prepareNic(vmProfile, dest, context, nic.getId(), network);
             if (vmProfile.getType() == Type.DomainRouter) {
-                Pair<NetworkVO, VpcVO> networks = getGuestNetworkRouterAndVpcDetails(vmProfile.getId());
-                setMtuInVRNicProfile(networks, network.getTrafficType(), profile);
+                Pair<NetworkVO, VpcVO> networks = nicProfileMtuService.getGuestNetworkRouterAndVpcDetails(vmProfile.getId());
+                nicProfileMtuService.setMtuInVRNicProfile(networks, network.getTrafficType(), profile);
             }
             vmProfile.addNic(profile);
         }
@@ -2226,8 +2171,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         }
 
         if (vmProfile.getType() == Type.DomainRouter) {
-            Pair<NetworkVO, VpcVO> networks = getGuestNetworkRouterAndVpcDetails(vmProfile.getId());
-            setMtuDetailsInVRNic(networks, network, nic);
+            Pair<NetworkVO, VpcVO> networks = nicProfileMtuService.getGuestNetworkRouterAndVpcDetails(vmProfile.getId());
+            nicProfileMtuService.setMtuDetailsInVRNic(networks, network, nic);
         }
         updateNic(nic, network, 1);
 
@@ -4685,8 +4630,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
                     _networksDao.setCheckForGc(network.getId());
                 }
                 if (vm.getType() == Type.DomainRouter) {
-                    Pair<NetworkVO, VpcVO> networks = getGuestNetworkRouterAndVpcDetails(vm.getId());
-                    setMtuDetailsInVRNic(networks, network, vo);
+                    Pair<NetworkVO, VpcVO> networks = nicProfileMtuService.getGuestNetworkRouterAndVpcDetails(vm.getId());
+                    nicProfileMtuService.setMtuDetailsInVRNic(networks, network, vo);
                 }
 
                 return vo;
