@@ -263,6 +263,20 @@ public class AccountManagentImplTestBase {
         org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userDao", userDaoMock);
         org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userAccountDao", userAccountDao);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyLifecycleService", apiKeyLifecycleService);
+        // Phase 4 slice (4th): wire TwoFactorAuthenticationServiceImpl so the
+        // AccountManagerImpl delegating wrappers (listUserTwoFactorAuthenticationProviders,
+        // getUserTwoFactorAuthenticationProvider, getUserTwoFactorAuthenticator,
+        // clearUserTwoFactorAuthenticationInSetupStateOnLogin,
+        // initializeUserTwoFactorAuthenticationProvidersMap) still exercise the
+        // same code paths the legacy 2FA tests assert on. The service reads/writes
+        // the static AccountManagerImpl.userTwoFactorAuthenticationProvidersMap so
+        // the existing testEnable2FAcode / testVerify2FAcode tests that mutate that
+        // static map directly continue to work unchanged.
+        TwoFactorAuthenticationServiceImpl twoFactorAuthenticationService = new TwoFactorAuthenticationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "accountService", _accountService);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "twoFactorAuthenticationService", twoFactorAuthenticationService);
         CallContext.register(callingUser, callingAccount);
     }
 
