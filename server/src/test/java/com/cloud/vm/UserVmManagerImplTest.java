@@ -597,6 +597,12 @@ public class UserVmManagerImplTest {
         vmDestroyPermissionServiceSpy = Mockito.spy(new VmDestroyPermissionServiceImpl());
         org.springframework.test.util.ReflectionTestUtils.setField(vmDestroyPermissionServiceSpy, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmDestroyPermissionService", vmDestroyPermissionServiceSpy);
+        // Slice 13: wire VmHostNameUniquenessServiceImpl so the verifyExtraDhcpOptionsNetwork /
+        // checkIfHostNameUniqueInNtwkDomain wrappers don't NPE when updateVirtualMachine
+        // tests pass through them. Per-branch behavior is covered by
+        // VmHostNameUniquenessServiceImplTest; here we just need a non-null bean.
+        VmHostNameUniquenessServiceImpl hostNameUniquenessService = new VmHostNameUniquenessServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmHostNameUniquenessService", hostNameUniquenessService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
