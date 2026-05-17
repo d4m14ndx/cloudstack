@@ -31,7 +31,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -294,6 +293,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private GpuService gpuService;
     @Inject
     private HostGpuService hostGpuService;
+    @Inject
+    private HostQueryService hostQueryService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -4056,11 +4057,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> findDirectlyConnectedHosts() {
-        /* The resource column is not null for direct connected resource */
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getResource(), Op.NNULL);
-        sc.and(sc.entity().getResourceState(), Op.NIN, ResourceState.Disabled);
-        return sc.list();
+        return hostQueryService.findDirectlyConnectedHosts();
     }
 
     @Override
@@ -4122,25 +4119,17 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> findHostByGuid(final long dcId, final String guid) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        sc.and(sc.entity().getGuid(), Op.EQ, guid);
-        return sc.list();
+        return hostQueryService.findHostByGuid(dcId, guid);
     }
 
     @Override
     public List<HostVO> listAllHostsInCluster(final long clusterId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getClusterId(), Op.EQ, clusterId);
-        return sc.list();
+        return hostQueryService.listAllHostsInCluster(clusterId);
     }
 
     @Override
     public List<HostVO> listHostsInClusterByStatus(final long clusterId, final Status status) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getClusterId(), Op.EQ, clusterId);
-        sc.and(sc.entity().getStatus(), Op.EQ, status);
-        return sc.list();
+        return hostQueryService.listHostsInClusterByStatus(clusterId, status);
     }
 
     @Override
@@ -4171,17 +4160,12 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public List<HostVO> listAllHostsInOneZoneByType(final Type type, final long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getType(), Op.EQ, type);
-        sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        return sc.list();
+        return hostQueryService.listAllHostsInOneZoneByType(type, dcId);
     }
 
     @Override
     public List<HostVO> listAllHostsInAllZonesByType(final Type type) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getType(), Op.EQ, type);
-        return sc.list();
+        return hostQueryService.listAllHostsInAllZonesByType(type);
     }
 
     @Override
@@ -4200,26 +4184,17 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public HostVO findHostByGuid(final String guid) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getGuid(), Op.EQ, guid);
-        sc.and(sc.entity().getRemoved(), Op.NULL);
-        return sc.find();
+        return hostQueryService.findHostByGuid(guid);
     }
 
     @Override
     public HostVO findHostByGuidPrefix(String guid) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getGuid(), Op.LIKE, guid + "%");
-        sc.and(sc.entity().getRemoved(), Op.NULL);
-        return sc.find();
+        return hostQueryService.findHostByGuidPrefix(guid);
     }
 
     @Override
     public HostVO findHostByName(final String name) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getName(), Op.EQ, name);
-        sc.and(sc.entity().getRemoved(), Op.NULL);
-        return sc.find();
+        return hostQueryService.findHostByName(name);
     }
 
     @Override
@@ -4383,22 +4358,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
 
     @Override
     public HostVO findOneRandomRunningHostByHypervisor(final HypervisorType type, final Long dcId) {
-        final QueryBuilder<HostVO> sc = QueryBuilder.create(HostVO.class);
-        sc.and(sc.entity().getHypervisorType(), Op.EQ, type);
-        sc.and(sc.entity().getType(),Op.EQ, Type.Routing);
-        sc.and(sc.entity().getStatus(), Op.EQ, Status.Up);
-        sc.and(sc.entity().getResourceState(), Op.EQ, ResourceState.Enabled);
-        if (dcId != null) {
-            sc.and(sc.entity().getDataCenterId(), Op.EQ, dcId);
-        }
-        sc.and(sc.entity().getRemoved(), Op.NULL);
-        List<HostVO> hosts = sc.list();
-        if (CollectionUtils.isEmpty(hosts)) {
-            return null;
-        } else {
-            Collections.shuffle(hosts, new Random(System.currentTimeMillis()));
-            return hosts.get(0);
-        }
+        return hostQueryService.findOneRandomRunningHostByHypervisor(type, dcId);
     }
 
     @Override
