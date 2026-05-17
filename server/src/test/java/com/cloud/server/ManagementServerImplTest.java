@@ -257,6 +257,24 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(spy, "systemVmLifecycleService",
                 systemVmLifecycleServiceMock);
 
+        // Configuration listing slice: wire a real ConfigurationListingServiceImpl
+        // backed by the existing configDao/configDepot/accountManager/domainDao mocks
+        // so the searchForConfigurations/listConfigurationGroups delegating wrappers
+        // on the god class have a non-null collaborator.  Focused tests live in
+        // ConfigurationListingServiceImplTest.
+        ConfigurationListingServiceImpl configurationListingServiceImpl =
+                new ConfigurationListingServiceImpl();
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configDao", configDao);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configGroupDao",
+                Mockito.mock(org.apache.cloudstack.framework.config.dao.ConfigurationGroupDao.class));
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configSubGroupDao",
+                Mockito.mock(org.apache.cloudstack.framework.config.dao.ConfigurationSubGroupDao.class));
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configDepot", configDepot);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "accountManager", accountManager);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "domainDao", domainDao);
+        ReflectionTestUtils.setField(spy, "configurationListingService",
+                configurationListingServiceImpl);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
