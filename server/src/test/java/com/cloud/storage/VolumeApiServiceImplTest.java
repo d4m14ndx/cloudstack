@@ -570,6 +570,19 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(hostTopologyService, "virtualMachineManager", virtualMachineManager);
         ReflectionTestUtils.setField(hostTopologyService, "storageUtil", storageUtilMock);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeHostTopologyService", hostTopologyService);
+
+        // Phase 4 (parallel slice, 7th): wire VolumeMigrationValidatorImpl with
+        // the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (checkVmStateForMigration, isSourceOrDestNotOnStorPool,
+        // isSourceAndDestOnStorPool, retrieveAndValidateNewDiskOffering) forward to
+        // this service, so existing spy-based tests against migrateVolume keep
+        // exercising the same code paths through the wrappers.
+        VolumeMigrationValidatorImpl migrationValidator = new VolumeMigrationValidatorImpl();
+        ReflectionTestUtils.setField(migrationValidator, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(migrationValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(migrationValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(migrationValidator, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeMigrationValidator", migrationValidator);
     }
 
     /**
