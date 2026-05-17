@@ -208,6 +208,17 @@ public class QueryManagerImplTest {
         when(eventSearchBuilder.entity()).thenReturn(eventVO);
         when(eventSearchBuilder.create()).thenReturn(eventSearchCriteria);
         Mockito.when(eventDao.createSearchBuilder()).thenReturn(eventSearchBuilder);
+
+        // Wire the extracted EventQueryService with the same mocks so existing
+        // searchForEvents test paths continue to flow through the orchestration
+        // (QueryManagerImpl.searchForEvents -> EventQueryServiceImpl).
+        EventQueryServiceImpl eventQuery = new EventQueryServiceImpl();
+        ReflectionTestUtils.setField(eventQuery, "accountMgr", accountManager);
+        ReflectionTestUtils.setField(eventQuery, "entityManager", entityManager);
+        ReflectionTestUtils.setField(eventQuery, "eventDao", eventDao);
+        ReflectionTestUtils.setField(eventQuery, "eventJoinDao", eventJoinDao);
+        ReflectionTestUtils.setField(queryManagerImplSpy, "eventQueryService", eventQuery);
+        ReflectionTestUtils.setField(queryManager, "eventQueryService", eventQuery);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
