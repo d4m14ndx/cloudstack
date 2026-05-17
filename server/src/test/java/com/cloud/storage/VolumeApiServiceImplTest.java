@@ -512,6 +512,23 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(resizeValidator, "accountManager", accountManagerMock);
         ReflectionTestUtils.setField(resizeValidator, "configurationManager", _configMgr);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeResizeValidator", resizeValidator);
+
+        // Phase 4 (parallel slice, 4th): wire VolumeAccountAssignmentServiceImpl
+        // with the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (validateVolume, validateAccounts,
+        // getAccountOrProject, updateVolumeAccount) forward to this service,
+        // so existing tests against the wrappers keep exercising the same
+        // code paths.
+        VolumeAccountAssignmentServiceImpl accountAssignmentService = new VolumeAccountAssignmentServiceImpl();
+        ReflectionTestUtils.setField(accountAssignmentService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(accountAssignmentService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(accountAssignmentService, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "projectManager", projectManagerMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "volumeService", volumeServiceMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAccountAssignmentService", accountAssignmentService);
     }
 
     /**
