@@ -192,7 +192,6 @@ import com.cloud.api.query.dao.DiskOfferingJoinDao;
 import com.cloud.api.query.dao.DomainJoinDao;
 import com.cloud.api.query.dao.DomainRouterJoinDao;
 import com.cloud.api.query.dao.HostJoinDao;
-import com.cloud.api.query.dao.ImageStoreJoinDao;
 import com.cloud.api.query.dao.InstanceGroupJoinDao;
 import com.cloud.api.query.dao.ProjectAccountJoinDao;
 import com.cloud.api.query.dao.ProjectInvitationJoinDao;
@@ -289,7 +288,6 @@ import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.BucketVO;
-import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
@@ -440,9 +438,6 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
 
     @Inject
     HostTagsDao _hostTagDao;
-
-    @Inject
-    ImageStoreJoinDao _imageStoreJoinDao;
 
     @Inject
     DiskOfferingJoinDao _diskOfferingJoinDao;
@@ -607,6 +602,9 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
 
     @Inject
     private DomainQueryService domainQueryService;
+
+    @Inject
+    private ImageStoreQueryService imageStoreQueryService;
 
     @Inject
     public ManagementService managementService;
@@ -3242,77 +3240,7 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     }
 
     private Pair<List<ImageStoreJoinVO>, Integer> searchForImageStoresInternal(ListImageStoresCmd cmd) {
-
-        Long zoneId = accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), cmd.getZoneId());
-        Object id = cmd.getId();
-        Object name = cmd.getStoreName();
-        String provider = cmd.getProvider();
-        String protocol = cmd.getProtocol();
-        Object keyword = cmd.getKeyword();
-        Long startIndex = cmd.getStartIndex();
-        Long pageSize = cmd.getPageSizeVal();
-        Boolean readonly = cmd.getReadonly();
-
-        Filter searchFilter = new Filter(ImageStoreJoinVO.class, "id", Boolean.TRUE, startIndex, pageSize);
-
-        SearchBuilder<ImageStoreJoinVO> sb = _imageStoreJoinDao.createSearchBuilder();
-        sb.select(null, Func.DISTINCT, sb.entity().getId()); // select distinct
-        // ids
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("dataCenterId", sb.entity().getZoneId(), SearchCriteria.Op.EQ);
-        sb.and("protocol", sb.entity().getProtocol(), SearchCriteria.Op.EQ);
-        sb.and("provider", sb.entity().getProviderName(), SearchCriteria.Op.EQ);
-        sb.and("role", sb.entity().getRole(), SearchCriteria.Op.EQ);
-        sb.and("readonly", sb.entity().isReadonly(), Op.EQ);
-
-        SearchCriteria<ImageStoreJoinVO> sc = sb.create();
-        sc.setParameters("role", DataStoreRole.Image);
-
-        if (keyword != null) {
-            SearchCriteria<ImageStoreJoinVO> ssc = _imageStoreJoinDao.createSearchCriteria();
-            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("providerName", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (name != null) {
-            sc.setParameters("name", name);
-        }
-
-        if (zoneId != null) {
-            sc.setParameters("dataCenterId", zoneId);
-        }
-        if (provider != null) {
-            sc.setParameters("provider", provider);
-        }
-        if (protocol != null) {
-            sc.setParameters("protocol", protocol);
-        }
-        if (readonly != null) {
-            sc.setParameters("readonly", readonly);
-        }
-
-        // search Store details by ids
-        Pair<List<ImageStoreJoinVO>, Integer> uniqueStorePair = _imageStoreJoinDao.searchAndCount(sc, searchFilter);
-        Integer count = uniqueStorePair.second();
-        if (count == 0) {
-            // empty result
-            return uniqueStorePair;
-        }
-        List<ImageStoreJoinVO> uniqueStores = uniqueStorePair.first();
-        Long[] vrIds = new Long[uniqueStores.size()];
-        int i = 0;
-        for (ImageStoreJoinVO v : uniqueStores) {
-            vrIds[i++] = v.getId();
-        }
-        List<ImageStoreJoinVO> vrs = _imageStoreJoinDao.searchByIds(vrIds);
-        return new Pair<>(vrs, count);
-
+        return imageStoreQueryService.searchForImageStoresInternal(cmd);
     }
 
     @Override
@@ -3326,72 +3254,7 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     }
 
     private Pair<List<ImageStoreJoinVO>, Integer> searchForCacheStoresInternal(ListSecondaryStagingStoresCmd cmd) {
-
-        Long zoneId = accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), cmd.getZoneId());
-        Object id = cmd.getId();
-        Object name = cmd.getStoreName();
-        String provider = cmd.getProvider();
-        String protocol = cmd.getProtocol();
-        Object keyword = cmd.getKeyword();
-        Long startIndex = cmd.getStartIndex();
-        Long pageSize = cmd.getPageSizeVal();
-
-        Filter searchFilter = new Filter(ImageStoreJoinVO.class, "id", Boolean.TRUE, startIndex, pageSize);
-
-        SearchBuilder<ImageStoreJoinVO> sb = _imageStoreJoinDao.createSearchBuilder();
-        sb.select(null, Func.DISTINCT, sb.entity().getId()); // select distinct
-        // ids
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("dataCenterId", sb.entity().getZoneId(), SearchCriteria.Op.EQ);
-        sb.and("protocol", sb.entity().getProtocol(), SearchCriteria.Op.EQ);
-        sb.and("provider", sb.entity().getProviderName(), SearchCriteria.Op.EQ);
-        sb.and("role", sb.entity().getRole(), SearchCriteria.Op.EQ);
-
-        SearchCriteria<ImageStoreJoinVO> sc = sb.create();
-        sc.setParameters("role", DataStoreRole.ImageCache);
-
-        if (keyword != null) {
-            SearchCriteria<ImageStoreJoinVO> ssc = _imageStoreJoinDao.createSearchCriteria();
-            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("provider", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (name != null) {
-            sc.setParameters("name", name);
-        }
-
-        if (zoneId != null) {
-            sc.setParameters("dataCenterId", zoneId);
-        }
-        if (provider != null) {
-            sc.setParameters("provider", provider);
-        }
-        if (protocol != null) {
-            sc.setParameters("protocol", protocol);
-        }
-
-        // search Store details by ids
-        Pair<List<ImageStoreJoinVO>, Integer> uniqueStorePair = _imageStoreJoinDao.searchAndCount(sc, searchFilter);
-        Integer count = uniqueStorePair.second();
-        if (count == 0) {
-            // empty result
-            return uniqueStorePair;
-        }
-        List<ImageStoreJoinVO> uniqueStores = uniqueStorePair.first();
-        Long[] vrIds = new Long[uniqueStores.size()];
-        int i = 0;
-        for (ImageStoreJoinVO v : uniqueStores) {
-            vrIds[i++] = v.getId();
-        }
-        List<ImageStoreJoinVO> vrs = _imageStoreJoinDao.searchByIds(vrIds);
-        return new Pair<>(vrs, count);
-
+        return imageStoreQueryService.searchForCacheStoresInternal(cmd);
     }
 
     @Override

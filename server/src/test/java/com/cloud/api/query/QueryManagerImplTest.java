@@ -187,6 +187,9 @@ public class QueryManagerImplTest {
     @Mock
     SnapshotQueryService snapshotQueryService;
 
+    @Mock
+    ImageStoreQueryService imageStoreQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -226,6 +229,10 @@ public class QueryManagerImplTest {
         // Wire the SnapshotQueryService mock so QueryManagerImpl.snapshotQueryService is non-null.
         ReflectionTestUtils.setField(queryManagerImplSpy, "snapshotQueryService", snapshotQueryService);
         ReflectionTestUtils.setField(queryManager, "snapshotQueryService", snapshotQueryService);
+
+        // Wire the ImageStoreQueryService mock so QueryManagerImpl.imageStoreQueryService is non-null.
+        ReflectionTestUtils.setField(queryManagerImplSpy, "imageStoreQueryService", imageStoreQueryService);
+        ReflectionTestUtils.setField(queryManager, "imageStoreQueryService", imageStoreQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
