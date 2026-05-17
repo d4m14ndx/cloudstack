@@ -184,6 +184,9 @@ public class QueryManagerImplTest {
     @Mock
     ExtensionHelper extensionHelper;
 
+    @Mock
+    SnapshotQueryService snapshotQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -219,6 +222,10 @@ public class QueryManagerImplTest {
         ReflectionTestUtils.setField(eventQuery, "eventJoinDao", eventJoinDao);
         ReflectionTestUtils.setField(queryManagerImplSpy, "eventQueryService", eventQuery);
         ReflectionTestUtils.setField(queryManager, "eventQueryService", eventQuery);
+
+        // Wire the SnapshotQueryService mock so QueryManagerImpl.snapshotQueryService is non-null.
+        ReflectionTestUtils.setField(queryManagerImplSpy, "snapshotQueryService", snapshotQueryService);
+        ReflectionTestUtils.setField(queryManager, "snapshotQueryService", snapshotQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
