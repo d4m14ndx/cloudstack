@@ -606,6 +606,9 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     private SnapshotQueryService snapshotQueryService;
 
     @Inject
+    private DomainQueryService domainQueryService;
+
+    @Inject
     public ManagementService managementService;
 
     @Inject
@@ -2658,119 +2661,7 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     }
 
     private Pair<List<DomainJoinVO>, Integer> searchForDomainsInternal(ListDomainsCmd cmd) {
-        Pair<List<Long>, Integer> domainIdPage = searchForDomainIdsAndCount(cmd);
-
-        Integer count = domainIdPage.second();
-        Long[] idArray = domainIdPage.first().toArray(new Long[0]);
-
-        if (count == 0) {
-            return new Pair<>(new ArrayList<>(), count);
-        }
-
-        List<DomainJoinVO> domains = _domainJoinDao.searchByIds(idArray);
-        return new Pair<>(domains, count);
-    }
-
-    private Pair<List<Long>, Integer> searchForDomainIdsAndCount(ListDomainsCmd cmd) {
-        Account caller = CallContext.current().getCallingAccount();
-        Long domainId = cmd.getId();
-        boolean listAll = cmd.listAll();
-        boolean isRecursive = false;
-        Domain domain = null;
-        Map<String, String> tags = cmd.getTags();
-
-        if (domainId != null) {
-            domain = _domainDao.findById(domainId);
-            if (domain == null) {
-                throw new InvalidParameterValueException("Domain id=" + domainId + " doesn't exist");
-            }
-            accountMgr.checkAccess(caller, domain);
-        } else {
-            if (caller.getType() != Account.Type.ADMIN) {
-                domainId = caller.getDomainId();
-            }
-            if (listAll) {
-                isRecursive = true;
-            }
-        }
-
-        Filter searchFilter = new Filter(DomainVO.class, "id", true, cmd.getStartIndex(), cmd.getPageSizeVal());
-        String domainName = cmd.getDomainName();
-        Integer level = cmd.getLevel();
-        Object keyword = cmd.getKeyword();
-
-        SearchBuilder<DomainVO> domainSearchBuilder = _domainDao.createSearchBuilder();
-        domainSearchBuilder.select(null, Func.DISTINCT, domainSearchBuilder.entity().getId()); // select distinct
-        domainSearchBuilder.and("id", domainSearchBuilder.entity().getId(), SearchCriteria.Op.EQ);
-        domainSearchBuilder.and("name", domainSearchBuilder.entity().getName(), SearchCriteria.Op.EQ);
-        domainSearchBuilder.and("level", domainSearchBuilder.entity().getLevel(), SearchCriteria.Op.EQ);
-        domainSearchBuilder.and("path", domainSearchBuilder.entity().getPath(), SearchCriteria.Op.LIKE);
-        domainSearchBuilder.and("state", domainSearchBuilder.entity().getState(), SearchCriteria.Op.EQ);
-
-        if (MapUtils.isNotEmpty(tags)) {
-            SearchBuilder<ResourceTagVO> resourceTagSearch = resourceTagDao.createSearchBuilder();
-            resourceTagSearch.and("resourceType", resourceTagSearch.entity().getResourceType(), Op.EQ);
-            resourceTagSearch.and().op();
-            for (int count = 0; count < tags.size(); count++) {
-                if (count == 0) {
-                    resourceTagSearch.op("tagKey" + count, resourceTagSearch.entity().getKey(), Op.EQ);
-                } else {
-                    resourceTagSearch.or().op("tagKey" + count, resourceTagSearch.entity().getKey(), Op.EQ);
-                }
-                resourceTagSearch.and("tagValue" + count, resourceTagSearch.entity().getValue(), Op.EQ);
-                resourceTagSearch.cp();
-            }
-            resourceTagSearch.cp();
-
-            domainSearchBuilder.join("tags", resourceTagSearch, resourceTagSearch.entity().getResourceId(), domainSearchBuilder.entity().getId(), JoinBuilder.JoinType.INNER);
-        }
-
-        if (keyword != null) {
-            domainSearchBuilder.and("keywordName", domainSearchBuilder.entity().getName(), SearchCriteria.Op.LIKE);
-        }
-
-        SearchCriteria<DomainVO> sc = domainSearchBuilder.create();
-
-        if (keyword != null) {
-            sc.setParameters("keywordName", "%" + keyword + "%");
-        }
-
-        if (domainName != null) {
-            sc.setParameters("name", domainName);
-        }
-
-        if (level != null) {
-            sc.setParameters("level", level);
-        }
-
-        if (domainId != null) {
-            if (isRecursive) {
-                if (domain == null) {
-                    domain = _domainDao.findById(domainId);
-                }
-                sc.setParameters("path", domain.getPath() + "%");
-            } else {
-                sc.setParameters("id", domainId);
-            }
-        }
-
-        if (MapUtils.isNotEmpty(tags)) {
-            int count = 0;
-            sc.setJoinParameters("tags", "resourceType", ResourceObjectType.Domain);
-            for (Map.Entry<String, String> entry  : tags.entrySet()) {
-                sc.setJoinParameters("tags", "tagKey" + count, entry.getKey());
-                sc.setJoinParameters("tags", "tagValue" + count, entry.getValue());
-                count++;
-            }
-        }
-
-        // return only Active domains to the API
-        sc.setParameters("state", Domain.State.Active);
-
-        Pair<List<DomainVO>, Integer> uniqueDomainPair = _domainDao.searchAndCount(sc, searchFilter);
-        Integer count = uniqueDomainPair.second();
-        List<Long> domainIds = uniqueDomainPair.first().stream().map(DomainVO::getId).collect(Collectors.toList());
-        return new Pair<>(domainIds, count);
+        return domainQueryService.searchForDomainsInternal(cmd);
     }
 
     @Override
