@@ -402,6 +402,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @Inject
     protected PrimaryStorageMaintenanceService primaryStorageMaintenanceService;
     @Inject
+    protected HostStorageAccessService hostStorageAccessService;
+    @Inject
     protected ObjectStoreDao _objectStoreDao;
 
     @Inject
@@ -3083,35 +3085,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public Host findUpAndEnabledHostWithAccessToStoragePools(List<Long> poolIds) {
-        List<Long> hostIds = _storagePoolHostDao.findHostsConnectedToPools(poolIds);
-        if (hostIds.isEmpty()) {
-            return null;
-        }
-        Collections.shuffle(hostIds);
-
-        for (Long hostId : hostIds) {
-            Host host = _hostDao.findById(hostId);
-            if (canHostAccessStoragePools(host, poolIds)) {
-                return host;
-            }
-        }
-
-        return null;
-    }
-
-    private boolean canHostAccessStoragePools(Host host, List<Long> poolIds) {
-        if (poolIds == null || poolIds.isEmpty()) {
-            return false;
-        }
-
-        for (Long poolId : poolIds) {
-            StoragePool pool = _storagePoolDao.findById(poolId);
-            if (!canHostAccessStoragePool(host, pool)) {
-                return false;
-            }
-        }
-
-        return true;
+        return hostStorageAccessService.findUpAndEnabledHostWithAccessToStoragePools(poolIds);
     }
 
     @Override
@@ -3122,40 +3096,17 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public boolean canHostAccessStoragePool(Host host, StoragePool pool) {
-        if (host == null || pool == null) {
-            return false;
-        }
-
-        if (!pool.isManaged()) {
-            return true;
-        }
-
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
-        DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-
-        return (storeDriver instanceof PrimaryDataStoreDriver && ((PrimaryDataStoreDriver)storeDriver).canHostAccessStoragePool(host, pool));
+        return hostStorageAccessService.canHostAccessStoragePool(host, pool);
     }
 
     @Override
     public boolean canHostPrepareStoragePoolAccess(Host host, StoragePool pool) {
-        if (host == null || pool == null || !pool.isManaged()) {
-            return false;
-        }
-
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
-        DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-        return storeDriver instanceof PrimaryDataStoreDriver && ((PrimaryDataStoreDriver)storeDriver).canHostPrepareStoragePoolAccess(host, pool);
+        return hostStorageAccessService.canHostPrepareStoragePoolAccess(host, pool);
     }
 
     @Override
     public boolean canDisconnectHostFromStoragePool(Host host, StoragePool pool) {
-        if (pool == null || !pool.isManaged()) {
-            return true;
-        }
-
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(pool.getStorageProviderName());
-        DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-        return storeDriver instanceof PrimaryDataStoreDriver && ((PrimaryDataStoreDriver)storeDriver).canDisconnectHostFromStoragePool(host, pool);
+        return hostStorageAccessService.canDisconnectHostFromStoragePool(host, pool);
     }
 
     @Override

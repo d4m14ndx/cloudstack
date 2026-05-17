@@ -184,6 +184,18 @@ public class StorageManagerImplTest {
         ReflectionTestUtils.setField(sagService, "clusterDao", clusterDao);
         ReflectionTestUtils.setField(sagService, "hostDao", hostDao);
         ReflectionTestUtils.setField(storageManagerImpl, "storageAccessGroupService", sagService);
+
+        // Phase 4 (slice 4): host-to-managed-pool access checks were
+        // extracted into HostStorageAccessServiceImpl. Existing tests that
+        // spy findUpAndEnabledHostWithAccessToStoragePools(...) on the
+        // manager keep working because that method stays as a delegating
+        // wrapper, but tests that exercise the real body need the service
+        // wired with the same DAO mocks the manager already uses.
+        HostStorageAccessServiceImpl hostAccessService = new HostStorageAccessServiceImpl();
+        ReflectionTestUtils.setField(hostAccessService, "hostDao", hostDao);
+        ReflectionTestUtils.setField(hostAccessService, "storagePoolDao", storagePoolDao);
+        ReflectionTestUtils.setField(hostAccessService, "dataStoreProviderMgr", dataStoreProviderMgr);
+        ReflectionTestUtils.setField(storageManagerImpl, "hostStorageAccessService", hostAccessService);
     }
 
     @Test
