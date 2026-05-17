@@ -1,0 +1,136 @@
+# Phase 5a: API / management-server container image build
+#
+# Triggers on any change to Java/Maven source — specifically anything that
+# is NOT under ui/** (the UI image workflow handles that path).
+#
+# Images are tagged:   ghcr.io/<owner>/cloudstack-management:<branch>-<sha7>
+#                      ghcr.io/<owner>/cloudstack-management:latest  (main only)
+#
+# The root Dockerfile is a multi-stage Maven → JRE build.  It is used
+# unmodified here; the UI assets are NOT bundled because the Phase 5a goal
+# is to ship two separate images.
+#
+# TODO: add image vulnerability scanning (e.g. trivy-action) before GA.
+# TODO: add SBOM generation (anchore/sbom-action) and Cosign signing.
+
+name: "Phase 5a – API/management image"
+
+on:
+  push:
+    branches:
+      - "modernize-2026**"
+      - "main"
+    paths-ignore:
+      - "ui/**"
+      - ".github/workflows/ui-image.yml"
+      - "docs/**"
+      - "**.md"
+  pull_request:
+    branches:
+      - "modernize-2026**"
+      - "main"
+    paths-ignore:
+      - "ui/**"
+      - ".github/workflows/ui-image.yml"
+      - "docs/**"
+      - "**.md"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write   # needed to push to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  # TODO: set IMAGE_NAME to your fork org, e.g. ghcr.io/myorg/cloudstack-management
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/cloudstack-management
+
+jobs:
+  build-api-image:
+    name: "Build API/management Docker image"
+    # The Maven build is CPU/RAM heavy; ubuntu-22.04 has 7 GB RAM + 2 vCPU.
+    # If the build frequently OOMs consider switching to a larger runner.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=${{ github.ref_name }}-,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      # -----------------------------------------------------------------------
+      # Maven layer cache: re-uses ~/.m2 from a previous run so the Buildx
+      # cache-to/from covers the Docker layer that downloads Maven deps.
+      # -----------------------------------------------------------------------
+
+      # -----------------------------------------------------------------------
+      # Pre-merge: image is BUILT (cache populated) but NOT pushed.
+      # Post-merge: the push step is also enabled.
+      # -----------------------------------------------------------------------
+
+      # Pre-merge block — always runs (build + cache, no push)
+      - name: Build API image (PR — no push)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          # Exclude the ui/ source tree from the Docker build context to keep
+          # the context transfer fast.  The API image does not need UI assets.
+          # TODO: add a .dockerignore entry for ui/ to enforce this at repo level.
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GHA cache keyed on branch so PRs benefit from branch history.
+          cache-from: |
+            type=gha,scope=api-image-${{ github.ref_name }}
+            type=gha,scope=api-image-main
+          cache-to: type=gha,mode=max,scope=api-image-${{ github.ref_name }}
+          # Pass build args that the Dockerfile already supports for tuning.
+          build-args: |
+            MAVEN_OPTS=-Xmx1g -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+
+      # Post-merge block — runs on push to tracked branches, also logs in
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # TODO: configure GHCR_TOKEN secret in repo settings
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push API image (post-merge)
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=api-image-${{ github.ref_name }}
+            type=gha,scope=api-image-main
+          cache-to: type=gha,mode=max,scope=api-image-${{ github.ref_name }}
+          build-args: |
+            MAVEN_OPTS=-Xmx1g -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+
+      - name: Image digest
+        if: github.event_name == 'push'
+        run: echo "Pushed API image digest ${{ steps.meta.outputs.version }}"
