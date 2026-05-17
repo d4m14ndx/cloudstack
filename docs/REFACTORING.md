@@ -101,6 +101,7 @@ spies still work.
 | 10 | `VmCreationValidator` | createVirtualMachine pre-flight: service-offering / template / details / min-max IOPS | 23 |
 | 11 | `VmDestroyPermissionService` | destroy/expunge/force-stop permission cluster (admin + global config + role API access + Kubernetes plugin veto) | 13 |
 | 13 | `VmHostNameUniquenessService` | hostname uniqueness across `vm.distinct.hostname.scope` (global/domain/subdomain/account/network+VPC) + extra-DHCP-option network presence check | 23 |
+| 14 | `VmSecurityGroupAssignmentService` | security-group ID resolution (names→IDs, mutex check, VNF-appliance default group injection) + stopped-VM security-group reassignment (`checkAndUpdateSecurityGroupForVM` / `updateSecurityGroup`) | 20 |
 
 Each slice keeps the orchestration that needs spy-verified inner calls
 inside `UserVmManagerImpl` — the leaf methods become thin wrappers that

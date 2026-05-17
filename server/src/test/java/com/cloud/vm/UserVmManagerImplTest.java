@@ -603,6 +603,19 @@ public class UserVmManagerImplTest {
         // VmHostNameUniquenessServiceImplTest; here we just need a non-null bean.
         VmHostNameUniquenessServiceImpl hostNameUniquenessService = new VmHostNameUniquenessServiceImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmHostNameUniquenessService", hostNameUniquenessService);
+        // Slice 14: wire VmSecurityGroupAssignmentServiceImpl so the
+        // getSecurityGroupIdList / checkAndUpdateSecurityGroupForVM
+        // wrappers don't NPE when updateVirtualMachine tests pass through
+        // them. Per-branch behaviour is covered by
+        // VmSecurityGroupAssignmentServiceImplTest; here we just need a
+        // non-null bean.
+        VmSecurityGroupAssignmentServiceImpl securityGroupAssignmentService = new VmSecurityGroupAssignmentServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "securityGroupManager", securityGroupManagerMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "vnfTemplateManager", vnfTemplateManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "dataCenterDao", _dcDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "networkModel", networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(securityGroupAssignmentService, "accountManager", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmSecurityGroupAssignmentService", securityGroupAssignmentService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
