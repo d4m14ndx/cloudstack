@@ -229,6 +229,9 @@ public class VpcManagerImplTest {
         PrivateGatewayServiceImpl privateGatewayServiceImpl = new PrivateGatewayServiceImpl();
         ReflectionTestUtils.setField(privateGatewayServiceImpl, "networkAclDao", networkACLDaoMock);
         ReflectionTestUtils.setField(manager, "privateGatewayService", privateGatewayServiceImpl);
+        VpcOfferingQueryServiceImpl vpcOfferingQueryServiceImpl = new VpcOfferingQueryServiceImpl();
+        ReflectionTestUtils.setField(vpcOfferingQueryServiceImpl, "vpcOfferingServiceMapDao", vpcOfferingServiceMapDao);
+        ReflectionTestUtils.setField(manager, "vpcOfferingQueryService", vpcOfferingQueryServiceImpl);
         CallContext.register(Mockito.mock(User.class), Mockito.mock(Account.class));
         registerCallContext();
         overrideDefaultConfigValue(NetworkService.AllowUsersToSpecifyVRMtu, "_defaultValue", "false");
