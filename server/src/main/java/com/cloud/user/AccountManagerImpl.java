@@ -242,6 +242,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     @Inject
     private ApiKeyLifecycleService apiKeyLifecycleService;
     @Inject
+    private TwoFactorAuthenticationService twoFactorAuthenticationService;
+    @Inject
     private ConfigurationDao _configDao;
     @Inject
     private ResourceCountDao _resourceCountDao;
@@ -390,8 +392,6 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     private List<String> apiNameList;
 
     protected static Map<String, UserTwoFactorAuthenticator> userTwoFactorAuthenticationProvidersMap = new HashMap<>();
-
-    private List<UserTwoFactorAuthenticator> userTwoFactorAuthenticationProviders;
 
     private long validUserLastAuthTimeDurationInMs = 0L;
     private static final long DEFAULT_USER_AUTH_TIME_DURATION_MS = 350L;
@@ -3390,23 +3390,16 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public List<UserTwoFactorAuthenticator> listUserTwoFactorAuthenticationProviders() {
-        return userTwoFactorAuthenticationProviders;
+        return twoFactorAuthenticationService.listUserTwoFactorAuthenticationProviders();
     }
 
     @Override
     public UserTwoFactorAuthenticator getUserTwoFactorAuthenticationProvider(Long domainId) {
-        final String name = userTwoFactorAuthenticationDefaultProvider.valueIn(domainId);
-        return getUserTwoFactorAuthenticationProvider(name);
+        return twoFactorAuthenticationService.getUserTwoFactorAuthenticationProvider(domainId);
     }
 
     public UserTwoFactorAuthenticator getUserTwoFactorAuthenticationProvider(final String name) {
-        if (StringUtils.isEmpty(name)) {
-            throw new CloudRuntimeException("Two factor authentication provider name is empty");
-        }
-        if (!userTwoFactorAuthenticationProvidersMap.containsKey(name.toLowerCase())) {
-            throw new CloudRuntimeException(String.format("Failed to find two factor authentication provider by the name: %s.", name));
-        }
-        return userTwoFactorAuthenticationProvidersMap.get(name.toLowerCase());
+        return twoFactorAuthenticationService.getUserTwoFactorAuthenticationProvider(name);
     }
 
     @Override
@@ -3925,19 +3918,15 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     public List<UserTwoFactorAuthenticator> getUserTwoFactorAuthenticationProviders() {
-        return userTwoFactorAuthenticationProviders;
+        return twoFactorAuthenticationService.getUserTwoFactorAuthenticationProviders();
     }
 
     public void setUserTwoFactorAuthenticationProviders(final List<UserTwoFactorAuthenticator> userTwoFactorAuthenticationProviders) {
-        this.userTwoFactorAuthenticationProviders = userTwoFactorAuthenticationProviders;
+        twoFactorAuthenticationService.setUserTwoFactorAuthenticationProviders(userTwoFactorAuthenticationProviders);
     }
 
     protected void initializeUserTwoFactorAuthenticationProvidersMap() {
-        if (userTwoFactorAuthenticationProviders != null) {
-            for (final UserTwoFactorAuthenticator userTwoFactorAuthenticator : userTwoFactorAuthenticationProviders) {
-                userTwoFactorAuthenticationProvidersMap.put(userTwoFactorAuthenticator.getName().toLowerCase(), userTwoFactorAuthenticator);
-            }
-        }
+        twoFactorAuthenticationService.initializeUserTwoFactorAuthenticationProvidersMap();
     }
 
     @Override
@@ -3975,15 +3964,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public UserTwoFactorAuthenticator getUserTwoFactorAuthenticator(Long domainId, Long userAccountId) {
-        if (userAccountId != null) {
-            UserAccount userAccount = _accountService.getUserAccountById(userAccountId);
-            String user2FAProvider = userAccount.getUser2faProvider();
-            if (user2FAProvider != null) {
-                return getUserTwoFactorAuthenticator(user2FAProvider);
-            }
-        }
-        final String name = userTwoFactorAuthenticationDefaultProvider.valueIn(domainId);
-        return getUserTwoFactorAuthenticator(name);
+        return twoFactorAuthenticationService.getUserTwoFactorAuthenticator(domainId, userAccountId);
     }
 
     @Override
@@ -4075,36 +4056,12 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     }
 
     public UserTwoFactorAuthenticator getUserTwoFactorAuthenticator(final String name) {
-        if (StringUtils.isEmpty(name)) {
-            throw new CloudRuntimeException("UserTwoFactorAuthenticator name provided is empty");
-        }
-        if (!userTwoFactorAuthenticationProvidersMap.containsKey(name.toLowerCase())) {
-            throw new CloudRuntimeException(String.format("Failed to find UserTwoFactorAuthenticator by the name: %s.", name));
-        }
-        return userTwoFactorAuthenticationProvidersMap.get(name.toLowerCase());
+        return twoFactorAuthenticationService.getUserTwoFactorAuthenticator(name);
     }
 
     @Override
     public UserAccount clearUserTwoFactorAuthenticationInSetupStateOnLogin(UserAccount user) {
-        return Transaction.execute((TransactionCallback<UserAccount>) status -> {
-            if (!user.isUser2faEnabled() && StringUtils.isBlank(user.getUser2faProvider())) {
-                return user;
-            }
-            UserDetailVO userDetailVO = _userDetailsDao.findDetail(user.getId(), UserDetailVO.Setup2FADetail);
-            if (userDetailVO != null && UserAccountVO.Setup2FAstatus.VERIFIED.name().equals(userDetailVO.getValue())) {
-                return user;
-            }
-            logger.info("Clearing 2FA configurations for {} as it is still in setup on a new login request", user);
-            if (userDetailVO != null) {
-                _userDetailsDao.remove(userDetailVO.getId());
-            }
-            UserAccountVO userAccountVO = userAccountDao.findById(user.getId());
-            userAccountVO.setUser2faEnabled(false);
-            userAccountVO.setUser2faProvider(null);
-            userAccountVO.setKeyFor2fa(null);
-            userAccountDao.update(user.getId(), userAccountVO);
-            return userAccountVO;
-        });
+        return twoFactorAuthenticationService.clearUserTwoFactorAuthenticationInSetupStateOnLogin(user);
     }
 
     void assertUserNotAlreadyInAccount(User existingUser, Account newAccount) {
