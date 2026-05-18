@@ -17,7 +17,6 @@
 package com.cloud.vm;
 
 import static com.cloud.hypervisor.Hypervisor.HypervisorType.Functionality;
-import static com.cloud.storage.Volume.IOPS_LIMIT;
 import static org.apache.cloudstack.api.ApiConstants.MAX_IOPS;
 import static org.apache.cloudstack.api.ApiConstants.MIN_IOPS;
 
@@ -85,7 +84,6 @@ import org.apache.cloudstack.api.command.user.vm.UpdateVmNicIpCmd;
 import org.apache.cloudstack.api.command.user.vm.UpgradeVMCmd;
 import org.apache.cloudstack.api.command.user.vmgroup.CreateVMGroupCmd;
 import org.apache.cloudstack.api.command.user.vmgroup.DeleteVMGroupCmd;
-import org.apache.cloudstack.api.command.user.volume.ChangeOfferingForVolumeCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.BackupScheduleVO;
@@ -587,6 +585,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     protected VmRestoreService vmRestoreService;
     @Inject
+    protected VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -1040,31 +1040,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      * or to an offering with a root size of zero, which is the default behavior.
      */
     protected ResizeVolumeCmd prepareResizeVolumeCmd(VolumeVO rootVolume, DiskOfferingVO currentRootDiskOffering, DiskOfferingVO newRootDiskOffering) {
-        if (rootVolume == null) {
-            throw new InvalidParameterValueException("Could not find Root volume for the VM while preparing the Resize Volume Command.");
-        }
-        if (currentRootDiskOffering == null) {
-            throw new InvalidParameterValueException("Could not find Disk Offering matching the provided current Root Offering ID.");
-        }
-        if (newRootDiskOffering == null) {
-            throw new InvalidParameterValueException("Could not find Disk Offering matching the provided Offering ID for resizing Root volume.");
-        }
-
-        ResizeVolumeCmd resizeVolumeCmd = new ResizeVolumeCmd(rootVolume.getId(), newRootDiskOffering.getMinIops(), newRootDiskOffering.getMaxIops());
-
-        long newNewOfferingRootSizeInBytes = newRootDiskOffering.getDiskSize();
-        long newNewOfferingRootSizeInGiB = newNewOfferingRootSizeInBytes / GiB_TO_BYTES;
-        long currentRootDiskOfferingGiB = currentRootDiskOffering.getDiskSize() / GiB_TO_BYTES;
-        if (newNewOfferingRootSizeInBytes > currentRootDiskOffering.getDiskSize()) {
-            resizeVolumeCmd = new ResizeVolumeCmd(rootVolume.getId(), newRootDiskOffering.getMinIops(), newRootDiskOffering.getMaxIops(), newRootDiskOffering.getId());
-            logger.debug("Preparing command to resize VM Root disk from {} GB to {} GB; current offering: {}, new offering: {}.",
-                    currentRootDiskOfferingGiB, newNewOfferingRootSizeInGiB, currentRootDiskOffering, newRootDiskOffering);
-        } else if (newNewOfferingRootSizeInBytes > 0l && newNewOfferingRootSizeInBytes < currentRootDiskOffering.getDiskSize()) {
-            throw new InvalidParameterValueException(String.format(
-                    "Failed to resize Root volume. The new Service Offering [%s] has a smaller disk size [%d GB] than the current disk [%d GB].",
-                    newRootDiskOffering, newNewOfferingRootSizeInGiB, currentRootDiskOfferingGiB));
-        }
-        return resizeVolumeCmd;
+        return vmRootDiskOfferingChangeService.prepareResizeVolumeCmd(rootVolume, currentRootDiskOffering, newRootDiskOffering);
     }
 
     @Override
@@ -1340,64 +1316,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void changeDiskOfferingForRootVolume(Long vmId, DiskOfferingVO newDiskOffering, Map<String, String> customParameters, Long zoneId) throws ResourceAllocationException {
-
-        if (!AllowDiskOfferingChangeDuringScaleVm.valueIn(zoneId)) {
-            if (logger.isDebugEnabled()) {
-                logger.debug(String.format("Changing the disk offering of the root volume during the compute offering change operation is disabled. Please check the setting [%s].", AllowDiskOfferingChangeDuringScaleVm.key()));
-            }
-            return;
-        }
-
-        List<VolumeVO> vols = _volsDao.findReadyAndAllocatedRootVolumesByInstance(vmId);
-
-        for (final VolumeVO rootVolumeOfVm : vols) {
-            DiskOfferingVO currentRootDiskOffering = _diskOfferingDao.findById(rootVolumeOfVm.getDiskOfferingId());
-            Long rootDiskSize= null;
-            Long rootDiskSizeBytes = null;
-            if (customParameters.containsKey(ApiConstants.ROOT_DISK_SIZE)) {
-                rootDiskSize = Long.parseLong(customParameters.get(ApiConstants.ROOT_DISK_SIZE));
-                rootDiskSizeBytes = rootDiskSize << 30;
-            }
-            if (currentRootDiskOffering.getId() == newDiskOffering.getId() &&
-                    (!newDiskOffering.isCustomized() || (newDiskOffering.isCustomized() && Objects.equals(rootVolumeOfVm.getSize(), rootDiskSizeBytes)))) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Volume {} is already having disk offering {}", rootVolumeOfVm, newDiskOffering);
-                }
-                continue;
-            }
-            HypervisorType hypervisorType = _volsDao.getHypervisorType(rootVolumeOfVm.getId());
-            if (HypervisorType.Simulator != hypervisorType) {
-                Long minIopsInNewDiskOffering = null;
-                Long maxIopsInNewDiskOffering = null;
-                boolean autoMigrate = false;
-                boolean shrinkOk = false;
-                if (customParameters.containsKey(MIN_IOPS)) {
-                    minIopsInNewDiskOffering = Long.parseLong(customParameters.get(MIN_IOPS));
-                }
-
-                if (customParameters.containsKey(IOPS_LIMIT)) {
-                    maxIopsInNewDiskOffering = Long.parseLong(customParameters.get(IOPS_LIMIT));
-                } else if (customParameters.containsKey(MAX_IOPS)) {
-                    maxIopsInNewDiskOffering = Long.parseLong(customParameters.get(MAX_IOPS));
-                }
-                if (customParameters.containsKey(ApiConstants.AUTO_MIGRATE)) {
-                    autoMigrate = Boolean.parseBoolean(customParameters.get(ApiConstants.AUTO_MIGRATE));
-                }
-                if (customParameters.containsKey(ApiConstants.SHRINK_OK)) {
-                    shrinkOk = Boolean.parseBoolean(customParameters.get(ApiConstants.SHRINK_OK));
-                }
-                ChangeOfferingForVolumeCmd changeOfferingForVolumeCmd = new ChangeOfferingForVolumeCmd(rootVolumeOfVm.getId(), newDiskOffering.getId(), minIopsInNewDiskOffering, maxIopsInNewDiskOffering, autoMigrate, shrinkOk);
-                if (rootDiskSize != null) {
-                    changeOfferingForVolumeCmd.setSize(rootDiskSize);
-                }
-                Volume result = _volumeService.changeDiskOfferingForVolume(changeOfferingForVolumeCmd);
-                if (result == null) {
-                    throw new CloudRuntimeException("Failed to change disk offering of the root volume");
-                }
-            } else if (newDiskOffering.getDiskSize() > 0 && currentRootDiskOffering.getDiskSize() != newDiskOffering.getDiskSize()) {
-                throw new InvalidParameterValueException("Hypervisor " + hypervisorType + " does not support volume resize");
-            }
-        }
+        vmRootDiskOfferingChangeService.changeDiskOfferingForRootVolume(vmId, newDiskOffering, customParameters, zoneId);
     }
 
     @Override
