@@ -59,6 +59,11 @@
         <property name="userTwoFactorAuthenticationProviders" value="#{userTwoFactorAuthenticatorsRegistry.registered}" />
     </bean>
 
+    <bean id="userUpdateServiceImpl" class="com.cloud.user.UserUpdateServiceImpl">
+        <property name="userPasswordEncoders"
+            value="#{userPasswordEncodersRegistry.registered}" />
+    </bean>
+
     <bean id="passwordPolicies" class="com.cloud.user.PasswordPolicyImpl" />
     <bean id="passwordReset" class="org.apache.cloudstack.user.UserPasswordResetManagerImpl" />
 

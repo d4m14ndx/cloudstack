@@ -291,6 +291,37 @@ public class AccountManagentImplTestBase {
                 org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_projectMgr"));
         org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "accountService", accountManagerImpl);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountOwnerResolverService", accountOwnerResolverService);
+        // Phase 4 slice (7th): wire UserUpdateServiceImpl so AccountManagerImpl's
+        // delegating wrappers (retrieveAndValidateUser, retrieveAndValidateAccount,
+        // validateAndUpdateFirstNameIfNeeded, validateAndUpdateLastNameIfNeeded,
+        // validateAndUpdateUsernameIfNeeded, validateUserPasswordAndUpdateIfNeeded,
+        // validateCurrentPassword, validateAndUpdateApiAndSecretKeyIfNeeded,
+        // validateAndUpdateUserApiKeyAccess, getCurrentCallingAccount,
+        // validateRoleChange, validateAndUpdateAccountApiKeyAccess,
+        // validateAndUpdatePasswordChangeRequired) still exercise the same
+        // code paths the legacy tests assert on. We share the DAO and service
+        // mocks that the existing test subclasses already inject into
+        // accountManagerImpl via @InjectMocks.
+        UserUpdateServiceImpl userUpdateService = new UserUpdateServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "apiKeyPairDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "passwordPolicy",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "passwordPolicy"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "domainDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainDao"));
+        // back-references: use the accountManagerImpl spy for both AccountService and AccountManager
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountService", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountManager", accountManagerImpl);
+        // userPasswordEncoders: share the list already set on accountManagerImpl
+        userUpdateService.setUserPasswordEncoders(
+                (java.util.List<org.apache.cloudstack.auth.UserAuthenticator>)
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_userPasswordEncoders"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userUpdateService", userUpdateService);
         CallContext.register(callingUser, callingAccount);
     }
 
