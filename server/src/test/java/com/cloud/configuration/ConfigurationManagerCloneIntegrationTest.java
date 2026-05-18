@@ -201,6 +201,13 @@ public class ConfigurationManagerCloneIntegrationTest {
         org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
         networkOfferingServiceSpy = Mockito.spy(networkOfferingServiceImpl);
         org.springframework.test.util.ReflectionTestUtils.setField(configurationManager, "networkOfferingService", networkOfferingServiceSpy);
+
+        OfferingCloneParameterServiceImpl offeringCloneParameterServiceImpl = new OfferingCloneParameterServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "_serviceOfferingDao", serviceOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "_serviceOfferingDetailsDao", serviceOfferingDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "_diskOfferingDao", diskOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "diskOfferingDetailsDao", diskOfferingDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(configurationManager, "offeringCloneParameterService", offeringCloneParameterServiceImpl);
     }
 
     @After

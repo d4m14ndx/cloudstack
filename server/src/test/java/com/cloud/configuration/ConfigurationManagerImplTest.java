@@ -241,6 +241,7 @@ public class ConfigurationManagerImplTest {
         ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
         ReflectionTestUtils.setField(configurationManagerImplSpy, "networkOfferingService", networkOfferingServiceImpl);
         ReflectionTestUtils.setField(configurationManagerImplSpy, "guestIpv6PrefixService", guestIpv6PrefixService);
+        ReflectionTestUtils.setField(configurationManagerImplSpy, "offeringCloneParameterService", new OfferingCloneParameterServiceImpl());
 
         deleteZoneCmd = Mockito.mock(DeleteZoneCmd.class);
         createNetworkOfferingCmd = Mockito.mock(CreateNetworkOfferingCmd.class);
