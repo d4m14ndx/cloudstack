@@ -124,8 +124,6 @@ import com.cloud.agent.api.MigrateVmToPoolAnswer;
 import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.PlugNicAnswer;
 import com.cloud.agent.api.PlugNicCommand;
-import com.cloud.agent.api.PrepareExternalProvisioningAnswer;
-import com.cloud.agent.api.PrepareExternalProvisioningCommand;
 import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
 import com.cloud.agent.api.RebootAnswer;
@@ -457,6 +455,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     private VmIscsiTargetManager vmIscsiTargetManager;
     @Inject
     private VmStatsCollector vmStatsCollector;
+    @Inject
+    protected VmExternalProvisioningManager vmExternalProvisioningManager;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -1136,96 +1136,24 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     protected void updateVmMetadataManufacturerAndProduct(VirtualMachineTO vmTO, VMInstanceVO vm) {
-        String metadataManufacturer = VmMetadataManufacturer.valueIn(vm.getDataCenterId());
-        if (StringUtils.isBlank(metadataManufacturer)) {
-            metadataManufacturer = VmMetadataManufacturer.defaultValue();
-        }
-        vmTO.setMetadataManufacturer(metadataManufacturer);
-        String metadataProduct = VmMetadataProductName.valueIn(vm.getDataCenterId());
-        if (StringUtils.isBlank(metadataProduct)) {
-            metadataProduct = String.format("CloudStack %s Hypervisor", vm.getHypervisorType().toString());
-        }
-        vmTO.setMetadataProductName(metadataProduct);
+        vmExternalProvisioningManager.updateVmMetadataManufacturerAndProduct(vmTO, vm);
     }
 
     protected void updateExternalVmDetailsFromPrepareAnswer(VirtualMachineTO vmTO, UserVmVO userVmVO,
                             Map<String, String> newDetails) {
-        if (newDetails == null || newDetails.equals(vmTO.getDetails())) {
-            return;
-        }
-        vmTO.setDetails(newDetails);
-        userVmVO.setDetails(newDetails);
-        _userVmDao.saveDetails(userVmVO);
+        vmExternalProvisioningManager.updateExternalVmDetailsFromPrepareAnswer(vmTO, userVmVO, newDetails);
     }
 
     protected void updateExternalVmDataFromPrepareAnswer(VirtualMachineTO vmTO, VirtualMachineTO updatedTO) {
-        final String vncPassword = updatedTO.getVncPassword();
-        final Map<String, String> details = updatedTO.getDetails();
-        if ((vncPassword == null || vncPassword.equals(vmTO.getVncPassword())) &&
-                (details == null || details.equals(vmTO.getDetails()))) {
-            return;
-        }
-        UserVmVO userVmVO = _userVmDao.findById(vmTO.getId());
-        if (userVmVO == null) {
-            return;
-        }
-        if (vncPassword != null && !vncPassword.equals(userVmVO.getPassword())) {
-            userVmVO.setVncPassword(vncPassword);
-            vmTO.setVncPassword(vncPassword);
-        }
-        updateExternalVmDetailsFromPrepareAnswer(vmTO, userVmVO, updatedTO.getDetails());
+        vmExternalProvisioningManager.updateExternalVmDataFromPrepareAnswer(vmTO, updatedTO);
     }
 
     protected void updateExternalVmNicsFromPrepareAnswer(VirtualMachineTO vmTO, VirtualMachineTO updatedTO) {
-        if (ObjectUtils.anyNull(vmTO.getNics(), updatedTO.getNics())) {
-            return;
-        }
-        Map<String, NicTO> originalNicsByUuid = new HashMap<>();
-        for (NicTO nic : vmTO.getNics()) {
-            originalNicsByUuid.put(nic.getNicUuid(), nic);
-        }
-        for (NicTO updatedNicTO : updatedTO.getNics()) {
-            final String nicUuid = updatedNicTO.getNicUuid();
-            NicTO originalNicTO = originalNicsByUuid.get(nicUuid);
-            if (originalNicTO == null) {
-                continue;
-            }
-            final String mac = updatedNicTO.getMac();
-            final String ip4 = updatedNicTO.getIp();
-            final String ip6 = updatedNicTO.getIp6Address();
-            if (Objects.equals(mac, originalNicTO.getMac()) &&
-                    Objects.equals(ip4, originalNicTO.getIp()) &&
-                    Objects.equals(ip6, originalNicTO.getIp6Address())) {
-                continue;
-            }
-            NicVO nicVO = _nicsDao.findByUuid(nicUuid);
-            if (nicVO == null) {
-                continue;
-            }
-            logger.debug("Updating {} during External VM preparation", nicVO);
-            if (ip4 != null && !ip4.equals(nicVO.getIPv4Address())) {
-                nicVO.setIPv4Address(ip4);
-                originalNicTO.setIp(ip4);
-            }
-            if (ip6 != null && !ip6.equals(nicVO.getIPv6Address())) {
-                nicVO.setIPv6Address(ip6);
-                originalNicTO.setIp6Address(ip6);
-            }
-            if (mac != null && !mac.equals(nicVO.getMacAddress())) {
-                nicVO.setMacAddress(mac);
-                originalNicTO.setMac(mac);
-            }
-            _nicsDao.update(nicVO.getId(), nicVO);
-        }
+        vmExternalProvisioningManager.updateExternalVmNicsFromPrepareAnswer(vmTO, updatedTO);
     }
 
     protected void updateExternalVmFromPrepareAnswer(VirtualMachineTO vmTO, VirtualMachineTO updatedTO) {
-        if (updatedTO == null) {
-            return;
-        }
-        updateExternalVmDataFromPrepareAnswer(vmTO, updatedTO);
-        updateExternalVmNicsFromPrepareAnswer(vmTO, updatedTO);
-        return;
+        vmExternalProvisioningManager.updateExternalVmFromPrepareAnswer(vmTO, updatedTO);
     }
 
     protected void processPrepareExternalProvisioning(boolean firstStart, Host host,
@@ -1242,45 +1170,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         }
         logger.debug("Sending PrepareExternalProvisioningCommand for {}", vmProfile);
         VirtualMachineTO virtualMachineTO = toVmTO(vmProfile);
-        if (virtualMachineTO.getNics() == null || virtualMachineTO.getNics().length == 0) {
-            List<NicVO> nics = _nicsDao.listByVmId(vmProfile.getId());
-            NicTO[] nicTOs = new NicTO[nics.size()];
-            nics.forEach(nicVO -> {
-                NicTO nicTO = toNicTO(_networkModel.getNicProfile(vmProfile.getVirtualMachine(), nicVO, dataCenter),
-                        HypervisorType.External);
-                nicTOs[nicTO.getDeviceId()] = nicTO;
-            });
-            virtualMachineTO.setNics(nicTOs);
-        }
-        Map<String, String> vmDetails = virtualMachineTO.getExternalDetails();
-        Map<String, Map<String, String>> externalDetails = extensionsManager.getExternalAccessDetails(host,
-                vmDetails);
-        PrepareExternalProvisioningCommand cmd = new PrepareExternalProvisioningCommand(virtualMachineTO);
-        cmd.setExternalDetails(externalDetails);
-        Answer answer = null;
-        CloudRuntimeException cre = new CloudRuntimeException("Failed to prepare VM");
-        try {
-            answer = _agentMgr.send(host.getId(), cmd);
-        } catch (AgentUnavailableException | OperationTimedoutException e) {
-            logger.error("Failed PrepareExternalProvisioningCommand due to : {}", e.getMessage(), e);
-            throw cre;
-        }
-        if (answer == null) {
-            logger.error("Invalid answer received for PrepareExternalProvisioningCommand");
-            throw cre;
-        }
-        if (!(answer instanceof PrepareExternalProvisioningAnswer)) {
-            logger.error("Unexpected answer received for PrepareExternalProvisioningCommand: [result: {}, details: {}]",
-                    answer.getResult(), answer.getDetails());
-            throw cre;
-        }
-        PrepareExternalProvisioningAnswer prepareAnswer = (PrepareExternalProvisioningAnswer)answer;
-        if (!prepareAnswer.getResult()) {
-            logger.error("Unexpected answer received for PrepareExternalProvisioningCommand: [result: {}, details: {}]",
-                    answer.getResult(), answer.getDetails());
-            throw cre;
-        }
-        updateExternalVmFromPrepareAnswer(virtualMachineTO, prepareAnswer.getVirtualMachineTO());
+        vmExternalProvisioningManager.processPrepareExternalProvisioning(firstStart, host, vmProfile, dataCenter, virtualMachineTO);
     }
 
     @Override
@@ -1680,18 +1570,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     protected void updateStartCommandWithExternalDetails(Host host, VirtualMachineTO vmTO, StartCommand command) {
-        if (!HypervisorType.External.equals(host.getHypervisorType())) {
-            return;
-        }
-        Map<String, String> vmExternalDetails = vmTO.getExternalDetails();
-        for (NicTO nic : vmTO.getNics()) {
-            if (!nic.isDefaultNic()) {
-                continue;
-            }
-            vmExternalDetails.put(VmDetailConstants.CLOUDSTACK_VLAN, networkService.getNicVlanValueForExternalVm(nic));
-        }
-        Map<String, Map<String, String>> externalDetails = extensionsManager.getExternalAccessDetails(host, vmExternalDetails);
-        command.setExternalDetails(externalDetails);
+        vmExternalProvisioningManager.updateStartCommandWithExternalDetails(host, vmTO, command);
     }
 
     protected void updateStopCommandForExternalHypervisorType(final HypervisorType hypervisorType,
@@ -1699,31 +1578,12 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         if (!HypervisorType.External.equals(hypervisorType) || vmProfile.getHostId() == null) {
             return;
         }
-        Host host = _hostDao.findById(vmProfile.getHostId());
-        if (host == null) {
-            return;
-        }
         VirtualMachineTO vmTO = ObjectUtils.defaultIfNull(stopCommand.getVirtualMachine(), toVmTO(vmProfile));
-        if (MapUtils.isEmpty(vmTO.getGuestOsDetails())) {
-            vmTO.setGuestOsDetails(null);
-        }
-        if (MapUtils.isEmpty(vmTO.getExtraConfig())) {
-            vmTO.setExtraConfig(null);
-        }
-        if (MapUtils.isEmpty(vmTO.getNetworkIdToNetworkNameMap())) {
-            vmTO.setNetworkIdToNetworkNameMap(null);
-        }
-        Map<String, Map<String, String>> externalDetails = extensionsManager.getExternalAccessDetails(host, vmTO.getExternalDetails());
-        stopCommand.setVirtualMachine(vmTO);
-        stopCommand.setExternalDetails(externalDetails);
+        vmExternalProvisioningManager.updateStopCommandForExternalHypervisorType(hypervisorType, vmProfile, stopCommand, vmTO);
     }
 
     protected void updateRebootCommandWithExternalDetails(Host host, VirtualMachineTO vmTO, RebootCommand rebootCmd) {
-        if (!HypervisorType.External.equals(host.getHypervisorType())) {
-            return;
-        }
-        Map<String, Map<String, String>> externalDetails = extensionsManager.getExternalAccessDetails(host, vmTO.getExternalDetails());
-        rebootCmd.setExternalDetails(externalDetails);
+        vmExternalProvisioningManager.updateRebootCommandWithExternalDetails(host, vmTO, rebootCmd);
     }
 
     public void setVmNetworkDetails(VMInstanceVO vm, VirtualMachineTO vmTO) {

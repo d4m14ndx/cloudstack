@@ -352,6 +352,21 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(iscsiTargetManager, "storagePoolDao", storagePoolDaoMock);
         ReflectionTestUtils.setField(iscsiTargetManager, "agentMgr", agentManagerMock);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmIscsiTargetManager", iscsiTargetManager);
+
+        // Wire a real VmExternalProvisioningManager backed by the same
+        // DAO/manager mocks so the delegating wrappers in
+        // VirtualMachineManagerImpl exercise the extracted behaviour.
+        VmExternalProvisioningManagerImpl externalProvisioningManager = new VmExternalProvisioningManagerImpl();
+        ReflectionTestUtils.setField(externalProvisioningManager, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(externalProvisioningManager, "nicsDao", _nicsDao);
+        ReflectionTestUtils.setField(externalProvisioningManager, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(externalProvisioningManager, "extensionsManager", extensionsManager);
+        ReflectionTestUtils.setField(externalProvisioningManager, "extensionDetailsDao", extensionDetailsDao);
+        ReflectionTestUtils.setField(externalProvisioningManager, "networkService", networkService);
+        ReflectionTestUtils.setField(externalProvisioningManager, "hostDao", hostDaoMock);
+        ReflectionTestUtils.setField(externalProvisioningManager, "networkModel", networkModel);
+        ReflectionTestUtils.setField(externalProvisioningManager, "hvGuruMgr", _hvGuruMgr);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExternalProvisioningManager", externalProvisioningManager);
     }
 
     @After
