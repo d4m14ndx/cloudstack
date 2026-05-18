@@ -69,15 +69,12 @@ import com.cloud.agent.Listener;
 import com.cloud.agent.api.AgentControlAnswer;
 import com.cloud.agent.api.AgentControlCommand;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.CheckNetworkAnswer;
-import com.cloud.agent.api.CheckNetworkCommand;
 import com.cloud.agent.api.CleanupPersistentNetworkResourceAnswer;
 import com.cloud.agent.api.CleanupPersistentNetworkResourceCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.SetupPersistentNetworkAnswer;
 import com.cloud.agent.api.SetupPersistentNetworkCommand;
 import com.cloud.agent.api.StartupCommand;
-import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.deployasis.OVFNetworkTO;
@@ -143,7 +140,6 @@ import com.cloud.network.Networks;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetwork;
-import com.cloud.network.PhysicalNetworkSetupInfo;
 import com.cloud.network.RemoteAccessVpn;
 import com.cloud.network.VpcVirtualNetworkApplianceService;
 import com.cloud.network.addr.PublicIp;
@@ -168,8 +164,6 @@ import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
-import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
-import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.RemoteAccessVpnDao;
 import com.cloud.network.dao.RemoteAccessVpnVO;
 import com.cloud.network.dao.RouterNetworkDao;
@@ -446,6 +440,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NicImportService nicImportService;
     @Inject
     NicMigrationService nicMigrationService;
+    @Inject
+    NetworkHostSetupService networkHostSetupService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -4018,78 +4014,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public void processConnect(final Host host, final StartupCommand cmd, final boolean forRebalance) throws ConnectionException {
-        if (!(cmd instanceof StartupRoutingCommand) || cmd.isConnectionTransferred()) {
-            return;
-        }
-        final long hostId = host.getId();
-        final StartupRoutingCommand startup = (StartupRoutingCommand) cmd;
-
-        final String dataCenter = startup.getDataCenter();
-
-        long dcId;
-        DataCenterVO dc = _dcDao.findByName(dataCenter);
-        if (dc == null) {
-            try {
-                dcId = Long.parseLong(dataCenter);
-                dc = _dcDao.findById(dcId);
-            } catch (final NumberFormatException e) {
-            }
-        }
-        if (dc == null) {
-            throw new IllegalArgumentException("Host " + startup.getPrivateIpAddress() + " sent incorrect data center: " + dataCenter);
-        }
-        dcId = dc.getId();
-        final HypervisorType hypervisorType = startup.getHypervisorType();
-
-        logger.debug("Host's hypervisorType is: {}", hypervisorType);
-
-        final List<PhysicalNetworkSetupInfo> networkInfoList = new ArrayList<>();
-
-        // list all physicalnetworks in the zone & for each get the network names
-        final List<PhysicalNetworkVO> physicalNtwkList = _physicalNetworkDao.listByZone(dcId);
-        for (final PhysicalNetworkVO pNtwk : physicalNtwkList) {
-            final String publicName = _pNTrafficTypeDao.getNetworkTag(pNtwk.getId(), TrafficType.Public, hypervisorType);
-            final String privateName = _pNTrafficTypeDao.getNetworkTag(pNtwk.getId(), TrafficType.Management, hypervisorType);
-            final String guestName = _pNTrafficTypeDao.getNetworkTag(pNtwk.getId(), TrafficType.Guest, hypervisorType);
-            final String storageName = _pNTrafficTypeDao.getNetworkTag(pNtwk.getId(), TrafficType.Storage, hypervisorType);
-            // String controlName = _pNTrafficTypeDao._networkModel.getNetworkTag(pNtwk.getId(), TrafficType.Control, hypervisorType);
-            final PhysicalNetworkSetupInfo info = new PhysicalNetworkSetupInfo();
-            info.setPhysicalNetworkId(pNtwk.getId());
-            info.setGuestNetworkName(guestName);
-            info.setPrivateNetworkName(privateName);
-            info.setPublicNetworkName(publicName);
-            info.setStorageNetworkName(storageName);
-            final PhysicalNetworkTrafficTypeVO mgmtTraffic = _pNTrafficTypeDao.findBy(pNtwk.getId(), TrafficType.Management);
-            if (mgmtTraffic != null) {
-                final String vlan = mgmtTraffic.getVlan();
-                info.setMgmtVlan(vlan);
-            }
-            networkInfoList.add(info);
-        }
-
-        // send the names to the agent
-        logger.debug("Sending CheckNetworkCommand to check the Network is setup correctly on Agent");
-        final CheckNetworkCommand nwCmd = new CheckNetworkCommand(networkInfoList);
-
-        final CheckNetworkAnswer answer = (CheckNetworkAnswer) _agentMgr.easySend(hostId, nwCmd);
-
-        if (answer == null) {
-            logger.warn("Unable to get an answer to the CheckNetworkCommand from agent: {}", host);
-            throw new ConnectionException(true, String.format("Unable to get an answer to the CheckNetworkCommand from agent: %s", host));
-        }
-
-        if (!answer.getResult()) {
-            logger.warn("Unable to setup agent {} due to {}", host, answer.getDetails());
-            final String msg = "Incorrect Network setup on agent, Reinitialize agent after network names are setup, details : " + answer.getDetails();
-            _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_HOST, dcId, host.getPodId(), msg, msg);
-            throw new ConnectionException(true, msg);
-        } else {
-            if (answer.needReconnect()) {
-                throw new ConnectionException(false, "Reinitialize agent after network setup.");
-            }
-            logger.debug("Network setup is correct on Agent");
-            return;
-        }
+        networkHostSetupService.processConnect(host, cmd, forRebalance);
     }
 
     @Override

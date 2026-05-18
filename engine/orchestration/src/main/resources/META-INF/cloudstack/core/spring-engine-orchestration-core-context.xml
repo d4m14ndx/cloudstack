@@ -74,6 +74,9 @@
         <property name="networkElements" value="#{networkElementsRegistry.registered}" />
     </bean>
 
+    <bean id="networkHostSetupServiceImpl"
+        class="org.apache.cloudstack.engine.orchestration.NetworkHostSetupServiceImpl" />
+
     <bean id="clusteredAgentManagerImpl" class="com.cloud.agent.manager.ClusteredAgentManagerImpl" />
     <bean id="managementServiceConfigurationImpl" class="com.cloud.configuration.ManagementServiceConfigurationImpl" />
 
