@@ -146,7 +146,6 @@ import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterGuestIpv6Prefix;
-import com.cloud.dc.DataCenterGuestIpv6PrefixVO;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
 import com.cloud.dc.Pod;
@@ -156,7 +155,6 @@ import com.cloud.dc.dao.AccountVlanMapDao;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.DataCenterDetailsDao;
-import com.cloud.dc.dao.DataCenterGuestIpv6PrefixDao;
 import com.cloud.dc.dao.DataCenterIpAddressDao;
 import com.cloud.dc.dao.DataCenterLinkLocalIpAddressDao;
 import com.cloud.dc.dao.DedicatedResourceDao;
@@ -190,8 +188,6 @@ import com.cloud.hypervisor.ExternalProvisioner;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.kvm.dpdk.DpdkHelper;
 import com.cloud.network.IpAddressManager;
-import com.cloud.network.Ipv6GuestPrefixSubnetNetworkMapVO;
-import com.cloud.network.Ipv6Service;
 import com.cloud.network.Network;
 import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.GuestType;
@@ -204,7 +200,6 @@ import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
-import com.cloud.network.dao.Ipv6GuestPrefixSubnetNetworkMapDao;
 import com.cloud.network.dao.NetrisProviderDao;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NsxProviderDao;
@@ -266,7 +261,6 @@ import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.Transaction;
-import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.db.TransactionStatus;
@@ -279,7 +273,6 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.google.common.base.Enums;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
-import com.googlecode.ipv6.IPv6Network;
 
 public class ConfigurationManagerImpl extends ManagerBase implements ConfigurationManager, ConfigurationService, Configurable {
     public static final String PERACCOUNT = "peraccount";
@@ -432,12 +425,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     @Inject
     UserIpv6AddressDao _ipv6Dao;
     @Inject
-    DataCenterGuestIpv6PrefixDao dataCenterGuestIpv6PrefixDao;
-    @Inject
-    Ipv6GuestPrefixSubnetNetworkMapDao ipv6GuestPrefixSubnetNetworkMapDao;
-    @Inject
-    Ipv6Service ipv6Service;
-    @Inject
     NsxProviderDao nsxProviderDao;
     @Inject
     NetrisProviderDao netrisProviderDao;
@@ -473,6 +460,9 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
 
     @Inject
     protected NetworkOfferingService networkOfferingService;
+
+    @Inject
+    protected GuestIpv6PrefixService guestIpv6PrefixService;
 
     private long _defaultPageSize = Long.parseLong(Config.DefaultPageSize.getDefaultValue());
     // Validation sets now live in ConfigurationValueValidator as immutable static
@@ -1521,78 +1511,17 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     @Override
     @DB
     public DataCenterGuestIpv6Prefix createDataCenterGuestIpv6Prefix(final CreateGuestNetworkIpv6PrefixCmd cmd) throws ConcurrentOperationException {
-        final long zoneId = cmd.getZoneId();
-        final DataCenterVO zone = _zoneDao.findById(zoneId);
-        if (zone == null) {
-            throw new InvalidParameterValueException("Unable to find zone by id: " + zoneId);
-        }
-        final String prefix = cmd.getPrefix();
-        IPv6Network prefixNet = IPv6Network.fromString(prefix);
-        if (prefixNet.getNetmask().asPrefixLength() > Ipv6Service.IPV6_SLAAC_CIDR_NETMASK) {
-            throw new InvalidParameterValueException(String.format("IPv6 prefix must be /%d or less", Ipv6Service.IPV6_SLAAC_CIDR_NETMASK));
-        }
-        List<DataCenterGuestIpv6PrefixVO> existingPrefixes = dataCenterGuestIpv6PrefixDao.listByDataCenterId(zoneId);
-        for (DataCenterGuestIpv6PrefixVO existingPrefix : existingPrefixes) {
-            IPv6Network existingPrefixNet = IPv6Network.fromString(existingPrefix.getPrefix());
-            if (NetUtils.ipv6NetworksOverlap(existingPrefixNet, prefixNet)) {
-                throw new InvalidParameterValueException(String.format("IPv6 prefix %s overlaps with the existing IPv6 prefix %s", prefixNet, existingPrefixNet));
-            }
-        }
-        DataCenterGuestIpv6Prefix dataCenterGuestIpv6Prefix = null;
-        try {
-            dataCenterGuestIpv6Prefix = Transaction.execute(new TransactionCallback<>() {
-                @Override
-                public DataCenterGuestIpv6Prefix doInTransaction(TransactionStatus status) {
-                    DataCenterGuestIpv6PrefixVO dataCenterGuestIpv6PrefixVO = new DataCenterGuestIpv6PrefixVO(zoneId, prefix);
-                    dataCenterGuestIpv6PrefixDao.persist(dataCenterGuestIpv6PrefixVO);
-                    return dataCenterGuestIpv6PrefixVO;
-                }
-            });
-        } catch (final Exception e) {
-            logger.error("Unable to add IPv6 prefix for zone: {} due to {}", zone, e.getMessage(), e);
-            throw new CloudRuntimeException(String.format("Unable to add IPv6 prefix for zone ID: %s. Please contact Cloud Support.", zone));
-        }
-        return dataCenterGuestIpv6Prefix;
+        return guestIpv6PrefixService.createDataCenterGuestIpv6Prefix(cmd);
     }
 
     @Override
     public List<? extends DataCenterGuestIpv6Prefix> listDataCenterGuestIpv6Prefixes(final ListGuestNetworkIpv6PrefixesCmd cmd) throws ConcurrentOperationException {
-        final Long id = cmd.getId();
-        final Long zoneId = cmd.getZoneId();
-        if (id != null) {
-            DataCenterGuestIpv6PrefixVO prefix = dataCenterGuestIpv6PrefixDao.findById(id);
-            List<DataCenterGuestIpv6PrefixVO> prefixes = new ArrayList<>();
-            if (prefix != null) {
-                prefixes.add(prefix);
-            }
-            return prefixes;
-        }
-        if (zoneId != null) {
-            final DataCenterVO zone = _zoneDao.findById(zoneId);
-            if (zone == null) {
-                throw new InvalidParameterValueException("Unable to find zone by id: " + zoneId);
-            }
-            return dataCenterGuestIpv6PrefixDao.listByDataCenterId(zoneId);
-        }
-        return dataCenterGuestIpv6PrefixDao.listAll();
+        return guestIpv6PrefixService.listDataCenterGuestIpv6Prefixes(cmd);
     }
 
     @Override
     public boolean deleteDataCenterGuestIpv6Prefix(DeleteGuestNetworkIpv6PrefixCmd cmd) {
-        final long prefixId = cmd.getId();
-        final DataCenterGuestIpv6PrefixVO prefix = dataCenterGuestIpv6PrefixDao.findById(prefixId);
-        if (prefix == null) {
-            throw new InvalidParameterValueException("Unable to find guest network IPv6 prefix by id: " + prefixId);
-        }
-        List<Ipv6GuestPrefixSubnetNetworkMapVO> prefixSubnets = ipv6GuestPrefixSubnetNetworkMapDao.listUsedByPrefix(prefixId);
-        if (CollectionUtils.isNotEmpty(prefixSubnets)) {
-            List<String> usedSubnets = prefixSubnets.stream().map(Ipv6GuestPrefixSubnetNetworkMapVO::getSubnet).collect(Collectors.toList());
-            logger.error(String.format("Subnets for guest IPv6 prefix {ID: %s, %s} are in use: %s", prefix.getUuid(), prefix.getPrefix(), String.join(", ", usedSubnets)));
-            throw new CloudRuntimeException(String.format("Unable to delete guest network IPv6 prefix ID: %s. Prefix subnets are in use.", prefix.getUuid()));
-        }
-        ipv6GuestPrefixSubnetNetworkMapDao.deleteByPrefixId(prefixId);
-        dataCenterGuestIpv6PrefixDao.remove(prefixId);
-        return true;
+        return guestIpv6PrefixService.deleteDataCenterGuestIpv6Prefix(cmd);
     }
 
     @Override

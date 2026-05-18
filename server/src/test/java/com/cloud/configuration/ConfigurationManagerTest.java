@@ -371,6 +371,12 @@ public class ConfigurationManagerTest {
         ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", Mockito.mock(com.cloud.utils.DomainHelper.class));
         ReflectionTestUtils.setField(configurationMgr, "networkOfferingService", networkOfferingServiceImpl);
 
+        GuestIpv6PrefixServiceImpl guestIpv6PrefixService = new GuestIpv6PrefixServiceImpl();
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "dataCenterGuestIpv6PrefixDao", dataCenterGuestIpv6PrefixDao);
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "ipv6GuestPrefixSubnetNetworkMapDao", ipv6GuestPrefixSubnetNetworkMapDao);
+        ReflectionTestUtils.setField(configurationMgr, "guestIpv6PrefixService", guestIpv6PrefixService);
+
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
         dedicateIdField.set(dedicatePublicIpRangesCmd, 1L);

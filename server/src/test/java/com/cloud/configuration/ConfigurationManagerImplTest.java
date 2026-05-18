@@ -18,6 +18,7 @@ package com.cloud.configuration;
 
 import com.cloud.alert.AlertManager;
 import com.cloud.capacity.dao.CapacityDao;
+import com.cloud.dc.DataCenterGuestIpv6Prefix;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.DataCenterIpAddressDao;
 import com.cloud.dc.dao.DedicatedResourceDao;
@@ -25,6 +26,7 @@ import com.cloud.dc.dao.HostPodDao;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.dao.DomainDao;
+import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.host.dao.HostDao;
 import com.cloud.network.Network;
@@ -58,6 +60,9 @@ import com.cloud.vm.dao.VMInstanceDao;
 import org.apache.cloudstack.acl.RoleService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.command.admin.config.ResetCfgCmd;
+import org.apache.cloudstack.api.command.admin.network.CreateGuestNetworkIpv6PrefixCmd;
+import org.apache.cloudstack.api.command.admin.network.DeleteGuestNetworkIpv6PrefixCmd;
+import org.apache.cloudstack.api.command.admin.network.ListGuestNetworkIpv6PrefixesCmd;
 import org.apache.cloudstack.api.command.admin.network.CreateNetworkOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.zone.DeleteZoneCmd;
@@ -180,6 +185,8 @@ public class ConfigurationManagerImplTest {
     @Mock
     NetworkModel networkModel;
     @Mock
+    GuestIpv6PrefixService guestIpv6PrefixService;
+    @Mock
     PrimaryDataStoreDao storagePoolDao;
     @Mock
     StoragePoolDetailsDao storagePoolDetailsDao;
@@ -233,6 +240,7 @@ public class ConfigurationManagerImplTest {
         ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", Mockito.mock(org.apache.cloudstack.framework.messagebus.MessageBus.class));
         ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
         ReflectionTestUtils.setField(configurationManagerImplSpy, "networkOfferingService", networkOfferingServiceImpl);
+        ReflectionTestUtils.setField(configurationManagerImplSpy, "guestIpv6PrefixService", guestIpv6PrefixService);
 
         deleteZoneCmd = Mockito.mock(DeleteZoneCmd.class);
         createNetworkOfferingCmd = Mockito.mock(CreateNetworkOfferingCmd.class);
@@ -457,6 +465,41 @@ public class ConfigurationManagerImplTest {
 
         Assert.assertTrue(result);
         verify(zoneService, times(1)).deleteZone(deleteZoneCmd);
+    }
+
+    @Test
+    public void createDataCenterGuestIpv6PrefixDelegatesToGuestIpv6PrefixService() throws ConcurrentOperationException {
+        CreateGuestNetworkIpv6PrefixCmd cmd = mock(CreateGuestNetworkIpv6PrefixCmd.class);
+        DataCenterGuestIpv6Prefix prefix = mock(DataCenterGuestIpv6Prefix.class);
+        when(guestIpv6PrefixService.createDataCenterGuestIpv6Prefix(cmd)).thenReturn(prefix);
+
+        DataCenterGuestIpv6Prefix result = configurationManagerImplSpy.createDataCenterGuestIpv6Prefix(cmd);
+
+        Assert.assertSame(prefix, result);
+        verify(guestIpv6PrefixService, times(1)).createDataCenterGuestIpv6Prefix(cmd);
+    }
+
+    @Test
+    public void listDataCenterGuestIpv6PrefixesDelegatesToGuestIpv6PrefixService() throws ConcurrentOperationException {
+        ListGuestNetworkIpv6PrefixesCmd cmd = mock(ListGuestNetworkIpv6PrefixesCmd.class);
+        List<DataCenterGuestIpv6Prefix> prefixes = List.of(mock(DataCenterGuestIpv6Prefix.class), mock(DataCenterGuestIpv6Prefix.class));
+        Mockito.doReturn(prefixes).when(guestIpv6PrefixService).listDataCenterGuestIpv6Prefixes(cmd);
+
+        List<? extends DataCenterGuestIpv6Prefix> result = configurationManagerImplSpy.listDataCenterGuestIpv6Prefixes(cmd);
+
+        Assert.assertSame(prefixes, result);
+        verify(guestIpv6PrefixService, times(1)).listDataCenterGuestIpv6Prefixes(cmd);
+    }
+
+    @Test
+    public void deleteDataCenterGuestIpv6PrefixDelegatesToGuestIpv6PrefixService() {
+        DeleteGuestNetworkIpv6PrefixCmd cmd = mock(DeleteGuestNetworkIpv6PrefixCmd.class);
+        when(guestIpv6PrefixService.deleteDataCenterGuestIpv6Prefix(cmd)).thenReturn(true);
+
+        boolean result = configurationManagerImplSpy.deleteDataCenterGuestIpv6Prefix(cmd);
+
+        Assert.assertTrue(result);
+        verify(guestIpv6PrefixService, times(1)).deleteDataCenterGuestIpv6Prefix(cmd);
     }
 
     @Test
