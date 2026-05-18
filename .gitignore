@@ -104,3 +104,6 @@ waf-*
 #.*
 
 !.gitignore
+
+# Claude Code per-developer settings (contains per-user auth allowlist)
+.claude/
