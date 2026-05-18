@@ -19,10 +19,8 @@ package com.cloud.user;
 import static org.apache.cloudstack.resourcedetail.UserDetailVO.PasswordChangeRequired;
 
 import java.net.InetAddress;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -37,8 +35,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
@@ -66,7 +62,6 @@ import org.apache.cloudstack.acl.dao.ApiKeyPairPermissionsDao;
 import org.apache.cloudstack.affinity.AffinityGroup;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.api.APICommand;
-import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.UpdateAccountCmd;
@@ -86,7 +81,6 @@ import org.apache.cloudstack.auth.UserAuthenticator;
 import org.apache.cloudstack.auth.UserAuthenticator.ActionOnFailedAuthentication;
 import org.apache.cloudstack.auth.UserTwoFactorAuthenticator;
 import org.apache.cloudstack.backup.BackupOffering;
-import org.apache.cloudstack.config.ApiServiceConfiguration;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 import org.apache.cloudstack.framework.config.ConfigKey;
@@ -102,7 +96,6 @@ import org.apache.cloudstack.resourcedetail.UserDetailVO;
 import org.apache.cloudstack.resourcedetail.dao.UserDetailsDao;
 import org.apache.cloudstack.utils.baremetal.BaremetalUtils;
 import org.apache.cloudstack.webhook.WebhookHelper;
-import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.ObjectUtils;
@@ -130,11 +123,9 @@ import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEvent;
-import com.cloud.event.ActionEventUtils;
 import com.cloud.event.ActionEvents;
 import com.cloud.event.EventTypes;
 import com.cloud.exception.AgentUnavailableException;
-import com.cloud.exception.CloudAuthenticationException;
 import com.cloud.exception.CloudTwoFactorAuthenticationException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InvalidParameterValueException;
@@ -188,7 +179,6 @@ import com.cloud.template.TemplateManager;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account.State;
 import com.cloud.user.dao.UserDataDao;
-import com.cloud.utils.ConstantTimeComparator;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.Ternary;
@@ -244,6 +234,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     protected UserUpdateService userUpdateService;
     @Inject
     protected AccountOwnerResolverService accountOwnerResolverService;
+    @Inject
+    protected UserAuthenticationService userAuthenticationService;
     @Inject
     private ConfigurationDao _configDao;
     @Inject
@@ -389,13 +381,9 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     private List<SecurityChecker> _securityCheckers;
     private int _cleanupInterval;
-    private static final String OAUTH2_PROVIDER_NAME = "oauth2";
     private List<String> apiNameList;
 
     protected static Map<String, UserTwoFactorAuthenticator> userTwoFactorAuthenticationProvidersMap = new HashMap<>();
-
-    private long validUserLastAuthTimeDurationInMs = 0L;
-    private static final long DEFAULT_USER_AUTH_TIME_DURATION_MS = 350L;
 
     public static ConfigKey<Boolean> enableUserTwoFactorAuthentication = new ConfigKey<>("Advanced",
             Boolean.class,
@@ -472,6 +460,9 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     public void setUserAuthenticators(List<UserAuthenticator> authenticators) {
         _userAuthenticators = authenticators;
+        if (userAuthenticationService != null) {
+            userAuthenticationService.setUserAuthenticators(authenticators);
+        }
     }
 
     public List<UserTwoFactorAuthenticator> getUserTwoFactorAuthenticators() {
@@ -552,6 +543,9 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
         String loginAttempts = configs.get(Config.IncorrectLoginAttemptsAllowed.key());
         _allowedLoginAttempts = NumbersUtil.parseInt(loginAttempts, 5);
+        if (userAuthenticationService != null) {
+            userAuthenticationService.setAllowedLoginAttempts(_allowedLoginAttempts);
+        }
 
         String value = configs.get(Config.AccountCleanupInterval.key());
         _cleanupInterval = NumbersUtil.parseInt(value, 60 * 60 * 24); // 1 day.
@@ -868,22 +862,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @DB
     public void updateLoginAttempts(final Long id, final int attempts, final boolean toDisable) {
-        try {
-            Transaction.execute(new TransactionCallbackNoReturn() {
-                @Override
-                public void doInTransactionWithoutResult(TransactionStatus status) {
-                    UserAccountVO user = null;
-                    user = userAccountDao.lockRow(id, true);
-                    user.setLoginAttempts(attempts);
-                    if (toDisable) {
-                        user.setState(State.DISABLED.toString());
-                    }
-                    userAccountDao.update(id, user);
-                }
-            });
-        } catch (Exception e) {
-            logger.error("Failed to update login attempts for user {}", () -> userAccountDao.findById(id));
-        }
+        userAuthenticationService.updateLoginAttempts(id, attempts, toDisable);
     }
 
     private boolean doSetUserStatus(long userId, State state) {
@@ -2710,253 +2689,20 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public void logoutUser(long userId) {
-        UserAccount userAcct = userAccountDao.findById(userId);
-        if (userAcct != null) {
-            ActionEventUtils.onActionEvent(userId, userAcct.getAccountId(), userAcct.getDomainId(), EventTypes.EVENT_USER_LOGOUT, "user has logged out", userId, ApiCommandResourceType.User.toString());
-        } // else log some kind of error event? This likely means the user doesn't exist, or has been deleted...
+        userAuthenticationService.logoutUser(userId);
     }
 
     @Override
     public UserAccount authenticateUser(final String username, final String password, final Long domainId, final InetAddress loginIpAddress, final Map<String, Object[]> requestParameters) {
-        long authStartTimeInMs = System.currentTimeMillis();
-        UserAccount user = null;
-        final String[] oAuthProviderArray = (String[])requestParameters.get(ApiConstants.PROVIDER);
-        final String[] secretCodeArray = (String[])requestParameters.get(ApiConstants.SECRET_CODE);
-        String oauthProvider = ((oAuthProviderArray == null) ? null : oAuthProviderArray[0]);
-        String secretCode = ((secretCodeArray == null) ? null : secretCodeArray[0]);
-
-        if ((password != null && !password.isEmpty()) || (oauthProvider != null && secretCode != null)) {
-            user = getUserAccount(username, password, domainId, requestParameters);
-        } else {
-            user = getUserAccountForSSO(username, domainId, requestParameters);
-        }
-
-        if (user != null) {
-            // don't allow to authenticate system user
-            if (user.getId() == User.UID_SYSTEM) {
-                logger.error("Failed to authenticate user: " + username + " in domain " + domainId);
-                return null;
-            }
-            // don't allow baremetal system user
-            if (BaremetalUtils.BAREMETAL_SYSTEM_ACCOUNT_NAME.equals(user.getUsername())) {
-                logger.error("Won't authenticate user: " + username + " in domain " + domainId);
-                return null;
-            }
-
-            // We authenticated successfully by now, let's check if we are allowed to login from the ip address the reqest comes from
-            final Account account = getAccount(user.getAccountId());
-            final DomainVO domain = (DomainVO) _domainMgr.getDomain(account.getDomainId());
-
-            // Get the CIDRs from where this account is allowed to make calls
-            final String accessAllowedCidrs = ApiServiceConfiguration.ApiAllowedSourceCidrList.valueIn(account.getId()).replaceAll("\\s", "");
-            final Boolean ApiSourceCidrChecksEnabled = ApiServiceConfiguration.ApiSourceCidrChecksEnabled.value();
-
-            if (ApiSourceCidrChecksEnabled) {
-                logger.debug("CIDRs from which account '{}' is allowed to perform API calls: {}", account.toString(), accessAllowedCidrs);
-
-                // Block when is not in the list of allowed IPs
-                if (!NetUtils.isIpInCidrList(loginIpAddress, accessAllowedCidrs.split(","))) {
-                    logger.warn("Request by account '{}' was denied since {} does not match {}", account.toString(), loginIpAddress.toString().replace("/", ""), accessAllowedCidrs);
-                    throw new CloudAuthenticationException("Failed to authenticate user '" + username + "' in domain '" + domain.getPath() + "' from ip "
-                            + loginIpAddress.toString().replace("/", "") + "; please provide valid credentials");
-                }
-            }
-
-            ActionEventUtils.onActionEvent(user.getId(), user.getAccountId(), user.getDomainId(), EventTypes.EVENT_USER_LOGIN, "user has logged in from IP Address " + loginIpAddress, user.getId(), ApiCommandResourceType.User.toString());
-
-            validUserLastAuthTimeDurationInMs = System.currentTimeMillis() - authStartTimeInMs;
-            // Here all is fine!
-            if (logger.isDebugEnabled()) {
-                logger.debug(String.format("User: %s in domain %d has successfully logged in, auth time duration - %d ms", username, domainId, validUserLastAuthTimeDurationInMs));
-            }
-
-            user.setDetails(_userDetailsDao.listDetailsKeyPairs(user.getId()));
-
-            return user;
-        } else {
-            if (logger.isDebugEnabled()) {
-                logger.debug("User: " + username + " in domain " + domainId + " has failed to log in");
-            }
-
-            long waitTimeDurationInMs;
-            long invalidUserAuthTimeDurationInMs = System.currentTimeMillis() - authStartTimeInMs;
-            if (validUserLastAuthTimeDurationInMs > 0) {
-                waitTimeDurationInMs = validUserLastAuthTimeDurationInMs - invalidUserAuthTimeDurationInMs;
-            } else {
-                waitTimeDurationInMs = DEFAULT_USER_AUTH_TIME_DURATION_MS - invalidUserAuthTimeDurationInMs;
-            }
-
-            if (waitTimeDurationInMs > 0) {
-                try {
-                    Thread.sleep(waitTimeDurationInMs);
-                } catch (final InterruptedException e) {
-                    // ignored
-                }
-            }
-
-            return null;
-        }
+        return userAuthenticationService.authenticateUser(username, password, domainId, loginIpAddress, requestParameters);
     }
 
     private UserAccount getUserAccount(String username, String password, Long domainId, Map<String, Object[]> requestParameters) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Attempting to log in user: " + username + " in domain " + domainId);
-        }
-        UserAccount userAccount = userAccountDao.getUserAccount(username, domainId);
-
-        boolean authenticated = false;
-        HashSet<ActionOnFailedAuthentication> actionsOnFailedAuthenticaion = new HashSet<>();
-        User.Source userSource = userAccount != null ? userAccount.getSource() : User.Source.UNKNOWN;
-        for (UserAuthenticator authenticator : _userAuthenticators) {
-            final String[] secretCodeArray = (String[])requestParameters.get(ApiConstants.SECRET_CODE);
-            String secretCode = ((secretCodeArray == null) ? null : secretCodeArray[0]);
-            if (userSource != User.Source.UNKNOWN && secretCode == null) {
-                if (!authenticator.getName().equalsIgnoreCase(userSource.name())) {
-                    continue;
-                }
-            }
-            if ((secretCode != null && !authenticator.getName().equals(OAUTH2_PROVIDER_NAME))
-                    || (secretCode == null && authenticator.getName().equals(OAUTH2_PROVIDER_NAME))) {
-                continue;
-            }
-            Pair<Boolean, ActionOnFailedAuthentication> result = authenticator.authenticate(username, password, domainId, requestParameters);
-            if (result.first()) {
-                authenticated = true;
-                break;
-            } else if (result.second() != null) {
-                actionsOnFailedAuthenticaion.add(result.second());
-            }
-        }
-
-        boolean updateIncorrectLoginCount = actionsOnFailedAuthenticaion.contains(ActionOnFailedAuthentication.INCREMENT_INCORRECT_LOGIN_ATTEMPT_COUNT);
-
-        if (authenticated) {
-            Domain domain = _domainMgr.getDomain(domainId);
-            userAccount = userAccountDao.getUserAccount(username, domainId);
-
-            if (!userAccount.getState().equalsIgnoreCase(Account.State.ENABLED.toString()) || !userAccount.getAccountState().equalsIgnoreCase(Account.State.ENABLED.toString())) {
-                if (logger.isInfoEnabled()) {
-                    logger.info("User {} in domain {} is disabled/locked (or account is disabled/locked)", userAccount, domain);
-                }
-                throw new CloudAuthenticationException(String.format("User %s (or their account) in domain %s is disabled/locked. Please contact the administrator.", userAccount, domain));
-            }
-            // Whenever the user is able to log in successfully, reset the login attempts to zero
-            if (!isInternalAccount(userAccount.getId())) {
-                updateLoginAttempts(userAccount.getId(), 0, false);
-            }
-
-            return userAccount;
-        } else {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Unable to authenticate user with username " + username + " in domain " + domainId);
-            }
-
-            if (userAccount == null) {
-                logger.warn("Unable to find an user with username " + username + " in domain " + domainId);
-                return null;
-            }
-
-            if (userAccount.getState().equalsIgnoreCase(Account.State.ENABLED.toString())) {
-                if (!isInternalAccount(userAccount.getId())) {
-                    // Internal accounts are not disabled
-                    updateLoginAttemptsWhenIncorrectLoginAttemptsEnabled(userAccount, updateIncorrectLoginCount, _allowedLoginAttempts);
-                }
-            } else {
-                logger.info("User " + userAccount.getUsername() + " is disabled/locked");
-            }
-            return null;
-        }
+        return userAuthenticationService.getUserAccount(username, password, domainId, requestParameters);
     }
 
     private UserAccount getUserAccountForSSO(String username, Long domainId, Map<String, Object[]> requestParameters) {
-        String key = _configDao.getValue("security.singlesignon.key");
-        if (key == null) {
-            // the SSO key is gone, don't authenticate
-            return null;
-        }
-
-        String singleSignOnTolerance = _configDao.getValue("security.singlesignon.tolerance.millis");
-        if (singleSignOnTolerance == null) {
-            // the SSO tolerance is gone (how much time before/after system time we'll allow the login request to be
-            // valid),
-            // don't authenticate
-            return null;
-        }
-
-        UserAccount user = null;
-        long tolerance = Long.parseLong(singleSignOnTolerance);
-        String signature = null;
-        long timestamp = 0L;
-        String unsignedRequest;
-        StringBuffer unsignedRequestBuffer = new StringBuffer();
-
-        // - build a request string with sorted params, make sure it's all lowercase
-        // - sign the request, verify the signature is the same
-
-        // put the name in a list that we'll sort later
-        List<String> parameterNames = new ArrayList<>(requestParameters.keySet());
-
-        Collections.sort(parameterNames);
-
-        try {
-            for (String paramName : parameterNames) {
-                // parameters come as name/value pairs in the form String/String[]
-                String paramValue = ((String[])requestParameters.get(paramName))[0];
-
-                if ("signature".equalsIgnoreCase(paramName)) {
-                    signature = paramValue;
-                } else {
-                    if ("timestamp".equalsIgnoreCase(paramName)) {
-                        String timestampStr = paramValue;
-                        try {
-                            // If the timestamp is in a valid range according to our tolerance, verify the request
-                            // signature, otherwise return null to indicate authentication failure
-                            timestamp = Long.parseLong(timestampStr);
-                            long currentTime = System.currentTimeMillis();
-                            if (Math.abs(currentTime - timestamp) > tolerance) {
-                                logger.debug("Expired timestamp passed in to login, current time = {}, timestamp = {}", currentTime, timestamp);
-                                return null;
-                            }
-                        } catch (NumberFormatException nfe) {
-                            logger.debug("Invalid timestamp passed in to login: {}", timestampStr);
-                            return null;
-                        }
-                    }
-
-                    if (unsignedRequestBuffer.length() != 0) {
-                        unsignedRequestBuffer.append("&");
-                    }
-                    unsignedRequestBuffer.append(paramName).append("=").append(URLEncoder.encode(paramValue, com.cloud.utils.StringUtils.getPreferredCharset()));
-                }
-            }
-
-            if ((signature == null) || (timestamp == 0L)) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Missing parameters in login request, signature = " + signature + ", timestamp = " + timestamp);
-                }
-                return null;
-            }
-
-            unsignedRequest = unsignedRequestBuffer.toString().toLowerCase().replaceAll("\\+", "%20");
-
-            Mac mac = Mac.getInstance("HmacSHA1");
-            SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(), "HmacSHA1");
-            mac.init(keySpec);
-            mac.update(unsignedRequest.getBytes());
-            byte[] encryptedBytes = mac.doFinal();
-            String computedSignature = new String(Base64.encodeBase64(encryptedBytes));
-            boolean equalSig = ConstantTimeComparator.compareStrings(signature, computedSignature);
-            if (!equalSig) {
-                logger.info("User signature: " + signature + " is not equaled to computed signature: " + computedSignature);
-            } else {
-                user = userAccountDao.getUserAccount(username, domainId);
-            }
-        } catch (Exception ex) {
-            logger.error("Exception authenticating user", ex);
-            return null;
-        }
-
-        return user;
+        return userAuthenticationService.getUserAccountForSSO(username, domainId, requestParameters);
     }
 
     protected void updateLoginAttemptsWhenIncorrectLoginAttemptsEnabled(UserAccount account, boolean updateIncorrectLoginCount,
