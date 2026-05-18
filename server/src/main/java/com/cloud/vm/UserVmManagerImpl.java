@@ -341,7 +341,6 @@ import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionCallbackWithException;
-import com.cloud.utils.db.TransactionCallbackWithExceptionNoReturn;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.db.UUIDManager;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -589,6 +588,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmStatsCollectionService vmStatsCollectionService;
     @Inject
     protected VmRebootService vmRebootService;
+    @Inject
+    protected VmRecoveryService vmRecoveryService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1708,107 +1709,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_VM_RECOVER, eventDescription = "Recovering VM")
     public UserVm recoverVirtualMachine(RecoverVMCmd cmd) throws ResourceAllocationException, CloudRuntimeException {
-
-        final Long vmId = cmd.getId();
-        Account caller = CallContext.current().getCallingAccount();
-        final Long userId = caller.getAccountId();
-
-        // Verify input parameters
-        final UserVmVO vm = _vmDao.findById(vmId);
-
-        if (vm == null) {
-            throw new InvalidParameterValueException("Unable to find an Instance with id " + vmId);
-        }
-        if (UserVmManager.SHAREDFSVM.equals(vm.getUserVmType())) {
-            throw new InvalidParameterValueException("Operation not supported on Shared FileSystem Instance");
-        }
-
-        // When trying to expunge, permission is denied when the caller is not an admin and the AllowUserExpungeRecoverVm is false for the caller.
-        if (!_accountMgr.isAdmin(userId) && !AllowUserExpungeRecoverVm.valueIn(userId)) {
-            throw new PermissionDeniedException("Recovering a vm can only be done by an Admin. Or when the allow.user.expunge.recover.vm key is set.");
-        }
-
-        if (vm.getRemoved() != null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Unable to find vm. vm is removed: {}", vm);
-            }
-            throw new InvalidParameterValueException("Unable to find vm by id " + vm.getUuid());
-        }
-
-        if (vm.getState() != State.Destroyed) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("vm {} is not in the Destroyed state. current sate: {}", vm, vm.getState());
-            }
-            throw new InvalidParameterValueException("Vm with id " + vm.getUuid() + " is not in the right state");
-        }
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("Recovering vm {}", vm);
-        }
-
-        Transaction.execute(new TransactionCallbackWithExceptionNoReturn<ResourceAllocationException>() {
-            @Override public void doInTransactionWithoutResult(TransactionStatus status) throws ResourceAllocationException {
-
-                Account account = _accountDao.lockRow(vm.getAccountId(), true);
-
-                // if the account is deleted, throw error
-                if (account.getRemoved() != null) {
-                    throw new CloudRuntimeException("Unable to recover Instance as the Account is deleted");
-                }
-
-                // Get serviceOffering for Virtual Machine
-                ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-                VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-
-                List<Reserver> reservations = new ArrayList<>();
-                try {
-                    // First check that the maximum number of UserVMs, CPU and Memory limit for the given
-                    // accountId will not be exceeded
-                    if (!VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-                        resourceLimitService.checkVmResourceLimit(account, vm.isDisplayVm(), serviceOffering, template, reservations);
-                    }
-
-                    _haMgr.cancelDestroy(vm, vm.getHostId());
-
-                    try {
-                        if (!_itMgr.stateTransitTo(vm, VirtualMachine.Event.RecoveryRequested, null)) {
-                            logger.debug("Unable to recover the vm {} because it is not in the correct state. current state: {}", vm, vm.getState());
-                            throw new InvalidParameterValueException(String.format("Unable to recover the vm %s because it is not in the correct state. current state: %s", vm, vm.getState()));
-                        }
-                    } catch (NoTransitionException e) {
-                        throw new InvalidParameterValueException(String.format("Unable to recover the vm %s because it is not in the correct state. current state: %s", vm, vm.getState()));
-                    }
-
-                    // Recover the VM's disks
-                    List<VolumeVO> volumes = _volsDao.findByInstance(vmId);
-                    for (VolumeVO volume : volumes) {
-                        if (volume.getVolumeType().equals(Volume.Type.ROOT)) {
-                            recoverRootVolume(volume, vmId);
-                            break;
-                        }
-                    }
-
-                    //Update Resource Count for the given account
-                    resourceCountIncrement(account.getId(), vm.isDisplayVm(), serviceOffering, template);
-
-                } finally {
-                    ReservationHelper.closeAll(reservations);
-                }
-            }
-        });
-
-        return _vmDao.findById(vmId);
+        return vmRecoveryService.recoverVirtualMachine(cmd);
     }
 
     protected void recoverRootVolume(VolumeVO volume, Long vmId) {
-        if (Volume.State.Destroy.equals(volume.getState())) {
-            _volumeService.recoverVolume(volume.getId());
-            _volsDao.attachVolume(volume.getId(), vmId, ROOT_DEVICE_ID);
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_ATTACH, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                    volume.getDiskOfferingId(), volume.getTemplateId(), volume.getSize(), Volume.class.getName(), volume.getUuid(), vmId, volume.isDisplay());
-        } else {
-            _volumeService.publishVolumeCreationUsageEvent(volume);
-        }
+        vmRecoveryService.recoverRootVolume(volume, vmId);
     }
 
     @Override

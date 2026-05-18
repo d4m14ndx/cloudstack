@@ -472,6 +472,9 @@ public class UserVmManagerImplTest {
     @Mock
     ServiceOfferingDetailsDao serviceOfferingDetailsDao;
 
+    @Mock
+    VmRecoveryService vmRecoveryService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -632,6 +635,11 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "userVmDao", userVmDao);
         org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "vmInstanceDetailsDao", vmInstanceDetailsDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmCredentialResetService", credentialResetService);
+        // Slice 21: wire VmRecoveryService mock so the delegating wrappers
+        // recoverVirtualMachine / recoverRootVolume don't NPE. Per-branch
+        // behaviour is covered by VmRecoveryServiceImplTest; the existing
+        // recoverRootVolumeTestDestroyState test has been migrated there.
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRecoveryService", vmRecoveryService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -1279,18 +1287,6 @@ public class UserVmManagerImplTest {
 
         Assert.assertEquals("testUserdata", userVmVO.getUserData());
         Assert.assertEquals(1L, (long)userVmVO.getUserDataId());
-    }
-
-    @Test
-    public void recoverRootVolumeTestDestroyState() {
-        Mockito.doReturn(Volume.State.Destroy).when(volumeVOMock).getState();
-
-        try (MockedStatic<UsageEventUtils> ignored = Mockito.mockStatic(UsageEventUtils.class)) {
-            userVmManagerImpl.recoverRootVolume(volumeVOMock, vmId);
-
-            Mockito.verify(volumeApiService).recoverVolume(volumeVOMock.getId());
-            Mockito.verify(volumeDaoMock).attachVolume(volumeVOMock.getId(), vmId, UserVmManagerImpl.ROOT_DEVICE_ID);
-        }
     }
 
     @Test(expected = InvalidParameterValueException.class)
