@@ -49,10 +49,12 @@ import java.util.List;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
+import org.apache.cloudstack.api.command.admin.cluster.ListClustersCmd;
 import org.apache.cloudstack.api.command.admin.config.ListCfgsByCmd;
 import org.apache.cloudstack.api.command.admin.guest.AddGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.DeleteGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.UpdateGuestOsCategoryCmd;
+import org.apache.cloudstack.api.command.admin.host.ListHostsCmd;
 import org.apache.cloudstack.api.command.user.address.ListPublicIpAddressesCmd;
 import org.apache.cloudstack.api.command.user.guest.ListGuestOsCategoriesCmd;
 import org.apache.cloudstack.api.command.user.ssh.RegisterSSHKeyPairCmd;
@@ -66,6 +68,7 @@ import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
 import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
 import com.cloud.cpu.CPU;
+import com.cloud.dc.ClusterVO;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.api.ApiDBUtils;
@@ -184,6 +187,9 @@ public class ManagementServerImplTest {
     @Mock
     UserDataRegistryService userDataRegistryService;
 
+    @Mock
+    ClusterHostQueryService clusterHostQueryService;
+
     @Spy
     @InjectMocks
     ManagementServerImpl spy = new ManagementServerImpl();
@@ -301,6 +307,7 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(guestOsManagementService, "hostDao", hostDao);
         ReflectionTestUtils.setField(guestOsManagementService, "templateDao", templateDao);
         ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
+        ReflectionTestUtils.setField(spy, "clusterHostQueryService", clusterHostQueryService);
 
         spy.setHostAllocators(List.of(hostAllocator));
 
@@ -923,5 +930,54 @@ public class ManagementServerImplTest {
         spy.getCapableSuitableHosts(virtualMachineMock, virtualMachineProfileMock, dataCenterDeploymentMock, compatibleHosts, excludeListMock, hostMock);
 
         apiDBUtilsMock.verify(() -> ApiDBUtils.listZoneClustersArchs(Mockito.anyLong()), Mockito.never());
+    }
+
+    @Test
+    public void searchForClustersWrapperDelegatesToService() {
+        List<? extends com.cloud.org.Cluster> expected = List.of(Mockito.mock(ClusterVO.class));
+        Mockito.doReturn(expected).when(clusterHostQueryService).searchForClusters(11L, 2L, 20L, "KVM");
+
+        List<? extends com.cloud.org.Cluster> result = spy.searchForClusters(11L, 2L, 20L, "KVM");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForClusters(11L, 2L, 20L, "KVM");
+    }
+
+    @Test
+    public void searchForClustersCmdWrapperDelegatesToService() {
+        ListClustersCmd cmd = Mockito.mock(ListClustersCmd.class);
+        Pair<List<? extends com.cloud.org.Cluster>, Integer> expected = new Pair<>(List.of(Mockito.mock(ClusterVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForClusters(cmd)).thenReturn(expected);
+
+        Pair<List<? extends com.cloud.org.Cluster>, Integer> result = spy.searchForClusters(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForClusters(cmd);
+    }
+
+    @Test
+    public void searchForServersCmdWrapperDelegatesToService() {
+        ListHostsCmd cmd = Mockito.mock(ListHostsCmd.class);
+        Pair<List<? extends Host>, Integer> expected = new Pair<>(List.of(Mockito.mock(HostVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForServers(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Host>, Integer> result = spy.searchForServers(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForServers(cmd);
+    }
+
+    @Test
+    public void searchForServersHelperWrapperDelegatesToService() {
+        Pair<List<HostVO>, Integer> expected = new Pair<>(List.of(Mockito.mock(HostVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L)).thenReturn(expected);
+
+        Pair<List<HostVO>, Integer> result = spy.searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L);
     }
 }
