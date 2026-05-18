@@ -252,6 +252,9 @@ public class UnmanagedVMsManagerImplTest {
     private UnmanagedInstanceNicValidator unmanagedInstanceNicValidator;
     @Mock
     private UnmanagedInstanceDiskValidator unmanagedInstanceDiskValidator;
+    @Spy
+    @InjectMocks
+    private VmwareToKvmConversionServiceImpl vmwareToKvmConversionService;
 
     @Mock
     private VMInstanceVO virtualMachine;
