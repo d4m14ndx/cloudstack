@@ -577,6 +577,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmStatsCollectionService vmStatsCollectionService;
     @Inject
+    protected VmStorageMigrationService vmStorageMigrationService;
+    @Inject
     protected VmRebootService vmRebootService;
     @Inject
     protected VmRecoveryService vmRecoveryService;
@@ -4944,10 +4946,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return _vmInstanceDao.findById(vmId);
     }
 
-    private VMInstanceVO preVmStorageMigrationCheck(Long vmId) {
-        return vmMigrationValidator.preVmStorageMigrationCheck(vmId);
-    }
-
     private VirtualMachine findMigratedVm(long vmId, VirtualMachine.Type vmType) {
         if (VirtualMachine.Type.User.equals(vmType)) {
             return _vmDao.findById(vmId);
@@ -4957,70 +4955,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public VirtualMachine vmStorageMigration(Long vmId, StoragePool destPool) {
-        VMInstanceVO vm = preVmStorageMigrationCheck(vmId);
-        Map<Long, Long> volumeToPoolIds = new HashMap<>();
-        checkDestinationHypervisorType(destPool, vm);
-        checkIfDestinationPoolHasSameStorageAccessGroups(destPool, vm);
-        List<VolumeVO> volumes = _volsDao.findByInstance(vm.getId());
-        StoragePoolVO destinationPoolVo = _storagePoolDao.findById(destPool.getId());
-        Long destPoolPodId = ScopeType.CLUSTER.equals(destinationPoolVo.getScope()) || ScopeType.HOST.equals(destinationPoolVo.getScope()) ?
-                destinationPoolVo.getPodId() : null;
-        for (VolumeVO volume : volumes) {
-            snapshotHelper.checkKvmVolumeSnapshotsOnlyInPrimaryStorage(volume, vm.getHypervisorType());
-            if (!VirtualMachine.Type.User.equals(vm.getType())) {
-                // Migrate within same pod as source storage and same cluster for all disks only. Hypervisor check already done
-                StoragePoolVO pool = _storagePoolDao.findById(volume.getPoolId());
-                if (destPoolPodId != null &&
-                        (ScopeType.CLUSTER.equals(pool.getScope()) || ScopeType.HOST.equals(pool.getScope())) &&
-                        !destPoolPodId.equals(pool.getPodId())) {
-                    throw new InvalidParameterValueException("Storage migration of non-user VMs cannot be done between storage pools of different pods");
-                }
-            }
-            Pair<Boolean, String> checkResult = storageManager.checkIfReadyVolumeFitsInStoragePoolWithStorageAccessGroups(destPool, volume);
-            if (!checkResult.first()) {
-                throw new CloudRuntimeException(String.format("Storage suitability check failed for volume %s with error, %s", volume, checkResult.second()));
-            }
-            volumeToPoolIds.put(volume.getId(), destPool.getId());
-        }
-        _itMgr.storageMigration(vm.getUuid(), volumeToPoolIds);
-        return findMigratedVm(vm.getId(), vm.getType());
+        return vmStorageMigrationService.vmStorageMigration(vmId, destPool);
     }
 
     @Override
     public VirtualMachine vmStorageMigration(Long vmId, Map<String, String> volumeToPool) {
-        VMInstanceVO vm = preVmStorageMigrationCheck(vmId);
-        Map<Long, Long> volumeToPoolIds = new HashMap<>();
-        Long poolClusterId = null;
-        for (Map.Entry<String, String> entry : volumeToPool.entrySet()) {
-            VolumeVO volume = _volsDao.findByUuid(entry.getKey());
-            snapshotHelper.checkKvmVolumeSnapshotsOnlyInPrimaryStorage(volume, vm.getHypervisorType());
-            StoragePoolVO pool = _storagePoolDao.findPoolByUUID(entry.getValue());
-            if (poolClusterId != null &&
-                    (ScopeType.CLUSTER.equals(pool.getScope()) || ScopeType.HOST.equals(pool.getScope())) &&
-                    !poolClusterId.equals(pool.getClusterId())) {
-                throw new InvalidParameterValueException("VM's disk cannot be migrated, input destination storage pools belong to different clusters");
-            }
-            if (pool.getClusterId() != null) {
-                poolClusterId = pool.getClusterId();
-            }
-            checkDestinationHypervisorType(pool, vm);
-            Pair<Boolean, String> checkResult = storageManager.checkIfReadyVolumeFitsInStoragePoolWithStorageAccessGroups(pool, volume);
-            if (!checkResult.first()) {
-                throw new CloudRuntimeException(String.format("Storage suitability check failed for volume %s with error %s", volume, checkResult.second()));
-            }
-
-            volumeToPoolIds.put(volume.getId(), pool.getId());
-        }
-        _itMgr.storageMigration(vm.getUuid(), volumeToPoolIds);
-        return findMigratedVm(vm.getId(), vm.getType());
-    }
-
-    private void checkIfDestinationPoolHasSameStorageAccessGroups(StoragePool destPool, VMInstanceVO vm) {
-        vmMigrationValidator.checkIfDestinationPoolHasSameStorageAccessGroups(destPool, vm);
-    }
-
-    private void checkDestinationHypervisorType(StoragePool destPool, VMInstanceVO vm) {
-        vmMigrationValidator.checkDestinationHypervisorType(destPool, vm);
+        return vmStorageMigrationService.vmStorageMigration(vmId, volumeToPool);
     }
 
     public boolean isVMUsingLocalStorage(VMInstanceVO vm) {
