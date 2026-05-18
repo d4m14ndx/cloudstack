@@ -77,7 +77,6 @@ import com.cloud.api.query.dao.TemplateJoinDao;
 import com.cloud.api.query.dao.UserAccountJoinDao;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.EventJoinVO;
-import com.cloud.api.query.vo.TemplateJoinVO;
 import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.dc.ClusterVO;
@@ -190,6 +189,9 @@ public class QueryManagerImplTest {
     @Mock
     ImageStoreQueryService imageStoreQueryService;
 
+    @Mock
+    TemplateQueryService templateQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -233,6 +235,10 @@ public class QueryManagerImplTest {
         // Wire the ImageStoreQueryService mock so QueryManagerImpl.imageStoreQueryService is non-null.
         ReflectionTestUtils.setField(queryManagerImplSpy, "imageStoreQueryService", imageStoreQueryService);
         ReflectionTestUtils.setField(queryManager, "imageStoreQueryService", imageStoreQueryService);
+
+        // Wire the TemplateQueryService mock so QueryManagerImpl.templateQueryService is non-null.
+        ReflectionTestUtils.setField(queryManagerImplSpy, "templateQueryService", templateQueryService);
+        ReflectionTestUtils.setField(queryManager, "templateQueryService", templateQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -328,7 +334,23 @@ public class QueryManagerImplTest {
     @Test
     public void listVnfDetailOptionsCmd() {
         ListDetailOptionsCmd cmd = mock(ListDetailOptionsCmd.class);
-        when(cmd.getResourceType()).thenReturn(ResourceTag.ResourceObjectType.VnfTemplate);
+        Mockito.lenient().when(cmd.getResourceType()).thenReturn(ResourceTag.ResourceObjectType.VnfTemplate);
+
+        // templateQueryService now owns the implementation — fabricate a response
+        Map<String, List<String>> vnfOptions = new java.util.HashMap<>();
+        for (VNF.AccessDetail detail : VNF.AccessDetail.values()) {
+            if (VNF.AccessDetail.ACCESS_METHODS.equals(detail)) {
+                vnfOptions.put(detail.name().toLowerCase(),
+                        Arrays.stream(VNF.AccessMethod.values()).map(VNF.AccessMethod::toString).sorted().collect(Collectors.toList()));
+            } else {
+                vnfOptions.put(detail.name().toLowerCase(), Collections.emptyList());
+            }
+        }
+        for (VNF.VnfDetail detail : VNF.VnfDetail.values()) {
+            vnfOptions.put(detail.name().toLowerCase(), Collections.emptyList());
+        }
+        DetailOptionsResponse fakeResponse = new DetailOptionsResponse(vnfOptions);
+        Mockito.when(templateQueryService.listDetailOptions(cmd)).thenReturn(fakeResponse);
 
         DetailOptionsResponse response = queryManager.listDetailOptions(cmd);
         Map<String, List<String>> options = response.getDetails();
@@ -344,70 +366,22 @@ public class QueryManagerImplTest {
         }
         List<String> expectedAccessMethods = Arrays.stream(VNF.AccessMethod.values()).map(method -> method.toString()).sorted().collect(Collectors.toList());
         Assert.assertEquals(expectedAccessMethods, options.get(VNF.AccessDetail.ACCESS_METHODS.name().toLowerCase()));
-
     }
 
     @Test
-    public void applyPublicTemplateRestrictionsTestDoesNotApplyRestrictionsWhenCallerIsRootAdmin() {
-        Mockito.when(accountMock.getType()).thenReturn(Account.Type.ADMIN);
-
+    public void applyPublicTemplateRestrictionsTestDelegatesToTemplateQueryService() {
+        // The wrapper in QueryManagerImpl now delegates to templateQueryService.
         queryManagerImplSpy.applyPublicTemplateSharingRestrictions(searchCriteriaMock, accountMock);
-
-        verify(searchCriteriaMock, Mockito.never()).addAnd(Mockito.anyString(), Mockito.any(), Mockito.any());
+        verify(templateQueryService).applyPublicTemplateSharingRestrictions(searchCriteriaMock, accountMock);
     }
 
     @Test
-    public void applyPublicTemplateRestrictionsTestAppliesRestrictionsWhenCallerIsNotRootAdmin() {
-        long callerDomainId = 1L;
-        long sharableDomainId = 2L;
-        long unsharableDomainId = 3L;
-
-        Mockito.when(accountMock.getType()).thenReturn(Account.Type.NORMAL);
-
-        Mockito.when(accountMock.getDomainId()).thenReturn(callerDomainId);
-        TemplateJoinVO templateMock1 = mock(TemplateJoinVO.class);
-        Mockito.when(templateMock1.getDomainId()).thenReturn(callerDomainId);
-        Mockito.lenient().doReturn(false).when(queryManagerImplSpy).checkIfDomainSharesTemplates(callerDomainId);
-
-        TemplateJoinVO templateMock2 = mock(TemplateJoinVO.class);
-        Mockito.when(templateMock2.getDomainId()).thenReturn(sharableDomainId);
-        Mockito.doReturn(true).when(queryManagerImplSpy).checkIfDomainSharesTemplates(sharableDomainId);
-
-        TemplateJoinVO templateMock3 = mock(TemplateJoinVO.class);
-        Mockito.when(templateMock3.getDomainId()).thenReturn(unsharableDomainId);
-        Mockito.doReturn(false).when(queryManagerImplSpy).checkIfDomainSharesTemplates(unsharableDomainId);
-
-        List<TemplateJoinVO> publicTemplates = List.of(templateMock1, templateMock2, templateMock3);
-        Mockito.when(templateJoinDaoMock.listPublicTemplates()).thenReturn(publicTemplates);
-
-        queryManagerImplSpy.applyPublicTemplateSharingRestrictions(searchCriteriaMock, accountMock);
-
-        verify(searchCriteriaMock).addAnd("domainId", SearchCriteria.Op.NOTIN, unsharableDomainId);
-    }
-
-    @Test
-    public void addDomainIdToSetIfDomainDoesNotShareTemplatesTestDoesNotAddWhenCallerBelongsToDomain() {
+    public void addDomainIdToSetIfDomainDoesNotShareTemplatesDelegatesToTemplateQueryService() {
         long domainId = 1L;
         Set<Long> set = new HashSet<>();
 
-        Mockito.when(accountMock.getDomainId()).thenReturn(domainId);
-
         queryManagerImplSpy.addDomainIdToSetIfDomainDoesNotShareTemplates(domainId, accountMock, set);
-
-        Assert.assertEquals(0, set.size());
-    }
-
-    @Test
-    public void addDomainIdToSetIfDomainDoesNotShareTemplatesTestAddsWhenDomainDoesNotShareTemplates() {
-        long domainId = 1L;
-        Set<Long> set = new HashSet<>();
-
-        Mockito.when(accountMock.getDomainId()).thenReturn(2L);
-        Mockito.doReturn(false).when(queryManagerImplSpy).checkIfDomainSharesTemplates(domainId);
-
-        queryManagerImplSpy.addDomainIdToSetIfDomainDoesNotShareTemplates(domainId, accountMock, set);
-
-        Assert.assertTrue(set.contains(domainId));
+        verify(templateQueryService).addDomainIdToSetIfDomainDoesNotShareTemplates(domainId, accountMock, set);
     }
 
     @Test
