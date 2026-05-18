@@ -179,6 +179,11 @@
         <property name="internalLoadBalancerElementServices" value="#{internalLoadBalancerElementServiceRegistry.registered}" />
     </bean>
 
+    <bean id="physicalNetworkManagementServiceImpl" class="com.cloud.network.PhysicalNetworkManagementServiceImpl" >
+        <property name="networkGurus" value="#{networkGurusRegistry.registered}" />
+        <property name="internalLoadBalancerElementServices" value="#{internalLoadBalancerElementServiceRegistry.registered}" />
+    </bean>
+
     <bean id="networkUsageManagerImpl" class="com.cloud.network.NetworkUsageManagerImpl" />
 
     <bean id="oCFS2ManagerImpl" class="com.cloud.storage.OCFS2ManagerImpl" />
