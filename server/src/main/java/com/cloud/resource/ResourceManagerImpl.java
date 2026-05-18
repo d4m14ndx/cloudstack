@@ -37,7 +37,6 @@ import javax.naming.ConfigurationException;
 
 import com.cloud.offering.ServiceOffering;
 import com.cloud.storage.ScopeType;
-import com.cloud.storage.StoragePoolAndAccessGroupMapVO;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
 import com.cloud.storage.dao.StoragePoolTagsDao;
 import com.cloud.gpu.VgpuProfileVO;
@@ -176,11 +175,9 @@ import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.GenericSearchBuilder;
 import com.cloud.utils.db.GlobalLock;
-import com.cloud.utils.db.JoinBuilder;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.SearchCriteria.Func;
-import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
@@ -274,6 +271,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private HostMaintenanceService hostMaintenanceService;
     @Inject
     protected ClusterLifecycleService clusterLifecycleService;
+    @Inject
+    protected StorageAccessGroupService storageAccessGroupService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -1611,154 +1610,15 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     public List<Long> listOfHostIdsUsingTheStorageAccessGroups(List<String> storageAccessGroups, Long clusterId, Long podId, Long datacenterId) {
-        GenericSearchBuilder<VMInstanceVO, Long> vmInstanceSearch = _vmDao.createSearchBuilder(Long.class);
-        vmInstanceSearch.select(null, Func.DISTINCT, vmInstanceSearch.entity().getHostId());
-        vmInstanceSearch.and("hostId", vmInstanceSearch.entity().getHostId(), Op.NNULL);
-        vmInstanceSearch.and("removed", vmInstanceSearch.entity().getRemoved(), Op.NULL);
-
-        GenericSearchBuilder<VolumeVO, Long> volumeSearch = volumeDao.createSearchBuilder(Long.class);
-        volumeSearch.selectFields(volumeSearch.entity().getInstanceId());
-        volumeSearch.and("state", volumeSearch.entity().getState(), Op.NIN);
-
-        GenericSearchBuilder<StoragePoolVO, Long> storagePoolSearch = _storagePoolDao.createSearchBuilder(Long.class);
-        storagePoolSearch.and("clusterId", storagePoolSearch.entity().getClusterId(), Op.EQ);
-        storagePoolSearch.and("podId", storagePoolSearch.entity().getPodId(), Op.EQ);
-        storagePoolSearch.and("datacenterId", storagePoolSearch.entity().getDataCenterId(), Op.EQ);
-        storagePoolSearch.selectFields(storagePoolSearch.entity().getId());
-
-        GenericSearchBuilder<StoragePoolAndAccessGroupMapVO, Long> storageAccessGroupSearch = _storagePoolAccessGroupMapDao.createSearchBuilder(Long.class);
-        storageAccessGroupSearch.and("sag", storageAccessGroupSearch.entity().getStorageAccessGroup(), Op.IN);
-
-        storagePoolSearch.join("storageAccessGroupSearch", storageAccessGroupSearch, storagePoolSearch.entity().getId(), storageAccessGroupSearch.entity().getPoolId(), JoinBuilder.JoinType.INNER);
-        storageAccessGroupSearch.done();
-
-        volumeSearch.join("storagePoolSearch", storagePoolSearch, volumeSearch.entity().getPoolId(), storagePoolSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-        storagePoolSearch.done();
-
-        vmInstanceSearch.join("volumeSearch", volumeSearch, vmInstanceSearch.entity().getId(), volumeSearch.entity().getInstanceId(), JoinBuilder.JoinType.INNER);
-        volumeSearch.done();
-
-        vmInstanceSearch.done();
-
-        SearchCriteria<Long> sc = vmInstanceSearch.create();
-        sc.setJoinParameters("storageAccessGroupSearch", "sag", storageAccessGroups.toArray());
-        sc.setJoinParameters("volumeSearch", "state", new String[]{"Destroy", "Error", "Expunging", "Expunged"});
-        if (clusterId != null) {
-            sc.setParameters("storagePoolSearch", "clusterId", clusterId);
-        }
-        if (podId != null) {
-            sc.setParameters("storagePoolSearch", "podId", podId);
-        }
-        if (datacenterId != null) {
-            sc.setParameters("storagePoolSearch", "datacenterId", datacenterId);
-        }
-
-        return _vmDao.customSearch(sc, null);
+        return storageAccessGroupService.listOfHostIdsUsingTheStorageAccessGroups(storageAccessGroups, clusterId, podId, datacenterId);
     }
 
     public List<Long> listOfHostIdsUsingTheStoragePool(Long storagePoolId) {
-        GenericSearchBuilder<VMInstanceVO, Long> vmInstanceSearch = _vmDao.createSearchBuilder(Long.class);
-        vmInstanceSearch.select(null, Func.DISTINCT, vmInstanceSearch.entity().getHostId());
-        vmInstanceSearch.and("hostId", vmInstanceSearch.entity().getHostId(), Op.NNULL);
-        vmInstanceSearch.and("removed", vmInstanceSearch.entity().getRemoved(), Op.NULL);
-
-        GenericSearchBuilder<VolumeVO, Long> volumeSearch = volumeDao.createSearchBuilder(Long.class);
-        volumeSearch.selectFields(volumeSearch.entity().getInstanceId());
-        volumeSearch.and("state", volumeSearch.entity().getState(), Op.NIN);
-
-        GenericSearchBuilder<StoragePoolVO, Long> storagePoolSearch = _storagePoolDao.createSearchBuilder(Long.class);
-        storagePoolSearch.selectFields(storagePoolSearch.entity().getId());
-        storagePoolSearch.and("poolId", storagePoolSearch.entity().getId(), Op.EQ);
-
-        volumeSearch.join("storagePoolSearch", storagePoolSearch, volumeSearch.entity().getPoolId(), storagePoolSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-        storagePoolSearch.done();
-
-        vmInstanceSearch.join("volumeSearch", volumeSearch, vmInstanceSearch.entity().getId(), volumeSearch.entity().getInstanceId(), JoinBuilder.JoinType.INNER);
-        volumeSearch.done();
-
-        vmInstanceSearch.done();
-
-        SearchCriteria<Long> sc = vmInstanceSearch.create();
-        sc.setJoinParameters("storagePoolSearch", "poolId", storagePoolId);
-        sc.setJoinParameters("volumeSearch", "state", new String[]{"Destroy", "Error", "Expunging", "Expunged"});
-
-        return _vmDao.customSearch(sc, null);
+        return storageAccessGroupService.listOfHostIdsUsingTheStoragePool(storagePoolId);
     }
 
     public List<VolumeVO> listOfVolumesUsingTheStorageAccessGroups(List<String> storageAccessGroups, Long hostId, Long clusterId, Long podId, Long datacenterId) {
-        SearchBuilder<VolumeVO> volumeSearch = volumeDao.createSearchBuilder();
-        volumeSearch.and("state", volumeSearch.entity().getState(), Op.NIN);
-
-        GenericSearchBuilder<VMInstanceVO, Long> vmInstanceSearch = _vmDao.createSearchBuilder(Long.class);
-        vmInstanceSearch.selectFields(vmInstanceSearch.entity().getId());
-        vmInstanceSearch.and("hostId", vmInstanceSearch.entity().getHostId(), Op.EQ);
-        vmInstanceSearch.and("removed", vmInstanceSearch.entity().getRemoved(), Op.NULL);
-
-        GenericSearchBuilder<StoragePoolVO, Long> storagePoolSearch = _storagePoolDao.createSearchBuilder(Long.class);
-        storagePoolSearch.and("clusterId", storagePoolSearch.entity().getClusterId(), Op.EQ);
-        storagePoolSearch.and("podId", storagePoolSearch.entity().getPodId(), Op.EQ);
-        storagePoolSearch.and("datacenterId", storagePoolSearch.entity().getDataCenterId(), Op.EQ);
-        storagePoolSearch.selectFields(storagePoolSearch.entity().getId());
-
-        GenericSearchBuilder<StoragePoolAndAccessGroupMapVO, Long> storageAccessGroupSearch = _storagePoolAccessGroupMapDao.createSearchBuilder(Long.class);
-        storageAccessGroupSearch.and("sag", storageAccessGroupSearch.entity().getStorageAccessGroup(), Op.IN);
-
-        storagePoolSearch.join("storageAccessGroupSearch", storageAccessGroupSearch, storagePoolSearch.entity().getId(), storageAccessGroupSearch.entity().getPoolId(), JoinBuilder.JoinType.INNER);
-
-        volumeSearch.join("storagePoolSearch", storagePoolSearch, volumeSearch.entity().getPoolId(), storagePoolSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-
-        volumeSearch.join("vmInstanceSearch", vmInstanceSearch, volumeSearch.entity().getInstanceId(), vmInstanceSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-
-        storageAccessGroupSearch.done();
-        storagePoolSearch.done();
-        vmInstanceSearch.done();
-        volumeSearch.done();
-
-        SearchCriteria<VolumeVO> sc = volumeSearch.create();
-        sc.setParameters( "state", new String[]{"Destroy", "Error", "Expunging", "Expunged"});
-        sc.setJoinParameters("storageAccessGroupSearch", "sag", storageAccessGroups.toArray());
-        if (hostId != null) {
-            sc.setJoinParameters("vmInstanceSearch", "hostId", hostId);
-        }
-        if (clusterId != null) {
-            sc.setJoinParameters("storagePoolSearch", "clusterId", clusterId);
-        }
-        if (podId != null) {
-            sc.setJoinParameters("storagePoolSearch", "podId", podId);
-        }
-        if (datacenterId != null) {
-            sc.setJoinParameters("storagePoolSearch", "datacenterId", datacenterId);
-        }
-
-        return volumeDao.customSearch(sc, null);
-    }
-
-    private List<Long> listOfStoragePoolIDsUsedByHost(long hostId) {
-        GenericSearchBuilder<VMInstanceVO, Long> vmInstanceSearch = _vmDao.createSearchBuilder(Long.class);
-        vmInstanceSearch.selectFields(vmInstanceSearch.entity().getId());
-        vmInstanceSearch.and("hostId", vmInstanceSearch.entity().getHostId(), Op.EQ);
-
-        GenericSearchBuilder<VolumeVO, Long> volumeSearch = volumeDao.createSearchBuilder(Long.class);
-        volumeSearch.selectFields(volumeSearch.entity().getPoolId());
-        volumeSearch.and("state", volumeSearch.entity().getState(), Op.EQ);
-
-        volumeSearch.join("vmInstanceSearch", vmInstanceSearch, volumeSearch.entity().getInstanceId(), vmInstanceSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-        vmInstanceSearch.done();
-
-        GenericSearchBuilder<StoragePoolVO, Long> storagePoolSearch = _storagePoolDao.createSearchBuilder(Long.class);
-        storagePoolSearch.select(null, Func.DISTINCT, storagePoolSearch.entity().getId());
-
-        storagePoolSearch.join("volumeSearch", volumeSearch, storagePoolSearch.entity().getId(), volumeSearch.entity().getPoolId(), JoinBuilder.JoinType.INNER);
-        volumeSearch.done();
-
-        storagePoolSearch.done();
-
-        SearchCriteria<Long> sc = storagePoolSearch.create();
-        sc.setJoinParameters("vmInstanceSearch", "hostId", hostId);
-        sc.setJoinParameters("volumeSearch", "state", "Ready");
-
-        List<Long> storagePoolsInUse = _storagePoolDao.customSearch(sc, null);
-        return storagePoolsInUse;
+        return storageAccessGroupService.listOfVolumesUsingTheStorageAccessGroups(storageAccessGroups, hostId, clusterId, podId, datacenterId);
     }
 
     @Override
@@ -1849,21 +1709,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     protected List<HostVO> filterHostsBasedOnStorageAccessGroups(List<HostVO> allHosts, List<String> storageAccessGroups) {
-        List<HostVO> hostsToConnect = new ArrayList<>();
-        for (HostVO host : allHosts) {
-            String[] storageAccessGroupsOnHost = _storageMgr.getStorageAccessGroups(null, null, null, host.getId());
-            List<String> listOfStorageAccessGroupsOnHost = Arrays.asList(storageAccessGroupsOnHost);
-            if (CollectionUtils.isNotEmpty(storageAccessGroups)) {
-                List<String> intersection = new ArrayList<>(listOfStorageAccessGroupsOnHost);
-                intersection.retainAll(storageAccessGroups);
-                if (CollectionUtils.isNotEmpty(intersection)) {
-                    hostsToConnect.add(host);
-                }
-            } else {
-                hostsToConnect.add(host);
-            }
-        }
-        return hostsToConnect;
+        return storageAccessGroupService.filterHostsBasedOnStorageAccessGroups(allHosts, storageAccessGroups);
     }
 
     @Override
@@ -2096,7 +1942,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
                 if (CollectionUtils.isNotEmpty(sagsToAdd)) {
                     poolsToAdd = getStoragePoolsByAccessGroups(host.getDataCenterId(), host.getPodId(), host.getClusterId(), sagsToAdd.toArray(new String[0]), true);
                 } else {
-                    poolsToAdd = getStoragePoolsByEmptyStorageAccessGroups(host.getDataCenterId(), host.getPodId(), host.getClusterId());
+                    poolsToAdd = getStoragePoolsByAccessGroups(host.getDataCenterId(), host.getPodId(), host.getClusterId(), new String[]{}, true);
                 }
                 if (CollectionUtils.isNotEmpty(poolsToAdd)) {
                     Set<Long> poolIdsToAdd = poolsToAdd.stream()
@@ -2115,139 +1961,19 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     protected void updateConnectionsBetweenHostsAndStoragePools(Map<HostVO, List<String>> hostsAndStorageAccessGroupsMap) {
-        List<HostVO> hostsList = new ArrayList<>(hostsAndStorageAccessGroupsMap.keySet());
-        Map<HostVO, List<StoragePoolVO>> hostStoragePoolsMapBefore = getHostStoragePoolsBefore(hostsList);
-
-        Map<HostVO, List<StoragePoolVO>> hostPoolsToAddMapAfter = getHostPoolsToAddAfter(hostsAndStorageAccessGroupsMap);
-
-        disconnectPoolsNotInAccessGroups(hostStoragePoolsMapBefore, hostPoolsToAddMapAfter);
-    }
-
-    private Map<HostVO, List<StoragePoolVO>> getHostStoragePoolsBefore(List<HostVO> hostsList) {
-        Map<HostVO, List<StoragePoolVO>> hostStoragePoolsMapBefore = new HashMap<>();
-        for (HostVO host : hostsList) {
-            List<StoragePoolHostVO> storagePoolsConnectedToHost = _storageMgr.findStoragePoolsConnectedToHost(host.getId());
-            List<StoragePoolVO> storagePoolsConnectedBefore = new ArrayList<>();
-            if (CollectionUtils.isNotEmpty(storagePoolsConnectedToHost)) {
-                for (StoragePoolHostVO poolHost : storagePoolsConnectedToHost) {
-                    StoragePoolVO pool = _storagePoolDao.findById(poolHost.getPoolId());
-                    if (pool != null) {
-                        storagePoolsConnectedBefore.add(pool);
-                    }
-                }
-            }
-            hostStoragePoolsMapBefore.put(host, storagePoolsConnectedBefore);
-        }
-        return hostStoragePoolsMapBefore;
-    }
-
-    private Map<HostVO, List<StoragePoolVO>> getHostPoolsToAddAfter(Map<HostVO, List<String>> hostsAndStorageAccessGroupsMap) {
-        Map<HostVO, List<StoragePoolVO>> hostPoolsToAddMapAfter = new HashMap<>();
-        for (Map.Entry<HostVO, List<String>> entry : hostsAndStorageAccessGroupsMap.entrySet()) {
-            HostVO host = entry.getKey();
-            List<String> sagsToAdd = entry.getValue();
-            List<StoragePoolVO> poolsToAdd;
-            if (CollectionUtils.isNotEmpty(sagsToAdd)) {
-                poolsToAdd = getStoragePoolsByAccessGroups(host.getDataCenterId(), host.getPodId(), host.getClusterId(), sagsToAdd.toArray(new String[0]), true);
-            } else {
-                poolsToAdd = getStoragePoolsByEmptyStorageAccessGroups(host.getDataCenterId(), host.getPodId(), host.getClusterId());
-            }
-            hostPoolsToAddMapAfter.put(host, poolsToAdd);
-            connectHostToStoragePools(host, poolsToAdd);
-        }
-        return hostPoolsToAddMapAfter;
-    }
-
-    private void disconnectPoolsNotInAccessGroups(Map<HostVO, List<StoragePoolVO>> hostStoragePoolsMapBefore, Map<HostVO, List<StoragePoolVO>> hostPoolsToAddMapAfter) {
-        for (Map.Entry<HostVO, List<StoragePoolVO>> entry : hostStoragePoolsMapBefore.entrySet()) {
-            HostVO host = entry.getKey();
-            List<StoragePoolVO> storagePoolsConnectedBefore = entry.getValue();
-            List<StoragePoolVO> poolsToAdd = hostPoolsToAddMapAfter.get(host);
-            List<StoragePoolVO> poolsToDelete = new ArrayList<>();
-
-            for (StoragePoolVO pool : storagePoolsConnectedBefore) {
-                if (poolsToAdd == null || !poolsToAdd.contains(pool)) {
-                    poolsToDelete.add(pool);
-                }
-            }
-
-            if (CollectionUtils.isNotEmpty(poolsToDelete)) {
-                disconnectHostFromStoragePools(host, poolsToDelete);
-            }
-        }
+        storageAccessGroupService.updateConnectionsBetweenHostsAndStoragePools(hostsAndStorageAccessGroupsMap);
     }
 
     protected List<StoragePoolVO> getStoragePoolsByAccessGroups(Long dcId, Long podId, Long clusterId, String[] storageAccessGroups, boolean includeEmptyTags) {
-        List<StoragePoolVO> allPoolsByTags = new ArrayList<>();
-        allPoolsByTags.addAll(_storagePoolDao.findPoolsByAccessGroupsForHostConnection(dcId, podId, clusterId, ScopeType.CLUSTER, storageAccessGroups));
-        allPoolsByTags.addAll(_storagePoolDao.findZoneWideStoragePoolsByAccessGroupsForHostConnection(dcId, storageAccessGroups));
-        if (includeEmptyTags) {
-            allPoolsByTags.addAll(_storagePoolDao.findStoragePoolsByEmptyStorageAccessGroups(dcId, podId, clusterId, ScopeType.CLUSTER, null));
-            allPoolsByTags.addAll(_storagePoolDao.findStoragePoolsByEmptyStorageAccessGroups(dcId, null, null, ScopeType.ZONE, null));
-        }
-
-        return allPoolsByTags;
-    }
-
-    private List<StoragePoolVO> getStoragePoolsByEmptyStorageAccessGroups(Long dcId, Long podId, Long clusterId) {
-        List<StoragePoolVO> allPoolsByTags = new ArrayList<>();
-        allPoolsByTags.addAll(_storagePoolDao.findStoragePoolsByEmptyStorageAccessGroups(dcId, podId, clusterId, ScopeType.CLUSTER, null));
-        allPoolsByTags.addAll(_storagePoolDao.findStoragePoolsByEmptyStorageAccessGroups(dcId, null, null, ScopeType.ZONE, null));
-
-        return allPoolsByTags;
-    }
-
-    private void connectHostToStoragePools(HostVO host, List<StoragePoolVO> poolsToAdd) {
-        List<StoragePoolHostVO> storagePoolsConnectedToHost = _storageMgr.findStoragePoolsConnectedToHost(host.getId());
-        for (StoragePoolVO storagePool : poolsToAdd) {
-            if (CollectionUtils.isNotEmpty(storagePoolsConnectedToHost)) {
-                boolean isPresent = storagePoolsConnectedToHost.stream()
-                        .anyMatch(poolHost -> poolHost.getPoolId() == storagePool.getId());
-                if (isPresent) {
-                    continue;
-                }
-            }
-            try {
-                _storageMgr.connectHostToSharedPool(host, storagePool.getId());
-            } catch (StorageConflictException se) {
-                throw new CloudRuntimeException(String.format("Unable to establish a connection between pool %s and the host %s", storagePool, host));
-            } catch (Exception e) {
-                logger.warn(String.format("Unable to establish a connection between pool %s and the host %s", storagePool, host), e);
-            }
-        }
+        return storageAccessGroupService.getStoragePoolsByAccessGroups(dcId, podId, clusterId, storageAccessGroups, includeEmptyTags);
     }
 
     protected void connectHostToStoragePool(HostVO host, StoragePoolVO storagePool) {
-        try {
-            _storageMgr.connectHostToSharedPool(host, storagePool.getId());
-        } catch (StorageConflictException se) {
-            throw new CloudRuntimeException(String.format("Unable to establish a connection between pool %s and the host %s", storagePool, host));
-        } catch (Exception e) {
-            logger.warn(String.format("Unable to establish a connection between pool %s and the host %s", storagePool, host), e);
-        }
-    }
-
-    private void disconnectHostFromStoragePools(HostVO host, List<StoragePoolVO> poolsToDelete) {
-        List<Long> usedStoragePoolIDs = listOfStoragePoolIDsUsedByHost(host.getId());
-        if (usedStoragePoolIDs != null) {
-            poolsToDelete.removeIf(poolToDelete ->
-                    usedStoragePoolIDs.stream().anyMatch(usedPoolId -> usedPoolId == poolToDelete.getId())
-            );
-        }
-        for (StoragePoolVO storagePool : poolsToDelete) {
-            disconnectHostFromStoragePool(host, storagePool);
-        }
+        storageAccessGroupService.connectHostToStoragePool(host, storagePool);
     }
 
     protected void disconnectHostFromStoragePool(HostVO host, StoragePoolVO storagePool) {
-        try {
-            _storageMgr.disconnectHostFromSharedPool(host, storagePool);
-            _storagePoolHostDao.deleteStoragePoolHostDetails(host.getId(), storagePool.getId());
-        } catch (StorageConflictException se) {
-            throw new CloudRuntimeException(String.format("Unable to disconnect the pool %s and the host %s", storagePool, host));
-        } catch (Exception e) {
-            logger.warn(String.format("Unable to disconnect the pool %s and the host %s", storagePool, host), e);
-        }
+        storageAccessGroupService.disconnectHostFromStoragePool(host, storagePool);
     }
 
     private void updateHostTags(HostVO host, Long hostId, List<String> hostTags, Boolean isTagARule) {
