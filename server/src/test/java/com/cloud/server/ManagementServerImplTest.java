@@ -48,6 +48,8 @@ import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.cluster.ListClustersCmd;
 import org.apache.cloudstack.api.command.admin.config.ListCfgsByCmd;
+import org.apache.cloudstack.api.command.admin.pod.ListPodsByCmd;
+import org.apache.cloudstack.api.command.admin.vlan.ListVlanIpRangesCmd;
 import org.apache.cloudstack.api.command.admin.guest.AddGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.DeleteGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.UpdateGuestOsCategoryCmd;
@@ -66,6 +68,8 @@ import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
 import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
 import com.cloud.cpu.CPU;
 import com.cloud.dc.ClusterVO;
+import com.cloud.dc.Pod;
+import com.cloud.dc.Vlan;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.dc.dao.VlanDetailsDao;
@@ -201,6 +205,9 @@ public class ManagementServerImplTest {
 
     @Mock
     VolumeStoragePoolMigrationService volumeStoragePoolMigrationService;
+
+    @Mock
+    PodVlanListingService podVlanListingService;
 
     @Mock
     IPAddressDao publicIpAddressDao;
@@ -357,6 +364,7 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
         ReflectionTestUtils.setField(spy, "clusterHostQueryService", clusterHostQueryService);
         ReflectionTestUtils.setField(spy, "volumeStoragePoolMigrationService", volumeStoragePoolMigrationService);
+        ReflectionTestUtils.setField(spy, "podVlanListingService", podVlanListingService);
 
         PublicIpAddressSearchServiceImpl publicIpAddressSearchService = new PublicIpAddressSearchServiceImpl();
         ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountMgr", accountManager);
@@ -1115,5 +1123,29 @@ public class ManagementServerImplTest {
         Assert.assertSame(expected, result);
         Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForMigrationOfVolumeInternal(
                 11L, 22L, 33L, 44L, 55L, true, false, true, "fast");
+    }
+
+    @Test
+    public void searchForPodsWrapperDelegatesToPodVlanListingService() {
+        ListPodsByCmd cmd = Mockito.mock(ListPodsByCmd.class);
+        Pair<List<? extends Pod>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(podVlanListingService.searchForPods(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Pod>, Integer> result = spy.searchForPods(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(podVlanListingService).searchForPods(cmd);
+    }
+
+    @Test
+    public void searchForVlansWrapperDelegatesToPodVlanListingService() {
+        ListVlanIpRangesCmd cmd = Mockito.mock(ListVlanIpRangesCmd.class);
+        Pair<List<? extends Vlan>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(podVlanListingService.searchForVlans(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Vlan>, Integer> result = spy.searchForVlans(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(podVlanListingService).searchForVlans(cmd);
     }
 }
