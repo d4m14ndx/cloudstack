@@ -678,6 +678,17 @@ public class VolumeApiServiceImplTest {
                 .thenReturn(UUID.randomUUID().toString());
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUploadRegistrationService",
                 volumeUploadRegistrationServiceMock);
+
+        // Phase 4 (slice 13): wire VolumeUpdateDisplayServiceImpl with the
+        // same DAO and manager mocks. The public updateVolume/updateDisplay
+        // wrappers on VolumeApiServiceImpl forward to this service.
+        VolumeUpdateDisplayServiceImpl updateDisplayService = new VolumeUpdateDisplayServiceImpl();
+        ReflectionTestUtils.setField(updateDisplayService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(updateDisplayService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(updateDisplayService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(updateDisplayService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(updateDisplayService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", updateDisplayService);
     }
 
     /**
@@ -2409,6 +2420,33 @@ public class VolumeApiServiceImplTest {
         VolumeInfo result = volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
         Assert.assertSame(volumeToAttach, result);
         verify(attachServiceMock).createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
+    }
+
+    @Test
+    public void testUpdateVolumeDelegatesToInjectedService() {
+        VolumeUpdateDisplayService serviceMock = Mockito.mock(VolumeUpdateDisplayService.class);
+        Volume volume = Mockito.mock(Volume.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", serviceMock);
+        Mockito.when(serviceMock.updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name")).thenReturn(volume);
+
+        Volume result = volumeApiServiceImpl.updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name");
+
+        Assert.assertSame(volume, result);
+        Mockito.verify(serviceMock).updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name");
+    }
+
+    @Test
+    public void testUpdateDisplayDelegatesToInjectedService() {
+        VolumeUpdateDisplayService serviceMock = Mockito.mock(VolumeUpdateDisplayService.class);
+        Volume volume = Mockito.mock(Volume.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", serviceMock);
+
+        volumeApiServiceImpl.updateDisplay(volume, true);
+
+        Mockito.verify(serviceMock).updateDisplay(volume, true);
     }
 
     @Test
