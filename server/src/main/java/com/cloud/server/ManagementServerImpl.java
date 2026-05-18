@@ -49,8 +49,6 @@ import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.affinity.AffinityGroupProcessor;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
-import org.apache.cloudstack.annotation.AnnotationService;
-import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.DeleteAccountCmd;
@@ -538,7 +536,6 @@ import org.apache.cloudstack.api.command.user.template.ListTemplatesCmd;
 import org.apache.cloudstack.api.command.user.template.RegisterTemplateCmd;
 import org.apache.cloudstack.api.command.user.template.UpdateTemplateCmd;
 import org.apache.cloudstack.api.command.user.template.UpdateTemplatePermissionsCmd;
-import org.apache.cloudstack.api.command.user.userdata.BaseRegisterUserDataCmd;
 import org.apache.cloudstack.api.command.user.userdata.DeleteCniConfigurationCmd;
 import org.apache.cloudstack.api.command.user.userdata.DeleteUserDataCmd;
 import org.apache.cloudstack.api.command.user.userdata.LinkUserDataToTemplateCmd;
@@ -646,7 +643,6 @@ import org.apache.cloudstack.management.ManagementServerHost;
 import org.apache.cloudstack.resourcedetail.dao.GuestOsDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.CloudStackVersion;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.commons.codec.binary.Base64;
@@ -785,11 +781,9 @@ import com.cloud.user.AccountService;
 import com.cloud.user.SSHKeyPair;
 import com.cloud.user.User;
 import com.cloud.user.UserData;
-import com.cloud.user.UserDataVO;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDao;
-import com.cloud.user.dao.UserDataDao;
 import com.cloud.utils.EnumUtils;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
@@ -815,7 +809,6 @@ import com.cloud.vm.InstanceGroupVO;
 import com.cloud.vm.NicVO;
 import com.cloud.vm.SecondaryStorageVmVO;
 import com.cloud.vm.UserVmManager;
-import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VMInstanceDetailVO;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
@@ -939,6 +932,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected GuestOsManagementService guestOsManagementService;
     @Inject
+    protected UserDataRegistryService userDataRegistryService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -989,13 +984,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     DomainRouterDao routerDao;
     @Inject
-    protected UserDataDao userDataDao;
-    @Inject
     protected VMTemplateDao templateDao;
-    @Inject
-    protected AnnotationDao annotationDao;
-    @Inject
-    UserDataManager userDataManager;
     @Inject
     protected ManagementServerHostDao managementServerHostDao;
     @Inject
@@ -3791,154 +3780,30 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public boolean deleteUserData(final DeleteUserDataCmd cmd) {
-        final Account caller = getCaller();
-        final String accountName = cmd.getAccountName();
-        final Long domainId = cmd.getDomainId();
-        final Long projectId = cmd.getProjectId();
-
-        Account owner = null;
-        try {
-            owner = _accountMgr.finalizeOwner(caller, accountName, domainId, projectId);
-        } catch (InvalidParameterValueException ex) {
-            if (caller.getType() == Account.Type.ADMIN && accountName != null && domainId != null) {
-                owner = _accountDao.findAccountIncludingRemoved(accountName, domainId);
-            }
-            if (owner == null) {
-                throw ex;
-            }
-        }
-
-        final UserDataVO userData = userDataDao.findById(cmd.getId());
-        if (userData == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException(
-                    "A UserData with id '" + cmd.getId() + "' does not exist for account " + owner.getAccountName() + " in specified domain id");
-            final DomainVO domain = ApiDBUtils.findDomainById(owner.getDomainId());
-            String domainUuid = String.valueOf(owner.getDomainId());
-            if (domain != null) {
-                domainUuid = domain.getUuid();
-            }
-            ex.addProxyObject(domainUuid, "domainId");
-            throw ex;
-        }
-
-        List<VMTemplateVO> templatesLinkedToUserData = templateDao.findTemplatesLinkedToUserdata(userData.getId());
-        if (CollectionUtils.isNotEmpty(templatesLinkedToUserData)) {
-            throw new CloudRuntimeException(String.format("Userdata %s cannot be removed as it is linked to active template/templates", userData.getName()));
-        }
-
-        List<UserVmVO> userVMsHavingUserdata = _userVmDao.findByUserDataId(userData.getId());
-        if (CollectionUtils.isNotEmpty(userVMsHavingUserdata)) {
-            throw new CloudRuntimeException(String.format("Userdata %s cannot be removed as it is being used by some instances", userData.getName()));
-        }
-
-        annotationDao.removeByEntityType(AnnotationService.EntityType.USER_DATA.name(), userData.getUuid());
-
-        return userDataDao.remove(userData.getId());
+        return userDataRegistryService.deleteUserData(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_DELETE_CNI_CONFIG, eventDescription = "CNI Configuration deletion")
     public boolean deleteCniConfiguration(DeleteCniConfigurationCmd cmd) {
-        return deleteUserData(cmd);
+        return userDataRegistryService.deleteCniConfiguration(cmd);
     }
 
     @Override
     public Pair<List<? extends UserData>, Integer> listUserDatas(final ListUserDataCmd cmd, final boolean forCks) {
-        final Long id = cmd.getId();
-        final String name = cmd.getName();
-        final String keyword = cmd.getKeyword();
-
-        final Account caller = getCaller();
-        final List<Long> permittedAccounts = new ArrayList<>();
-
-        final Ternary<Long, Boolean, ListProjectResourcesCriteria> domainIdRecursiveListProject = new Ternary<>(cmd.getDomainId(), cmd.isRecursive(), null);
-        _accountMgr.buildACLSearchParameters(caller, null, cmd.getAccountName(), cmd.getProjectId(), permittedAccounts, domainIdRecursiveListProject, cmd.listAll(), false);
-        final Long domainId = domainIdRecursiveListProject.first();
-        final Boolean isRecursive = domainIdRecursiveListProject.second();
-        final ListProjectResourcesCriteria listProjectResourcesCriteria = domainIdRecursiveListProject.third();
-        final SearchBuilder<UserDataVO> sb = userDataDao.createSearchBuilder();
-        _accountMgr.buildACLSearchBuilder(sb, domainId, isRecursive, permittedAccounts, listProjectResourcesCriteria);
-        final Filter searchFilter = new Filter(UserDataVO.class, "id", false, cmd.getStartIndex(), cmd.getPageSizeVal());
-
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("keyword", sb.entity().getName(), SearchCriteria.Op.LIKE);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("forCks", sb.entity().isForCks(), SearchCriteria.Op.EQ);
-        final SearchCriteria<UserDataVO> sc = sb.create();
-        _accountMgr.buildACLSearchCriteria(sc, domainId, isRecursive, permittedAccounts, listProjectResourcesCriteria);
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (name != null) {
-            sc.setParameters("name", name);
-        }
-
-        if (keyword != null) {
-            sc.setParameters("keyword",  "%" + keyword + "%");
-        }
-
-        sc.setParameters("forCks", forCks);
-
-        final Pair<List<UserDataVO>, Integer> result = userDataDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return userDataRegistryService.listUserDatas(cmd, forCks);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_REGISTER_CNI_CONFIG, eventDescription = "registering CNI configuration", async = true)
     public UserData registerCniConfiguration(RegisterCniConfigurationCmd cmd) {
-        final Account owner = getOwner(cmd);
-        checkForUserDataByName(cmd, owner);
-        final String name = cmd.getName();
-
-        String userdata = cmd.getCniConfig();
-        final String params = cmd.getParams();
-
-        userdata = userDataManager.validateUserData(userdata, cmd.getHttpMethod());
-
-        return createAndSaveUserData(name, userdata, params, owner, true);
+        return userDataRegistryService.registerCniConfiguration(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_REGISTER_USER_DATA, eventDescription = "registering userdata", async = true)
     public UserData registerUserData(final RegisterUserDataCmd cmd) {
-        final Account owner = getOwner(cmd);
-        checkForUserDataByName(cmd, owner);
-        final String name = cmd.getName();
-
-        String userdata = cmd.getUserData();
-        checkForUserData(cmd, owner);
-        final String params = cmd.getParams();
-
-        userdata = userDataManager.validateUserData(userdata, cmd.getHttpMethod());
-
-        return createAndSaveUserData(name, userdata, params, owner, false);
-    }
-
-    /**
-     * @param cmd
-     * @param owner
-     * @throws InvalidParameterValueException
-     */
-    private void checkForUserData(final RegisterUserDataCmd cmd, final Account owner) throws InvalidParameterValueException {
-        final UserDataVO userData = userDataDao.findByUserData(owner.getAccountId(), owner.getDomainId(), cmd.getUserData());
-        if (userData != null) {
-            throw new InvalidParameterValueException(String.format("Userdata %s with same content already exists for this account.", userData.getName()));
-        }
-    }
-
-    /**
-     * @param cmd
-     * @param owner
-     * @throws InvalidParameterValueException
-     */
-    private void checkForUserDataByName(final BaseRegisterUserDataCmd cmd, final Account owner) throws InvalidParameterValueException {
-        final UserDataVO userData = userDataDao.findByName(owner.getAccountId(), owner.getDomainId(), cmd.getName());
-        if (userData != null) {
-            throw new InvalidParameterValueException(String.format("A userdata with name %s already exists for this account.", cmd.getName()));
-        }
+        return userDataRegistryService.registerUserData(cmd);
     }
 
     /**
@@ -3986,34 +3851,10 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     }
 
     /**
-     * @param cmd
-     * @return Account
-     */
-    protected Account getOwner(final BaseRegisterUserDataCmd cmd) {
-        final Account caller = getCaller();
-        return  _accountMgr.finalizeOwner(caller, cmd.getAccountName(), cmd.getDomainId(), cmd.getProjectId());
-    }
-
-    /**
      * @return
      */
     protected Account getCaller() {
         return CallContext.current().getCallingAccount();
-    }
-
-    private UserData createAndSaveUserData(final String name, final String userdata, final String params, final Account owner, final boolean isForCks) {
-        final UserDataVO userDataVO = new UserDataVO();
-
-        userDataVO.setAccountId(owner.getAccountId());
-        userDataVO.setDomainId(owner.getDomainId());
-        userDataVO.setName(name);
-        userDataVO.setUserData(userdata);
-        userDataVO.setParams(params);
-        userDataVO.setForCks(isForCks);
-
-        userDataDao.persist(userDataVO);
-
-        return userDataVO;
     }
 
     @Override
