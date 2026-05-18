@@ -132,6 +132,7 @@ public class VpcManagerImplTest {
     @Mock
     VpcOfferingServiceMapDao vpcOfferingServiceMapDao;
     VpcManagerImpl manager;
+    VpcOfferingCrudServiceImpl vpcOfferingCrudServiceImpl;
     @Mock
     EntityManager entityMgr;
     @Mock
@@ -232,6 +233,12 @@ public class VpcManagerImplTest {
         VpcOfferingQueryServiceImpl vpcOfferingQueryServiceImpl = new VpcOfferingQueryServiceImpl();
         ReflectionTestUtils.setField(vpcOfferingQueryServiceImpl, "vpcOfferingServiceMapDao", vpcOfferingServiceMapDao);
         ReflectionTestUtils.setField(manager, "vpcOfferingQueryService", vpcOfferingQueryServiceImpl);
+        VpcOfferingCrudServiceImpl vpcOfferingCrudServiceImpl = new VpcOfferingCrudServiceImpl();
+        ReflectionTestUtils.setField(vpcOfferingCrudServiceImpl, "_ntwkModel", networkModel);
+        ReflectionTestUtils.setField(vpcOfferingCrudServiceImpl, "_ntwkSvc", networkServiceMock);
+        ReflectionTestUtils.setField(vpcOfferingCrudServiceImpl, "vpcOfferingQueryService", vpcOfferingQueryServiceImpl);
+        ReflectionTestUtils.setField(manager, "vpcOfferingCrudService", vpcOfferingCrudServiceImpl);
+        this.vpcOfferingCrudServiceImpl = vpcOfferingCrudServiceImpl;
         CallContext.register(Mockito.mock(User.class), Mockito.mock(Account.class));
         registerCallContext();
         overrideDefaultConfigValue(NetworkService.AllowUsersToSpecifyVRMtu, "_defaultValue", "false");
@@ -285,8 +292,8 @@ public class VpcManagerImplTest {
         serviceCapabilitystList.put("", servicePair);
 
 
-        // Execute
-        boolean result = ReflectionTestUtils.invokeMethod(this.manager, "isVpcOfferingForRegionLevelVpc",
+        // Execute — method moved to VpcOfferingCrudServiceImpl
+        boolean result = ReflectionTestUtils.invokeMethod(this.vpcOfferingCrudServiceImpl, "isVpcOfferingForRegionLevelVpc",
                 serviceCapabilitystList); //, Network.Capability.RedundantRouter.getName(), Service.SourceNat);
 
         // Assert
@@ -301,8 +308,8 @@ public class VpcManagerImplTest {
         serviceCapabilitystList.put("", createFakeCapabilityInputMap());
         serviceCapabilitystList.put("", createFakeCapabilityInputMap());
 
-        // Execute
-        boolean result = ReflectionTestUtils.invokeMethod(this.manager, "isVpcOfferingForRegionLevelVpc",
+        // Execute — method moved to VpcOfferingCrudServiceImpl
+        boolean result = ReflectionTestUtils.invokeMethod(this.vpcOfferingCrudServiceImpl, "isVpcOfferingForRegionLevelVpc",
                 serviceCapabilitystList);
 
         // Assert
@@ -318,7 +325,7 @@ public class VpcManagerImplTest {
         Set<Network.Provider> providers = this.prepareVpcManagerForCheckingCapabilityPerService(Service.Connectivity, capabilities);
 
         // Execute
-        this.manager.checkCapabilityPerServiceProvider(providers, Capability.RedundantRouter, Service.SourceNat);
+        this.vpcOfferingCrudServiceImpl.checkCapabilityPerServiceProvider(providers, Capability.RedundantRouter, Service.SourceNat);
     }
 
     @Test
@@ -330,8 +337,8 @@ public class VpcManagerImplTest {
         Set<Network.Provider> providers = this.prepareVpcManagerForCheckingCapabilityPerService(Service.Connectivity, capabilities);
 
         // Execute
-        this.manager.checkCapabilityPerServiceProvider(providers, Capability.DistributedRouter, Service.Connectivity);
-        this.manager.checkCapabilityPerServiceProvider(providers, Capability.RegionLevelVpc, Service.Connectivity);
+        this.vpcOfferingCrudServiceImpl.checkCapabilityPerServiceProvider(providers, Capability.DistributedRouter, Service.Connectivity);
+        this.vpcOfferingCrudServiceImpl.checkCapabilityPerServiceProvider(providers, Capability.RegionLevelVpc, Service.Connectivity);
     }
 
     protected Set<Network.Provider> prepareVpcManagerForCheckingCapabilityPerService(Service service, Map<Capability, String> capabilities) {
@@ -341,8 +348,10 @@ public class VpcManagerImplTest {
         final boolean regionLevel = true;
         final boolean distributedRouter = true;
         final NetworkElement nwElement1 = mock(NetworkElement.class);
-        this.manager._ntwkModel = mock(NetworkModel.class);
-        Mockito.when(this.manager._ntwkModel.getElementImplementingProvider(Provider.VPCVirtualRouter.getName()))
+        NetworkModel localNtwkModel = mock(NetworkModel.class);
+        this.manager._ntwkModel = localNtwkModel;
+        ReflectionTestUtils.setField(this.vpcOfferingCrudServiceImpl, "_ntwkModel", localNtwkModel);
+        Mockito.when(localNtwkModel.getElementImplementingProvider(Provider.VPCVirtualRouter.getName()))
                 .thenReturn(nwElement1);
         final Map<Service, Map<Network.Capability, String>> capabilitiesService1 = new HashMap<>();
         Mockito.when(nwElement1.getCapabilities()).thenReturn(capabilitiesService1);
