@@ -91,7 +91,6 @@ import org.apache.cloudstack.resourcelimit.Reserver;
 import org.apache.cloudstack.snapshot.SnapshotHelper;
 import org.apache.cloudstack.storage.command.AttachAnswer;
 import org.apache.cloudstack.storage.command.AttachCommand;
-import org.apache.cloudstack.storage.command.DettachCommand;
 import org.apache.cloudstack.storage.command.TemplateOrVolumePostUploadCommand;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -101,7 +100,6 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
-import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.cloudstack.utils.imagestore.ImageStoreUtil;
 import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;
@@ -116,8 +114,6 @@ import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
 import com.cloud.agent.AgentManager;
-import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.ModifyTargetsCommand;
 import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.DiskTO;
 import com.cloud.api.ApiDBUtils;
@@ -374,6 +370,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private VolumeMigrationValidator volumeMigrationValidator;
     @Inject
     protected VolumeTakeSnapshotService volumeTakeSnapshotService;
+    @Inject
+    protected VolumeDetachService volumeDetachService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -2977,125 +2975,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_DETACH, eventDescription = "detaching volume", async = true)
     public Volume detachVolumeFromVM(DetachVolumeCmd cmmd) {
-        Account caller = CallContext.current().getCallingAccount();
-        if ((cmmd.getId() == null && cmmd.getDeviceId() == null && cmmd.getVirtualMachineId() == null) || (cmmd.getId() != null && (cmmd.getDeviceId() != null || cmmd.getVirtualMachineId() != null))
-                || (cmmd.getId() == null && (cmmd.getDeviceId() == null || cmmd.getVirtualMachineId() == null))) {
-            throw new InvalidParameterValueException("Please provide either a volume id, or a tuple(device id, instance id)");
-        }
-
-        Long volumeId = cmmd.getId();
-        VolumeVO volume = null;
-
-        if (volumeId != null) {
-            volume = _volsDao.findById(volumeId);
-        } else {
-            volume = _volsDao.findByInstanceAndDeviceId(cmmd.getVirtualMachineId(), cmmd.getDeviceId()).get(0);
-        }
-
-        // Check that the volume ID is valid
-        if (volume == null) {
-            throw new InvalidParameterValueException("Unable to find volume with ID: " + volumeId);
-        }
-
-        Long vmId = null;
-
-        if (cmmd.getVirtualMachineId() == null) {
-            vmId = volume.getInstanceId();
-        } else {
-            vmId = cmmd.getVirtualMachineId();
-        }
-
-        // Permissions check
-        _accountMgr.checkAccess(caller, null, true, volume);
-
-        // Check that the volume is currently attached to a VM
-        if (vmId == null) {
-            throw new InvalidParameterValueException("The specified volume is not attached to a VM.");
-        }
-
-        // Check that the VM is in the correct state
-        UserVmVO vm = _userVmDao.findById(vmId);
-
-        if (UserVmManager.SHAREDFSVM.equals(vm.getUserVmType())) {
-            throw new InvalidParameterValueException("Can't detach a volume from a Shared FileSystem Instance");
-        }
-
-        if (vm.getState() != State.Running && vm.getState() != State.Stopped && vm.getState() != State.Destroyed) {
-            throw new InvalidParameterValueException("Please specify a VM that is either running or stopped.");
-        }
-
-        // Check that the volume is a data/root volume
-        if (!(volume.getVolumeType() == Volume.Type.ROOT || volume.getVolumeType() == Volume.Type.DATADISK)) {
-            throw new InvalidParameterValueException("Please specify volume of type " + Volume.Type.DATADISK.toString() + " or " + Volume.Type.ROOT.toString());
-        }
-
-        // Root volume detach is allowed for following hypervisors: Xen/KVM/VmWare
-        if (volume.getVolumeType() == Volume.Type.ROOT) {
-            validateRootVolumeDetachAttach(volume, vm);
-        }
-
-        // Don't allow detach if target VM has associated VM snapshots
-        List<VMSnapshotVO> vmSnapshots = _vmSnapshotDao.findByVm(vmId);
-        if (CollectionUtils.isNotEmpty(vmSnapshots)) {
-            throw new InvalidParameterValueException("Unable to detach volume, please specify an Instance that does not have Instance Snapshots");
-        }
-
-        checkForBackups(vm, false);
-
-        AsyncJobExecutionContext asyncExecutionContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if (asyncExecutionContext != null) {
-            AsyncJob job = asyncExecutionContext.getJob();
-
-            if (logger.isInfoEnabled()) {
-                logger.info("Trying to attach volume {} to VM instance {}, update async job-{} progress status",
-                        ReflectionToStringBuilderUtils.reflectOnlySelectedFields(volume, "id", "name", "uuid"),
-                        ReflectionToStringBuilderUtils.reflectOnlySelectedFields(vm, "id", "name", "uuid"),
-                        job.getId());
-            }
-
-            _jobMgr.updateAsyncJobAttachment(job.getId(), "Volume", volumeId);
-        }
-
-        AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-            // avoid re-entrance
-            VmWorkJobVO placeHolder = null;
-            placeHolder = createPlaceHolderWork(vmId);
-            try {
-                return orchestrateDetachVolumeFromVM(vmId, volumeId);
-            } finally {
-                _workJobDao.expunge(placeHolder.getId());
-            }
-        } else {
-            Outcome<Volume> outcome = detachVolumeFromVmThroughJobQueue(vmId, volumeId);
-
-            Volume vol = null;
-            try {
-                outcome.get();
-            } catch (InterruptedException e) {
-                throw new RuntimeException("Operation is interrupted", e);
-            } catch (ExecutionException e) {
-                throw new CloudRuntimeException("Execution exception getting the outcome of the asynchronous detach volume job", e);
-            }
-
-            Object jobResult = _jobMgr.unmarshallResultObject(outcome.getJob());
-            if (jobResult != null) {
-                if (jobResult instanceof ConcurrentOperationException) {
-                    throw (ConcurrentOperationException)jobResult;
-                } else if (jobResult instanceof RuntimeException) {
-                    throw (RuntimeException)jobResult;
-                } else if (jobResult instanceof Throwable) {
-                    throw new RuntimeException("Unexpected exception", (Throwable)jobResult);
-                } else if (jobResult instanceof Long) {
-                    vol = _volsDao.findById((Long)jobResult);
-                }
-            }
-            if (vm.getBackupOfferingId() != null) {
-                vm.setBackupVolumes(createVolumeInfoFromVolumes(_volsDao.findByInstance(vm.getId())));
-                _vmInstanceDao.update(vm.getId(), vm);
-            }
-            return vol;
-        }
+        return volumeDetachService.detachVolumeFromVM(cmmd);
     }
 
     private void validateRootVolumeDetachAttach(VolumeVO volume, UserVmVO vm) {
@@ -3104,123 +2984,9 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_DETACH, eventDescription = "detaching volume")
     public Volume detachVolumeViaDestroyVM(long vmId, long volumeId) {
-        Account caller = CallContext.current().getCallingAccount();
-        Volume volume = _volsDao.findById(volumeId);
-        // Permissions check
-        _accountMgr.checkAccess(caller, null, true, volume);
-        return orchestrateDetachVolumeFromVM(vmId, volumeId);
+        return volumeDetachService.detachVolumeViaDestroyVM(vmId, volumeId);
     }
 
-    private Volume orchestrateDetachVolumeFromVM(long vmId, long volumeId) {
-        Volume volume = _volsDao.findById(volumeId);
-        VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-
-        String errorMsg = "Failed to detach volume " + volume.getName() + " from VM " + vm.getHostName();
-        boolean sendCommand = vm.getState() == State.Running;
-
-        StoragePoolVO volumePool = _storagePoolDao.findByIdIncludingRemoved(volume.getPoolId());
-        HostVO host = getHostForVmVolumeAttachDetach(vm, volumePool);
-        Long hostId = host != null ? host.getId() : null;
-        sendCommand = sendCommand || isSendCommandForVmVolumeAttachDetach(host, volumePool);
-
-        Answer answer = null;
-
-        if (sendCommand) {
-            // collect vm disk statistics before detach a volume
-            UserVmVO userVm = _userVmDao.findById(vmId);
-            if (userVm != null && userVm.getType() == VirtualMachine.Type.User) {
-                _userVmService.collectVmDiskStatistics(userVm);
-            }
-
-            DataTO volTO = volFactory.getVolume(volume.getId()).getTO();
-            ((VolumeObjectTO) volTO).setCheckpointPaths(_volumeMgr.getVolumeCheckpointPathsAndImageStoreUrls(volumeId, vm.getHypervisorType()).first());
-            DiskTO disk = new DiskTO(volTO, volume.getDeviceId(), volume.getPath(), volume.getVolumeType());
-            Map<String, String> details = new HashMap<String, String>();
-            disk.setDetails(details);
-            if (volume.getPoolId() != null) {
-                StoragePoolVO poolVO = _storagePoolDao.findById(volume.getPoolId());
-                if (poolVO.getParent() != 0L) {
-                    details.put(DiskTO.PROTOCOL_TYPE, Storage.StoragePoolType.DatastoreCluster.toString());
-                }
-            }
-
-            DettachCommand cmd = new DettachCommand(disk, vm.getInstanceName());
-
-            cmd.setManaged(volumePool.isManaged());
-
-            cmd.setStorageHost(volumePool.getHostAddress());
-            cmd.setStoragePort(volumePool.getPort());
-
-            cmd.set_iScsiName(volume.get_iScsiName());
-            cmd.setWaitDetachDevice(WaitDetachDevice.value());
-
-            try {
-                answer = _agentMgr.send(hostId, cmd);
-            } catch (AgentUnavailableException e) {
-                  throw new CloudRuntimeException(String.format("%s. Please contact your system administrator.", errorMsg));
-            } catch (Exception e) {
-                throw new CloudRuntimeException(errorMsg + " due to: " + e.getMessage());
-            }
-        }
-
-        if (!sendCommand || (answer != null && answer.getResult())) {
-            // Mark the volume as detached
-            _volsDao.detachVolume(volume.getId());
-
-            if (answer != null) {
-                String datastoreName = answer.getContextParam("datastoreName");
-                if (datastoreName != null) {
-                    StoragePoolVO storagePoolVO = _storagePoolDao.findByUuid(datastoreName);
-                    if (storagePoolVO != null) {
-                        VolumeVO volumeVO = _volsDao.findById(volumeId);
-                        volumeVO.setPoolId(storagePoolVO.getId());
-                        volumeVO.setPoolType(storagePoolVO.getPoolType());
-                        _volsDao.update(volumeVO.getId(), volumeVO);
-                    } else {
-                        logger.warn("Unable to find datastore {} while updating the new datastore of the volume {}", datastoreName, volume);
-                    }
-                }
-
-                String volumePath = answer.getContextParam("volumePath");
-                if (volumePath != null) {
-                    VolumeVO volumeVO = _volsDao.findById(volumeId);
-                    volumeVO.setPath(volumePath);
-                    _volsDao.update(volumeVO.getId(), volumeVO);
-                }
-
-                String chainInfo = answer.getContextParam("chainInfo");
-                if (chainInfo != null) {
-                    VolumeVO volumeVO = _volsDao.findById(volumeId);
-                    volumeVO.setChainInfo(chainInfo);
-                    _volsDao.update(volumeVO.getId(), volumeVO);
-                }
-            }
-
-            // volume.getPoolId() should be null if the VM we are detaching the disk from has never been started before
-            if (volume.getPoolId() != null) {
-                DataStore dataStore = dataStoreMgr.getDataStore(volume.getPoolId(), DataStoreRole.Primary);
-                volService.revokeAccess(volFactory.getVolume(volume.getId()), host, dataStore);
-                provideVMInfo(dataStore, vmId, volumeId);
-            }
-            if (volumePool != null && hostId != null) {
-                handleTargetsForVMware(hostId, volumePool.getHostAddress(), volumePool.getPort(), volume.get_iScsiName());
-            }
-
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_DETACH, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                    volume.getDiskOfferingId(), null, volume.getSize(), Volume.class.getName(), volume.getUuid(), null, volume.isDisplay());
-            return _volsDao.findById(volumeId);
-        } else {
-
-            if (answer != null) {
-                String details = answer.getDetails();
-                if (details != null && !details.isEmpty()) {
-                    errorMsg += "; " + details;
-                }
-            }
-
-            throw new CloudRuntimeException(errorMsg);
-        }
-    }
 
     public void updateMissingRootDiskController(final VMInstanceVO vm, final String rootVolChainInfo) {
         if (vm == null || !VirtualMachine.Type.User.equals(vm.getType()) || StringUtils.isEmpty(rootVolChainInfo)) {
@@ -3239,45 +3005,6 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
             }
         } catch (JsonParseException e) {
             logger.debug("Error parsing chain info json: " + e.getMessage());
-        }
-    }
-
-    private void handleTargetsForVMware(long hostId, String storageAddress, int storagePort, String iScsiName) {
-        HostVO host = _hostDao.findById(hostId);
-
-        if (host.getHypervisorType() == HypervisorType.VMware) {
-            ModifyTargetsCommand cmd = new ModifyTargetsCommand();
-
-            List<Map<String, String>> targets = new ArrayList<>();
-
-            Map<String, String> target = new HashMap<>();
-
-            target.put(ModifyTargetsCommand.STORAGE_HOST, storageAddress);
-            target.put(ModifyTargetsCommand.STORAGE_PORT, String.valueOf(storagePort));
-            target.put(ModifyTargetsCommand.IQN, iScsiName);
-
-            targets.add(target);
-
-            cmd.setTargets(targets);
-            cmd.setApplyToAllHostsInCluster(true);
-            cmd.setAdd(false);
-            cmd.setTargetTypeToRemove(ModifyTargetsCommand.TargetTypeToRemove.DYNAMIC);
-
-            sendModifyTargetsCommand(cmd, host);
-        }
-    }
-
-    private void sendModifyTargetsCommand(ModifyTargetsCommand cmd, Host host) {
-        Answer answer = _agentMgr.easySend(host.getId(), cmd);
-
-        if (answer == null) {
-            String msg = "Unable to get an answer to the modify targets command";
-
-            logger.warn(msg);
-        } else if (!answer.getResult()) {
-            String msg = String.format("Unable to modify target on the following host: %s", host);
-
-            logger.warn(msg);
         }
     }
 
@@ -4343,34 +4070,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     }
 
     public Outcome<Volume> detachVolumeFromVmThroughJobQueue(final Long vmId, final Long volumeId) {
-
-        final CallContext context = CallContext.current();
-        final User callingUser = context.getCallingUser();
-        final Account callingAccount = context.getCallingAccount();
-
-        final VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-
-        VmWorkJobVO workJob = new VmWorkJobVO(context.getContextId());
-
-        workJob.setDispatcher(VmWorkConstants.VM_WORK_JOB_DISPATCHER);
-        workJob.setCmd(VmWorkDetachVolume.class.getName());
-
-        workJob.setAccountId(callingAccount.getId());
-        workJob.setUserId(callingUser.getId());
-        workJob.setStep(VmWorkJobVO.Step.Starting);
-        workJob.setVmType(VirtualMachine.Type.Instance);
-        workJob.setVmInstanceId(vm.getId());
-        workJob.setRelated(AsyncJobExecutionContext.getOriginJobId());
-
-        // save work context info (there are some duplications)
-        VmWorkDetachVolume workInfo = new VmWorkDetachVolume(callingUser.getId(), callingAccount.getId(), vm.getId(), VolumeApiServiceImpl.VM_WORK_JOB_HANDLER, volumeId);
-        workJob.setCmdInfo(VmWorkSerializer.serialize(workInfo));
-
-        _jobMgr.submitAsyncJob(workJob, VmWorkConstants.VM_WORK_QUEUE, vm.getId());
-
-        AsyncJobExecutionContext.getCurrentExecutionContext().joinJob(workJob.getId());
-
-        return new VmJobVolumeOutcome(workJob, volumeId);
+        return volumeDetachService.detachVolumeFromVmThroughJobQueue(vmId, volumeId);
     }
 
     public Outcome<Volume> resizeVolumeThroughJobQueue(final Long vmId, final long volumeId, final long currentSize, final long newSize, final Long newMinIops, final Long newMaxIops,
@@ -4515,7 +4215,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
 
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateDetachVolumeFromVM(VmWorkDetachVolume work) throws Exception {
-        Volume vol = orchestrateDetachVolumeFromVM(work.getVmId(), work.getVolumeId());
+        Volume vol = volumeDetachService.orchestrateDetachVolumeFromVM(work.getVmId(), work.getVolumeId());
         return new Pair<JobInfo.Status, String>(JobInfo.Status.SUCCEEDED, _jobMgr.marshallResultObject(vol.getId()));
     }
 
