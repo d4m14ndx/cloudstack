@@ -20,7 +20,6 @@ package com.cloud.vm;
 import static com.cloud.configuration.ConfigurationManagerImpl.EXPOSE_ERRORS_TO_USER;
 import static com.cloud.configuration.ConfigurationManagerImpl.MIGRATE_VM_ACROSS_CLUSTERS;
 
-import java.lang.reflect.Field;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -453,6 +452,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmOfflineStorageMigrationService vmOfflineStorageMigrationService;
     @Inject
     protected VmOfflineStorageMigrationServiceImpl vmOfflineStorageMigrationServiceImpl;
+    @Inject
+    protected VmDiskOfferingSuitabilityService vmDiskOfferingSuitabilityService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
@@ -5414,63 +5415,14 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return new Pair<>(JobInfo.Status.SUCCEEDED, _jobMgr.marshallResultObject(result));
     }
 
-    private Pair<Long, Long> findClusterAndHostIdForVmFromVolumes(long vmId) {
-        Long clusterId = null;
-        Long hostId = null;
-        List<VolumeVO> volumes = _volsDao.findByInstance(vmId);
-        for (VolumeVO volume : volumes) {
-            if (Volume.State.Ready.equals(volume.getState()) &&
-                    volume.getPoolId() != null) {
-                StoragePoolVO pool = _storagePoolDao.findById(volume.getPoolId());
-                if (pool != null && pool.getClusterId() != null) {
-                    clusterId = pool.getClusterId();
-                    // hostId to be used only for sending commands, capacity check skipped
-                    List<HostVO> hosts = _hostDao.findHypervisorHostInCluster(pool.getClusterId());
-                    if (CollectionUtils.isNotEmpty(hosts)) {
-                        hostId = hosts.get(0).getId();
-                        break;
-                    }
-                }
-            }
-        }
-        return new Pair<>(clusterId, hostId);
-    }
-
     @Override
     public Pair<Long, Long> findClusterAndHostIdForVm(VirtualMachine vm, boolean skipCurrentHostForStartingVm) {
-        Long hostId = null;
-        Host host = null;
-        if (!skipCurrentHostForStartingVm || !State.Starting.equals(vm.getState())) {
-            hostId = vm.getHostId();
-        }
-        Long clusterId = null;
-        if (hostId == null) {
-            if (vm.getLastHostId() == null) {
-                return findClusterAndHostIdForVmFromVolumes(vm.getId());
-            }
-            hostId = vm.getLastHostId();
-            host = _hostDao.findById(hostId);
-            logger.debug("host id is null, using last host {} with id {}", host, hostId);
-        }
-        host = host == null ? _hostDao.findById(hostId) : host;
-        if (host != null) {
-            clusterId = host.getClusterId();
-            return new Pair<>(clusterId, hostId);
-        }
-        return findClusterAndHostIdForVmFromVolumes(vm.getId());
-    }
-
-    private Pair<Long, Long> findClusterAndHostIdForVm(VirtualMachine vm) {
-        return findClusterAndHostIdForVm(vm, false);
+        return vmDiskOfferingSuitabilityService.findClusterAndHostIdForVm(vm, skipCurrentHostForStartingVm);
     }
 
     @Override
     public Pair<Long, Long> findClusterAndHostIdForVm(long vmId) {
-        VMInstanceVO vm = _vmDao.findById(vmId);
-        if (vm == null) {
-            return new Pair<>(null, null);
-        }
-        return findClusterAndHostIdForVm(vm);
+        return vmDiskOfferingSuitabilityService.findClusterAndHostIdForVm(vmId);
     }
 
     protected VirtualMachine retrieveVmFromJobOutcome(Outcome<VirtualMachine> jobOutcome, String vmUuid, String jobName) {
@@ -5618,48 +5570,12 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     protected boolean isDiskOfferingSuitableForVm(VMInstanceVO vm, VirtualMachineProfile profile, long podId, long clusterId, long hostId, long diskOfferingId) {
-
-        DiskOfferingVO diskOffering = _diskOfferingDao.findById(diskOfferingId);
-        VolumeVO dummyVolume = new VolumeVO("Data", vm.getDataCenterId(), podId, vm.getAccountId(),
-                vm.getDomainId(), vm.getId(), null, null, diskOffering.getProvisioningType(), diskOffering.getDiskSize(), Type.DATADISK);
-        try {
-            Field idField = dummyVolume.getClass().getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(dummyVolume, Volume.DISK_OFFERING_SUITABILITY_CHECK_VOLUME_ID);
-        } catch (NoSuchFieldException | IllegalAccessException ignored) {
-            return false;
-        }
-        dummyVolume.setDiskOfferingId(diskOfferingId);
-        DiskProfile diskProfile = new DiskProfile(dummyVolume, diskOffering, profile.getHypervisorType());
-        diskProfile.setMinIops(diskOffering.getMinIops());
-        diskProfile.setMaxIops(diskOffering.getMaxIops());
-        ExcludeList avoid = new ExcludeList();
-        DataCenterDeployment plan = new DataCenterDeployment(vm.getDataCenterId(), podId, clusterId, hostId, null, null);
-        for (StoragePoolAllocator allocator : _storagePoolAllocators) {
-            List<StoragePool> poolListFromAllocator = allocator.allocateToPool(diskProfile, profile, plan, avoid, 1);
-            if (CollectionUtils.isNotEmpty(poolListFromAllocator)) {
-                logger.debug("Found a suitable pool: {} for disk offering: {}", poolListFromAllocator.get(0).getName(), diskOffering.getName());
-                return true;
-            }
-        }
-        return false;
+        return vmDiskOfferingSuitabilityService.isDiskOfferingSuitableForVm(vm, profile, podId, clusterId, hostId, diskOfferingId);
     }
 
     @Override
     public Map<Long, Boolean> getDiskOfferingSuitabilityForVm(long vmId, List<Long> diskOfferingIds) {
-        VMInstanceVO vm = _vmDao.findById(vmId);
-        if (vmInstanceDetailsDao.findDetail(vm.getId(), VmDetailConstants.DEPLOY_VM) != null) {
-            return new HashMap<>();
-        }
-        VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-        Pair<Long, Long> clusterAndHost = findClusterAndHostIdForVm(vm, false);
-        Long clusterId = clusterAndHost.first();
-        Cluster cluster = _clusterDao.findById(clusterId);
-        Map<Long, Boolean> result = new HashMap<>();
-        for (Long diskOfferingId : diskOfferingIds) {
-            result.put(diskOfferingId, isDiskOfferingSuitableForVm(vm, profile, cluster.getPodId(), clusterId, clusterAndHost.second(), diskOfferingId));
-        }
-        return result;
+        return vmDiskOfferingSuitabilityService.getDiskOfferingSuitabilityForVm(vmId, diskOfferingIds);
     }
 
     @Override
