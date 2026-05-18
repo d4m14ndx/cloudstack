@@ -34,12 +34,14 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
+import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePoolHostVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
 import com.cloud.storage.dao.StoragePoolHostDao;
 import com.cloud.storage.dao.VolumeDao;
@@ -55,10 +57,12 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.trilead.ssh2.Connection;
 import org.apache.cloudstack.api.command.admin.host.CancelHostAsDegradedCmd;
 import org.apache.cloudstack.api.command.admin.host.DeclareHostAsDegradedCmd;
+import org.apache.cloudstack.api.command.admin.host.UpdateHostCmd;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
+import org.apache.cloudstack.jsinterpreter.JsInterpreterHelper;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.junit.After;
@@ -113,6 +117,8 @@ public class ResourceManagerImplTest {
     @Mock
     private HostDao hostDao;
     @Mock
+    private HostDetailsDao hostDetailsDao;
+    @Mock
     private ClusterDao clusterDao;
     @Mock
     private HostPodDao podDao;
@@ -128,6 +134,16 @@ public class ResourceManagerImplTest {
     private PrimaryDataStoreDao storagePoolDao;
     @Mock
     private StoragePoolHostDao storagePoolHostDao;
+    @Mock
+    private GuestOSCategoryDao guestOSCategoryDao;
+    @Mock
+    private com.cloud.host.dao.HostTagsDao hostTagsDao;
+    @Mock
+    private org.apache.cloudstack.annotation.AnnotationService annotationService;
+    @Mock
+    private com.cloud.alert.AlertManager alertManager;
+    @Mock
+    private JsInterpreterHelper jsInterpreterHelper;
 
     /**
      * Real {@link HostAgentSshServiceImpl} wired with the same mocks so the
@@ -147,6 +163,8 @@ public class ResourceManagerImplTest {
      */
     @Spy
     private HostMaintenanceServiceImpl hostMaintenanceService = new HostMaintenanceServiceImpl();
+    @Mock
+    private HostUpdateService hostUpdateService;
 
     @Spy
     @InjectMocks
@@ -215,7 +233,7 @@ public class ResourceManagerImplTest {
         // delegated getHostCredentials / connectAndRestartAgentOnHost /
         // doUpdateHostPassword paths see the same DAOs and agent.
         hostAgentSshService.hostDao = hostDao;
-        hostAgentSshService.hostDetailsDao = Mockito.mock(com.cloud.host.dao.HostDetailsDao.class);
+        hostAgentSshService.hostDetailsDao = hostDetailsDao;
         hostAgentSshService.configurationDao = configurationDao;
         hostAgentSshService.agentManager = agentManager;
         Field sshSliceField = ResourceManagerImpl.class.getDeclaredField("hostAgentSshService");
@@ -232,6 +250,10 @@ public class ResourceManagerImplTest {
         Field maintenanceSliceField = ResourceManagerImpl.class.getDeclaredField("hostMaintenanceService");
         maintenanceSliceField.setAccessible(true);
         maintenanceSliceField.set(resourceManager, hostMaintenanceService);
+
+        Field updateSliceField = ResourceManagerImpl.class.getDeclaredField("hostUpdateService");
+        updateSliceField.setAccessible(true);
+        updateSliceField.set(resourceManager, hostUpdateService);
 
         storageAccessGroupService.storagePoolDao = storagePoolDao;
         storageAccessGroupService.storagePoolAccessGroupMapDao = storagePoolAccessGroupMapDao;
@@ -487,6 +509,27 @@ public class ResourceManagerImplTest {
         resourceManager.handleAgentIfNotConnected(host, true);
         verify(resourceManager, never()).getHostCredentials(eq(host));
         verify(resourceManager, never()).connectAndRestartAgentOnHost(eq(host), eq(hostUsername), eq(hostPassword), eq(hostPrivateKey));
+    }
+
+    @Test
+    public void updateHost_delegatesToHostUpdateService() throws NoTransitionException {
+        UpdateHostCmd updateHostCmd = Mockito.mock(UpdateHostCmd.class);
+        when(hostUpdateService.updateHost(updateHostCmd)).thenReturn(host);
+
+        Host result = resourceManager.updateHost(updateHostCmd);
+
+        Assert.assertSame(host, result);
+        verify(hostUpdateService).updateHost(updateHostCmd);
+    }
+
+    @Test
+    public void autoUpdateHostAllocationState_delegatesToHostUpdateService() throws NoTransitionException {
+        when(hostUpdateService.autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable)).thenReturn(host);
+
+        Host result = resourceManager.autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable);
+
+        Assert.assertSame(host, result);
+        verify(hostUpdateService).autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable);
     }
 
     private void setupNoPendingMigrationRetries() {
