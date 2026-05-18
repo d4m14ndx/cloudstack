@@ -98,6 +98,9 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import org.apache.cloudstack.framework.jobs.dao.VmWorkJobDao;
+
+import com.cloud.agent.AgentManager;
 import com.cloud.api.query.dao.ServiceOfferingJoinDao;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource.ResourceType;
@@ -140,6 +143,7 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.UserVmManager;
+import com.cloud.vm.UserVmService;
 import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
@@ -231,7 +235,12 @@ public class VolumeApiServiceImplTest {
     ClusterDao clusterDao;
     @Mock
     VolumeOrchestrationService volumeOrchestrationService;
-
+    @Mock
+    private AgentManager agentManagerMock;
+    @Mock
+    private VmWorkJobDao workJobDaoMock;
+    @Mock
+    private UserVmService userVmServiceMock;
 
     private DetachVolumeCmd detachCmd = new DetachVolumeCmd();
     private Class<?> _detachCmdClass = detachCmd.getClass();
@@ -586,6 +595,32 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(migrationValidator, "dataCenterDao", _dcDao);
         ReflectionTestUtils.setField(migrationValidator, "accountManager", accountManagerMock);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeMigrationValidator", migrationValidator);
+
+        // Phase 4 (slice 9): wire VolumeDetachServiceImpl with the same DAO and
+        // manager mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (detachVolumeFromVM, detachVolumeViaDestroyVM, detachVolumeFromVmThroughJobQueue)
+        // forward to this service, so existing spy-based detach tests keep
+        // exercising the same code paths through the wrappers.
+        VolumeDetachServiceImpl detachService = new VolumeDetachServiceImpl();
+        ReflectionTestUtils.setField(detachService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(detachService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(detachService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(detachService, "vmSnapshotDao", _vmSnapshotDao);
+        ReflectionTestUtils.setField(detachService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(detachService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(detachService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(detachService, "jobMgr", _jobMgr);
+        ReflectionTestUtils.setField(detachService, "workJobDao", workJobDaoMock);
+        ReflectionTestUtils.setField(detachService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(detachService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(detachService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(detachService, "volumeMgr", volumeOrchestrationService);
+        ReflectionTestUtils.setField(detachService, "volumeAttachValidator", attachValidator);
+        ReflectionTestUtils.setField(detachService, "hostDao", _hostDao);
+        ReflectionTestUtils.setField(detachService, "userVmService", userVmServiceMock);
+        ReflectionTestUtils.setField(detachService, "volumeHostTopologyService", hostTopologyService);
+        ReflectionTestUtils.setField(detachService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeDetachService", detachService);
     }
 
     /**
