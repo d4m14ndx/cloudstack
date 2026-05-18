@@ -322,6 +322,24 @@ public class AccountManagentImplTestBase {
                 (java.util.List<org.apache.cloudstack.auth.UserAuthenticator>)
                 org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_userPasswordEncoders"));
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userUpdateService", userUpdateService);
+        // Phase 4 slice (8th): wire UserAuthenticationServiceImpl so AccountManagerImpl's
+        // delegating wrappers (authenticateUser, logoutUser, updateLoginAttempts,
+        // getUserAccount, getUserAccountForSSO) still exercise the same auth logic
+        // while keeping spy-visible updateLoginAttemptsWhenIncorrectLoginAttemptsEnabled
+        // behavior on the AccountManagerImpl spy.
+        UserAuthenticationServiceImpl userAuthenticationService = new UserAuthenticationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "configDao", _configDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "accountService", accountManagerImpl);
+        userAuthenticationService.setUserAuthenticators(
+                (java.util.List<org.apache.cloudstack.auth.UserAuthenticator>)
+                        org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_userAuthenticators"));
+        userAuthenticationService.setAllowedLoginAttempts(5);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userAuthenticationService",
+                userAuthenticationService);
         CallContext.register(callingUser, callingAccount);
     }
 
