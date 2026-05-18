@@ -34,9 +34,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
-import org.apache.cloudstack.alert.AlertService;
 import org.apache.cloudstack.api.command.admin.network.CreateNetworkCmdByAdmin;
 import org.apache.cloudstack.api.command.user.network.CreateNetworkCmd;
 import org.apache.cloudstack.api.command.user.network.UpdateNetworkCmd;
@@ -70,6 +70,7 @@ import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ResourceAllocationException;
+import com.cloud.event.UsageEventUtils;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
@@ -77,6 +78,7 @@ import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
+import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.nsx.NsxService;
 import com.cloud.network.router.CommandSetupHelper;
 import com.cloud.network.router.NetworkHelper;
@@ -102,8 +104,6 @@ import com.cloud.utils.Pair;
 import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.vm.DomainRouterVO;
-import com.cloud.vm.NicVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
@@ -205,6 +205,9 @@ public class NetworkServiceImplTest {
     @Mock
     PhysicalNetworkManagementService physicalNetworkManagementService;
 
+    @Mock
+    NetworkMtuService networkMtuService;
+
     private static final String VLAN_ID_900 = "900";
     private static final String VLAN_ID_901 = "901";
     private static final String VLAN_ID_902 = "902";
@@ -268,6 +271,8 @@ public class NetworkServiceImplTest {
         service._ipAddrMgr = ipAddressManagerMock;
         service.nsxProviderDao = nsxProviderDao;
         service.ipAddressLifecycleService = ipAddressLifecycleService;
+        service.networkMtuService = networkMtuService;
+        service._accountService = _accountService;
         callContextMocked = Mockito.mockStatic(CallContext.class);
         CallContext callContextMock = Mockito.mock(CallContext.class);
         callContextMocked.when(CallContext::current).thenReturn(callContextMock);
@@ -281,6 +286,9 @@ public class NetworkServiceImplTest {
         Mockito.lenient().when(physicalNetworkManagementService.getPhysicalNetwork(Mockito.anyLong())).thenReturn(phyNet);
         Mockito.when(_dcDao.findById(Mockito.anyLong())).thenReturn(dc);
         Mockito.when(accountManager.isRootAdmin(accountMock.getId())).thenReturn(true);
+        Mockito.lenient().when(networkMtuService.validateMtuConfig(nullable(Integer.class), nullable(Integer.class), anyLong()))
+                .thenAnswer(invocation -> new Pair<>(invocation.getArgument(0), invocation.getArgument(1)));
+        Mockito.lenient().doNothing().when(networkMtuService).mtuCheckForVpcNetwork(nullable(Long.class), Mockito.any(), nullable(Integer.class));
     }
 
     @After
@@ -290,9 +298,15 @@ public class NetworkServiceImplTest {
     }
 
     private void overrideDefaultConfigValue(final ConfigKey configKey, final String name, final Object o) throws IllegalAccessException, NoSuchFieldException {
+        Field depotField = ConfigKey.class.getDeclaredField("s_depot");
+        depotField.setAccessible(true);
+        depotField.set(null, null);
         Field f = ConfigKey.class.getDeclaredField(name);
         f.setAccessible(true);
         f.set(configKey, o);
+        Field valueField = ConfigKey.class.getDeclaredField("_value");
+        valueField.setAccessible(true);
+        valueField.set(configKey, null);
     }
 
     @Test
@@ -401,6 +415,7 @@ public class NetworkServiceImplTest {
         Mockito.when(_networkMgr.finalizeServicesAndProvidersForNetwork(ArgumentMatchers.any(NetworkOffering.class), anyLong())).thenReturn(networkProvidersMap);
         Mockito.when(configMgr.isOfferingForVpc(offering)).thenReturn(false);
         Mockito.when(offering.isInternalLb()).thenReturn(false);
+        Mockito.when(networkMtuService.validateMtuConfig(publicMtu, privateMtu, 1L)).thenReturn(new Pair<>(NetworkService.DEFAULT_MTU, privateMtu));
 
         service.createGuestNetwork(createNetworkCmd);
         Mockito.verify(_networkMgr, times(1)).createGuestNetwork(1L, "testNetwork", "Test Network", null,
@@ -409,30 +424,42 @@ public class NetworkServiceImplTest {
                 true, null, null, null, null, null,
                 null, null, null, null, new Pair<>(1500, privateMtu), null, true);
     }
+
     @Test
-    public void testValidateMtuConfigWhenMtusExceedThreshold() {
-        Integer publicMtu = 2450;
-        Integer privateMtu = 1500;
-        Long zoneId = 1L;
-        Pair<Integer, Integer> interfaceMtus = service.validateMtuConfig(publicMtu, privateMtu, zoneId);
-        Assert.assertNotNull(interfaceMtus);
-        Assert.assertEquals(NetworkService.DEFAULT_MTU, interfaceMtus.first());
-        Assert.assertEquals(NetworkService.DEFAULT_MTU, interfaceMtus.second());
-        Mockito.verify(alertManager, Mockito.times(1)).sendAlert(Mockito.any(AlertService.AlertType.class),
-                Mockito.anyLong(), nullable(Long.class), Mockito.anyString(), Mockito.anyString());
+    public void testValidateMtuConfigDelegatesToNetworkMtuService() {
+        Pair<Integer, Integer> expected = new Pair<>(1500, 1400);
+        Mockito.when(networkMtuService.validateMtuConfig(1600, 1400, zoneId)).thenReturn(expected);
+
+        Assert.assertSame(expected, service.validateMtuConfig(1600, 1400, zoneId));
+        Mockito.verify(networkMtuService).validateMtuConfig(1600, 1400, zoneId);
     }
 
     @Test
-    public void testValidatePrivateMtuExceedingThreshold() {
-        Integer publicMtu = 1500;
-        Integer privateMtu = 2500;
-        Long zoneId = 1L;
-        Pair<Integer, Integer> interfaceMtus = service.validateMtuConfig(publicMtu, privateMtu, zoneId);
-        Assert.assertNotNull(interfaceMtus);
-        Assert.assertEquals(NetworkService.DEFAULT_MTU, interfaceMtus.first());
-        Assert.assertEquals(NetworkService.DEFAULT_MTU, interfaceMtus.second());
-        Mockito.verify(alertManager, Mockito.times(1)).sendAlert(Mockito.any(AlertService.AlertType.class),
-                Mockito.anyLong(), nullable(Long.class), Mockito.anyString(), Mockito.anyString());
+    public void testMtuCheckForVpcNetworkDelegatesToNetworkMtuService() {
+        Pair<Integer, Integer> mtus = new Pair<>(1500, 1400);
+
+        service.mtuCheckForVpcNetwork(5L, mtus, 1500);
+
+        Mockito.verify(networkMtuService).mtuCheckForVpcNetwork(5L, mtus, 1500);
+    }
+
+    @Test
+    public void testValidateMtuOnUpdateDelegatesToNetworkMtuService() {
+        NetworkVO networkVO = Mockito.mock(NetworkVO.class);
+        Pair<Integer, Integer> expected = new Pair<>(1500, 1400);
+        Mockito.when(networkMtuService.validateMtuOnUpdate(networkVO, zoneId, 1500, 1400)).thenReturn(expected);
+
+        Assert.assertSame(expected, service.validateMtuOnUpdate(networkVO, zoneId, 1500, 1400));
+        Mockito.verify(networkMtuService).validateMtuOnUpdate(networkVO, zoneId, 1500, 1400);
+    }
+
+    @Test
+    public void testUpdateMtuOnVrDelegatesToNetworkMtuService() {
+        Map<Long, Set<IpAddressTO>> routersToIpList = new HashMap<>();
+        Mockito.when(networkMtuService.updateMtuOnVr(routersToIpList)).thenReturn(true);
+
+        Assert.assertTrue(service.updateMtuOnVr(routersToIpList));
+        Mockito.verify(networkMtuService).updateMtuOnVr(routersToIpList);
     }
 
     @Test
@@ -450,70 +477,60 @@ public class NetworkServiceImplTest {
         ReflectionTestUtils.setField(createNetworkCmd, "vpcId", 1L);
         Mockito.when(dc.getId()).thenReturn(1L);
         Mockito.when(configMgr.isOfferingForVpc(offering)).thenReturn(true);
-        Mockito.when(vpcDao.findById(anyLong())).thenReturn(vpc);
+        Mockito.lenient().when(vpcDao.findById(anyLong())).thenReturn(vpc);
+        Mockito.when(networkMtuService.validateMtuConfig(publicMtu, privateMtu, zoneId)).thenReturn(new Pair<>(0, privateMtu));
 
         service.createGuestNetwork(createNetworkCmd);
         Mockito.verify(vpcMgr, times(1)).createVpcGuestNetwork(1L, "testNetwork", "Test Network", null,
                 null, null, null, accountMock, null, phyNet,
                 1L, null, null, 1L, null, accountMock,
                 true, null, null, null, null, null, null, null, new Pair<>(0, 1000), null);
-
     }
 
     @Test
-    public void testUpdateSharedNetworkMtus() throws Exception {
-        Integer publicMtu = 1250;
-        Integer privateMtu = 1000;
-        Long networkId = 1L;
-        Long zoneId = 1L;
+    public void testUpdateGuestNetworkDelegatesMtuUpdate() {
+        Integer publicMtu = 1400;
+        Integer privateMtu = 1300;
+        long oldNetworkOfferingId = 20L;
+        long callerUserId = 40L;
+        long callerAccountId = 50L;
         ReflectionTestUtils.setField(updateNetworkCmd, "id", networkId);
         ReflectionTestUtils.setField(updateNetworkCmd, "publicMtu", publicMtu);
         ReflectionTestUtils.setField(updateNetworkCmd, "privateMtu", privateMtu);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        User callerUser = Mockito.mock(User.class);
+        Account callerAccount = Mockito.mock(Account.class);
+        Account networkAccount = Mockito.mock(Account.class);
+        NetworkVO networkVO = Mockito.mock(NetworkVO.class);
+        NetworkOfferingVO oldOffering = Mockito.mock(NetworkOfferingVO.class);
+        callContextMocked.when(CallContext::current).thenReturn(callContext);
+        Mockito.when(callContext.getCallingUserId()).thenReturn(callerUserId);
+        Mockito.when(_accountService.getActiveUser(callerUserId)).thenReturn(callerUser);
+        Mockito.when(callerUser.getAccountId()).thenReturn(callerAccountId);
+        Mockito.when(_accountService.getActiveAccountById(callerAccountId)).thenReturn(callerAccount);
+        Mockito.when(networkDao.findById(networkId)).thenReturn(networkVO);
+        Mockito.when(networkVO.getName()).thenReturn("network");
+        Mockito.when(networkVO.getState()).thenReturn(Network.State.Implemented);
+        Mockito.when(networkVO.getNetworkOfferingId()).thenReturn(oldNetworkOfferingId);
+        Mockito.when(networkVO.getTrafficType()).thenReturn(TrafficType.Guest);
+        Mockito.when(networkVO.getAccountId()).thenReturn(ACCOUNT_ID);
+        Mockito.when(networkVO.getDataCenterId()).thenReturn(zoneId);
+        Mockito.when(networkVO.getId()).thenReturn(networkId);
+        Mockito.when(networkVO.getGuruName()).thenReturn("missing-guru");
+        Mockito.when(networkOfferingDao.findByIdIncludingRemoved(oldNetworkOfferingId)).thenReturn(oldOffering);
+        Mockito.when(oldOffering.isSystemOnly()).thenReturn(false);
+        Mockito.when(accountManager.getActiveAccountById(ACCOUNT_ID)).thenReturn(networkAccount);
+        Mockito.when(_dcDao.findById(zoneId)).thenReturn(dc);
+        Mockito.when(dc.getId()).thenReturn(zoneId);
+        service.setNetworkGurus(new ArrayList<>());
 
-        User callingUser = mock(User.class);
-        UserVO userVO = mock(UserVO.class);
-        Account callingAccount = mock(Account.class);
-        NetworkVO networkVO = mock(NetworkVO.class);
-        NicVO nicVO = mock(NicVO.class);
-        List<IPAddressVO> addresses = new ArrayList<>();
-        List<IpAddressTO> ips = new ArrayList<>();
-        List<DomainRouterVO> routers = new ArrayList<>();
-        DomainRouterVO routerPrimary = Mockito.mock(DomainRouterVO.class);
-        routers.add(routerPrimary);
+        try (MockedStatic<UsageEventUtils> usageEventUtils = Mockito.mockStatic(UsageEventUtils.class)) {
+            Network updatedNetwork = service.updateGuestNetwork(updateNetworkCmd);
 
-        CallContext.register(callingUser, callingAccount);
-        Mockito.when(CallContext.current()).thenReturn(callContextMock);
-        Mockito.when(networkVO.getVpcId()).thenReturn(null);
-
-        Pair<Integer, Integer> updatedMtus = service.validateMtuOnUpdate(networkVO, zoneId, publicMtu, privateMtu);
-        Assert.assertEquals(publicMtu, updatedMtus.first());
-        Assert.assertEquals(privateMtu, updatedMtus.second());
-    }
-
-    @Test
-    public void testUpdatePublicInterfaceMtuViaNetworkTiersForVpcNetworks() {
-        Integer vpcMtu = 1450;
-        Integer publicMtu = 1250;
-        Integer privateMtu = 1000;
-        Long vpcId = 1L;
-        Long zoneId = 1L;
-        ReflectionTestUtils.setField(createNetworkCmd, "name", "testNetwork");
-        ReflectionTestUtils.setField(createNetworkCmd, "displayText", "Test Network");
-        ReflectionTestUtils.setField(createNetworkCmd, "networkOfferingId", 1L);
-        ReflectionTestUtils.setField(createNetworkCmd, "zoneId", zoneId);
-        ReflectionTestUtils.setField(createNetworkCmd, "publicMtu", publicMtu);
-        ReflectionTestUtils.setField(createNetworkCmd, "privateMtu", privateMtu);
-        ReflectionTestUtils.setField(createNetworkCmd, "physicalNetworkId", null);
-        ReflectionTestUtils.setField(createNetworkCmd, "vpcId", vpcId);
-
-        VpcVO vpcVO = Mockito.mock(VpcVO.class);
-        Mockito.when(vpcDao.findById(anyLong())).thenReturn(vpcVO);
-        Mockito.when(vpcVO.getPublicMtu()).thenReturn(vpcMtu);
-
-        Pair<Integer, Integer> updatedMtus = service.validateMtuConfig(publicMtu, privateMtu, zoneId);
-        service.mtuCheckForVpcNetwork(vpcId, updatedMtus, publicMtu);
-        Assert.assertEquals(vpcMtu, updatedMtus.first());
-        Assert.assertEquals(privateMtu, updatedMtus.second());
+            Assert.assertSame(networkVO, updatedNetwork);
+            usageEventUtils.verify(() -> UsageEventUtils.publishNetworkUpdate(networkVO));
+        }
+        Mockito.verify(networkMtuService).updateNetworkMtu(networkVO, networkId, zoneId, publicMtu, privateMtu, false);
     }
 
     private void prepareCreateNetworkDnsMocks(CreateNetworkCmd cmd, Network.GuestType guestType, boolean ipv6, boolean isVpc, boolean dnsServiceSupported) {
@@ -757,10 +774,17 @@ public class NetworkServiceImplTest {
         Mockito.when(dc.getId()).thenReturn(zoneId);
         vpc = Mockito.mock(VpcVO.class);
         Mockito.when(vpc.getName()).thenReturn("Vpc 1");
+        Mockito.when(vpc.getPublicMtu()).thenReturn(0);
         Mockito.when(vpcDao.findById(vpcId)).thenReturn(vpc);
         networkOfferingVO = Mockito.mock(NetworkOfferingVO.class);
         Mockito.when(networkOfferingDao.findById(networkOfferingId)).thenReturn(networkOfferingVO);
         Mockito.when(configMgr.isOfferingForVpc(networkOfferingVO)).thenReturn(true);
+        Mockito.when(networkMtuService.validateMtuConfig(NetworkService.DEFAULT_MTU, privateMtu, zoneId)).thenReturn(new Pair<>(NetworkService.DEFAULT_MTU, privateMtu));
+        Mockito.doAnswer(invocation -> {
+            Pair<Integer, Integer> interfaceMtus = invocation.getArgument(1);
+            interfaceMtus.set(vpc.getPublicMtu(), interfaceMtus.second());
+            return null;
+        }).when(networkMtuService).mtuCheckForVpcNetwork(ArgumentMatchers.eq(vpcId), ArgumentMatchers.any(), ArgumentMatchers.eq(NetworkService.DEFAULT_MTU));
 
         overrideDefaultConfigValue(VpcManager.VpcTierNamePrepend, "_defaultValue", "true");
         overrideDefaultConfigValue(VpcManager.VpcTierNamePrependDelimiter, "_defaultValue", " -- ");

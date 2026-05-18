@@ -36,7 +36,6 @@ import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
-import org.apache.cloudstack.alert.AlertService;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.address.ReleasePodIpCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.network.CreateNetworkCmdByAdmin;
@@ -85,7 +84,6 @@ import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.api.query.dao.DomainRouterJoinDao;
-import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.bgp.BGPService;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
@@ -156,7 +154,6 @@ import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.nsx.NsxService;
 import com.cloud.network.router.CommandSetupHelper;
 import com.cloud.network.router.NetworkHelper;
-import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.rules.FirewallRule.Purpose;
 import com.cloud.network.rules.FirewallRuleVO;
 import com.cloud.network.rules.RulesManager;
@@ -167,7 +164,6 @@ import com.cloud.network.vpc.PrivateIpVO;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.network.vpc.VpcGatewayVO;
 import com.cloud.network.vpc.VpcManager;
-import com.cloud.network.vpc.VpcVO;
 import com.cloud.network.vpc.dao.NetworkACLDao;
 import com.cloud.network.vpc.dao.PrivateIpDao;
 import com.cloud.network.vpc.dao.VpcDao;
@@ -413,6 +409,9 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
 
     @Inject
     protected NetworkMigrationService networkMigrationService;
+
+    @Inject
+    protected NetworkMtuService networkMtuService;
 
     int _cidrLimit;
     boolean _allowSubdomainNetworkAccess;
@@ -1560,56 +1559,11 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     }
 
     protected void mtuCheckForVpcNetwork(Long vpcId, Pair<Integer, Integer> interfaceMTUs, Integer publicMtu) {
-        if (vpcId != null && publicMtu != null) {
-            VpcVO vpc = _vpcDao.findById(vpcId);
-            if (vpc == null) {
-                throw new CloudRuntimeException(String.format("VPC with id %s not found", vpcId));
-            }
-            logger.warn(String.format("VPC public MTU already set at VPC creation phase to: %s. Ignoring public MTU " +
-                    "passed during VPC network tier creation ", vpc.getPublicMtu()));
-            interfaceMTUs.set(vpc.getPublicMtu(), interfaceMTUs.second());
-        }
+        networkMtuService.mtuCheckForVpcNetwork(vpcId, interfaceMTUs, publicMtu);
     }
 
     protected Pair<Integer, Integer> validateMtuConfig(Integer publicMtu, Integer privateMtu, Long zoneId) {
-        Integer vrMaxMtuForPublicIfaces = VRPublicInterfaceMtu.valueIn(zoneId);
-        Integer vrMaxMtuForPrivateIfaces = VRPrivateInterfaceMtu.valueIn(zoneId);
-        if (!AllowUsersToSpecifyVRMtu.valueIn(zoneId)) {
-            privateMtu = vrMaxMtuForPrivateIfaces;
-            publicMtu = vrMaxMtuForPublicIfaces;
-            return new Pair<>(publicMtu, privateMtu);
-        }
-
-        if (publicMtu > vrMaxMtuForPublicIfaces) {
-            String subject = "Incorrect MTU configured on network for public interfaces of the VR";
-            String message = String.format("Configured MTU for network VR's public interfaces exceeds the upper limit " +
-                    "enforced by zone level setting: %s. VR's public interfaces can be configured with a maximum MTU of %s", VRPublicInterfaceMtu.key(), VRPublicInterfaceMtu.valueIn(zoneId));
-            logger.warn(message);
-            alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PUBLIC_IFACE_MTU, zoneId, null, subject, message);
-            publicMtu = vrMaxMtuForPublicIfaces;
-        } else if (publicMtu < MINIMUM_MTU) {
-            String subject = "Incorrect MTU configured on network for public interfaces of the VR";
-            String message = String.format("Configured MTU for network VR's public interfaces is lesser than the supported minimum of %s.", MINIMUM_MTU);
-            logger.warn(message);
-            alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PUBLIC_IFACE_MTU, zoneId, null, subject, message);
-            publicMtu = MINIMUM_MTU;
-        }
-
-        if (privateMtu > vrMaxMtuForPrivateIfaces) {
-            String subject = "Incorrect MTU configured on network for private interface of the VR";
-            String message = String.format("Configured MTU for network VR's public interfaces exceeds the upper limit " +
-                    "enforced by zone level setting: %s. VR's public interfaces can be configured with a maximum MTU of %s", VRPublicInterfaceMtu.key(), VRPublicInterfaceMtu.valueIn(zoneId));
-            logger.warn(message);
-            alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PRIVATE_IFACE_MTU, zoneId, null, subject, message);
-            privateMtu = vrMaxMtuForPrivateIfaces;
-        } else if (privateMtu < MINIMUM_MTU) {
-            String subject = "Incorrect MTU configured on network for private interfaces of the VR";
-            String message = String.format("Configured MTU for network VR's private interfaces is lesser than the supported minimum of %s.", MINIMUM_MTU);
-            logger.warn(message);
-            alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PRIVATE_IFACE_MTU, zoneId, null, subject, message);
-            privateMtu = MINIMUM_MTU;
-        }
-        return new Pair<>(publicMtu, privateMtu);
+        return networkMtuService.validateMtuConfig(publicMtu, privateMtu, zoneId);
     }
 
     private Network implementAssociatedNetwork(Long associatedNetworkId, Account caller, Account owner, DataCenter zone, Long domainId, Long accountId,
@@ -2373,52 +2327,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
             logger.info("IP Reservation has been applied. The new CIDR for Guests Vms is " + guestVmCidr);
         }
 
-        Pair<Integer, Integer> mtus = validateMtuOnUpdate(network, dc.getId(), publicMtu, privateMtu);
-        publicMtu = mtus.first();
-        privateMtu = mtus.second();
-
-        // List all routers for the given network:
-        List<DomainRouterVO> routers = routerDao.findByNetwork(networkId);
-
-        // Create Map to store the IPAddress List for each router
-        Map<Long, Set<IpAddressTO>> routersToIpList = new HashMap<>();
-        for (DomainRouterVO routerVO : routers) {
-            Set<IpAddressTO> ips = new HashSet<>();
-            List<DomainRouterJoinVO> routerJoinVOS = routerJoinDao.getRouterByIdAndTrafficType(routerVO.getId(), TrafficType.Guest, TrafficType.Public);
-            for (DomainRouterJoinVO router : routerJoinVOS) {
-                IpAddressTO ip = null;
-                if (router.getTrafficType() == TrafficType.Guest && privateMtu != null) {
-                    ip = new IpAddressTO(router.getIpAddress(), privateMtu, router.getNetmask());
-                    ip.setTrafficType(TrafficType.Guest);
-                } else if (router.getTrafficType() == TrafficType.Public && publicMtu != null) {
-                    ip = new IpAddressTO(router.getIpAddress(), publicMtu, router.getNetmask());
-                    ip.setTrafficType(TrafficType.Public);
-                }
-                if (ip != null) {
-                    ips.add(ip);
-                }
-            }
-            if (network.getGuestType() == GuestType.Isolated && network.getVpcId() == null && publicMtu != null) {
-                List<IPAddressVO> addrs = _ipAddressDao.listByNetworkId(networkId);
-                for(IPAddressVO addr : addrs) {
-                    VlanVO vlan = _vlanDao.findById(addr.getVlanId());
-                    IpAddressTO to = new IpAddressTO(addr.getAddress().addr(), publicMtu, vlan.getVlanNetmask());
-                    ips.add(to);
-                }
-            }
-            if (!ips.isEmpty()) {
-                routersToIpList.put(routerVO.getId(), ips);
-            }
-        }
-
-        if (!routersToIpList.isEmpty() && !restartNetwork) {
-            boolean success = updateMtuOnVr(routersToIpList);
-            if (success) {
-                updateNetworkDetails(routersToIpList, network, publicMtu, privateMtu);
-            } else {
-                throw new CloudRuntimeException("Failed to update MTU on the network");
-            }
-        }
+        networkMtuService.updateNetworkMtu(network, networkId, dc.getId(), publicMtu, privateMtu, restartNetwork);
 
         ReservationContext context = new ReservationContextImpl(null, null, callerUser, callerAccount);
         // 1) Shutdown all the elements and cleanup all the rules. Don't allow to shutdown network in intermediate
@@ -2609,96 +2518,11 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     }
 
     protected Pair<Integer, Integer> validateMtuOnUpdate(NetworkVO network, Long zoneId, Integer publicMtu, Integer privateMtu) {
-        if (!AllowUsersToSpecifyVRMtu.valueIn(zoneId)) {
-            return new Pair<>(null, null);
-        }
-
-        if (publicMtu != null) {
-            if (publicMtu > VRPublicInterfaceMtu.valueIn(zoneId)) {
-                publicMtu = VRPublicInterfaceMtu.valueIn(zoneId);
-            } else if (publicMtu < MINIMUM_MTU) {
-                String subject = "Incorrect MTU configured on network for public interfaces of the VR";
-                String message = String.format("Configured MTU for network VR's public interfaces is lesser than the supported minimum of %s.", MINIMUM_MTU);
-                logger.warn(message);
-                alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PUBLIC_IFACE_MTU, zoneId, null, subject, message);
-                publicMtu = MINIMUM_MTU;
-            }
-        }
-
-        if (privateMtu != null) {
-            if (privateMtu > VRPrivateInterfaceMtu.valueIn(zoneId)) {
-                privateMtu = VRPrivateInterfaceMtu.valueIn(zoneId);
-            } else if (privateMtu < MINIMUM_MTU) {
-                String subject = "Incorrect MTU configured on network for private interfaces of the VR";
-                String message = String.format("Configured MTU for network VR's private interfaces is lesser than the supported minimum of %s.", MINIMUM_MTU);
-                logger.warn(message);
-                alertManager.sendAlert(AlertService.AlertType.ALERT_TYPE_VR_PRIVATE_IFACE_MTU, zoneId, null, subject, message);
-                privateMtu = MINIMUM_MTU;
-            }
-        }
-
-        if (publicMtu != null && network.getVpcId() != null) {
-            logger.warn("Cannot update VPC public interface MTU via network tiers. " +
-                    "Please update the public interface MTU via the VPC. Skipping.. ");
-            publicMtu = null;
-        }
-
-        return new Pair<>(publicMtu, privateMtu);
-    }
-
-    private void updateNetworkDetails(Map<Long, Set<IpAddressTO>> routerToIpList, NetworkVO network, Integer publicMtu, Integer privateMtu) {
-        for (Map.Entry<Long, Set<IpAddressTO>> routerEntrySet : routerToIpList.entrySet()) {
-            for (IpAddressTO ipAddress : routerEntrySet.getValue()) {
-                NicVO nicVO = _nicDao.findByInstanceIdAndIpAddressAndVmtype(routerEntrySet.getKey(), ipAddress.getPublicIp(), VirtualMachine.Type.DomainRouter);
-                if (nicVO != null) {
-                    if (ipAddress.getTrafficType() == TrafficType.Guest) {
-                        nicVO.setMtu(privateMtu);
-                    } else {
-                        nicVO.setMtu(publicMtu);
-                    }
-                    _nicDao.update(nicVO.getId(), nicVO);
-                }
-            }
-        }
-
-        if (publicMtu != null) {
-            network.setPublicMtu(publicMtu);
-        }
-        if (privateMtu != null) {
-            network.setPrivateMtu(privateMtu);
-        }
-        _networksDao.update(network.getId(), network);
+        return networkMtuService.validateMtuOnUpdate(network, zoneId, publicMtu, privateMtu);
     }
 
     protected boolean updateMtuOnVr(Map<Long, Set<IpAddressTO>> routersToIpList) {
-        boolean success = false;
-        for (Map.Entry<Long, Set<IpAddressTO>> routerEntrySet : routersToIpList.entrySet()) {
-            Long routerId = routerEntrySet.getKey();
-            DomainRouterVO router = routerDao.findById(routerId);
-            if (router == null) {
-                logger.error(String.format("Failed to find router with id: %s", routerId));
-                continue;
-            }
-            Commands cmds = new Commands(Command.OnError.Stop);
-            Map<String, String> state = new HashMap<>();
-            Set<IpAddressTO> ips = routerEntrySet.getValue();
-            state.put(ApiConstants.REDUNDANT_STATE, router.getRedundantState() != null ? router.getRedundantState().name() : VirtualRouter.RedundantState.UNKNOWN.name());
-            ips.forEach(ip -> ip.setDetails(state));
-            commandSetupHelper.setupUpdateNetworkCommands(router, ips, cmds);
-            try {
-                networkHelper.sendCommandsToRouter(router, cmds);
-                Answer updateNetworkAnswer = cmds.getAnswer("updateNetwork");
-                if (!(updateNetworkAnswer != null && updateNetworkAnswer.getResult())) {
-                    logger.warn("Unable to update guest network on router " + router);
-                    throw new CloudRuntimeException("Failed to update guest network with new MTU");
-                }
-                success = true;
-            } catch (ResourceUnavailableException e) {
-                logger.error(String.format("Failed to update network MTU for router %s due to %s", router, e.getMessage()));
-                success = false;
-            }
-        }
-        return success;
+        return networkMtuService.updateMtuOnVr(routersToIpList);
     }
     private void updateNetworkIpv6(NetworkVO network, Long networkOfferingId) {
         boolean isIpv6Supported = _networkOfferingDao.isIpv6Supported(network.getNetworkOfferingId());
