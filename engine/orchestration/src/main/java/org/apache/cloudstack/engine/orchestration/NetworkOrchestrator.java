@@ -174,7 +174,6 @@ import com.cloud.network.element.DnsServiceProvider;
 import com.cloud.network.element.IpDeployer;
 import com.cloud.network.element.LoadBalancingServiceProvider;
 import com.cloud.network.element.NetworkElement;
-import com.cloud.network.element.RedundantResource;
 import com.cloud.network.element.StaticNatServiceProvider;
 import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.network.element.VirtualRouterElement;
@@ -442,6 +441,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NicMigrationService nicMigrationService;
     @Inject
     NetworkHostSetupService networkHostSetupService;
+    @Inject
+    NetworkUpdateSequenceService networkUpdateSequenceService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -1847,24 +1848,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     @Override
-    public boolean canUpdateInSequence(Network network, boolean forced) {
-        List<Provider> providers = getNetworkProviders(network.getId());
-
-        //check if the there are no service provider other than virtualrouter.
-        for (Provider provider : providers) {
-            if (provider != Provider.VirtualRouter)
-                throw new UnsupportedOperationException("Cannot update the network resources in sequence when providers other than virtualrouter are used");
-        }
-        //check if routers are in correct state before proceeding with the update
-        List<DomainRouterVO> routers = routerDao.listByNetworkAndRole(network.getId(), VirtualRouter.Role.VIRTUAL_ROUTER);
-        for (DomainRouterVO router : routers){
-            if (router.getRedundantState() == VirtualRouter.RedundantState.UNKNOWN) {
-                if (!forced) {
-                    throw new CloudRuntimeException("Domain router: " + router.getInstanceName() + " is in unknown state, Cannot update network. set parameter forced to true for forcing an update");
-                }
-            }
-        }
-        return true;
+    public boolean canUpdateInSequence(final Network network, final boolean forced) {
+        return networkUpdateSequenceService.canUpdateInSequence(network, forced);
     }
 
     @Override
@@ -1974,31 +1959,13 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     @Override
-    public void configureUpdateInSequence(Network network) {
-        List<Provider> providers = getNetworkProviders(network.getId());
-        for (NetworkElement element : networkElements) {
-            if (providers.contains(element.getProvider())) {
-                if (element instanceof RedundantResource) {
-                    ((RedundantResource) element).configureResource(network);
-                }
-            }
-        }
+    public void configureUpdateInSequence(final Network network) {
+        networkUpdateSequenceService.configureUpdateInSequence(network);
     }
 
     @Override
-    public int getResourceCount(Network network) {
-        List<Provider> providers = getNetworkProviders(network.getId());
-        int resourceCount = 0;
-        for (NetworkElement element : networkElements) {
-            if (providers.contains(element.getProvider())) {
-                //currently only one element implements the redundant resource interface
-                if (element instanceof RedundantResource) {
-                    resourceCount = ((RedundantResource) element).getResourceCount(network);
-                    break;
-                }
-            }
-        }
-        return resourceCount;
+    public int getResourceCount(final Network network) {
+        return networkUpdateSequenceService.getResourceCount(network);
     }
 
     @Override
@@ -2018,17 +1985,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     @Override
-    public void finalizeUpdateInSequence(Network network, boolean success) {
-        List<Provider> providers = getNetworkProviders(network.getId());
-        for (NetworkElement element : networkElements) {
-            if (providers.contains(element.getProvider())) {
-                //currently only one element implements the redundant resource interface
-                if (element instanceof RedundantResource) {
-                    ((RedundantResource) element).finalize(network, success);
-                    break;
-                }
-            }
-        }
+    public void finalizeUpdateInSequence(final Network network, final boolean success) {
+        networkUpdateSequenceService.finalizeUpdateInSequence(network, success);
     }
 
     @Override
