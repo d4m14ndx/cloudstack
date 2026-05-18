@@ -18,9 +18,7 @@ package com.cloud.network;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -66,7 +64,6 @@ import com.cloud.agent.api.to.NicTO;
 import com.cloud.alert.AlertManager;
 import com.cloud.bgp.BGPService;
 import com.cloud.configuration.ConfigurationManager;
-import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.exception.InsufficientAddressCapacityException;
@@ -203,6 +200,9 @@ public class NetworkServiceImplTest {
     @Mock
     private NsxProviderDao nsxProviderDao;
 
+    @Mock
+    IpAddressLifecycleService ipAddressLifecycleService;
+
     private static final String VLAN_ID_900 = "900";
     private static final String VLAN_ID_901 = "901";
     private static final String VLAN_ID_902 = "902";
@@ -265,6 +265,7 @@ public class NetworkServiceImplTest {
         service.networkHelper = networkHelper;
         service._ipAddrMgr = ipAddressManagerMock;
         service.nsxProviderDao = nsxProviderDao;
+        service.ipAddressLifecycleService = ipAddressLifecycleService;
         callContextMocked = Mockito.mockStatic(CallContext.class);
         CallContext callContextMock = Mockito.mock(CallContext.class);
         callContextMocked.when(CallContext::current).thenReturn(callContextMock);
@@ -1046,17 +1047,15 @@ public class NetworkServiceImplTest {
         NetworkOffering ntwkOff = Mockito.mock(NetworkOffering.class);
         Long networkId = 7l;
         when(networkVO.getId()).thenReturn(networkId);
-        when(networkVO.getGuestType()).thenReturn(Network.GuestType.Isolated);
-        when(networkDao.findById(networkId)).thenReturn(networkVO);
-        when(entityMgr.findById(NetworkOffering.class, networkOfferingId)).thenReturn(ntwkOff);
-        when(entityMgr.findById(eq(DataCenter.class), anyLong())).thenReturn(dc);
         when(ipAddress.getId()).thenReturn(5l);
-        when(networkVO.getId()).thenReturn(networkId);
-        when(networkVO.getGuestType()).thenReturn(Network.GuestType.Isolated);
+        when(entityMgr.findById(NetworkOffering.class, networkOfferingId)).thenReturn(ntwkOff);
         try {
-            when(ipAddressManagerMock.allocateIp(any(), anyBoolean(), any(), any(), any(), any(), eq(srcNatIp))).thenReturn(ipAddress);
+            when(ipAddressLifecycleService.allocateIP(any(), anyLong(), any(), any(), any())).thenReturn(ipAddress);
+            when(ipAddressLifecycleService.associateIPToNetwork(anyLong(), anyLong())).thenReturn(ipAddress);
             service.checkAndSetRouterSourceNatIp(account, createNetworkCmd, networkVO);
-        } catch (InsufficientAddressCapacityException | ResourceAllocationException e) {
+        } catch (InsufficientAddressCapacityException | ResourceAllocationException
+                | com.cloud.exception.ResourceUnavailableException
+                | com.cloud.exception.ConcurrentOperationException e) {
             Assert.fail(e.getMessage());
         }
     }
