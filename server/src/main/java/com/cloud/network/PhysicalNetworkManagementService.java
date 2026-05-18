@@ -18,11 +18,13 @@ package com.cloud.network;
 
 import java.util.List;
 
+import org.apache.cloudstack.api.command.admin.network.ListGuestVlansCmd;
 import org.apache.cloudstack.api.command.admin.usage.ListTrafficTypeImplementorsCmd;
 
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.network.Networks.TrafficType;
+import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.utils.Pair;
 
@@ -82,7 +84,11 @@ public interface PhysicalNetworkManagementService {
 
     Pair<List<? extends PhysicalNetworkTrafficType>, Integer> listTrafficTypes(Long physicalNetworkId);
 
+    NetworkVO getExclusiveGuestNetwork(long zoneId);
+
     List<Pair<TrafficType, String>> listTrafficTypeImplementor(ListTrafficTypeImplementorsCmd cmd);
+
+    Pair<List<? extends GuestVlan>, Integer> listGuestVlans(ListGuestVlansCmd cmd);
 
     // addDefault* helpers exposed so god-class protected wrappers can delegate
     PhysicalNetworkServiceProvider addDefaultVirtualRouterToPhysicalNetwork(long physicalNetworkId);

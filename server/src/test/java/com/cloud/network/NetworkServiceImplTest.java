@@ -31,6 +31,7 @@ import java.lang.reflect.Field;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.apache.cloudstack.api.command.admin.network.CreateNetworkCmdByAdmin;
+import org.apache.cloudstack.api.command.admin.network.ListGuestVlansCmd;
 import org.apache.cloudstack.api.command.user.network.CreateNetworkCmd;
 import org.apache.cloudstack.api.command.user.network.UpdateNetworkCmd;
 import org.apache.cloudstack.context.CallContext;
@@ -333,6 +335,23 @@ public class NetworkServiceImplTest {
         service.performBasicPrivateVlanChecks(VLAN_ID_900, VLAN_ID_901, Network.PVlanType.Community);
 
         Mockito.verify(networkCreationValidationService).performBasicPrivateVlanChecks(VLAN_ID_900, VLAN_ID_901, Network.PVlanType.Community);
+    }
+
+    @Test
+    public void getExclusiveGuestNetwork_delegatesToPhysicalNetworkManagementService() {
+        NetworkVO network = Mockito.mock(NetworkVO.class);
+        Mockito.when(physicalNetworkManagementService.getExclusiveGuestNetwork(7L)).thenReturn(network);
+
+        Assert.assertEquals(network, service.getExclusiveGuestNetwork(7L));
+    }
+
+    @Test
+    public void listGuestVlans_delegatesToPhysicalNetworkManagementService() {
+        ListGuestVlansCmd cmd = Mockito.mock(ListGuestVlansCmd.class);
+        Pair<List<? extends GuestVlan>, Integer> response = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(physicalNetworkManagementService.listGuestVlans(cmd)).thenReturn(response);
+
+        Assert.assertEquals(response, service.listGuestVlans(cmd));
     }
 
     @Test
