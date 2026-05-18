@@ -47,6 +47,7 @@ import org.apache.cloudstack.api.command.user.event.ListEventsCmd;
 import org.apache.cloudstack.api.command.user.offering.ListDiskOfferingsCmd;
 import org.apache.cloudstack.api.command.user.offering.ListServiceOfferingsCmd;
 import org.apache.cloudstack.api.command.user.resource.ListDetailOptionsCmd;
+import org.apache.cloudstack.api.command.user.securitygroup.ListSecurityGroupsCmd;
 import org.apache.cloudstack.api.response.AccountResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DetailOptionsResponse;
@@ -55,6 +56,7 @@ import org.apache.cloudstack.api.response.HostResponse;
 import org.apache.cloudstack.api.response.HostTagResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
+import org.apache.cloudstack.api.response.SecurityGroupResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.StorageTagResponse;
 import org.apache.cloudstack.api.response.UserResponse;
@@ -83,6 +85,7 @@ import com.cloud.api.query.dao.UserAccountJoinDao;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.AccountJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
+import com.cloud.api.query.vo.SecurityGroupJoinVO;
 import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.dc.ClusterVO;
@@ -205,6 +208,9 @@ public class QueryManagerImplTest {
     @Mock
     StorageAndHostTagQueryService storageAndHostTagQueryService;
 
+    @Mock
+    SecurityGroupQueryService securityGroupQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -264,6 +270,9 @@ public class QueryManagerImplTest {
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "storageAndHostTagQueryService", storageAndHostTagQueryService);
         ReflectionTestUtils.setField(queryManager, "storageAndHostTagQueryService", storageAndHostTagQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "securityGroupQueryService", securityGroupQueryService);
+        ReflectionTestUtils.setField(queryManager, "securityGroupQueryService", securityGroupQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -594,6 +603,28 @@ public class QueryManagerImplTest {
 
         Assert.assertSame(expected, actual);
         verify(diskOfferingQueryService).searchForDiskOfferings(cmd);
+    }
+
+    @Test
+    public void searchForSecurityGroupsDelegatesToSecurityGroupQueryService() {
+        ListSecurityGroupsCmd cmd = mock(ListSecurityGroupsCmd.class);
+        SecurityGroupJoinVO row = mock(SecurityGroupJoinVO.class);
+        Pair<List<SecurityGroupJoinVO>, Integer> result = new Pair<>(Collections.singletonList(row), 1);
+        SecurityGroupResponse response = mock(SecurityGroupResponse.class);
+        List<SecurityGroupResponse> responses = Collections.singletonList(response);
+        when(securityGroupQueryService.searchForSecurityGroupsInternal(cmd)).thenReturn(result);
+
+        try (MockedStatic<ViewResponseHelper> viewResponseHelperMocked = Mockito.mockStatic(ViewResponseHelper.class)) {
+            viewResponseHelperMocked.when(() -> ViewResponseHelper.createSecurityGroupResponses(result.first()))
+                    .thenReturn(responses);
+
+            ListResponse<SecurityGroupResponse> actual = queryManager.searchForSecurityGroups(cmd);
+
+            Assert.assertSame(responses, actual.getResponses());
+            assertEquals(Integer.valueOf(1), actual.getCount());
+        }
+
+        verify(securityGroupQueryService).searchForSecurityGroupsInternal(cmd);
     }
 
     @Test
