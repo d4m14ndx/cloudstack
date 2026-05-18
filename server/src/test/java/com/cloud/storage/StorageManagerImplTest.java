@@ -32,10 +32,6 @@ import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.storage.ChangeStoragePoolScopeCmd;
 import org.apache.cloudstack.api.command.admin.storage.ConfigureStorageAccessCmd;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreLifeCycle;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProvider;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.framework.config.ConfigDepot;
@@ -43,13 +39,10 @@ import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.storage.command.CheckDataStoreStoragePolicyComplianceCommand;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreDao;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailVO;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.cloudstack.storage.object.ObjectStore;
 import org.apache.commons.collections.MapUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -160,16 +153,13 @@ public class StorageManagerImplTest {
 
 
     @Mock
-    protected ObjectStoreDao objectStoreDao;
-
-    @Mock
     DataStoreProviderManager dataStoreProviderMgr;
 
     @Mock
-    DataStoreManager dataStoreMgr;
+    StorageCapacityService storageCapacityService;
 
     @Mock
-    StorageCapacityService storageCapacityService;
+    ObjectStoreService objectStoreService;
 
     @Before
     public void setUp() {
@@ -196,6 +186,10 @@ public class StorageManagerImplTest {
         ReflectionTestUtils.setField(hostAccessService, "storagePoolDao", storagePoolDao);
         ReflectionTestUtils.setField(hostAccessService, "dataStoreProviderMgr", dataStoreProviderMgr);
         ReflectionTestUtils.setField(storageManagerImpl, "hostStorageAccessService", hostAccessService);
+
+        // Phase 4 (slice 8): object-store lifecycle methods extracted into
+        // ObjectStoreServiceImpl. Wire the mock so wrapper delegation is testable.
+        ReflectionTestUtils.setField(storageManagerImpl, "objectStoreService", objectStoreService);
     }
 
     @Test
@@ -1435,108 +1429,11 @@ public class StorageManagerImplTest {
     public void testGetObjectStorageUsedStatsDelegates() {
         Long zoneId = 1L;
         CapacityVO expected = new CapacityVO(null, zoneId, null, null, 3000L, 6000L, Capacity.CAPACITY_TYPE_OBJECT_STORAGE);
-        Mockito.when(storageCapacityService.getObjectStorageUsedStats(zoneId)).thenReturn(expected);
+        Mockito.when(objectStoreService.getObjectStorageUsedStats(zoneId)).thenReturn(expected);
         CapacityVO result = storageManagerImpl.getObjectStorageUsedStats(zoneId);
         Assert.assertSame(expected, result);
-        Mockito.verify(storageCapacityService).getObjectStorageUsedStats(zoneId);
+        Mockito.verify(objectStoreService).getObjectStorageUsedStats(zoneId);
     }
 
-    @Test
-    public void testDiscoverObjectStore() {
-        Long objectStoreId = 1L;
-
-        String name = "test-store";
-        String url = "http://10.1.1.33:80";
-        Long size = 1000L;
-        String providerName = "test-provider";
-        Map<String, String> details = new HashMap<>();
-        details.put("key1", "value1");
-
-        ObjectStoreVO objectStoreVO = new ObjectStoreVO();
-        ReflectionTestUtils.setField(objectStoreVO, "id", objectStoreId);
-        objectStoreVO.setName(name);
-        objectStoreVO.setUrl(url);
-        objectStoreVO.setProviderName(providerName);
-        objectStoreVO.setTotalSize(size);
-
-        DataStoreProvider storeProvider = Mockito.mock(DataStoreProvider.class);
-        DataStoreLifeCycle lifeCycle = Mockito.mock(DataStoreLifeCycle.class);
-        DataStore store = Mockito.mock(DataStore.class);
-        ObjectStore objectStore = Mockito.mock(ObjectStore.class);
-
-        Mockito.when(dataStoreProviderMgr.getDataStoreProvider(providerName)).thenReturn(storeProvider);
-        Mockito.when(storeProvider.getDataStoreLifeCycle()).thenReturn(lifeCycle);
-        Mockito.when(lifeCycle.initialize(Mockito.any())).thenReturn(store);
-        Mockito.when(store.getId()).thenReturn(1L);
-        Mockito.when(dataStoreMgr.getDataStore(1L, DataStoreRole.Object)).thenReturn(null);
-
-        ObjectStore result = storageManagerImpl.discoverObjectStore(name, url, size, providerName, details);
-
-        Mockito.verify(dataStoreProviderMgr).getDataStoreProvider(providerName);
-        Mockito.verify(lifeCycle).initialize(Mockito.any());
-        Mockito.verify(dataStoreMgr).getDataStore(1L, DataStoreRole.Object);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testDiscoverObjectStoreInvalidProvider() {
-        // Setup
-        String name = "test-store";
-        String url = "http://10.1.1.33:80";
-        Long size = 1000L;
-        String providerName = "invalid-provider";
-        Map<String, String> details = new HashMap<>();
-
-        Mockito.when(dataStoreProviderMgr.getDataStoreProvider(providerName)).thenReturn(null);
-
-        storageManagerImpl.discoverObjectStore(name, url, size, providerName, details);
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void testDiscoverObjectStoreInvalidUrl() {
-        String name = "test-store";
-        String url = "invalid-url";
-        Long size = 1000L;
-        String providerName = "test-provider";
-        Map<String, String> details = new HashMap<>();
-
-        DataStoreProvider storeProvider = Mockito.mock(DataStoreProvider.class);
-        Mockito.when(dataStoreProviderMgr.getDataStoreProvider(providerName)).thenReturn(storeProvider);
-
-        storageManagerImpl.discoverObjectStore(name, url, size, providerName, details);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testDiscoverObjectStoreDuplicateUrl() {
-        String name = "test-store";
-        String url = "http://10.1.1.33:80";
-        Long size = 1000L;
-        String providerName = "test-provider";
-        Map<String, String> details = new HashMap<>();
-
-        DataStoreProvider storeProvider = Mockito.mock(DataStoreProvider.class);
-        ObjectStoreVO existingStore = new ObjectStoreVO();
-
-        Mockito.when(dataStoreProviderMgr.getDataStoreProvider(providerName)).thenReturn(storeProvider);
-        Mockito.when(objectStoreDao.findByUrl(url)).thenReturn(existingStore);
-
-        storageManagerImpl.discoverObjectStore(name, url, size, providerName, details);
-    }
-
-    @Test(expected = CloudRuntimeException.class)
-    public void testDiscoverObjectStoreInitializationFailure() {
-        String name = "test-store";
-        String url = "http://10.1.1.33:80";
-        Long size = 1000L;
-        String providerName = "test-provider";
-        Map<String, String> details = new HashMap<>();
-
-        DataStoreProvider storeProvider = Mockito.mock(DataStoreProvider.class);
-        DataStoreLifeCycle lifeCycle = Mockito.mock(DataStoreLifeCycle.class);
-
-        Mockito.when(dataStoreProviderMgr.getDataStoreProvider(providerName)).thenReturn(storeProvider);
-        Mockito.when(storeProvider.getDataStoreLifeCycle()).thenReturn(lifeCycle);
-        Mockito.when(lifeCycle.initialize(Mockito.any())).thenThrow(new RuntimeException("Initialization failed"));
-
-        storageManagerImpl.discoverObjectStore(name, url, size, providerName, details);
-    }
 }
+// Phase 4 (slice 8): discoverObjectStore tests removed — fully covered by ObjectStoreServiceImplTest.
