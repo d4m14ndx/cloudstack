@@ -292,6 +292,10 @@ public class VirtualMachineManagerImplTest {
     private HighAvailabilityManager _haMgr;
     @Mock
     VirtualMachineGuru guru;
+    @Mock
+    private VmOfflineStorageMigrationService vmOfflineStorageMigrationService;
+    @Mock
+    private VmOfflineStorageMigrationServiceImpl vmOfflineStorageMigrationServiceImpl;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -367,6 +371,8 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(externalProvisioningManager, "networkModel", networkModel);
         ReflectionTestUtils.setField(externalProvisioningManager, "hvGuruMgr", _hvGuruMgr);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExternalProvisioningManager", externalProvisioningManager);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmOfflineStorageMigrationService", vmOfflineStorageMigrationService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmOfflineStorageMigrationServiceImpl", vmOfflineStorageMigrationServiceImpl);
     }
 
     @After
@@ -910,40 +916,6 @@ public class VirtualMachineManagerImplTest {
         inOrder.verify(virtualMachineManagerImpl).findVolumesThatWereNotMappedByTheUser(virtualMachineProfileMock, volumeToPoolObjectMap);
         inOrder.verify(virtualMachineManagerImpl).createStoragePoolMappingsForVolumes(Mockito.eq(virtualMachineProfileMock),
                 any(DataCenterDeployment.class), Mockito.eq(volumeToPoolObjectMap), Mockito.eq(volumesNotMapped));
-    }
-
-    @Test
-    public void matchesOfSorts() {
-        List<String> nothing = null;
-        List<String> empty = new ArrayList<>();
-        List<String> tag = Arrays.asList("bla");
-        List<String> tags = Arrays.asList("bla", "blob");
-        List<String> others = Arrays.asList("bla", "blieb");
-        List<String> three = Arrays.asList("bla", "blob", "blieb");
-
-        // single match
-        assertTrue(VirtualMachineManagerImpl.matches(tag,tags));
-        assertTrue(VirtualMachineManagerImpl.matches(tag,others));
-
-        // no requirements
-        assertTrue(VirtualMachineManagerImpl.matches(nothing,tags));
-        assertTrue(VirtualMachineManagerImpl.matches(empty,tag));
-
-        // mis(sing)match
-        assertFalse(VirtualMachineManagerImpl.matches(tags,tag));
-        assertFalse(VirtualMachineManagerImpl.matches(tag,nothing));
-        assertFalse(VirtualMachineManagerImpl.matches(tag,empty));
-
-        // disjunct sets
-        assertFalse(VirtualMachineManagerImpl.matches(tags,others));
-        assertFalse(VirtualMachineManagerImpl.matches(others,tags));
-
-        // everything matches the larger set
-        assertTrue(VirtualMachineManagerImpl.matches(nothing,three));
-        assertTrue(VirtualMachineManagerImpl.matches(empty,three));
-        assertTrue(VirtualMachineManagerImpl.matches(tag,three));
-        assertTrue(VirtualMachineManagerImpl.matches(tags,three));
-        assertTrue(VirtualMachineManagerImpl.matches(others,three));
     }
 
     @Test

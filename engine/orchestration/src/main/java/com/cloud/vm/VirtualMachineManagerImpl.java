@@ -115,7 +115,6 @@ import com.cloud.agent.api.ClusterVMMetaDataSyncAnswer;
 import com.cloud.agent.api.ClusterVMMetaDataSyncCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.MigrateCommand;
-import com.cloud.agent.api.MigrateVmToPoolAnswer;
 import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.PlugNicAnswer;
 import com.cloud.agent.api.PlugNicCommand;
@@ -138,7 +137,6 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.UnPlugNicAnswer;
 import com.cloud.agent.api.UnPlugNicCommand;
 import com.cloud.agent.api.UnmanageInstanceCommand;
-import com.cloud.agent.api.UnregisterVMCommand;
 import com.cloud.agent.api.UpdateVmNicAnswer;
 import com.cloud.agent.api.UpdateVmNicCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
@@ -192,7 +190,6 @@ import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.exception.StorageAccessException;
-import com.cloud.exception.StorageUnavailableException;
 import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.ha.HighAvailabilityManager.WorkType;
 import com.cloud.host.Host;
@@ -451,6 +448,10 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmExternalProvisioningManager vmExternalProvisioningManager;
     @Inject
     protected VmVolumeMigrationPlanningService vmVolumeMigrationPlanningService;
+    @Inject
+    protected VmOfflineStorageMigrationService vmOfflineStorageMigrationService;
+    @Inject
+    protected VmOfflineStorageMigrationServiceImpl vmOfflineStorageMigrationServiceImpl;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
@@ -2597,261 +2598,15 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     private void orchestrateStorageMigration(final String vmUuid, final Map<Long, Long> volumeToPool) {
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-
-        Map<Volume, StoragePool> volumeToPoolMap = prepareVmStorageMigration(vm, volumeToPool);
-
-        try {
-            logger.debug("Offline migration of {} vm {} with volumes",
-                            vm.getHypervisorType().toString(),
-                            vm.getInstanceName());
-
-            migrateThroughHypervisorOrStorage(vm, volumeToPoolMap);
-
-        } catch (ConcurrentOperationException
-                | InsufficientCapacityException
-                | StorageUnavailableException e) {
-            String msg = String.format("Failed to migrate VM: %s", vmUuid);
-            logger.warn(msg, e);
-            throw new CloudRuntimeException(msg, e);
-        } finally {
-            try {
-                stateTransitTo(vm, Event.AgentReportStopped, null);
-            } catch (final NoTransitionException e) {
-                String anotherMEssage = String.format("failed to change vm state of VM: %s", vmUuid);
-                logger.warn(anotherMEssage, e);
-                throw new CloudRuntimeException(anotherMEssage, e);
-            }
-        }
+        vmOfflineStorageMigrationService.orchestrateStorageMigration(vmUuid, volumeToPool);
     }
 
     private Answer[] attemptHypervisorMigration(VMInstanceVO vm, Map<Volume, StoragePool> volumeToPool, Long hostId) {
-        if (hostId == null) {
-            return null;
-        }
-        final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vm.getHypervisorType());
-
-        List<Command> commandsToSend = hvGuru.finalizeMigrate(vm, volumeToPool);
-
-        if (CollectionUtils.isNotEmpty(commandsToSend)) {
-            Commands commandsContainer = new Commands(Command.OnError.Stop);
-            commandsContainer.addCommands(commandsToSend);
-
-            try {
-                return  _agentMgr.send(hostId, commandsContainer);
-            } catch (AgentUnavailableException | OperationTimedoutException e) {
-                logger.warn("Hypervisor migration failed for the VM: {}", vm, e);
-            }
-        }
-        return null;
-    }
-
-    private void afterHypervisorMigrationCleanup(VMInstanceVO vm, Map<Volume, StoragePool> volumeToPool, Long sourceClusterId, Answer[] hypervisorMigrationResults) throws InsufficientCapacityException {
-        logger.debug("Cleaning up after hypervisor pool migration volumes for VM {}({})", vm.getInstanceName(), vm.getUuid());
-
-        StoragePool rootVolumePool = null;
-        if (MapUtils.isNotEmpty(volumeToPool)) {
-            for (Map.Entry<Volume, StoragePool> entry : volumeToPool.entrySet()) {
-                if (Type.ROOT.equals(entry.getKey().getVolumeType())) {
-                    rootVolumePool = entry.getValue();
-                    break;
-                }
-            }
-        }
-        setDestinationPoolAndReallocateNetwork(rootVolumePool, vm);
-        Long destClusterId = rootVolumePool != null ? rootVolumePool.getClusterId() : null;
-        if (destClusterId != null && !destClusterId.equals(sourceClusterId)) {
-            logger.debug("Resetting lastHost for VM {}({})", vm.getInstanceName(), vm.getUuid());
-            vm.setLastHostId(null);
-            vm.setPodIdToDeployIn(rootVolumePool.getPodId());
-        }
-
-        markVolumesInPool(vm, hypervisorMigrationResults);
+        return vmOfflineStorageMigrationServiceImpl.attemptHypervisorMigration(vm, volumeToPool, hostId);
     }
 
     private void markVolumesInPool(VMInstanceVO vm, Answer[] hypervisorMigrationResults) {
-        MigrateVmToPoolAnswer relevantAnswer = null;
-        if (hypervisorMigrationResults.length == 1 && !hypervisorMigrationResults[0].getResult()) {
-            throw new CloudRuntimeException(String.format("VM ID: %s migration failed. %s", vm.getUuid(), hypervisorMigrationResults[0].getDetails()));
-        }
-        for (Answer answer : hypervisorMigrationResults) {
-            logger.debug("Received an {}: {}", answer.getClass().getSimpleName(), answer);
-            if (answer instanceof MigrateVmToPoolAnswer) {
-                relevantAnswer = (MigrateVmToPoolAnswer) answer;
-            }
-        }
-        if (relevantAnswer == null) {
-            throw new CloudRuntimeException("No relevant migration results found");
-        }
-        List<VolumeObjectTO> results = relevantAnswer.getVolumeTos();
-        if (results == null) {
-            results = new ArrayList<>();
-        }
-        List<VolumeVO> volumes = _volsDao.findUsableVolumesForInstance(vm.getId());
-        logger.debug("Found {} volumes for VM {}(uuid:{}, id:{})", results.size(), vm.getInstanceName(), vm.getUuid(), vm.getId());
-        for (VolumeObjectTO result : results ) {
-            logger.debug("Updating volume ({}) with path '{}' on pool '{}'", result.getUuid(), result.getPath(), result.getDataStoreUuid());
-            VolumeVO volume = _volsDao.findById(result.getId());
-            StoragePool pool = _storagePoolDao.findPoolByUUID(result.getDataStoreUuid());
-            if (volume == null || pool == null) {
-                continue;
-            }
-            volume.setPath(result.getPath());
-            volume.setPoolId(pool.getId());
-            volume.setPoolType(pool.getPoolType());
-            if (result.getChainInfo() != null) {
-                volume.setChainInfo(result.getChainInfo());
-            }
-            _volsDao.update(volume.getId(), volume);
-        }
-    }
-
-    private void migrateThroughHypervisorOrStorage(VMInstanceVO vm, Map<Volume, StoragePool> volumeToPool) throws StorageUnavailableException, InsufficientCapacityException {
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-        Pair<Long, Long> vmClusterAndHost = findClusterAndHostIdForVm(vm);
-        final Long sourceClusterId = vmClusterAndHost.first();
-        final Long sourceHostId = vmClusterAndHost.second();
-        Answer[] hypervisorMigrationResults = attemptHypervisorMigration(vm, volumeToPool, sourceHostId);
-        boolean migrationResult = false;
-        if (hypervisorMigrationResults == null) {
-            migrationResult = volumeMgr.storageMigration(profile, volumeToPool);
-            if (migrationResult) {
-                postStorageMigrationCleanup(vm, volumeToPool, _hostDao.findById(sourceHostId), sourceClusterId);
-            } else {
-                logger.debug("Storage migration failed");
-            }
-        } else {
-            afterHypervisorMigrationCleanup(vm, volumeToPool, sourceClusterId, hypervisorMigrationResults);
-        }
-    }
-
-    private Map<Volume, StoragePool> prepareVmStorageMigration(VMInstanceVO vm, Map<Long, Long> volumeToPool) {
-        Map<Volume, StoragePool> volumeToPoolMap = new HashMap<>();
-        if (MapUtils.isEmpty(volumeToPool)) {
-            throw new CloudRuntimeException(String.format("Unable to migrate %s: missing volume to pool mapping.", vm.toString()));
-        }
-        Cluster cluster = null;
-        Long dataCenterId = null;
-        for (Map.Entry<Long, Long> entry: volumeToPool.entrySet()) {
-            StoragePool pool = _storagePoolDao.findById(entry.getValue());
-            if (pool.getClusterId() != null) {
-                cluster = _clusterDao.findById(pool.getClusterId());
-                break;
-            }
-            dataCenterId = pool.getDataCenterId();
-        }
-        Long podId = null;
-        Long clusterId = null;
-        if (cluster != null) {
-            dataCenterId = cluster.getDataCenterId();
-            podId = cluster.getPodId();
-            clusterId = cluster.getId();
-        }
-        if (dataCenterId == null) {
-            String msg = "Unable to migrate Instance: failed to create deployment destination with given volume to pool map";
-            logger.debug(msg);
-            throw new CloudRuntimeException(msg);
-        }
-        final DataCenterDeployment destination = new DataCenterDeployment(dataCenterId, podId, clusterId, null, null, null);
-        // Create a map of which volume should go in which storage pool.
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-        volumeToPoolMap = createMappingVolumeAndStoragePool(profile, destination, volumeToPool);
-        try {
-            stateTransitTo(vm, Event.StorageMigrationRequested, null);
-        } catch (final NoTransitionException e) {
-            String msg = String.format("Unable to migrate Instance: %s", vm.getUuid());
-            logger.warn(msg, e);
-            throw new CloudRuntimeException(msg, e);
-        }
-        return volumeToPoolMap;
-    }
-
-    private void checkDestinationForTags(StoragePool destPool, VMInstanceVO vm) {
-        List<VolumeVO> vols = _volsDao.findUsableVolumesForInstance(vm.getId());
-
-        List<String> storageTags = storageMgr.getStoragePoolTagList(destPool.getId());
-        for(Volume vol : vols) {
-            DiskOfferingVO diskOffering = _diskOfferingDao.findById(vol.getDiskOfferingId());
-            List<String> volumeTags = StringUtils.csvTagsToList(diskOffering.getTags());
-            if(! matches(volumeTags, storageTags)) {
-                String msg = String.format("destination pool '%s' with tags '%s', does not support the volume diskoffering for volume '%s' (tags: '%s') ",
-                        destPool.getName(),
-                        StringUtils.listToCsvTags(storageTags),
-                        vol.getName(),
-                        StringUtils.listToCsvTags(volumeTags)
-                );
-                throw new CloudRuntimeException(msg);
-            }
-        }
-    }
-
-    static boolean matches(List<String> volumeTags, List<String> storagePoolTags) {
-        boolean result = true;
-        if (volumeTags != null) {
-            for (String tag : volumeTags) {
-                if (storagePoolTags == null || !storagePoolTags.contains(tag)) {
-                    result = false;
-                    break;
-                }
-            }
-        }
-        return result;
-    }
-
-    private void postStorageMigrationCleanup(VMInstanceVO vm, Map<Volume, StoragePool> volumeToPool, HostVO srcHost, Long srcClusterId) throws InsufficientCapacityException {
-        StoragePool rootVolumePool = null;
-        if (MapUtils.isNotEmpty(volumeToPool)) {
-            for (Map.Entry<Volume, StoragePool> entry : volumeToPool.entrySet()) {
-                if (Type.ROOT.equals(entry.getKey().getVolumeType())) {
-                    rootVolumePool = entry.getValue();
-                    break;
-                }
-            }
-        }
-        setDestinationPoolAndReallocateNetwork(rootVolumePool, vm);
-
-        vm.setLastHostId(null);
-        if (rootVolumePool != null) {
-            vm.setPodIdToDeployIn(rootVolumePool.getPodId());
-        }
-
-        if (vm.getHypervisorType().equals(HypervisorType.VMware)) {
-            afterStorageMigrationVmwareVMCleanup(rootVolumePool, vm, srcHost, srcClusterId);
-        }
-    }
-
-    private void setDestinationPoolAndReallocateNetwork(StoragePool destPool, VMInstanceVO vm) throws InsufficientCapacityException {
-        if (destPool != null && destPool.getPodId() != null && !destPool.getPodId().equals(vm.getPodIdToDeployIn())) {
-            logger.debug("as the pod for vm {} has changed we are reallocating its network", vm.getInstanceName());
-            final DataCenterDeployment plan = new DataCenterDeployment(vm.getDataCenterId(), destPool.getPodId(), null, null, null, null);
-            final VirtualMachineProfileImpl vmProfile = new VirtualMachineProfileImpl(vm, null, null, null, null);
-            _networkMgr.reallocate(vmProfile, plan);
-        }
-    }
-
-    private void afterStorageMigrationVmwareVMCleanup(StoragePool destPool, VMInstanceVO vm, HostVO srcHost, Long srcClusterId) {
-        final Long destClusterId = destPool.getClusterId();
-        if (srcClusterId != null && destClusterId != null && ! srcClusterId.equals(destClusterId) && srcHost != null) {
-            final String srcDcName = _clusterDetailsDao.getVmwareDcName(srcClusterId);
-            final String destDcName = _clusterDetailsDao.getVmwareDcName(destClusterId);
-            if (srcDcName != null && destDcName != null && !srcDcName.equals(destDcName)) {
-                removeStaleVmFromSource(vm, srcHost);
-            }
-        }
-    }
-
-    private void removeStaleVmFromSource(VMInstanceVO vm, HostVO srcHost) {
-        logger.debug("Since VM's storage was successfully migrated across VMware Datacenters, unregistering VM: {} from source host: {}",
-                vm, srcHost);
-        final UnregisterVMCommand uvc = new UnregisterVMCommand(vm.getInstanceName());
-        uvc.setCleanupVmFiles(true);
-        try {
-            _agentMgr.send(srcHost.getId(), uvc);
-        } catch (AgentUnavailableException | OperationTimedoutException e) {
-            throw new CloudRuntimeException(String.format(
-                    "Failed to unregister VM: %s from source host: %s after successfully migrating VM's storage across VMware Datacenters",
-                    vm, srcHost), e);
-        }
+        vmOfflineStorageMigrationServiceImpl.markVolumesInPool(vm, hypervisorMigrationResults);
     }
 
     @Override

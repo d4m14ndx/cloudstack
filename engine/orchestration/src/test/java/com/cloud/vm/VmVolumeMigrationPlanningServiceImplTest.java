@@ -276,6 +276,36 @@ public class VmVolumeMigrationPlanningServiceImplTest {
         assertTrue(result.containsKey(vol));
     }
 
+    @Test
+    public void createMappingVolumeAndStoragePool_planWithoutHostMapsUserDefinedVolumesWithoutHostAccessCheck() {
+        long volumeId = 77L;
+        long poolId = 88L;
+        long vmId = 99L;
+        VolumeVO vol = mock(VolumeVO.class);
+        StoragePoolVO targetPool = mock(StoragePoolVO.class);
+        StoragePoolVO currentPool = mock(StoragePoolVO.class);
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, 3L, null, null, null);
+
+        when(profileMock.getId()).thenReturn(vmId);
+        when(vol.getPoolId()).thenReturn(currentPoolId);
+        when(targetPool.getId()).thenReturn(poolId);
+        when(currentPool.getId()).thenReturn(currentPoolId);
+        when(currentPool.isManaged()).thenReturn(false);
+        when(volumeDao.findById(volumeId)).thenReturn(vol);
+        when(volumeDao.findUsableVolumesForInstance(vmId)).thenReturn(List.of(vol));
+        when(storagePoolDao.findById(poolId)).thenReturn(targetPool);
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPool);
+
+        Map<Long, Long> userMap = new HashMap<>();
+        userMap.put(volumeId, poolId);
+
+        Map<Volume, StoragePool> result = service.createMappingVolumeAndStoragePool(profileMock, plan, userMap);
+
+        assertEquals(1, result.size());
+        assertEquals(targetPool, result.get(vol));
+        verify(poolHostDao, never()).findByPoolHost(anyLong(), anyLong());
+    }
+
     // -------------------------------------------------------------------------
     // getCandidateStoragePoolsToMigrateLocalVolume (2 cases)
     // -------------------------------------------------------------------------
