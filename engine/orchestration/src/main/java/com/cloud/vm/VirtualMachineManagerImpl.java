@@ -22,9 +22,6 @@ import static com.cloud.configuration.ConfigurationManagerImpl.MIGRATE_VM_ACROSS
 
 import java.lang.reflect.Field;
 import java.net.URI;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -39,7 +36,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
-import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -99,7 +95,6 @@ import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
-import org.apache.cloudstack.utils.cache.SingleCache;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;
 import org.apache.cloudstack.vm.UnmanagedVMsManager;
@@ -277,7 +272,6 @@ import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackWithException;
 import com.cloud.utils.db.TransactionCallbackWithExceptionNoReturn;
-import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.exception.ExecutionException;
@@ -296,7 +290,7 @@ import com.cloud.vm.snapshot.VMSnapshotVO;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 import com.google.gson.Gson;
 
-public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMachineManager, VmWorkJobHandler, Listener, Configurable {
+public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMachineManager, VmWorkJobHandler, Listener, Configurable, VmStateMachineActions {
 
     public static final String VM_WORK_JOB_HANDLER = VirtualMachineManagerImpl.class.getSimpleName();
 
@@ -435,8 +429,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     BackupDao backupDao;
 
-    private SingleCache<List<Long>> vmIdsInProgressCache;
-
     @Inject
     private SnapshotDataStoreDao snapshotDataStoreDao;
 
@@ -459,6 +451,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmExternalProvisioningManager vmExternalProvisioningManager;
     @Inject
     protected VmVolumeMigrationPlanningService vmVolumeMigrationPlanningService;
+    @Inject
+    protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -503,8 +497,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     static final ConfigKey<Long> SystemVmRootDiskSize = new ConfigKey<Long>("Advanced",
             Long.class, "systemvm.root.disk.size", "-1",
             "Size of root volume (in GB) of system VMs and virtual routers", true);
-
-    private boolean syncTransitioningVmPowerState;
 
     ScheduledExecutorService _executor = null;
 
@@ -643,7 +635,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         allocate(vmInstanceName, template, serviceOffering, new DiskOfferingInfo(diskOffering), new ArrayList<>(), new ArrayList<>(), networks, plan, hyperType, null, null, volume, snapshot);
     }
 
-    VirtualMachineGuru getVmGuru(final VirtualMachine vm) {
+    @Override
+    public VirtualMachineGuru getVmGuru(final VirtualMachine vm) {
         if(vm != null) {
             return _vmGurus.get(vm.getType());
         }
@@ -833,7 +826,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public boolean start() {
-        vmIdsInProgressCache = new SingleCache<>(10, vmWorkJobDao::listVmIdsWithPendingJob);
         _executor.scheduleAtFixedRate(new CleanupTask(), 5, VmJobStateReportInterval.value(), TimeUnit.SECONDS);
         _executor.scheduleAtFixedRate(new TransitionTask(),  VmOpCleanupInterval.value(), VmOpCleanupInterval.value(), TimeUnit.SECONDS);
         cancelWorkItems(_nodeId);
@@ -860,8 +852,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         _agentMgr.registerForHostEvents(this, true, true, true);
 
         _messageBus.subscribe(VirtualMachineManager.Topics.VM_POWER_STATE, MessageDispatcher.getDispatcher(this));
-
-        syncTransitioningVmPowerState = Boolean.TRUE.equals(VmSyncPowerStateTransitioning.value());
 
         return true;
     }
@@ -2021,7 +2011,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return volumesToDisconnect;
     }
 
-    protected boolean sendStop(final VirtualMachineGuru guru, final VirtualMachineProfile profile, final boolean force, final boolean checkBeforeCleanup) {
+    @Override
+    public boolean sendStop(final VirtualMachineGuru guru, final VirtualMachineProfile profile, final boolean force, final boolean checkBeforeCleanup) {
         final VirtualMachine vm = profile.getVirtualMachine();
         Map<String, Boolean> vlanToPersistenceMap = getVlanToPersistenceMapForVM(vm.getId());
         StopCommand stpCmd = new StopCommand(vm, getExecuteInSequence(vm.getHypervisorType()), checkBeforeCleanup);
@@ -2143,7 +2134,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return true;
     }
 
-    protected void releaseVmResources(final VirtualMachineProfile profile, final boolean forced) {
+    @Override
+    public void releaseVmResources(final VirtualMachineProfile profile, final boolean forced) {
         final VirtualMachine vm = profile.getVirtualMachine();
         final State state = vm.getState();
         try {
@@ -4135,7 +4127,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                 if (ping.getHostVmStateReport() != null) {
                     _syncMgr.processHostVmStatePingReport(agentId, ping.getHostVmStateReport(), ping.getOutOfBand());
                 }
-                scanStalledVMInTransitionStateOnUpHost(agentId);
+                vmPowerStateSyncManager.scanStalledVMInTransitionStateOnUpHost(agentId);
                 processed = true;
             }
         }
@@ -4206,7 +4198,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                 return;
             }
             try {
-                scanStalledVMInTransitionStateOnDisconnectedHosts();
+                vmPowerStateSyncManager.scanStalledVMInTransitionStateOnDisconnectedHosts();
 
                 final List<VMInstanceVO> instances = _vmDao.findVMInTransition(new Date(DateUtil.currentGMTTime().getTime() - AgentManager.Wait.value() * 1000), State.Starting, State.Stopping);
                 for (final VMInstanceVO instance : instances) {
@@ -5063,297 +5055,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @MessageHandler(topic = Topics.VM_POWER_STATE)
     protected void HandlePowerStateReport(final String subject, final String senderAddress, final Object args) {
         assert args != null;
-        final Long vmId = (Long)args;
-
-        final List<VmWorkJobVO> pendingWorkJobs = _workJobDao.listPendingWorkJobs(
-                VirtualMachine.Type.Instance, vmId);
-        if (CollectionUtils.isEmpty(pendingWorkJobs) && !_haMgr.hasPendingHaWork(vmId)) {
-            final VMInstanceVO vm = _vmDao.findById(vmId);
-            if (vm != null) {
-                switch (vm.getPowerState()) {
-                case PowerOn:
-                    handlePowerOnReportWithNoPendingJobsOnVM(vm);
-                    break;
-
-                case PowerOff:
-                case PowerReportMissing:
-                    handlePowerOffReportWithNoPendingJobsOnVM(vm);
-                    break;
-                case PowerUnknown:
-                default:
-                    assert false;
-                    break;
-                }
-            } else {
-                logger.warn("VM {} no longer exists when processing VM state report.", vmId);
-            }
-        } else {
-            logger.info("There is pending job or HA tasks working on the VM. vm: {}, postpone power-change report by resetting power-change counters.", () -> _vmDao.findById(vmId));
-            _vmDao.resetVmPowerStateTracking(vmId);
-        }
-    }
-
-    private ApiCommandResourceType getApiCommandResourceTypeForVm(VirtualMachine vm) {
-        switch (vm.getType()) {
-            case DomainRouter:
-                return ApiCommandResourceType.DomainRouter;
-            case ConsoleProxy:
-                return ApiCommandResourceType.ConsoleProxy;
-            case SecondaryStorageVm:
-                return ApiCommandResourceType.SystemVm;
-        }
-        return ApiCommandResourceType.VirtualMachine;
-    }
-
-    private void handlePowerOnReportWithNoPendingJobsOnVM(final VMInstanceVO vm) {
-        Host host = _hostDao.findById(vm.getHostId());
-        Host poweredHost = _hostDao.findById(vm.getPowerHostId());
-
-        switch (vm.getState()) {
-        case Starting:
-            logger.info("VM {} is at {} and we received a power-on report while there is no pending jobs on it.", vm.getInstanceName(), vm.getState());
-
-            try {
-                stateTransitTo(vm, VirtualMachine.Event.FollowAgentPowerOnReport, vm.getPowerHostId());
-            } catch (final NoTransitionException e) {
-                logger.warn("Unexpected VM state transition exception, race-condition?", e);
-            }
-
-            logger.info("VM {} is sync-ed to at Running state according to power-on report from hypervisor.", vm.getInstanceName());
-
-            _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_SYNC, vm.getDataCenterId(), vm.getPodIdToDeployIn(),
-                    VM_SYNC_ALERT_SUBJECT, "VM " + vm.getHostName() + "(" + vm.getInstanceName()
-                    + ") state is sync-ed (Starting -> Running) from out-of-context transition. VM network environment may need to be reset");
-            break;
-
-        case Running:
-            try {
-                if (vm.getHostId() != null && !vm.getHostId().equals(vm.getPowerHostId())) {
-                    logger.info("Detected out of band VM migration from host {} to host {}", () -> _hostDao.findById(vm.getHostId()), () -> _hostDao.findById(vm.getPowerHostId()));
-                }
-                stateTransitTo(vm, VirtualMachine.Event.FollowAgentPowerOnReport, vm.getPowerHostId());
-            } catch (final NoTransitionException e) {
-                logger.warn("Unexpected VM state transition exception, race-condition?", e);
-            }
-
-            break;
-
-        case Stopping:
-        case Stopped:
-            logger.info("VM {} is at {} and we received a power-on report while there is no pending jobs on it.", vm.getInstanceName(), vm.getState());
-
-            try {
-                stateTransitTo(vm, VirtualMachine.Event.FollowAgentPowerOnReport, vm.getPowerHostId());
-            } catch (final NoTransitionException e) {
-                logger.warn("Unexpected VM state transition exception, race-condition?", e);
-            }
-            _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_SYNC, vm.getDataCenterId(), vm.getPodIdToDeployIn(),
-                    VM_SYNC_ALERT_SUBJECT, "VM " + vm.getHostName() + "(" + vm.getInstanceName() + ") state is sync-ed (" + vm.getState()
-                    + " -> Running) from out-of-context transition. VM network environment may need to be reset");
-
-            ActionEventUtils.onActionEvent(User.UID_SYSTEM, Account.ACCOUNT_ID_SYSTEM, vm.getDomainId(),
-                EventTypes.EVENT_VM_START, "Out of band VM power on", vm.getId(), getApiCommandResourceTypeForVm(vm).toString());
-            logger.info("VM {} is sync-ed to at Running state according to power-on report from hypervisor.", vm.getInstanceName());
-            break;
-
-        case Destroyed:
-        case Expunging:
-            logger.info("Receive power on report when Instance is in destroyed or expunging state. Instance: {}, state: {}.", vm, vm.getState());
-            break;
-
-        case Migrating:
-            logger.info("Instance {} is at {} and we received a power-on report while there is no pending jobs on it.", vm, vm.getState());
-            try {
-                stateTransitTo(vm, VirtualMachine.Event.FollowAgentPowerOnReport, vm.getPowerHostId());
-            } catch (final NoTransitionException e) {
-                logger.warn("Unexpected Instance state transition exception, race-condition?", e);
-            }
-            logger.info("Instance {} is sync-ed to at Running state according to power-on report from hypervisor.", vm);
-            break;
-
-        case Error:
-        default:
-            logger.info("Receive power on report when Instance is in error or unexpected state. Instance: {}, state: {}.", vm, vm.getState());
-            break;
-        }
-    }
-
-    private void handlePowerOffReportWithNoPendingJobsOnVM(final VMInstanceVO vm) {
-        switch (vm.getState()) {
-        case Starting:
-        case Stopping:
-        case Running:
-        case Stopped:
-            ActionEventUtils.onActionEvent(User.UID_SYSTEM, Account.ACCOUNT_ID_SYSTEM,vm.getDomainId(),
-                    EventTypes.EVENT_VM_STOP, "Out of band VM power off", vm.getId(), getApiCommandResourceTypeForVm(vm).toString());
-        case Migrating:
-            logger.info("VM {} is at {} and we received a {} report while there is no pending jobs on it"
-                            , vm, vm.getState(), vm.getPowerState());
-            if((HighAvailabilityManager.ForceHA.value() || vm.isHaEnabled()) && vm.getState() == State.Running
-                    && HaVmRestartHostUp.value()
-                    && vm.getHypervisorType() != HypervisorType.VMware
-                    && vm.getHypervisorType() != HypervisorType.Hyperv) {
-                logger.info("Detected out-of-band stop of a HA enabled VM {}, will schedule restart.", vm);
-                if (!_haMgr.hasPendingHaWork(vm.getId())) {
-                    _haMgr.scheduleRestart(vm, true);
-                } else {
-                    logger.info("VM {} already has a pending HA task working on it.", vm);
-                }
-                return;
-            }
-
-            if (PowerState.PowerOff.equals(vm.getPowerState())) {
-                final VirtualMachineGuru vmGuru = getVmGuru(vm);
-                final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-                if (!sendStop(vmGuru, profile, true, true)) {
-                    return;
-                } else {
-                    // Release resources on StopCommand success
-                    releaseVmResources(profile, true);
-                }
-            } else if (PowerState.PowerReportMissing.equals(vm.getPowerState())) {
-                final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-                // VM will be sync-ed to Stopped state, release the resources
-                releaseVmResources(profile, true);
-            }
-
-            try {
-                stateTransitTo(vm, VirtualMachine.Event.FollowAgentPowerOffReport, null);
-            } catch (final NoTransitionException e) {
-                logger.warn("Unexpected VM state transition exception, race-condition?", e);
-            }
-
-            _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_SYNC, vm.getDataCenterId(), vm.getPodIdToDeployIn(),
-                    VM_SYNC_ALERT_SUBJECT, String.format("VM %s(%s) state is sync-ed (%s -> Stopped) from out-of-context transition.",
-                            vm.getHostName(), vm, vm.getState()));
-
-            logger.info("VM {} is sync-ed to at Stopped state according to power-off report from hypervisor.", vm);
-
-            break;
-
-        case Destroyed:
-        case Expunging:
-            break;
-
-        case Error:
-        default:
-            break;
-        }
-    }
-
-    /**
-     * Scans stalled VMs in transition states on an UP host and processes them accordingly.
-     *
-     * <p>This method is executed only when the {@code syncTransitioningVmPowerState} flag is enabled. It identifies
-     * VMs stuck in specific states (e.g., Starting, Stopping, Migrating) on a host that is UP, except for those
-     * in the Expunging state, which require special handling.</p>
-     *
-     * <p>The following conditions are checked during the scan:
-     * <ul>
-     *     <li>No pending {@code VmWork} job exists for the VM.</li>
-     *     <li>The VM is associated with the given {@code hostId}, and the host is UP.</li>
-     * </ul>
-     * </p>
-     *
-     * <p>When a host is UP, a state report for the VMs will typically be received. However, certain scenarios
-     * (e.g., out-of-band changes or behavior specific to hypervisors like XenServer or KVM) might result in
-     * missing reports, preventing the state-sync logic from running. To address this, the method scans VMs
-     * based on their last update timestamp. If a VM remains stalled without a status update while its host is UP,
-     * it is assumed to be powered off, which is generally a safe assumption.</p>
-     *
-     * @param hostId the ID of the host to scan for stalled VMs in transition states.
-     */
-    private void scanStalledVMInTransitionStateOnUpHost(final long hostId) {
-        if (!syncTransitioningVmPowerState) {
-            return;
-        }
-        if (!_hostDao.isHostUp(hostId)) {
-            return;
-        }
-        final long stallThresholdInMs = VmJobStateReportInterval.value() * 2;
-        final long cutTime = new Date(DateUtil.currentGMTTime().getTime() - stallThresholdInMs).getTime();
-        final List<VMInstanceVO> hostTransitionVms = _vmDao.listByHostAndState(hostId, State.Starting, State.Stopping, State.Migrating);
-
-        final List<VMInstanceVO> mostLikelyStoppedVMs = listStalledVMInTransitionStateOnUpHost(hostTransitionVms, cutTime);
-        for (final VMInstanceVO vm : mostLikelyStoppedVMs) {
-            handlePowerOffReportWithNoPendingJobsOnVM(vm);
-        }
-
-        final List<VMInstanceVO> vmsWithRecentReport = listVMInTransitionStateWithRecentReportOnUpHost(hostTransitionVms, cutTime);
-        for (final VMInstanceVO vm : vmsWithRecentReport) {
-            if (vm.getPowerState() == PowerState.PowerOn) {
-                handlePowerOnReportWithNoPendingJobsOnVM(vm);
-            } else {
-                handlePowerOffReportWithNoPendingJobsOnVM(vm);
-            }
-        }
-    }
-
-
-    private void scanStalledVMInTransitionStateOnDisconnectedHosts() {
-        final Date cutTime = new Date(DateUtil.currentGMTTime().getTime() - VmOpWaitInterval.value() * 1000);
-        final List<Long> stuckAndUncontrollableVMs = listStalledVMInTransitionStateOnDisconnectedHosts(cutTime);
-        for (final Long vmId : stuckAndUncontrollableVMs) {
-            final VMInstanceVO vm = _vmDao.findById(vmId);
-
-            _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_SYNC, vm.getDataCenterId(), vm.getPodIdToDeployIn(),
-                    VM_SYNC_ALERT_SUBJECT, String.format("VM %s(%s) is stuck in %s state and its host is unreachable for too long",
-                            vm.getHostName(), vm, vm.getState()));
-        }
-    }
-
-    private List<VMInstanceVO> listStalledVMInTransitionStateOnUpHost(
-            final List<VMInstanceVO> transitioningVms, final long cutTime) {
-        if (CollectionUtils.isEmpty(transitioningVms)) {
-            return transitioningVms;
-        }
-        List<Long> vmIdsInProgress = vmIdsInProgressCache.get();
-        return transitioningVms.stream()
-                .filter(v -> v.getPowerStateUpdateTime().getTime() < cutTime && !vmIdsInProgress.contains(v.getId()))
-                .collect(Collectors.toList());
-    }
-
-    private List<VMInstanceVO> listVMInTransitionStateWithRecentReportOnUpHost(
-            final List<VMInstanceVO> transitioningVms, final long cutTime) {
-        if (CollectionUtils.isEmpty(transitioningVms)) {
-            return transitioningVms;
-        }
-        List<Long> vmIdsInProgress = vmIdsInProgressCache.get();
-        return transitioningVms.stream()
-                .filter(v -> v.getPowerStateUpdateTime().getTime() > cutTime && !vmIdsInProgress.contains(v.getId()))
-                .collect(Collectors.toList());
-    }
-
-    private List<Long> listStalledVMInTransitionStateOnDisconnectedHosts(final Date cutTime) {
-        final String sql = "SELECT i.* " +
-                "FROM vm_instance AS i " +
-                "INNER JOIN host AS h ON i.host_id = h.id " +
-                "WHERE h.status != 'UP' " +
-                "  AND i.power_state_update_time < ? " +
-                "  AND i.state IN ('Starting', 'Stopping', 'Migrating') " +
-                "  AND i.id NOT IN (SELECT vm_instance_id FROM vm_work_job AS w " +
-                "                    INNER JOIN async_job AS j ON w.id = j.id " +
-                "                    WHERE j.job_status = ?) " +
-                "  AND i.removed IS NULL";
-
-        final List<Long> l = new ArrayList<>();
-        TransactionLegacy txn = TransactionLegacy.currentTxn();
-        String cutTimeStr = DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), cutTime);
-        int jobStatusInProgress = JobInfo.Status.IN_PROGRESS.ordinal();
-
-        try {
-            PreparedStatement pstmt = txn.prepareAutoCloseStatement(sql);
-
-            pstmt.setString(1, cutTimeStr);
-            pstmt.setInt(2, jobStatusInProgress);
-            final ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                l.add(rs.getLong(1));
-            }
-        } catch (final SQLException e) {
-            logger.error("Unable to execute SQL [{}] with params {\"i.power_state_update_time\": \"{}\", \"j.job_status\": {}} due to [{}].", sql, cutTimeStr, jobStatusInProgress, e.getMessage(), e);
-        }
-        return l;
+        vmPowerStateSyncManager.handlePowerStateReport((Long) args);
     }
 
     public class VmStateSyncOutcome extends OutcomeImpl<VirtualMachine> {
