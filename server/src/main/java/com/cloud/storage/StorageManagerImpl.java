@@ -118,9 +118,6 @@ import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreObjectDownloadDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreObjectDownloadVO;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreDao;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreDetailsDao;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreVO;
@@ -133,7 +130,6 @@ import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreVO;
 import org.apache.cloudstack.storage.image.datastore.ImageStoreEntity;
 import org.apache.cloudstack.storage.object.ObjectStore;
-import org.apache.cloudstack.storage.object.ObjectStoreEntity;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.time.DateUtils;
@@ -206,7 +202,6 @@ import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.Volume.Type;
-import com.cloud.storage.dao.BucketDao;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
@@ -389,13 +384,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @Inject
     protected DatastoreClusterService datastoreClusterService;
     @Inject
-    protected ObjectStoreDao _objectStoreDao;
-
-    @Inject
-    protected ObjectStoreDetailsDao _objectStoreDetailsDao;
-
-    @Inject
-    protected BucketDao _bucketDao;
+    protected ObjectStoreService objectStoreService;
     @Inject
     ConfigDepot configDepot;
     @Inject
@@ -3236,132 +3225,23 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @ActionEvent(eventType = EventTypes.EVENT_OBJECT_STORE_CREATE, eventDescription = "creating object storage")
     public ObjectStore discoverObjectStore(String name, String url, Long size, String providerName, Map details)
             throws IllegalArgumentException, InvalidParameterValueException {
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(providerName);
-
-        if (storeProvider == null) {
-            throw new InvalidParameterValueException("can't find object store provider: " + providerName);
-        }
-
-        // Check Unique object store name
-        ObjectStoreVO objectStore = _objectStoreDao.findByName(name);
-        if (objectStore != null) {
-            throw new InvalidParameterValueException("The object store with name " + name + " already exists, try creating with another name");
-        }
-
-        try {
-            UriUtils.validateUrl(url);
-        } catch (InvalidParameterValueException e) {
-            throw new InvalidParameterValueException(url + " is not a valid URL:" + e.getMessage());
-        }
-
-        // Check Unique object store url
-        ObjectStoreVO objectStoreUrl = _objectStoreDao.findByUrl(url);
-        if (objectStoreUrl != null) {
-            throw new InvalidParameterValueException("The object store with url " + url + " already exists");
-        }
-
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("url", url);
-        params.put("name", name);
-        if (size == null) {
-            params.put("size", 0L);
-        } else {
-            params.put("size", size);
-        }
-        params.put("providerName", storeProvider.getName());
-        params.put("role", DataStoreRole.Object);
-        params.put("details", details);
-
-        DataStoreLifeCycle lifeCycle = storeProvider.getDataStoreLifeCycle();
-
-        DataStore store;
-        try {
-            store = lifeCycle.initialize(params);
-        } catch (Exception e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Failed to add object store: " + e.getMessage(), e);
-            }
-            throw new CloudRuntimeException("Failed to add object store: " + e.getMessage(), e);
-        }
-
-        return (ObjectStore)_dataStoreMgr.getDataStore(store.getId(), DataStoreRole.Object);
+        return objectStoreService.discoverObjectStore(name, url, size, providerName, details);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_OBJECT_STORE_DELETE, eventDescription = "deleting object storage")
     public boolean deleteObjectStore(DeleteObjectStoragePoolCmd cmd) {
-        final long storeId = cmd.getId();
-        // Verify that object store exists
-        ObjectStoreVO store = _objectStoreDao.findById(storeId);
-        if (store == null) {
-            throw new InvalidParameterValueException("Object store with id " + storeId + " doesn't exist");
-        }
-
-        // Verify that there are no buckets in the store
-        List<BucketVO> buckets = _bucketDao.listByObjectStoreId(storeId);
-        if(buckets != null && buckets.size() > 0) {
-            throw new InvalidParameterValueException("Cannot delete object store with buckets");
-        }
-
-        // ready to delete
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                _objectStoreDetailsDao.deleteDetails(storeId);
-                _objectStoreDao.remove(storeId);
-            }
-        });
-        logger.debug("Successfully deleted object store: {}", store);
-        return true;
+        return objectStoreService.deleteObjectStore(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_OBJECT_STORE_UPDATE, eventDescription = "update object storage")
     public ObjectStore updateObjectStore(Long id, UpdateObjectStoragePoolCmd cmd) {
-
-        // Input validation
-        ObjectStoreVO objectStoreVO = _objectStoreDao.findById(id);
-        if (objectStoreVO == null) {
-            throw new IllegalArgumentException("Unable to find object store with ID: " + id);
-        }
-
-        if(cmd.getUrl() != null ) {
-            String url = cmd.getUrl();
-            try {
-                // Check URL
-                UriUtils.validateUrl(url);
-            } catch (final Exception e) {
-                throw new InvalidParameterValueException(url + " is not a valid URL");
-            }
-            ObjectStoreEntity objectStore = (ObjectStoreEntity)_dataStoreMgr.getDataStore(objectStoreVO.getId(), DataStoreRole.Object);
-            String oldUrl = objectStoreVO.getUrl();
-            objectStoreVO.setUrl(url);
-            _objectStoreDao.update(id, objectStoreVO);
-            //Update URL and check access
-            try {
-                objectStore.listBuckets();
-            } catch (Exception e) {
-                //Revert to old URL on failure
-                objectStoreVO.setUrl(oldUrl);
-                _objectStoreDao.update(id, objectStoreVO);
-                throw new IllegalArgumentException("Unable to access Object Storage with URL: " + cmd.getUrl());
-            }
-        }
-
-        if(cmd.getName() != null ) {
-            objectStoreVO.setName(cmd.getName());
-        }
-        if (cmd.getSize() != null) {
-            objectStoreVO.setTotalSize(cmd.getSize() * ResourceType.bytesToGiB);
-        }
-        _objectStoreDao.update(id, objectStoreVO);
-        logger.debug("Successfully updated object store: {}", objectStoreVO);
-        return objectStoreVO;
+        return objectStoreService.updateObjectStore(id, cmd);
     }
 
     @Override
     public CapacityVO getObjectStorageUsedStats(Long zoneId) {
-        return storageCapacityService.getObjectStorageUsedStats(zoneId);
+        return objectStoreService.getObjectStorageUsedStats(zoneId);
     }
 }
