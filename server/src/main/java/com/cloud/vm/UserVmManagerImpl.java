@@ -108,9 +108,7 @@ import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService.VolumeApiResult;
 import org.apache.cloudstack.extension.ExtensionHelper;
-import org.apache.cloudstack.framework.async.AsyncCallFuture;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
@@ -125,7 +123,6 @@ import org.apache.cloudstack.snapshot.SnapshotHelper;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.bytescale.ByteScaleUtils;
@@ -197,7 +194,6 @@ import com.cloud.event.ActionEvent;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
-import com.cloud.event.UsageEventVO;
 import com.cloud.event.dao.UsageEventDao;
 import com.cloud.exception.AffinityConflictException;
 import com.cloud.exception.AgentUnavailableException;
@@ -277,7 +273,6 @@ import com.cloud.server.ResourceTag;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
-import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
@@ -292,7 +287,6 @@ import com.cloud.storage.Storage.TemplateType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.StoragePoolStatus;
-import com.cloud.storage.VMTemplateStorageResourceAssoc;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.VMTemplateZoneVO;
 import com.cloud.storage.Volume;
@@ -314,7 +308,6 @@ import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountService;
-import com.cloud.user.AccountVO;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
@@ -591,6 +584,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     protected VmRecoveryService vmRecoveryService;
     @Inject
     protected VmPasswordSSHKeyResetService vmPasswordSSHKeyResetService;
+    @Inject
+    protected VmRestoreService vmRestoreService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -6653,402 +6648,24 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     public UserVm restoreVMInternal(Account caller, UserVmVO vm, Long newTemplateId, Long rootDiskOfferingId, boolean expunge, Map<String, String> details) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
-        return _itMgr.restoreVirtualMachine(vm.getId(), newTemplateId, rootDiskOfferingId, expunge, details);
+        return vmRestoreService.restoreVMInternal(caller, vm, newTemplateId, rootDiskOfferingId, expunge, details);
     }
 
 
     @Override
     public UserVm restoreVMInternal(Account caller, UserVmVO vm) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
-        return restoreVMInternal(caller, vm, null, null, false, null);
-    }
-
-    private VMTemplateVO getRestoreVirtualMachineTemplate(Account caller, Long newTemplateId, List<VolumeVO> rootVols, UserVmVO vm) {
-        VMTemplateVO template = null;
-        if (CollectionUtils.isNotEmpty(rootVols)) {
-            VolumeVO root = rootVols.get(0);
-            Long templateId = root.getTemplateId();
-            boolean isISO = false;
-            if (templateId == null) {
-                // Assuming that for a vm deployed using ISO, template ID is set to NULL
-                isISO = true;
-                templateId = vm.getIsoId();
-            }
-            //newTemplateId can be either template or ISO id. In the following snippet based on the vm deployment (from template or ISO) it is handled accordingly
-            if (newTemplateId != null) {
-                template = _templateDao.findById(newTemplateId);
-                _accountMgr.checkAccess(caller, null, true, template);
-                if (isISO) {
-                    if (!template.getFormat().equals(ImageFormat.ISO)) {
-                        throw new InvalidParameterValueException("VM has been created using an ISO therefore it can not be re-installed with a template");
-                    }
-                } else {
-                    if (template.getFormat().equals(ImageFormat.ISO)) {
-                        throw new InvalidParameterValueException("Invalid template id provided to restore the VM ");
-                    }
-                }
-            } else {
-                if (isISO && templateId == null) {
-                    throw new CloudRuntimeException("Cannot restore the VM since there is no ISO attached to VM");
-                }
-                template = _templateDao.findById(templateId);
-                if (template == null) {
-                    InvalidParameterValueException ex = new InvalidParameterValueException("Cannot find template/ISO for specified volumeid and vmId");
-                    ex.addProxyObject(vm.getUuid(), "vmId");
-                    ex.addProxyObject(root.getUuid(), "volumeId");
-                    throw ex;
-                }
-            }
-        }
-
-        return template;
+        return vmRestoreService.restoreVMInternal(caller, vm);
     }
 
     @Override
     public UserVm restoreVirtualMachine(final Account caller, final long vmId, final Long newTemplateId,
             final Long rootDiskOfferingId,
             final boolean expunge, final Map<String, String> details) throws InsufficientCapacityException, ResourceUnavailableException {
-        Long userId = caller.getId();
-        _userDao.findById(userId);
-        UserVmVO vm = _vmDao.findById(vmId);
-        Account owner = _accountDao.findById(vm.getAccountId());
-        boolean needRestart = false;
-
-        // Input validation
-        if (owner == null) {
-            throw new InvalidParameterValueException("The owner of " + vm + " does not exist: " + vm.getAccountId());
-        }
-
-        if (owner.getState() == Account.State.DISABLED) {
-            throw new PermissionDeniedException(String.format("The owner of %s is disabled: %s", vm, owner));
-        }
-
-        if (vm.getState() != VirtualMachine.State.Running && vm.getState() != VirtualMachine.State.Stopped) {
-            throw new CloudRuntimeException("Vm " + vm.getUuid() + " currently in " + vm.getState() + " state, restore vm can only execute when VM in Running or Stopped");
-        }
-
-        if (vm.getState() == VirtualMachine.State.Running) {
-            needRestart = true;
-        }
-
-        VMTemplateVO currentTemplate = _templateDao.findById(vm.getTemplateId());
-        List<VolumeVO> rootVols = _volsDao.findByInstanceAndType(vmId, Volume.Type.ROOT);
-        if (rootVols.isEmpty()) {
-            InvalidParameterValueException ex = new InvalidParameterValueException("Can not find root volume for VM " + vm.getUuid());
-            ex.addProxyObject(vm.getUuid(), "vmId");
-            throw ex;
-        }
-        if (rootVols.size() > 1 && currentTemplate != null && !currentTemplate.isDeployAsIs()) {
-            InvalidParameterValueException ex = new InvalidParameterValueException("There are " + rootVols.size() + " root volumes for VM " + vm.getUuid());
-            ex.addProxyObject(vm.getUuid(), "vmId");
-            throw ex;
-        }
-
-        // If target VM has associated VM snapshots then don't allow restore of VM
-        List<VMSnapshotVO> vmSnapshots = _vmSnapshotDao.findByVm(vmId);
-        if (vmSnapshots.size() > 0) {
-            throw new InvalidParameterValueException("Unable to restore Instance, please remove Instance Snapshots before restoring Instance");
-        }
-
-        VMTemplateVO template = getRestoreVirtualMachineTemplate(caller, newTemplateId, rootVols, vm);
-        DiskOffering diskOffering = rootDiskOfferingId != null ? _diskOfferingDao.findById(rootDiskOfferingId) : null;
-
-        List<Reserver> reservations = new ArrayList<>();
-        try {
-        checkRestoreVmFromTemplate(vm, template, rootVols, diskOffering, details, reservations);
-
-        if (needRestart) {
-            try {
-                _itMgr.stop(vm.getUuid());
-            } catch (ResourceUnavailableException e) {
-                logger.debug("Stop vm {} failed", vm, e);
-                CloudRuntimeException ex = new CloudRuntimeException("Stop vm failed for specified vmId");
-                ex.addProxyObject(vm.getUuid(), "vmId");
-                throw ex;
-            }
-        }
-
-        for (VolumeVO root : rootVols) {
-            if ( !Volume.State.Allocated.equals(root.getState()) || newTemplateId != null || diskOffering != null) {
-                _volumeService.validateDestroyVolume(root, caller, Volume.State.Allocated.equals(root.getState()) || expunge, false);
-                final UserVmVO userVm = vm;
-                Pair<UserVmVO, Volume> vmAndNewVol = Transaction.execute(new TransactionCallbackWithException<Pair<UserVmVO, Volume>, CloudRuntimeException>() {
-                    @Override
-                    public Pair<UserVmVO, Volume> doInTransaction(final TransactionStatus status) throws CloudRuntimeException {
-                        Long templateId = root.getTemplateId();
-                        boolean isISO = false;
-                        if (templateId == null) {
-                            // Assuming that for a vm deployed using ISO, template ID is set to NULL
-                            isISO = true;
-                            templateId = userVm.getIsoId();
-                        }
-
-                        /* If new template/ISO is provided allocate a new volume from new template/ISO otherwise allocate new volume from original template/ISO */
-                        Volume newVol = null;
-                        if (newTemplateId != null) {
-                            if (isISO) {
-                                newVol = volumeMgr.allocateDuplicateVolume(root, diskOffering, null);
-                                userVm.setIsoId(newTemplateId);
-                                userVm.setGuestOSId(template.getGuestOSId());
-                                userVm.setTemplateId(newTemplateId);
-                            } else {
-                                newVol = volumeMgr.allocateDuplicateVolume(root, diskOffering, newTemplateId);
-                                userVm.setGuestOSId(template.getGuestOSId());
-                                userVm.setTemplateId(newTemplateId);
-                            }
-                            // check and update VM if it can be dynamically scalable with the new template
-                            updateVMDynamicallyScalabilityUsingTemplate(userVm, newTemplateId);
-                        } else {
-                            newVol = volumeMgr.allocateDuplicateVolume(root, diskOffering, null);
-                        }
-
-                        getRootVolumeSizeForVmRestore(newVol, template, userVm, diskOffering, details, true);
-                        volumeMgr.saveVolumeDetails(newVol.getDiskOfferingId(), newVol.getId());
-                        newVol = _volsDao.findById(newVol.getId());
-
-                        // 1. Save usage event and update resource count for user vm volumes
-                        try {
-                            _resourceLimitMgr.incrementVolumeResourceCount(userVm.getAccountId(), newVol.isDisplay(),
-                                    newVol.getSize(), diskOffering != null ? diskOffering : _diskOfferingDao.findById(newVol.getDiskOfferingId()));
-                        } catch (final CloudRuntimeException e) {
-                            throw e;
-                        } catch (final Exception e) {
-                            logger.error("Unable to restore VM {}", userVm, e);
-                            throw new CloudRuntimeException(e);
-                        }
-
-                        // 2. Create Usage event for the newly created volume
-                        UsageEventVO usageEvent = new UsageEventVO(EventTypes.EVENT_VOLUME_CREATE, newVol.getAccountId(), newVol.getDataCenterId(), newVol.getId(), newVol.getName(), newVol.getDiskOfferingId(), template.getId(), newVol.getSize());
-                        _usageEventDao.persist(usageEvent);
-
-                        return new Pair<>(userVm, newVol);
-                    }
-                });
-
-                vm = vmAndNewVol.first();
-                Volume newVol = vmAndNewVol.second();
-
-                handleManagedStorage(vm, root);
-
-                _volsDao.attachVolume(newVol.getId(), vmId, newVol.getDeviceId());
-                UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_ATTACH, newVol.getAccountId(), newVol.getDataCenterId(), newVol.getId(), newVol.getName(),
-                        newVol.getDiskOfferingId(), newVol.getTemplateId(), newVol.getSize(), Volume.class.getName(), newVol.getUuid(), vmId, newVol.isDisplay());
-
-                // Detach, destroy and create the usage event for the old root volume.
-                _volsDao.detachVolume(root.getId());
-                destroyVolumeInContext(vm, Volume.State.Allocated.equals(root.getState()) || expunge, root);
-
-                if (currentTemplate.getId() != template.getId() && VirtualMachine.Type.User.equals(vm.type) && !VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-                    ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-                    _resourceLimitMgr.updateVmResourceCountForTemplateChange(vm.getAccountId(), vm.isDisplay(), serviceOffering, currentTemplate, template);
-                }
-
-                // For VMware hypervisor since the old root volume is replaced by the new root volume, force expunge old root volume if it has been created in storage
-                if (vm.getHypervisorType() == HypervisorType.VMware) {
-                    VolumeInfo volumeInStorage = volFactory.getVolume(root.getId());
-                    if (volumeInStorage != null) {
-                        logger.info("Expunging volume {} from primary data store", root);
-                        AsyncCallFuture<VolumeApiResult> future = _volService.expungeVolumeAsync(volFactory.getVolume(root.getId()));
-                        try {
-                            future.get();
-                        } catch (Exception e) {
-                            logger.debug("Failed to expunge volume: {}", root, e);
-                        }
-                    }
-                }
-            }
-        }
-
-        Map<VirtualMachineProfile.Param, Object> params = null;
-        String password = null;
-
-        if (template.isEnablePassword()) {
-            password = _mgr.generateRandomPassword();
-            boolean result = resetVMPasswordInternal(vmId, password);
-            if (!result) {
-                throw new CloudRuntimeException("VM reset is completed but failed to reset password for the virtual machine ");
-            }
-            vm.setPassword(password);
-        }
-        if (needRestart) {
-            try {
-                if (Objects.nonNull(password)) {
-                    params = new HashMap<>();
-                    params.put(VirtualMachineProfile.Param.VmPassword, password);
-                }
-                _itMgr.start(vm.getUuid(), params);
-                vm = _vmDao.findById(vmId);
-                if (template.isEnablePassword()) {
-                    // this value is not being sent to the backend; need only for api
-                    // display purposes
-                    vm.setPassword(password);
-                    if (vm.isUpdateParameters()) {
-                        vm.setUpdateParameters(false);
-                        _vmDao.loadDetails(vm);
-                        if (vm.getDetail(VmDetailConstants.PASSWORD) != null) {
-                            vmInstanceDetailsDao.removeDetail(vm.getId(), VmDetailConstants.PASSWORD);
-                        }
-                        _vmDao.update(vm.getId(), vm);
-                    }
-                }
-            } catch (Exception e) {
-                logger.debug("Unable to start VM " + vm.getUuid(), e);
-                CloudRuntimeException ex = new CloudRuntimeException("Unable to start VM with specified id" + e.getMessage());
-                ex.addProxyObject(vm.getUuid(), "vmId");
-                throw ex;
-            }
-        }
-
-        logger.debug("Restore VM {} done successfully", vm);
-        return vm;
-
-        } catch (ResourceAllocationException e) {
-            logger.error("Failed to restore VM {} due to {}", vm, e.getMessage(), e);
-            throw new CloudRuntimeException("Failed to restore VM " + vm.getUuid() + " due to " + e.getMessage(), e);
-        } finally {
-            ReservationHelper.closeAll(reservations);
-        }
+        return vmRestoreService.restoreVirtualMachine(caller, vmId, newTemplateId, rootDiskOfferingId, expunge, details);
     }
 
     Long getRootVolumeSizeForVmRestore(Volume vol, VMTemplateVO template, UserVmVO userVm, DiskOffering diskOffering, Map<String, String> details, boolean update) {
-        VolumeVO resizedVolume = (VolumeVO) vol;
-        Long size = null;
-        if (template != null && template.getSize() != null) {
-            VMInstanceDetailVO vmRootDiskSizeDetail = vmInstanceDetailsDao.findDetail(userVm.getId(), VmDetailConstants.ROOT_DISK_SIZE);
-            if (vmRootDiskSizeDetail == null) {
-                size = template.getSize();
-            } else {
-                long rootDiskSize = Long.parseLong(vmRootDiskSizeDetail.getValue()) * GiB_TO_BYTES;
-                if (template.getSize() >= rootDiskSize) {
-                    size = template.getSize();
-                    if (update) {
-                        vmInstanceDetailsDao.remove(vmRootDiskSizeDetail.getId());
-                    }
-                } else {
-                    size = rootDiskSize;
-                }
-            }
-            if (update) {
-                resizedVolume.setSize(size);
-            }
-        }
-
-        if (diskOffering != null) {
-            if (update) {
-                resizedVolume.setDiskOfferingId(diskOffering.getId());
-            }
-            // Size of disk offering should be greater than or equal to the template's size and this should be validated before this
-            if (!diskOffering.isCustomized()) {
-                size = diskOffering.getDiskSize();
-                if (update) {
-                    resizedVolume.setSize(diskOffering.getDiskSize());
-                }
-            }
-
-            if (update) {
-                if (diskOffering.getMinIops() != null) {
-                    resizedVolume.setMinIops(diskOffering.getMinIops());
-                }
-                if (diskOffering.getMaxIops() != null) {
-                    resizedVolume.setMaxIops(diskOffering.getMaxIops());
-                }
-            }
-        }
-
-        // Size of disk should be greater than or equal to the template's size and this should be validated before this
-        if (MapUtils.isNotEmpty(details)) {
-            if (StringUtils.isNumeric(details.get(VmDetailConstants.ROOT_DISK_SIZE))) {
-                Long rootDiskSize = Long.parseLong(details.get(VmDetailConstants.ROOT_DISK_SIZE)) * GiB_TO_BYTES;
-                size = rootDiskSize;
-                if (update) {
-                    resizedVolume.setSize(rootDiskSize);
-                }
-                VMInstanceDetailVO vmRootDiskSizeDetail = vmInstanceDetailsDao.findDetail(userVm.getId(), VmDetailConstants.ROOT_DISK_SIZE);
-                if (update) {
-                    if (vmRootDiskSizeDetail != null) {
-                        vmRootDiskSizeDetail.setValue(details.get(VmDetailConstants.ROOT_DISK_SIZE));
-                        vmInstanceDetailsDao.update(vmRootDiskSizeDetail.getId(), vmRootDiskSizeDetail);
-                    } else {
-                        vmInstanceDetailsDao.persist(new VMInstanceDetailVO(userVm.getId(), VmDetailConstants.ROOT_DISK_SIZE,
-                                details.get(VmDetailConstants.ROOT_DISK_SIZE), true));
-                    }
-                }
-            }
-            if (update) {
-                String minIops = details.get(MIN_IOPS);
-                String maxIops = details.get(MAX_IOPS);
-
-                if (StringUtils.isNumeric(minIops)) {
-                    resizedVolume.setMinIops(Long.parseLong(minIops));
-                }
-                if (StringUtils.isNumeric(maxIops)) {
-                    resizedVolume.setMinIops(Long.parseLong(maxIops));
-                }
-            }
-        }
-        if (update) {
-            _volsDao.update(resizedVolume.getId(), resizedVolume);
-        }
-        return size;
-    }
-
-    private void updateVMDynamicallyScalabilityUsingTemplate(UserVmVO vm, Long newTemplateId) {
-        ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getServiceOfferingId());
-        VMTemplateVO newTemplate = _templateDao.findById(newTemplateId);
-        boolean dynamicScalingEnabled = checkIfDynamicScalingCanBeEnabled(vm, serviceOffering, newTemplate, vm.getDataCenterId());
-        vm.setDynamicallyScalable(dynamicScalingEnabled);
-        _vmDao.update(vm.getId(), vm);
-    }
-
-    /**
-     * Perform basic checkings to make sure restore is possible. If not, #InvalidParameterValueException is thrown.
-     *
-     * @param vm vm
-     * @param template template
-     * @throws InvalidParameterValueException if restore is not possible
-     */
-    private void checkRestoreVmFromTemplate(UserVmVO vm, VMTemplateVO template, List<VolumeVO> rootVolumes, DiskOffering newDiskOffering, Map<String,String> details, List<Reserver> reservations) throws ResourceAllocationException {
-        TemplateDataStoreVO tmplStore;
-        if (!template.isDirectDownload()) {
-            tmplStore = _templateStoreDao.findByTemplateZoneReady(template.getId(), vm.getDataCenterId());
-            if (tmplStore == null) {
-                throw new InvalidParameterValueException("Cannot restore the vm as the template " + template.getUuid() + " isn't available in the zone");
-            }
-        } else {
-            tmplStore = _templateStoreDao.findByTemplate(template.getId(), DataStoreRole.Image);
-            if (tmplStore == null || (tmplStore != null && !tmplStore.getDownloadState().equals(VMTemplateStorageResourceAssoc.Status.BYPASSED))) {
-                throw new InvalidParameterValueException("Cannot restore the vm as the bypassed template " + template.getUuid() + " isn't available in the zone");
-            }
-        }
-
-        AccountVO owner = _accountDao.findByIdIncludingRemoved(vm.getAccountId());
-        if (vm.getTemplateId() != template.getId()) {
-            ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-            VMTemplateVO currentTemplate = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-            _resourceLimitMgr.checkVmResourceLimitsForTemplateChange(owner, vm.isDisplay(), serviceOffering, currentTemplate, template, reservations);
-        }
-
-        for (Volume vol : rootVolumes) {
-            Long newSize = getRootVolumeSizeForVmRestore(vol, template, vm, newDiskOffering, details, false);
-            if (newSize == null) {
-                newSize = vol.getSize();
-            }
-            if (newDiskOffering != null || !vol.getSize().equals(newSize)) {
-                DiskOffering currentOffering = _diskOfferingDao.findById(vol.getDiskOfferingId());
-                _resourceLimitMgr.checkVolumeResourceLimitForDiskOfferingChange(owner, vol.isDisplay(),
-                        vol.getSize(), newSize, currentOffering, newDiskOffering, reservations);
-            }
-        }
-    }
-
-    /**
-     * Thin wrapper preserved on {@link UserVmManagerImpl} so the call
-     * site inside {@code restoreVirtualMachine} stays unchanged. The
-     * actual hypervisor-aware managed-storage cleanup lives in
-     * {@link VmRootVolumeStorageCleanupService} (slice 18 of the Phase 4
-     * Spring-component decomposition).
-     */
-    private void handleManagedStorage(UserVmVO vm, VolumeVO root) {
-        vmRootVolumeStorageCleanupService.cleanupRootVolumeOnManagedStorage(vm, root);
+        return vmRestoreService.getRootVolumeSizeForVmRestore(vol, template, userVm, diskOffering, details, update);
     }
 
     @Override
