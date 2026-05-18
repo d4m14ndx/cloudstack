@@ -46,6 +46,7 @@ import org.apache.cloudstack.api.command.user.bucket.ListBucketsCmd;
 import org.apache.cloudstack.api.command.user.event.ListEventsCmd;
 import org.apache.cloudstack.api.command.user.offering.ListDiskOfferingsCmd;
 import org.apache.cloudstack.api.command.user.resource.ListDetailOptionsCmd;
+import org.apache.cloudstack.api.response.AccountResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DetailOptionsResponse;
 import org.apache.cloudstack.api.response.EventResponse;
@@ -74,10 +75,10 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.cloud.api.ApiDBUtils;
 import com.cloud.api.query.dao.TemplateJoinDao;
 import com.cloud.api.query.dao.UserAccountJoinDao;
 import com.cloud.api.query.dao.UserVmJoinDao;
+import com.cloud.api.query.vo.AccountJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
 import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
@@ -197,6 +198,9 @@ public class QueryManagerImplTest {
     @Mock
     DiskOfferingQueryService diskOfferingQueryService;
 
+    @Mock
+    AccountQueryService accountQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -247,6 +251,9 @@ public class QueryManagerImplTest {
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "diskOfferingQueryService", diskOfferingQueryService);
         ReflectionTestUtils.setField(queryManager, "diskOfferingQueryService", diskOfferingQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "accountQueryService", accountQueryService);
+        ReflectionTestUtils.setField(queryManager, "accountQueryService", accountQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -563,38 +570,23 @@ public class QueryManagerImplTest {
     @Test
     public void testSearchForAccounts() {
         ListAccountsCmd cmd = mock(ListAccountsCmd.class);
-        Long domainId = 1L;
-        String accountName = "Admin";
-        Account.Type accountType = Account.Type.ADMIN;
-        String apiKeyAccess = "Enabled";
-        Mockito.when(cmd.getId()).thenReturn(null);
-        Mockito.when(cmd.getDomainId()).thenReturn(domainId);
-        Mockito.when(cmd.getSearchName()).thenReturn(accountName);
-        Mockito.when(cmd.getAccountType()).thenReturn(accountType);
-        Mockito.when(cmd.getApiKeyAccess()).thenReturn(apiKeyAccess);
+        AccountJoinVO accountJoin = mock(AccountJoinVO.class);
+        Pair<List<AccountJoinVO>, Integer> result = new Pair<>(Collections.singletonList(accountJoin), 1);
+        AccountResponse accountResponse = mock(AccountResponse.class);
+        List<AccountResponse> accountResponses = Collections.singletonList(accountResponse);
+        when(accountQueryService.searchForAccountsInternal(cmd)).thenReturn(result);
 
-        DomainVO domain = mock(DomainVO.class);
-        SearchBuilder<AccountVO> sb = mock(SearchBuilder.class);
-        SearchCriteria<AccountVO> sc = mock(SearchCriteria.class);
-        Pair<List<AccountVO>, Integer> uniqueAccountPair = new Pair<>(new ArrayList<>(), 0);
-        Mockito.when(domainDao.findById(domainId)).thenReturn(domain);
-        Mockito.doNothing().when(accountManager).checkAccess(account, domain);
+        try (MockedStatic<ViewResponseHelper> viewResponseHelperMocked = Mockito.mockStatic(ViewResponseHelper.class)) {
+            viewResponseHelperMocked.when(() -> ViewResponseHelper.createAccountResponse(
+                    Mockito.eq(ResponseObject.ResponseView.Restricted), Mockito.any(), Mockito.any(AccountJoinVO[].class))).thenReturn(accountResponses);
 
-        Mockito.when(accountDao.createSearchBuilder()).thenReturn(sb);
-        Mockito.when(sb.entity()).thenReturn(account);
-        Mockito.when(sb.create()).thenReturn(sc);
-        Mockito.when(accountDao.searchAndCount(any(SearchCriteria.class), any(Filter.class))).thenReturn(uniqueAccountPair);
+            ListResponse<AccountResponse> response = queryManager.searchForAccounts(cmd);
 
-        try (MockedStatic<ApiDBUtils> apiDBUtilsMocked = Mockito.mockStatic(ApiDBUtils.class)) {
-            queryManager.searchForAccounts(cmd);
+            Assert.assertSame(accountResponses, response.getResponses());
+            assertEquals(Integer.valueOf(1), response.getCount());
         }
 
-        verify(sc).setParameters("domainId", domainId);
-        verify(sc).setParameters("accountName", accountName);
-        verify(sc).setParameters("type", accountType);
-        verify(sc).setParameters("apiKeyAccess", true);
-        verify(accountDao, Mockito.times(1)).searchAndCount(
-                any(SearchCriteria.class), any(Filter.class));
+        verify(accountQueryService, Mockito.times(1)).searchForAccountsInternal(cmd);
     }
 
     @Test
