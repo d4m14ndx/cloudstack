@@ -39,14 +39,17 @@ import org.junit.runners.JUnit4;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
+import com.cloud.agent.api.StartupCommand;
 import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.deploy.DeployDestination;
+import com.cloud.exception.ConnectionException;
 import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.network.IpAddress.State;
 import com.cloud.network.Network;
@@ -163,6 +166,7 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.nicProfileMtuService = mtuService;
         testOrchestrator.nicImportService = mock(NicImportService.class);
         testOrchestrator.nicMigrationService = mock(NicMigrationService.class);
+        testOrchestrator.networkHostSetupService = mock(NetworkHostSetupService.class);
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
@@ -182,6 +186,16 @@ public class NetworkOrchestratorTest extends TestCase {
 
         when(networkOffering.getGuestType()).thenReturn(GuestType.L2);
         when(networkOffering.getId()).thenReturn(networkOfferingId);
+    }
+
+    @Test
+    public void testProcessConnectDelegatesToNetworkHostSetupService() throws ConnectionException {
+        Host host = mock(Host.class);
+        StartupCommand startup = mock(StartupCommand.class);
+
+        testOrchestrator.processConnect(host, startup, true);
+
+        verify(testOrchestrator.networkHostSetupService).processConnect(host, startup, true);
     }
 
     @Test
