@@ -241,6 +241,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     @Inject
     private AclSearchBuilderService aclSearchBuilderService;
     @Inject
+    protected UserUpdateService userUpdateService;
+    @Inject
     protected AccountOwnerResolverService accountOwnerResolverService;
     @Inject
     private ConfigurationDao _configDao;
@@ -1433,40 +1435,6 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         return userAccountDao.findById(userId);
     }
 
-    /*
-     Role change should follow the below conditions:
-     - Caller should not be of Unknown role type
-     - New role's type should not be Unknown
-     - Caller should not be able to escalate or de-escalate an account's role which is of higher role type
-     - New role should not be of type Admin with domain other than ROOT domain
-     */
-    protected void validateRoleChange(Account account, Role role, Account caller) {
-        if (account.getRoleId() != null && account.getRoleId().equals(role.getId())) {
-            return;
-        }
-        Role currentRole = roleService.findRole(account.getRoleId());
-        Role callerRole = roleService.findRole(caller.getRoleId());
-        String errorMsg = String.format("Unable to update account role to %s, ", role.getName());
-        if (RoleType.Unknown.equals(callerRole.getRoleType())) {
-            throw new PermissionDeniedException(String.format("%s as the caller privileges are unknown", errorMsg));
-        }
-        if (RoleType.Unknown.equals(role.getRoleType())) {
-            throw new PermissionDeniedException(String.format("%s as the new role privileges are unknown", errorMsg));
-        }
-        if (!callerRole.getRoleType().equals(RoleType.Admin) &&
-                (role.getRoleType().ordinal() < callerRole.getRoleType().ordinal() ||
-                        currentRole.getRoleType().ordinal() < callerRole.getRoleType().ordinal())) {
-            throw new PermissionDeniedException(String.format("%s as either current or new role has higher " +
-                    "privileges than the caller", errorMsg));
-        }
-        if (account.isDefault()) {
-            throw new PermissionDeniedException(String.format("%s as the account is a default account", errorMsg));
-        }
-        if (role.getRoleType().equals(RoleType.Admin) && account.getDomainId() != Domain.ROOT_DOMAIN) {
-            throw new PermissionDeniedException(String.format("%s as the user does not belong to the ROOT domain",
-                    errorMsg));
-        }
-    }
 
     /**
      * if there is any permission under the requested role that is not permitted for the caller, refuse
@@ -1511,6 +1479,21 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
                 throw new PermissionDeniedException(msg,pde);
             }
         }
+    }
+
+    /*
+     Role change should follow the below conditions:
+     - Caller should not be of Unknown role type
+     - New role's type should not be Unknown
+     - Caller should not be able to escalate or de-escalate an account's role which is of higher role type
+     - New role should not be of type Admin with domain other than ROOT domain
+     */
+    protected void validateRoleChange(Account account, Role role, Account caller) {
+        userUpdateService.validateRoleChange(account, role, caller);
+    }
+
+    protected void validateAndUpdateAccountApiKeyAccess(UpdateAccountCmd updateAccountCmd, AccountVO account) {
+        userUpdateService.validateAndUpdateAccountApiKeyAccess(updateAccountCmd, account);
     }
 
     private void checkApiAccess(List<APIChecker> apiCheckers, Account caller, String command, ApiKeyPairPermission... apiKeyPairPermissions) {
@@ -1649,40 +1632,11 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         if (mandate2FA != null && mandate2FA) {
             user.setUser2faEnabled(true);
         }
-        validateAndUpdatePasswordChangeRequired(caller, updateUserCmd, user, account);
+        userUpdateService.validateAndUpdatePasswordChangeRequired(caller, updateUserCmd, user, account);
         _userDao.update(user.getId(), user);
         return userAccountDao.findById(user.getId());
     }
 
-    private void validateAndUpdatePasswordChangeRequired(User caller, UpdateUserCmd updateUserCmd, UserVO user, Account account) {
-        if (updateUserCmd.isPasswordChangeRequired()) {
-            if (user.getState() != State.ENABLED || account.getState() != State.ENABLED) {
-                throw new CloudRuntimeException("CloudStack does not support enforcing password change for locked/disabled User or Account.");
-            }
-
-            User.Source userSource = user.getSource();
-            if (userSource == User.Source.SAML2 || userSource == User.Source.SAML2DISABLED || userSource == User.Source.LDAP) {
-                logger.warn("Enforcing password change is not permitted for source [{}].", user.getSource());
-                throw new InvalidParameterValueException("CloudStack does not support enforcing password change for SAML or LDAP users.");
-            }
-        }
-
-        boolean isCallerSameAsUser = user.getId() == caller.getId();
-        boolean isPasswordResetRequired = updateUserCmd.isPasswordChangeRequired() && !isCallerSameAsUser;
-        // Admins only can enforce passwordChangeRequired for user
-        if (isRootAdmin(caller.getAccountId()) || isDomainAdmin(caller.getAccountId())) {
-            if (isPasswordResetRequired) {
-                _userDetailsDao.addDetail(user.getId(), PasswordChangeRequired, "true", false);
-            }
-        }
-
-        if (StringUtils.isNotBlank(updateUserCmd.getPassword())) {
-            // Remove passwordChangeRequired if user updating own pwd or admin has not enforced it
-            if (isCallerSameAsUser || !isPasswordResetRequired) {
-                _userDetailsDao.removeDetail(user.getId(), PasswordChangeRequired);
-            }
-        }
-    }
 
     @Override
     public void verifyCallerPrivilegeForUserOrAccountOperations(Account userAccount) {
@@ -1854,28 +1808,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
      * </ul>
      */
     protected void validateAndUpdateUsernameIfNeeded(UpdateUserCmd updateUserCmd, UserVO newUser, Account newAccount) {
-        String userName = updateUserCmd.getUsername();
-        if (userName == null) {
-            return;
-        }
-        if (StringUtils.isBlank(userName)) {
-            throw new InvalidParameterValueException("Username cannot be empty.");
-        }
-        List<UserVO> existingUsers = _userDao.findUsersByName(userName);
-        for (UserVO existingUser : existingUsers) {
-            if (existingUser.getId() == newUser.getId()) {
-                continue;
-            }
-
-            // duplicate usernames cannot exist in same domain unless explicitly configured
-            if (!userAllowMultipleAccounts.valueInScope(ConfigKey.Scope.Domain, newAccount.getDomainId())) {
-                assertUserNotAlreadyInDomain(existingUser, newAccount);
-            }
-
-            // can't rename a username to an existing one in the same account
-            assertUserNotAlreadyInAccount(existingUser, newAccount);
-        }
-        newUser.setUsername(userName);
+        userUpdateService.validateAndUpdateUsernameIfNeeded(updateUserCmd, newUser, newAccount);
     }
 
     /**
@@ -1886,14 +1819,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
      * </ul>
      */
     protected void validateAndUpdateLastNameIfNeeded(UpdateUserCmd updateUserCmd, UserVO user) {
-        String lastName = updateUserCmd.getLastname();
-        if (lastName != null) {
-            if (StringUtils.isBlank(lastName)) {
-                throw new InvalidParameterValueException("Lastname cannot be empty.");
-            }
-
-            user.setLastname(lastName);
-        }
+        userUpdateService.validateAndUpdateLastNameIfNeeded(updateUserCmd, user);
     }
 
     /**
@@ -1904,13 +1830,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
      * </ul>
      */
     protected void validateAndUpdateFirstNameIfNeeded(UpdateUserCmd updateUserCmd, UserVO user) {
-        String firstName = updateUserCmd.getFirstname();
-        if (firstName != null) {
-            if (StringUtils.isBlank(firstName)) {
-                throw new InvalidParameterValueException("Firstname cannot be empty.");
-            }
-            user.setFirstname(firstName);
-        }
+        userUpdateService.validateAndUpdateFirstNameIfNeeded(updateUserCmd, user);
     }
 
     /**
@@ -1943,7 +1863,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
      * We are introducing this method to avoid using 'PowerMockRunner' in unit tests. Then, we can mock the calls to this method, which facilitates the development of test cases.
      */
     protected Account getCurrentCallingAccount() {
-        return CallContext.current().getCallingAccount();
+        return userUpdateService.getCurrentCallingAccount();
     }
 
     /**
@@ -1954,76 +1874,19 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
      * </ul>
      */
     protected void validateAndUpdateApiAndSecretKeyIfNeeded(UpdateUserCmd updateUserCmd, UserVO user) {
-        String apiKey = updateUserCmd.getApiKey();
-        String secretKey = updateUserCmd.getSecretKey();
-
-        boolean isApiKeyBlank = StringUtils.isBlank(apiKey);
-        boolean isSecretKeyBlank = StringUtils.isBlank(secretKey);
-        if (isApiKeyBlank ^ isSecretKeyBlank) {
-            throw new InvalidParameterValueException("Please provide a valid API and secret key pair.");
-        }
-        if (isApiKeyBlank && isSecretKeyBlank) {
-            return;
-        }
-
-        ApiKeyPairVO lastUserKeyPair = apiKeyPairDao.getLastApiKeyCreatedByUser(user.getId());
-        if (lastUserKeyPair == null) {
-            throw new InvalidParameterValueException(String.format("User [%s] has no active API key pairs to be updated.", user.getUsername()));
-        }
-
-        Ternary<User, Account, ApiKeyPair> keyPairTernary = findUserByApiKey(apiKey);
-        if (keyPairTernary != null) {
-            throw new InvalidParameterValueException(String.format("The API key [%s] already exists in the system. Please provide a unique key.", apiKey));
-        }
-
-        lastUserKeyPair.setApiKey(apiKey);
-        lastUserKeyPair.setSecretKey(secretKey);
-        apiKeyPairDao.update(lastUserKeyPair.getId(), lastUserKeyPair);
+        userUpdateService.validateAndUpdateApiAndSecretKeyIfNeeded(updateUserCmd, user);
     }
 
     protected void validateAndUpdateUserApiKeyAccess(UpdateUserCmd updateUserCmd, UserVO user) {
-        if (updateUserCmd.getApiKeyAccess() != null) {
-            try {
-                ApiConstants.ApiKeyAccess access = ApiConstants.ApiKeyAccess.valueOf(updateUserCmd.getApiKeyAccess().toUpperCase());
-                user.setApiKeyAccess(access.toBoolean());
-                Long callingUserId = CallContext.current().getCallingUserId();
-                Account callingAccount = CallContext.current().getCallingAccount();
-                ActionEventUtils.onActionEvent(callingUserId, callingAccount.getAccountId(), callingAccount.getDomainId(),
-                        EventTypes.API_KEY_ACCESS_UPDATE, "Api key access was changed for the User to " + access,
-                        user.getId(), ApiCommandResourceType.User.toString());
-            } catch (IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("ApiKeyAccess value can only be Enabled/Disabled/Inherit");
-            }
-        }
+        userUpdateService.validateAndUpdateUserApiKeyAccess(updateUserCmd, user);
     }
 
-    protected void validateAndUpdateAccountApiKeyAccess(UpdateAccountCmd updateAccountCmd, AccountVO account) {
-        if (updateAccountCmd.getApiKeyAccess() != null) {
-            try {
-                ApiConstants.ApiKeyAccess access = ApiConstants.ApiKeyAccess.valueOf(updateAccountCmd.getApiKeyAccess().toUpperCase());
-                account.setApiKeyAccess(access.toBoolean());
-                Long callingUserId = CallContext.current().getCallingUserId();
-                Account callingAccount = CallContext.current().getCallingAccount();
-                ActionEventUtils.onActionEvent(callingUserId, callingAccount.getAccountId(), callingAccount.getDomainId(),
-                        EventTypes.API_KEY_ACCESS_UPDATE, "Api key access was changed for the Account to " + access,
-                        account.getId(), ApiCommandResourceType.Account.toString());
-            } catch (IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("ApiKeyAccess value can only be Enabled/Disabled/Inherit");
-            }
-        }
-    }
 
     /**
      * Searches for a user with the given userId. If no user is found we throw an {@link InvalidParameterValueException}.
      */
     protected UserVO retrieveAndValidateUser(UpdateUserCmd updateUserCmd) {
-        Long userId = updateUserCmd.getId();
-
-        UserVO user = _userDao.getUser(userId);
-        if (user == null) {
-            throw new InvalidParameterValueException("Unable to find user with id: " + userId);
-        }
-        return user;
+        return userUpdateService.retrieveAndValidateUser(updateUserCmd);
     }
 
     @Override
@@ -2406,7 +2269,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         checkAccess(caller, _domainMgr.getDomain(account.getDomainId()));
         verifyCallerPrivilegeForUserOrAccountOperations(account);
 
-        validateAndUpdateAccountApiKeyAccess(cmd, acctForUpdate);
+        userUpdateService.validateAndUpdateAccountApiKeyAccess(cmd, acctForUpdate);
 
         if(newAccountName != null) {
 
@@ -2447,7 +2310,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
             }
 
             Role role = roleService.findRole(roleId);
-            validateRoleChange(account, role, caller);
+            userUpdateService.validateRoleChange(account, role, caller);
             acctForUpdate.setRoleId(roleId);
             acctForUpdate.setType(role.getRoleType().getAccountType());
             checkRoleEscalation(getCurrentCallingAccount(), acctForUpdate);
