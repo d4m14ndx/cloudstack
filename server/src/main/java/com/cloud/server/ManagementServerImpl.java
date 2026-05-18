@@ -643,7 +643,6 @@ import org.apache.cloudstack.management.ManagementServerHost;
 import org.apache.cloudstack.resourcedetail.dao.GuestOsDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.cloudstack.utils.CloudStackVersion;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
@@ -651,11 +650,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.Command;
-import com.cloud.agent.api.PatchSystemVmAnswer;
-import com.cloud.agent.api.PatchSystemVmCommand;
-import com.cloud.agent.api.routing.NetworkElementCommand;
-import com.cloud.agent.manager.Commands;
 import com.cloud.agent.manager.allocator.HostAllocator;
 import com.cloud.alert.Alert;
 import com.cloud.alert.AlertVO;
@@ -701,12 +695,10 @@ import com.cloud.event.ActionEvent;
 import com.cloud.event.EventTypes;
 import com.cloud.event.EventVO;
 import com.cloud.event.dao.EventDao;
-import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ManagementServerException;
-import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.exception.VirtualMachineMigrationException;
@@ -732,7 +724,6 @@ import com.cloud.network.IpAddressManager;
 import com.cloud.network.IpAddressManagerImpl;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkModel;
-import com.cloud.network.Networks;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.LoadBalancerDao;
@@ -750,7 +741,6 @@ import com.cloud.projects.Project;
 import com.cloud.projects.Project.ListProjectResourcesCriteria;
 import com.cloud.projects.ProjectManager;
 import com.cloud.server.ResourceTag.ResourceObjectType;
-import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DiskOfferingVO;
@@ -760,10 +750,8 @@ import com.cloud.storage.GuestOSHypervisorVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
 import com.cloud.storage.ScopeType;
-import com.cloud.storage.Storage;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.StoragePoolStatus;
-import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
@@ -804,9 +792,7 @@ import com.cloud.utils.net.MacAddress;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.security.CertificateHelper;
 import com.cloud.vm.DiskProfile;
-import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.InstanceGroupVO;
-import com.cloud.vm.NicVO;
 import com.cloud.vm.SecondaryStorageVmVO;
 import com.cloud.vm.UserVmManager;
 import com.cloud.vm.VMInstanceDetailVO;
@@ -835,7 +821,6 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     public static final ConfigKey<Boolean> exposeCloudStackVersionInApiXmlResponse = new ConfigKey<>("Advanced", Boolean.class, "expose.cloudstack.version.api.xml.response", "true", "Indicates whether ACS version should appear in the root element of an API XML response.", true, ConfigKey.Scope.Global);
     public static final ConfigKey<Boolean> exposeCloudStackVersionInApiListCapabilities = new ConfigKey<>("Advanced", Boolean.class, "expose.cloudstack.version.api.list.capabilities", "true", "Indicates whether ACS version should show in the listCapabilities API.", true, ConfigKey.Scope.Global);
 
-    private static final VirtualMachine.Type []systemVmTypes = { VirtualMachine.Type.SecondaryStorageVm, VirtualMachine.Type.ConsoleProxy};
     private static final List<HypervisorType> LIVE_MIGRATION_SUPPORTING_HYPERVISORS = List.of(HypervisorType.Hyperv, HypervisorType.KVM,
             HypervisorType.LXC, HypervisorType.Simulator, HypervisorType.VMware, HypervisorType.XenServer);
 
@@ -934,6 +919,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Inject
     protected UserDataRegistryService userDataRegistryService;
     @Inject
+    protected SystemVmOperationsService systemVmOperationsService;
+    @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
     private HypervisorCapabilitiesDao _hypervisorCapabilitiesDao;
@@ -998,7 +985,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     private LockControllerListener _lockControllerListener;
     private final ScheduledExecutorService _eventExecutor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("EventChecker"));
     private final ScheduledExecutorService _alertExecutor = Executors.newScheduledThreadPool(1, new NamedThreadFactory("AlertChecker"));
-    private static final int patchCommandTimeout = 600000;
+
 
     private Map<String, String> _configs;
 
@@ -3415,102 +3402,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public Pair<List<? extends VirtualMachine>, Integer> searchForSystemVm(final ListSystemVMsCmd cmd) {
-        final String type = cmd.getSystemVmType();
-        final Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), cmd.getZoneId());
-        final Long id = cmd.getId();
-        final String name = cmd.getSystemVmName();
-        final String state = cmd.getState();
-        final String keyword = cmd.getKeyword();
-        final Long podId = cmd.getPodId();
-        final Long hostId = cmd.getHostId();
-        final Long storageId = cmd.getStorageId();
-        final CPU.CPUArch arch = cmd.getArch();
-
-        final Filter searchFilter = new Filter(VMInstanceVO.class, "id", true, cmd.getStartIndex(), cmd.getPageSizeVal());
-        final SearchBuilder<VMInstanceVO> sb = _vmInstanceDao.createSearchBuilder();
-
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("hostName", sb.entity().getHostName(), SearchCriteria.Op.LIKE);
-        sb.and("state", sb.entity().getState(), SearchCriteria.Op.EQ);
-        sb.and("dataCenterId", sb.entity().getDataCenterId(), SearchCriteria.Op.EQ);
-        sb.and("podId", sb.entity().getPodIdToDeployIn(), SearchCriteria.Op.EQ);
-        sb.and("hostId", sb.entity().getHostId(), SearchCriteria.Op.EQ);
-        sb.and("type", sb.entity().getType(), SearchCriteria.Op.EQ);
-        sb.and("nulltype", sb.entity().getType(), SearchCriteria.Op.IN);
-
-        if (storageId != null) {
-            StoragePoolVO storagePool = _primaryDataStoreDao.findById(storageId);
-            if (storagePool.getPoolType() == Storage.StoragePoolType.DatastoreCluster) {
-                final SearchBuilder<VolumeVO> volumeSearch = _volumeDao.createSearchBuilder();
-                volumeSearch.and("poolId", volumeSearch.entity().getPoolId(), SearchCriteria.Op.IN);
-                sb.join("volumeSearch", volumeSearch, sb.entity().getId(), volumeSearch.entity().getInstanceId(), JoinBuilder.JoinType.INNER);
-            } else {
-                final SearchBuilder<VolumeVO> volumeSearch = _volumeDao.createSearchBuilder();
-                volumeSearch.and("poolId", volumeSearch.entity().getPoolId(), SearchCriteria.Op.EQ);
-                sb.join("volumeSearch", volumeSearch, sb.entity().getId(), volumeSearch.entity().getInstanceId(), JoinBuilder.JoinType.INNER);
-            }
-        }
-
-        boolean templateJoinNeeded = arch != null;
-        if (templateJoinNeeded) {
-            SearchBuilder<VMTemplateVO> templateSearch = templateDao.createSearchBuilder();
-            templateSearch.and("templateArch", templateSearch.entity().getArch(), SearchCriteria.Op.EQ);
-            sb.join("vmTemplate", templateSearch, templateSearch.entity().getId(), sb.entity().getTemplateId(), JoinBuilder.JoinType.INNER);
-        }
-
-        final SearchCriteria<VMInstanceVO> sc = sb.create();
-
-        if (keyword != null) {
-            final SearchCriteria<VMInstanceVO> ssc = _vmInstanceDao.createSearchCriteria();
-            ssc.addOr("hostName", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("state", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-
-            sc.addAnd("hostName", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (name != null) {
-            sc.setParameters("hostName", name);
-        }
-        if (state != null) {
-            sc.setParameters("state", state);
-        }
-        if (zoneId != null) {
-            sc.setParameters("dataCenterId", zoneId);
-        }
-        if (podId != null) {
-            sc.setParameters("podId", podId);
-        }
-        if (hostId != null) {
-            sc.setParameters("hostId", hostId);
-        }
-
-        if (type != null) {
-            sc.setParameters("type", type);
-        } else {
-            sc.setParameters("nulltype", VirtualMachine.Type.SecondaryStorageVm, VirtualMachine.Type.ConsoleProxy);
-        }
-
-        if (storageId != null) {
-            StoragePoolVO storagePool = _primaryDataStoreDao.findById(storageId);
-            if (storagePool.getPoolType() == Storage.StoragePoolType.DatastoreCluster) {
-                List<StoragePoolVO> childDataStores = _primaryDataStoreDao.listChildStoragePoolsInDatastoreCluster(storageId);
-                List<Long> childDatastoreIds = childDataStores.stream().map(mo -> mo.getId()).collect(Collectors.toList());
-                sc.setJoinParameters("volumeSearch", "poolId", childDatastoreIds.toArray());
-            } else {
-                sc.setJoinParameters("volumeSearch", "poolId", storageId);
-            }
-        }
-
-        if (arch != null) {
-            sc.setJoinParameters("vmTemplate", "templateArch", arch);
-        }
-
-        final Pair<List<VMInstanceVO>, Integer> result = _vmInstanceDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return systemVmOperationsService.searchForSystemVm(cmd);
     }
 
     @Override
@@ -3896,55 +3788,12 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_UPGRADE, eventDescription = "Upgrading system VM", async = true)
     public VirtualMachine upgradeSystemVM(final ScaleSystemVMCmd cmd) throws ResourceUnavailableException, ManagementServerException, VirtualMachineMigrationException, ConcurrentOperationException {
-
-        final VMInstanceVO vmInstance = _vmInstanceDao.findById(cmd.getId());
-        if (vmInstance.getHypervisorType() == HypervisorType.XenServer && vmInstance.getState().equals(State.Running)) {
-            throw new InvalidParameterValueException("Dynamic Scaling operation is not permitted for this hypervisor on system vm");
-        }
-        final boolean result = _userVmMgr.upgradeVirtualMachine(cmd.getId(), cmd.getServiceOfferingId(), cmd.getDetails());
-        if (result) {
-            return _vmInstanceDao.findById(cmd.getId());
-        } else {
-            throw new CloudRuntimeException("Failed to upgrade System VM");
-        }
+        return systemVmOperationsService.upgradeSystemVM(cmd);
     }
 
     @Override
     public VirtualMachine upgradeSystemVM(final UpgradeSystemVMCmd cmd) {
-        final Long systemVmId = cmd.getId();
-        final Long serviceOfferingId = cmd.getServiceOfferingId();
-        return upgradeStoppedSystemVm(systemVmId, serviceOfferingId, cmd.getDetails());
-
-    }
-
-    private VirtualMachine upgradeStoppedSystemVm(final Long systemVmId, final Long serviceOfferingId, final Map<String, String> customparameters) {
-        final Account caller = getCaller();
-
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(systemVmId, VirtualMachine.Type.ConsoleProxy, VirtualMachine.Type.SecondaryStorageVm);
-        if (systemVm == null) {
-            throw new InvalidParameterValueException("Unable to find SystemVm with id " + systemVmId);
-        }
-
-        _accountMgr.checkAccess(caller, null, true, systemVm);
-
-        // Check that the specified service offering ID is valid
-        ServiceOfferingVO newServiceOffering = _offeringDao.findById(serviceOfferingId);
-        final ServiceOfferingVO currentServiceOffering = _offeringDao.findById(systemVmId, systemVm.getServiceOfferingId());
-        if (newServiceOffering.isDynamic()) {
-            newServiceOffering.setDynamicFlag(true);
-            _userVmMgr.validateCustomParameters(newServiceOffering, customparameters);
-            newServiceOffering = _offeringDao.getComputeOffering(newServiceOffering, customparameters);
-        }
-        _itMgr.checkIfCanUpgrade(systemVm, newServiceOffering);
-
-        final boolean result = _itMgr.upgradeVmDb(systemVmId, newServiceOffering, currentServiceOffering);
-
-        if (result) {
-            return _vmInstanceDao.findById(systemVmId);
-        } else {
-            throw new CloudRuntimeException("Unable to upgrade system vm " + systemVm);
-        }
-
+        return systemVmOperationsService.upgradeSystemVM(cmd);
     }
 
     private void enableAdminUser(final String password) {
@@ -3996,100 +3845,11 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public Pair<Boolean, String> patchSystemVM(PatchSystemVMCmd cmd) {
-        Long systemVmId = cmd.getId();
-        boolean forced = cmd.isForced();
-
-        if (systemVmId == null) {
-            throw new InvalidParameterValueException("Please provide a valid ID of a system VM to be patched");
-        }
-
-        final VMInstanceVO systemVm = _vmInstanceDao.findByIdTypes(systemVmId, systemVmTypes);
-        if (systemVm == null) {
-            throw new InvalidParameterValueException(String.format("Unable to find SystemVm with id %s. patchSystemVm API can be used to patch CPVM / SSVM only.", systemVmId));
-        }
-
-        return updateSystemVM(systemVm, forced);
-    }
-
-
-    private String getControlIp(final long systemVmId) {
-        String controlIpAddress = null;
-        final List<NicVO> nics = nicDao.listByVmId(systemVmId);
-        for (final NicVO n : nics) {
-            final NetworkVO nc = networkDao.findById(n.getNetworkId());
-            if (nc != null && nc.getTrafficType() == Networks.TrafficType.Control) {
-                controlIpAddress = n.getIPv4Address();
-                // router will have only one control IP
-                break;
-            }
-        }
-
-        if (controlIpAddress == null) {
-            logger.warn(String.format("Unable to find systemVm's control ip in its attached NICs!. systemVmId: %s", systemVmId));
-            VMInstanceVO systemVM = _vmInstanceDao.findById(systemVmId);
-            return systemVM.getPrivateIpAddress();
-        }
-
-        return controlIpAddress;
+        return systemVmOperationsService.patchSystemVM(cmd);
     }
 
     public Pair<Boolean, String> updateSystemVM(VMInstanceVO systemVM, boolean forced) {
-        String msg = String.format("Unable to patch SystemVM: %s as it is not in Running state. Please destroy and recreate the SystemVM.", systemVM);
-        if (systemVM.getState() != State.Running) {
-            logger.error(msg);
-            return new Pair<>(false, msg);
-        }
-        return patchSystemVm(systemVM, forced);
-    }
-
-    private boolean updateRouterDetails(Long routerId, String scriptVersion, String templateVersion) {
-        DomainRouterVO router = routerDao.findById(routerId);
-        if (router == null) {
-            throw new CloudRuntimeException(String.format("Failed to find router with id: %s", routerId));
-        }
-
-        router.setTemplateVersion(templateVersion);
-        router.setScriptsVersion(scriptVersion);
-        String codeVersion = getVersion();
-        if (StringUtils.isNotEmpty(codeVersion)) {
-            codeVersion = CloudStackVersion.parse(codeVersion).toString();
-        }
-        router.setSoftwareVersion(codeVersion);
-        return routerDao.update(routerId, router);
-    }
-
-    private Pair<Boolean, String> patchSystemVm(VMInstanceVO systemVM, boolean forced) {
-        PatchSystemVmAnswer answer;
-        final PatchSystemVmCommand command = new PatchSystemVmCommand();
-        command.setAccessDetail(NetworkElementCommand.ROUTER_IP, getControlIp(systemVM.getId()));
-        command.setAccessDetail(NetworkElementCommand.ROUTER_NAME, systemVM.getInstanceName());
-        command.setForced(forced);
-        try {
-            Commands cmds = new Commands(Command.OnError.Stop);
-            cmds.addCommand(command);
-            Answer[] answers = _agentMgr.send(systemVM.getHostId(), cmds, patchCommandTimeout);
-            answer = (PatchSystemVmAnswer) answers[0];
-            if (!answer.getResult()) {
-                String errMsg = String.format("Failed to patch systemVM %s due to %s", systemVM.getInstanceName(), answer.getDetails());
-                logger.error(errMsg);
-                return new Pair<>(false, errMsg);
-            }
-        } catch (AgentUnavailableException | OperationTimedoutException e) {
-            String errMsg = "SystemVM live patch failed";
-            logger.error(errMsg, e);
-            return new Pair<>(false,  String.format("%s due to: %s", errMsg, e.getMessage()));
-        }
-        logger.info(String.format("Successfully patched system VM %s", systemVM.getInstanceName()));
-        List<VirtualMachine.Type> routerTypes = new ArrayList<>();
-        routerTypes.add(VirtualMachine.Type.DomainRouter);
-        routerTypes.add(VirtualMachine.Type.InternalLoadBalancerVm);
-        if (routerTypes.contains(systemVM.getType())) {
-            boolean updated = updateRouterDetails(systemVM.getId(), answer.getScriptsVersion(), answer.getTemplateVersion());
-            if (!updated) {
-                logger.warn("Failed to update router's script and template version details");
-            }
-        }
-        return new Pair<>(true, answer.getDetails());
+        return systemVmOperationsService.updateSystemVM(systemVM, forced);
     }
 
     public List<StoragePoolAllocator> getStoragePoolAllocators() {
