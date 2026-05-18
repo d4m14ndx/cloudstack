@@ -563,6 +563,10 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmDestroyPermissionService vmDestroyPermissionService;
     @Inject
+    protected VmVolumeLifecycleValidationService vmVolumeLifecycleValidationService;
+    @Inject
+    protected VmVolumeDestroyCleanupService vmVolumeDestroyCleanupService;
+    @Inject
     private VmHostNameUniquenessService vmHostNameUniquenessService;
     @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
@@ -6587,108 +6591,28 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return true;
     }
 
-    private boolean checkStatusOfVolumeSnapshots(VirtualMachine vm, Volume.Type type) {
-        long vmId = vm.getId();
-        List<VolumeVO> listVolumes = null;
-        if (type == Volume.Type.ROOT) {
-            listVolumes = _volsDao.findByInstanceAndType(vmId, type);
-        } else if (type == Volume.Type.DATADISK) {
-            listVolumes = _volsDao.findByInstanceAndType(vmId, type);
-        } else {
-            listVolumes = _volsDao.findByInstance(vmId);
-        }
-        logger.debug("Found {} no. of volumes of type {} for vm with VM ID {}", listVolumes.size(), type, vm);
-        for (VolumeVO volume : listVolumes) {
-            Long volumeId = volume.getId();
-            logger.debug("Checking status of snapshots for Volume: {}", volume);
-            List<SnapshotVO> ongoingSnapshots = _snapshotDao.listByStatus(volumeId, Snapshot.State.Creating, Snapshot.State.CreatedOnPrimary, Snapshot.State.BackingUp);
-            int ongoingSnapshotsCount = ongoingSnapshots.size();
-            logger.debug("The count of ongoing Snapshots for VM {} and disk type {} is {}", vm, type, ongoingSnapshotsCount);
-            if (ongoingSnapshotsCount > 0) {
-                logger.debug("Found "+ongoingSnapshotsCount+" no. of snapshots, on volume of type "+type+", which snapshots are not yet backed up");
-                return true;
-            }
-        }
-        return false;
+    boolean checkStatusOfVolumeSnapshots(VirtualMachine vm, Volume.Type type) {
+        return vmVolumeLifecycleValidationService.checkStatusOfVolumeSnapshots(vm, type);
     }
 
-    private void checkForUnattachedVolumes(long vmId, List<VolumeVO> volumes) {
-
-        StringBuilder sb = new StringBuilder();
-
-        for (VolumeVO volume : volumes) {
-            if (volume.getInstanceId() == null || vmId != volume.getInstanceId() || volume.getVolumeType() != Volume.Type.DATADISK) {
-                sb.append(volume.toString() + "; ");
-            }
-        }
-
-        if (!StringUtils.isEmpty(sb.toString())) {
-            throw new InvalidParameterValueException("The following supplied volumes are not DATADISK attached to the VM: " + sb.toString());
-        }
+    void checkForUnattachedVolumes(long vmId, List<VolumeVO> volumes) {
+        vmVolumeLifecycleValidationService.checkForUnattachedVolumes(vmId, volumes);
     }
 
-    private void validateVolumes(List<VolumeVO> volumes) {
-
-        for (VolumeVO volume : volumes) {
-            if (!(volume.getVolumeType() == Volume.Type.ROOT || volume.getVolumeType() == Volume.Type.DATADISK)) {
-                throw new InvalidParameterValueException("Please specify volume of type " + Volume.Type.DATADISK.toString() + " or " + Volume.Type.ROOT.toString());
-            }
-            if (volume.isDeleteProtection()) {
-                throw new InvalidParameterValueException(String.format(
-                        "Volume [id = %s, name = %s] has delete protection enabled and cannot be deleted",
-                        volume.getUuid(), volume.getName()));
-            }
-        }
+    void validateVolumes(List<VolumeVO> volumes) {
+        vmVolumeLifecycleValidationService.validateVolumes(volumes);
     }
 
-    private void detachVolumesFromVm(UserVm vm, List<VolumeVO> volumes) {
-
-        for (VolumeVO volume : volumes) {
-            // Create new context and inject correct event resource type, id and details,
-            // otherwise VOLUME.DETACH event will be associated with VirtualMachine and contain VM id and other information.
-            CallContext volumeContext = CallContext.register(CallContext.current(), ApiCommandResourceType.Volume);
-            volumeContext.setEventDetails("Volume Type: " + volume.getVolumeType() + " Volume ID: " + volume.getUuid() + " Instance ID: " + vm.getUuid());
-            volumeContext.setEventResourceType(ApiCommandResourceType.Volume);
-            volumeContext.setEventResourceId(volume.getId());
-
-            Volume detachResult = null;
-            try {
-                detachResult = _volumeService.detachVolumeViaDestroyVM(volume.getInstanceId(), volume.getId());
-            } finally {
-                // Remove volumeContext and pop vmContext back
-                CallContext.unregister();
-            }
-
-            if (detachResult == null) {
-                logger.error("DestroyVM remove volume - failed to detach and delete volume {} from instance {}", volume, vm);
-            }
-        }
+    void detachVolumesFromVm(UserVm vm, List<VolumeVO> volumes) {
+        vmVolumeDestroyCleanupService.detachVolumesFromVm(vm, volumes);
     }
 
-    private void deleteVolumesFromVm(UserVmVO vm, List<VolumeVO> volumes, boolean expunge) {
-
-        for (VolumeVO volume : volumes) {
-            destroyVolumeInContext(vm, expunge, volume);
-        }
+    void deleteVolumesFromVm(UserVmVO vm, List<VolumeVO> volumes, boolean expunge) {
+        vmVolumeDestroyCleanupService.deleteVolumesFromVm(vm, volumes, expunge);
     }
 
-    private void destroyVolumeInContext(UserVmVO vm, boolean expunge, VolumeVO volume) {
-        // Create new context and inject correct event resource type, id and details,
-        // otherwise VOLUME.DESTROY event will be associated with VirtualMachine and contain VM id and other information.
-        CallContext volumeContext = CallContext.register(CallContext.current(), ApiCommandResourceType.Volume);
-        volumeContext.setEventDetails("Volume Type: " + volume.getVolumeType() + " Volume ID: " + volume.getUuid() + " Instance ID: " + vm.getUuid());
-        volumeContext.setEventResourceType(ApiCommandResourceType.Volume);
-        volumeContext.setEventResourceId(volume.getId());
-        try {
-            Volume result = _volumeService.destroyVolume(volume.getId(), CallContext.current().getCallingAccount(), expunge, false);
-
-            if (result == null) {
-                logger.error("DestroyVM remove volume - failed to delete volume {} from instance {}", volume, vm);
-            }
-        } finally {
-            // Remove volumeContext and pop vmContext back
-            CallContext.unregister();
-        }
+    void destroyVolumeInContext(UserVmVO vm, boolean expunge, VolumeVO volume) {
+        vmVolumeDestroyCleanupService.destroyVolumeInContext(vm, expunge, volume);
     }
 
     private String getInternalName(long accountId, long vmId) {
@@ -7082,21 +7006,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     void checkUnmanagingVMOngoingVolumeSnapshots(UserVmVO vm) {
-        logger.debug("Checking if there are any ongoing snapshots on the ROOT volumes associated with VM {}", vm);
-        if (checkStatusOfVolumeSnapshots(vm, Volume.Type.ROOT)) {
-            throw new CloudRuntimeException("There is/are unbacked up snapshot(s) on ROOT volume, vm unmanage is not permitted, please try again later.");
-        }
-        logger.debug("Found no ongoing snapshots on volume of type ROOT, for the vm {}", vm);
+        vmVolumeLifecycleValidationService.checkUnmanagingVMOngoingVolumeSnapshots(vm);
     }
 
     void checkUnmanagingVMVolumes(UserVmVO vm, List<VolumeVO> volumes) {
-        for (VolumeVO volume : volumes) {
-            if (volume.getInstanceId() == null || !volume.getInstanceId().equals(vm.getId())) {
-                throw new CloudRuntimeException(String.format("Invalid state for volume %s of VM %s: it is not attached to VM", volume, vm));
-            } else if (volume.getVolumeType() != Volume.Type.ROOT && volume.getVolumeType() != Volume.Type.DATADISK) {
-                throw new CloudRuntimeException(String.format("Invalid type for volume %s: ROOT or DATADISK expected but got %s", volume, volume.getVolumeType()));
-            }
-        }
+        vmVolumeLifecycleValidationService.checkUnmanagingVMVolumes(vm, volumes);
     }
 
     private LinkedHashMap<Integer, Long> getVmOvfNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
