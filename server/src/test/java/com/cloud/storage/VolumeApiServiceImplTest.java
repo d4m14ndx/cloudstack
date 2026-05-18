@@ -291,6 +291,9 @@ public class VolumeApiServiceImplTest {
     @Mock
     private VolumeTakeSnapshotService volumeTakeSnapshotServiceMock;
 
+    @Mock
+    private VolumeUploadRegistrationService volumeUploadRegistrationServiceMock;
+
     private long accountMockId = 456l;
     private long volumeMockId = 12313l;
     private long vmInstanceMockId = 1123l;
@@ -621,6 +624,14 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(detachService, "volumeHostTopologyService", hostTopologyService);
         ReflectionTestUtils.setField(detachService, "diskOfferingDao", _diskOfferingDao);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeDetachService", detachService);
+
+        // Phase 4 (slice 10): wire VolumeUploadRegistrationService mock so that
+        // getVolumeNameFromCommand (which delegates to getRandomVolumeName) keeps
+        // returning a non-null value in the four existing tests.
+        Mockito.lenient().when(volumeUploadRegistrationServiceMock.getRandomVolumeName())
+                .thenReturn(UUID.randomUUID().toString());
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUploadRegistrationService",
+                volumeUploadRegistrationServiceMock);
     }
 
     /**
