@@ -175,6 +175,8 @@ public class ResourceManagerImplTest {
 
     @Mock
     private StoragePoolAndAccessGroupMapDao storagePoolAccessGroupMapDao;
+    @Spy
+    private StorageAccessGroupServiceImpl storageAccessGroupService = new StorageAccessGroupServiceImpl();
 
     private static long hostId = 1L;
     private static final String hostUsername = "user";
@@ -230,6 +232,23 @@ public class ResourceManagerImplTest {
         Field maintenanceSliceField = ResourceManagerImpl.class.getDeclaredField("hostMaintenanceService");
         maintenanceSliceField.setAccessible(true);
         maintenanceSliceField.set(resourceManager, hostMaintenanceService);
+
+        storageAccessGroupService.storagePoolDao = storagePoolDao;
+        storageAccessGroupService.storagePoolAccessGroupMapDao = storagePoolAccessGroupMapDao;
+        storageAccessGroupService.storagePoolHostDao = storagePoolHostDao;
+        storageAccessGroupService.storageManager = storageManager;
+        storageAccessGroupService.hostDao = hostDao;
+        storageAccessGroupService.vmDao = vmInstanceDao;
+        storageAccessGroupService.volumeDao = volumeDao;
+        storageAccessGroupService.clusterDao = clusterDao;
+        storageAccessGroupService.podDao = podDao;
+        storageAccessGroupService.dataCenterDao = dcDao;
+        storageAccessGroupService.hostLookupService = Mockito.mock(HostLookupService.class);
+        storageAccessGroupService.storagePoolTagsDao = Mockito.mock(com.cloud.storage.dao.StoragePoolTagsDao.class);
+        Field sagSliceField = ResourceManagerImpl.class.getDeclaredField("storageAccessGroupService");
+        sagSliceField.setAccessible(true);
+        sagSliceField.set(resourceManager, storageAccessGroupService);
+
         when(host.getType()).thenReturn(Host.Type.Routing);
         when(host.getId()).thenReturn(hostId);
         when(host.getResourceState()).thenReturn(ResourceState.Enabled);
