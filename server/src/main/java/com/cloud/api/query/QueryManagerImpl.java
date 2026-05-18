@@ -270,7 +270,6 @@ import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.BucketDao;
 import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.storage.dao.StoragePoolHostDao;
-import com.cloud.storage.dao.StoragePoolTagsDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VMTemplatePoolDao;
 import com.cloud.storage.dao.VolumeDao;
@@ -389,10 +388,10 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
     StoragePoolJoinDao _poolJoinDao;
 
     @Inject
-    StoragePoolTagsDao _storageTagDao;
+    HostTagsDao _hostTagDao;
 
     @Inject
-    HostTagsDao _hostTagDao;
+    protected StorageAndHostTagQueryService storageAndHostTagQueryService;
 
     @Inject
     DiskOfferingJoinDao _diskOfferingJoinDao;
@@ -2662,13 +2661,7 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
 
     @Override
     public ListResponse<StorageTagResponse> searchForStorageTags(ListStorageTagsCmd cmd) {
-        Pair<List<StoragePoolTagVO>, Integer> result = searchForStorageTagsInternal();
-        ListResponse<StorageTagResponse> response = new ListResponse<>();
-        List<StorageTagResponse> tagResponses = ViewResponseHelper.createStorageTagResponse(result.first().toArray(new StoragePoolTagVO[0]));
-
-        response.setResponses(tagResponses, result.second());
-
-        return response;
+        return storageAndHostTagQueryService.searchForStorageTags(cmd);
     }
 
     @Override
@@ -2764,75 +2757,17 @@ public class QueryManagerImpl extends MutualExclusiveIdsManagerBase implements Q
         return clusterResponse;
     }
 
-    private Pair<List<StoragePoolTagVO>, Integer> searchForStorageTagsInternal() {
-        Filter searchFilter = new Filter(StoragePoolTagVO.class, "id", Boolean.TRUE, null, null);
-
-        SearchBuilder<StoragePoolTagVO> sb = _storageTagDao.createSearchBuilder();
-
-        sb.select(null, Func.DISTINCT, sb.entity().getId()); // select distinct
-
-        SearchCriteria<StoragePoolTagVO> sc = sb.create();
-
-        // search storage tag details by ids
-        Pair<List<StoragePoolTagVO>, Integer> uniqueTagPair = _storageTagDao.searchAndCount(sc, searchFilter);
-        Integer count = uniqueTagPair.second();
-
-        if (count == 0) {
-            return uniqueTagPair;
-        }
-
-        List<StoragePoolTagVO> uniqueTags = uniqueTagPair.first();
-        Long[] vrIds = new Long[uniqueTags.size()];
-        int i = 0;
-
-        for (StoragePoolTagVO v : uniqueTags) {
-            vrIds[i++] = v.getId();
-        }
-
-        List<StoragePoolTagVO> vrs = _storageTagDao.searchByIds(vrIds);
-
-        return new Pair<>(vrs, count);
+    protected Pair<List<StoragePoolTagVO>, Integer> searchForStorageTagsInternal() {
+        return storageAndHostTagQueryService.searchForStorageTagsInternal();
     }
 
     @Override
     public ListResponse<HostTagResponse> searchForHostTags(ListHostTagsCmd cmd) {
-        Pair<List<HostTagVO>, Integer> result = searchForHostTagsInternal();
-        ListResponse<HostTagResponse> response = new ListResponse<>();
-        List<HostTagResponse> tagResponses = ViewResponseHelper.createHostTagResponse(result.first().toArray(new HostTagVO[0]));
-
-        response.setResponses(tagResponses, result.second());
-
-        return response;
+        return storageAndHostTagQueryService.searchForHostTags(cmd);
     }
 
-    private Pair<List<HostTagVO>, Integer> searchForHostTagsInternal() {
-        Filter searchFilter = new Filter(HostTagVO.class, "id", Boolean.TRUE, null, null);
-
-        SearchBuilder<HostTagVO> sb = _hostTagDao.createSearchBuilder();
-
-        sb.select(null, Func.DISTINCT, sb.entity().getId()); // select distinct
-
-        SearchCriteria<HostTagVO> sc = sb.create();
-
-        // search host tag details by ids
-        Pair<List<HostTagVO>, Integer> uniqueTagPair = _hostTagDao.searchAndCount(sc, searchFilter);
-        Integer count = uniqueTagPair.second();
-
-        if (count == 0) {
-            return uniqueTagPair;
-        }
-
-        List<HostTagVO> uniqueTags = uniqueTagPair.first();
-        Long[] vrIds = new Long[uniqueTags.size()];
-        int i = 0;
-
-        for (HostTagVO v : uniqueTags) {
-            vrIds[i++] = v.getId();
-        }
-
-        List<HostTagVO> vrs = _hostTagDao.searchByIds(vrIds);
-
-        return new Pair<>(vrs, count);
+    protected Pair<List<HostTagVO>, Integer> searchForHostTagsInternal() {
+        return storageAndHostTagQueryService.searchForHostTagsInternal();
     }
 
     @Override
