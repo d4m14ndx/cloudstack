@@ -16,7 +16,6 @@
 // under the License.
 package com.cloud.resource;
 
-import static com.cloud.configuration.ConfigurationManagerImpl.MIGRATE_VM_ACROSS_CLUSTERS;
 import static com.cloud.configuration.ConfigurationManagerImpl.SET_HOST_DOWN_TO_MAINTENANCE;
 
 import java.net.URI;
@@ -121,10 +120,6 @@ import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.DataCenterIpAddressDao;
 import com.cloud.dc.dao.DedicatedResourceDao;
 import com.cloud.dc.dao.HostPodDao;
-import com.cloud.deploy.DataCenterDeployment;
-import com.cloud.deploy.DeployDestination;
-import com.cloud.deploy.DeploymentPlanner;
-import com.cloud.deploy.DeploymentPlanningManager;
 import com.cloud.deploy.PlannerHostReservationVO;
 import com.cloud.deploy.dao.PlannerHostReservationDao;
 import com.cloud.event.ActionEvent;
@@ -133,10 +128,8 @@ import com.cloud.event.EventTypes;
 import com.cloud.event.EventVO;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.DiscoveryException;
-import com.cloud.exception.InsufficientServerCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
-import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.exception.StorageConflictException;
 import com.cloud.exception.StorageUnavailableException;
 import com.cloud.gpu.GPU;
@@ -211,8 +204,6 @@ import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
 import com.cloud.vm.VirtualMachineManager;
-import com.cloud.vm.VirtualMachineProfile;
-import com.cloud.vm.VirtualMachineProfileImpl;
 import com.cloud.vm.VmDetailConstants;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
@@ -264,8 +255,6 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @Inject
     private IPAddressDao _publicIPAddressDao;
     @Inject
-    private DeploymentPlanningManager deploymentManager;
-    @Inject
     private VirtualMachineManager _vmMgr;
     @Inject
     private VMInstanceDao _vmDao;
@@ -291,6 +280,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private HostLookupService hostLookupService;
     @Inject
     private HostAgentSshService hostAgentSshService;
+    @Inject
+    private HostMaintenanceService hostMaintenanceService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -1456,16 +1447,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     private void handleVmForLastHostOrWithVGpu(final HostVO host, final VMInstanceVO vm) {
-        // Migration is not supported for VGPU Vms so stop them.
-        // for the last host in this cluster, destroy SSVM/CPVM and stop all other VMs
-        if (VirtualMachine.Type.SecondaryStorageVm.equals(vm.getType())
-                || VirtualMachine.Type.ConsoleProxy.equals(vm.getType())) {
-            logger.error("Maintenance: VM is of type {}. Destroying VM {} immediately instead of migration.", vm.getType(), vm);
-            _haMgr.scheduleDestroy(vm, host.getId(), HighAvailabilityManager.ReasonType.HostMaintenance);
-            return;
-        }
-        logger.error("Maintenance: No hosts available for migrations. Scheduling shutdown for VM {} instead of migration.", vm);
-        _haMgr.scheduleStop(vm, host.getId(), WorkType.ForceStop);
+        hostMaintenanceService.handleVmForLastHostOrWithVGpu(host, vm);
     }
 
     private boolean doMaintain(final long hostId) {
@@ -1545,74 +1527,14 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     private boolean isClusterWideMigrationPossible(Host host, List<VMInstanceVO> vms, List<HostVO> hosts) {
-        if (MIGRATE_VM_ACROSS_CLUSTERS.valueIn(host.getDataCenterId())) {
-            DataCenterVO zone = _dcDao.findById(host.getDataCenterId());
-            logger.info("Looking for hosts across different clusters in zone: {}", zone);
-            Long podId = null;
-            for (final VMInstanceVO vm : vms) {
-                if (VirtualMachine.systemVMs.contains(vm.getType())) {
-                    // SystemVMs can only be migrated to same pod
-                    podId = host.getPodId();
-                    break;
-                }
-            }
-            hosts.addAll(listAllUpAndEnabledHosts(Host.Type.Routing, null, podId, host.getDataCenterId()));
-            if (CollectionUtils.isEmpty(hosts)) {
-                logger.warn("Unable to find a host for vm migration in zone: {}", zone);
-                return false;
-            }
-            logger.info("Found hosts in the zone for vm migration: " + hosts);
-            if (HypervisorType.VMware.equals(host.getHypervisorType())) {
-                logger.debug("Skipping pool check of volumes on VMware environment because across-cluster vm migration is supported by vMotion");
-                return true;
-            }
-            // Don't migrate vm if it has volumes on cluster-wide pool
-            for (final VMInstanceVO vm : vms) {
-                if (_vmMgr.checkIfVmHasClusterWideVolumes(vm.getId())) {
-                    logger.warn(String.format("VM %s cannot be migrated across cluster as it has volumes on cluster-wide pool", vm));
-                    return false;
-                }
-            }
-        } else {
-            logger.warn(String.format("VMs cannot be migrated across cluster since %s is false for zone ID: %d", MIGRATE_VM_ACROSS_CLUSTERS.key(), host.getDataCenterId()));
-            return false;
-        }
-        return true;
-   }
+        return hostMaintenanceService.isClusterWideMigrationPossible(host, vms, hosts);
+    }
 
     /**
      * Looks for Hosts able to allocate the VM and migrates the VM with its volume.
      */
     private void migrateAwayVmWithVolumes(HostVO host, VMInstanceVO vm) {
-        final DataCenterDeployment plan = new DataCenterDeployment(host.getDataCenterId(), host.getPodId(), host.getClusterId(), null, null, null);
-        ServiceOfferingVO offeringVO = serviceOfferingDao.findById(vm.getServiceOfferingId());
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm, null, offeringVO, null, null);
-        plan.setMigrationPlan(true);
-        DeployDestination dest = getDeployDestination(vm, profile, plan, host);
-        Host destHost = dest.getHost();
-
-        try {
-            _vmMgr.migrateWithStorage(vm.getUuid(), host.getId(), destHost.getId(), null);
-        } catch (ResourceUnavailableException e) {
-            throw new CloudRuntimeException(String.format("Maintenance failed, could not migrate VM (%s) with local storage from host (%s) to host (%s).",
-                            vm, host, destHost), e);
-        }
-    }
-
-    private DeployDestination getDeployDestination(VMInstanceVO vm, VirtualMachineProfile profile, DataCenterDeployment plan, HostVO hostToAvoid) {
-        DeployDestination dest;
-        DeploymentPlanner.ExcludeList avoids = new DeploymentPlanner.ExcludeList();
-        avoids.addHost(hostToAvoid.getId());
-        try {
-            dest = deploymentManager.planDeployment(profile, plan, avoids, null);
-        } catch (InsufficientServerCapacityException e) {
-            throw new CloudRuntimeException(String.format("Maintenance failed, could not find deployment destination for VM [id=%s, name=%s].", vm.getId(), vm.getInstanceName()),
-                    e);
-        }
-        if (dest == null) {
-            throw new CloudRuntimeException(String.format("Maintenance failed, could not find deployment destination for VM [id=%s, name=%s], using plan: %s.", vm.getId(), vm.getInstanceName(), plan));
-        }
-        return dest;
+        hostMaintenanceService.migrateAwayVmWithVolumes(host, vm);
     }
 
     @Override
@@ -1691,25 +1613,18 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     }
 
     protected boolean isMaintenanceLocalStrategyMigrate() {
-        if(StringUtils.isBlank(HOST_MAINTENANCE_LOCAL_STRATEGY.value())) {
-            return false;
-        }
-        return HOST_MAINTENANCE_LOCAL_STRATEGY.value().equalsIgnoreCase(WorkType.Migration.toString());
+        return hostMaintenanceService.isMaintenanceLocalStrategyMigrate();
     }
 
     protected boolean isMaintenanceLocalStrategyForceStop() {
-        if(StringUtils.isBlank(HOST_MAINTENANCE_LOCAL_STRATEGY.value())) {
-            return false;
-        }
-        return HOST_MAINTENANCE_LOCAL_STRATEGY.value().equalsIgnoreCase(WorkType.ForceStop.toString());
+        return hostMaintenanceService.isMaintenanceLocalStrategyForceStop();
     }
 
     /**
      * Returns true if the host.maintenance.local.storage.strategy is the Default: "Error", blank, empty, or null.
      */
     protected boolean isMaintenanceLocalStrategyDefault() {
-        return StringUtils.isBlank(HOST_MAINTENANCE_LOCAL_STRATEGY.value())
-                || HOST_MAINTENANCE_LOCAL_STRATEGY.value().equalsIgnoreCase(State.Error.toString());
+        return hostMaintenanceService.isMaintenanceLocalStrategyDefault();
     }
 
     /**
@@ -1752,18 +1667,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
      * This method assumes that the host is Degraded; therefore it schedule VMs to be re-started by the HA manager.
      */
     private void scheduleVmsRestart(Host host) {
-        List<VMInstanceVO> allVmsOnHost = _vmDao.listByHostId(host.getId());
-        if (CollectionUtils.isEmpty(allVmsOnHost)) {
-            logger.debug("Host ({}) was marked as Degraded with no allocated VMs, no need to schedule VM restart", host);
-        }
-
-        logger.debug("Host ({}) was marked as Degraded with a total of {} allocated VMs. Triggering HA to start VMs that have HA enabled.", host, allVmsOnHost.size());
-        for (VMInstanceVO vm : allVmsOnHost) {
-            State vmState = vm.getState();
-            if (vmState == State.Starting || vmState == State.Running || vmState == State.Stopping) {
-                _haMgr.scheduleRestart(vm, false, HighAvailabilityManager.ReasonType.HostDegraded);
-            }
-        }
+        hostMaintenanceService.scheduleVmsRestart(host);
     }
 
     /**

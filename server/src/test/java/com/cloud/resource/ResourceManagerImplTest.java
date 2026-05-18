@@ -139,6 +139,15 @@ public class ResourceManagerImplTest {
     @Spy
     private HostAgentSshServiceImpl hostAgentSshService = new HostAgentSshServiceImpl();
 
+    /**
+     * Real {@link HostMaintenanceServiceImpl} wired with the same mocks so
+     * the maintenance-state-machine tests continue to exercise the real
+     * helper logic (local-storage strategy checks, scheduleVmsRestart,
+     * etc.) that now lives in the slice.
+     */
+    @Spy
+    private HostMaintenanceServiceImpl hostMaintenanceService = new HostMaintenanceServiceImpl();
+
     @Spy
     @InjectMocks
     private ResourceManagerImpl resourceManager = new ResourceManagerImpl();
@@ -210,6 +219,17 @@ public class ResourceManagerImplTest {
         Field sshSliceField = ResourceManagerImpl.class.getDeclaredField("hostAgentSshService");
         sshSliceField.setAccessible(true);
         sshSliceField.set(resourceManager, hostAgentSshService);
+
+        hostMaintenanceService.dataCenterDao = dcDao;
+        hostMaintenanceService.haManager = haManager;
+        hostMaintenanceService.vmInstanceDao = vmInstanceDao;
+        hostMaintenanceService.vmManager = Mockito.mock(com.cloud.vm.VirtualMachineManager.class);
+        hostMaintenanceService.serviceOfferingDao = Mockito.mock(com.cloud.service.dao.ServiceOfferingDao.class);
+        hostMaintenanceService.deploymentManager = Mockito.mock(com.cloud.deploy.DeploymentPlanningManager.class);
+        hostMaintenanceService.hostLookupService = Mockito.mock(HostLookupService.class);
+        Field maintenanceSliceField = ResourceManagerImpl.class.getDeclaredField("hostMaintenanceService");
+        maintenanceSliceField.setAccessible(true);
+        maintenanceSliceField.set(resourceManager, hostMaintenanceService);
         when(host.getType()).thenReturn(Host.Type.Routing);
         when(host.getId()).thenReturn(hostId);
         when(host.getResourceState()).thenReturn(ResourceState.Enabled);
