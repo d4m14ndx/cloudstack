@@ -20,7 +20,6 @@ import static com.cloud.configuration.ConfigurationManagerImpl.SET_HOST_DOWN_TO_
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -61,15 +60,11 @@ import org.apache.cloudstack.api.command.admin.host.UpdateHostPasswordCmd;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
-import org.apache.cloudstack.extension.Extension;
-import org.apache.cloudstack.extension.ExtensionResourceMap;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.extensions.dao.ExtensionDao;
 import org.apache.cloudstack.framework.extensions.dao.ExtensionResourceMapDao;
 import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
-import org.apache.cloudstack.framework.extensions.vo.ExtensionResourceMapVO;
-import org.apache.cloudstack.framework.extensions.vo.ExtensionVO;
 import org.apache.cloudstack.gpu.GpuService;
 import org.apache.cloudstack.jsinterpreter.JsInterpreterHelper;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -97,18 +92,15 @@ import com.cloud.agent.api.to.GPUDeviceTO;
 import com.cloud.agent.transport.Request;
 import com.cloud.alert.AlertManager;
 import com.cloud.capacity.Capacity;
-import com.cloud.capacity.CapacityManager;
 import com.cloud.capacity.CapacityState;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.cluster.ClusterManager;
-import com.cloud.configuration.Config;
 import com.cloud.cpu.CPU;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterDetailsVO;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
-import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterIpAddressVO;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.DedicatedResourceVO;
@@ -156,7 +148,6 @@ import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.org.Cluster;
 import com.cloud.org.Grouping;
-import com.cloud.org.Managed;
 import com.cloud.serializer.GsonHelper;
 import com.cloud.server.ManagementService;
 import com.cloud.service.ServiceOfferingVO;
@@ -177,7 +168,6 @@ import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
-import com.cloud.utils.Pair;
 import com.cloud.utils.StringUtils;
 import com.cloud.utils.Ternary;
 import com.cloud.utils.UriUtils;
@@ -210,7 +200,7 @@ import com.cloud.vm.dao.VMInstanceDetailsDao;
 import com.google.gson.Gson;
 
 @Component
-public class ResourceManagerImpl extends ManagerBase implements ResourceManager, ResourceService, Manager {
+public class ResourceManagerImpl extends ManagerBase implements ResourceManager, ResourceService, Manager, ClusterLifecycleCallbacks {
 
     Gson _gson;
 
@@ -282,6 +272,8 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     private HostAgentSshService hostAgentSshService;
     @Inject
     private HostMaintenanceService hostMaintenanceService;
+    @Inject
+    protected ClusterLifecycleService clusterLifecycleService;
     @Inject
     ManagementService managementService;
     @Inject
@@ -427,208 +419,7 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @DB
     @Override
     public List<? extends Cluster> discoverCluster(final AddClusterCmd cmd) throws IllegalArgumentException, DiscoveryException {
-        final long dcId = cmd.getZoneId();
-        final long podId = cmd.getPodId();
-        final String clusterName = cmd.getClusterName();
-        String url = cmd.getUrl();
-        final String username = cmd.getUsername();
-        final String password = cmd.getPassword();
-        CPU.CPUArch arch = cmd.getArch();
-        final Long extensionId = cmd.getExtensionId();
-        final Map<String, String> externalDetails = cmd.getExternalDetails();
-
-        if (url != null) {
-            url = URLDecoder.decode(url, com.cloud.utils.StringUtils.getPreferredCharset());
-        }
-
-        URI uri;
-
-        // Check if the zone exists in the system
-        final DataCenterVO zone = _dcDao.findById(dcId);
-        if (zone == null) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Can't find zone by the id specified");
-            ex.addProxyObject(String.valueOf(dcId), "dcId");
-            throw ex;
-        }
-
-        final Account account = CallContext.current().getCallingAccount();
-        if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(account.getId())) {
-            final PermissionDeniedException ex = new PermissionDeniedException("Cannot perform this operation, Zone with specified id is currently disabled");
-            ex.addProxyObject(zone.getUuid(), "dcId");
-            throw ex;
-        }
-
-        final HostPodVO pod = _podDao.findById(podId);
-
-        // Check if the pod exists in the system
-        if (_podDao.findById(podId) == null) {
-            throw new InvalidParameterValueException("Can't find pod by id " + podId);
-        }
-        // check if pod belongs to the zone
-        if (!Long.valueOf(pod.getDataCenterId()).equals(dcId)) {
-            final InvalidParameterValueException ex = new InvalidParameterValueException(String.format("Pod with specified id doesn't belong to the zone %s", zone));
-            ex.addProxyObject(pod.getUuid(), "podId");
-            ex.addProxyObject(zone.getUuid(), "dcId");
-            throw ex;
-        }
-
-        // Verify cluster information and create a new cluster if needed
-        if (clusterName == null || clusterName.isEmpty()) {
-            throw new InvalidParameterValueException("Please specify cluster name");
-        }
-
-        if (cmd.getHypervisor() == null || cmd.getHypervisor().isEmpty()) {
-            throw new InvalidParameterValueException("Please specify a hypervisor");
-        }
-
-        final Hypervisor.HypervisorType hypervisorType = Hypervisor.HypervisorType.getType(cmd.getHypervisor());
-        if (hypervisorType == null) {
-            logger.error("Unable to resolve " + cmd.getHypervisor() + " to a valid supported hypervisor type");
-            throw new InvalidParameterValueException("Unable to resolve " + cmd.getHypervisor() + " to a supported ");
-        }
-
-        if (zone.isSecurityGroupEnabled() && zone.getNetworkType().equals(NetworkType.Advanced)) {
-            if (hypervisorType != HypervisorType.KVM && hypervisorType != HypervisorType.XenServer
-                    && hypervisorType != HypervisorType.LXC && hypervisorType != HypervisorType.Simulator) {
-                throw new InvalidParameterValueException("Don't support hypervisor type " + hypervisorType + " in advanced security enabled zone");
-            }
-        }
-
-        if (!HypervisorType.External.equals(hypervisorType) && extensionId != null) {
-            throw new InvalidParameterValueException("Extension can be specified only for External hypervisor type");
-        }
-
-        ExtensionVO extension = null;
-        if (extensionId != null) {
-            extension = extensionDao.findById(extensionId);
-            if (extension == null || !Extension.Type.Orchestrator.equals(extension.getType())) {
-                throw new InvalidParameterValueException("Invalid extension specified");
-            }
-        }
-
-        if (MapUtils.isNotEmpty(externalDetails) && extension == null) {
-            throw new InvalidParameterValueException("External details can be specified only with extension");
-        }
-
-        Cluster.ClusterType clusterType = null;
-        if (cmd.getClusterType() != null && !cmd.getClusterType().isEmpty()) {
-            clusterType = Cluster.ClusterType.valueOf(cmd.getClusterType());
-        }
-        if (clusterType == null) {
-            clusterType = Cluster.ClusterType.CloudManaged;
-        }
-
-        Grouping.AllocationState allocationState = null;
-        if (cmd.getAllocationState() != null && !cmd.getAllocationState().isEmpty()) {
-            try {
-                allocationState = Grouping.AllocationState.valueOf(cmd.getAllocationState());
-            } catch (final IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("Unable to resolve Allocation State '" + cmd.getAllocationState() + "' to a supported state");
-            }
-        }
-        if (allocationState == null) {
-            allocationState = Grouping.AllocationState.Enabled;
-        }
-
-        final Discoverer discoverer = getMatchingDiscover(hypervisorType);
-        if (discoverer == null) {
-
-            throw new InvalidParameterValueException("Could not find corresponding resource manager for " + cmd.getHypervisor());
-        }
-
-        if (hypervisorType == HypervisorType.VMware) {
-            final Map<String, String> allParams = cmd.getFullUrlParams();
-            discoverer.putParam(allParams);
-        }
-
-        final List<ClusterVO> result = new ArrayList<>();
-
-        ClusterVO cluster = new ClusterVO(dcId, podId, clusterName);
-        cluster.setHypervisorType(hypervisorType.toString());
-
-        cluster.setClusterType(clusterType);
-        cluster.setAllocationState(allocationState);
-        cluster.setArch(arch.getType());
-        List<String> storageAccessGroups = cmd.getStorageAccessGroups();
-        if (CollectionUtils.isNotEmpty(storageAccessGroups)) {
-            cluster.setStorageAccessGroups(String.join(",", storageAccessGroups));
-        }
-
-        try {
-            cluster = _clusterDao.persist(cluster);
-        } catch (final Exception e) {
-            // no longer tolerate exception during the cluster creation phase
-            final CloudRuntimeException ex = new CloudRuntimeException("Unable to create cluster " + clusterName + " in pod and data center with specified ids", e);
-            // Get the pod VO object's table name.
-            ex.addProxyObject(pod.getUuid(), "podId");
-            ex.addProxyObject(zone.getUuid(), "dcId");
-            throw ex;
-        }
-        result.add(cluster);
-
-        if (clusterType == Cluster.ClusterType.CloudManaged) {
-            final Map<String, String> details = new HashMap<>();
-            details.put(VmDetailConstants.CPU_OVER_COMMIT_RATIO, CapacityManager.CpuOverprovisioningFactor.value().toString());
-            details.put(VmDetailConstants.MEMORY_OVER_COMMIT_RATIO, CapacityManager.MemOverprovisioningFactor.value().toString());
-            _clusterDetailsDao.persist(cluster.getId(), details);
-            if (HypervisorType.External.equals(cluster.getHypervisorType()) && extension != null) {
-                extensionsManager.registerExtensionWithCluster(cluster, extension, externalDetails);
-            }
-            return result;
-        }
-
-        // save cluster details for later cluster/host cross-checking
-        final Map<String, String> details = new HashMap<>();
-        details.put("url", url);
-        details.put("username", StringUtils.defaultString(username));
-        details.put("password", StringUtils.defaultString(password));
-        details.put(VmDetailConstants.CPU_OVER_COMMIT_RATIO, CapacityManager.CpuOverprovisioningFactor.value().toString());
-        details.put(VmDetailConstants.MEMORY_OVER_COMMIT_RATIO, CapacityManager.MemOverprovisioningFactor.value().toString());
-        _clusterDetailsDao.persist(cluster.getId(), details);
-
-        boolean success = false;
-        try {
-            try {
-                uri = new URI(UriUtils.encodeURIComponent(url));
-                if (uri.getScheme() == null) {
-                    throw new InvalidParameterValueException("uri.scheme is null " + url + ", add http:// as a prefix");
-                } else if (uri.getScheme().equalsIgnoreCase("http")) {
-                    if (uri.getHost() == null || uri.getHost().equalsIgnoreCase("") || uri.getPath() == null || uri.getPath().equalsIgnoreCase("")) {
-                        throw new InvalidParameterValueException("Your host and/or path is wrong.  Make sure it's of the format http://hostname/path");
-                    }
-                }
-            } catch (final URISyntaxException e) {
-                throw new InvalidParameterValueException(url + " is not a valid uri");
-            }
-
-            final List<HostVO> hosts = new ArrayList<>();
-            Map<? extends ServerResource, Map<String, String>> resources;
-            resources = discoverer.find(dcId, podId, cluster.getId(), uri, username, password, null);
-
-            if (resources != null) {
-                for (final Map.Entry<? extends ServerResource, Map<String, String>> entry : resources.entrySet()) {
-                    final ServerResource resource = entry.getKey();
-
-                    final HostVO host = (HostVO)createHostAndAgent(resource, entry.getValue(), true, null, null, false);
-                    if (host != null) {
-                        hosts.add(host);
-                    }
-                    discoverer.postDiscovery(hosts, _nodeId);
-                }
-                logger.info("External cluster has been successfully discovered by " + discoverer.getName());
-                success = true;
-                CallContext.current().putContextParameter(Cluster.class, cluster.getUuid());
-                return result;
-            }
-
-            logger.warn("Unable to find the server resources at " + url);
-            throw new DiscoveryException("Unable to add the external cluster");
-        } finally {
-            if (!success) {
-                _clusterDetailsDao.deleteDetails(cluster.getId());
-                _clusterDao.remove(cluster.getId());
-            }
-        }
+        return clusterLifecycleService.discoverCluster(cmd);
     }
 
     @Override
@@ -1149,238 +940,13 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
     @Override
     @DB
     public boolean deleteCluster(final DeleteClusterCmd cmd) {
-        try {
-            Transaction.execute(new TransactionCallbackNoReturn() {
-                @Override
-                public void doInTransactionWithoutResult(final TransactionStatus status) {
-                    final ClusterVO cluster = _clusterDao.lockRow(cmd.getId(), true);
-                    if (cluster == null) {
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Cluster: " + cmd.getId() + " does not even exist.  Delete call is ignored.");
-                        }
-                        throw new CloudRuntimeException("Cluster: " + cmd.getId() + " does not exist");
-                    }
-
-                    final Hypervisor.HypervisorType hypervisorType = cluster.getHypervisorType();
-
-                    final List<Long> hostIds = _hostDao.listIdsByClusterId(cmd.getId());
-                    if (!hostIds.isEmpty()) {
-                        logger.debug("{} still has hosts, can't remove", cluster);
-                        throw new CloudRuntimeException("Cluster: " + cmd.getId() + " cannot be removed. Cluster still has hosts");
-                    }
-
-                    // don't allow to remove the cluster if it has non-removed storage
-                    // pools
-                    final List<StoragePoolVO> storagePools = _storagePoolDao.listPoolsByCluster(cmd.getId());
-                    if (!storagePools.isEmpty()) {
-                        logger.debug("{} still has storage pools, can't remove", cluster);
-                        throw new CloudRuntimeException(String.format("Cluster: %s cannot be removed. Cluster still has storage pools", cluster));
-                    }
-
-                    if (HypervisorType.External.toString().equalsIgnoreCase(cluster.getHypervisorType().toString())) {
-                        ExtensionResourceMapVO registeredExtension =
-                                extensionResourceMapDao.findByResourceIdAndType(cluster.getId(),
-                                        ExtensionResourceMap.ResourceType.Cluster);
-                        if (registeredExtension != null) {
-                            extensionsManager.unregisterExtensionWithCluster(cluster, registeredExtension.getExtensionId());
-                        }
-                    }
-
-                    if (_clusterDao.remove(cmd.getId())) {
-                        _capacityDao.removeBy(null, null, null, cluster.getId(), null);
-                        // If this cluster is of type vmware, and if the nexus vswitch
-                        // global parameter setting is turned
-                        // on, remove the row in cluster_vsm_map for this cluster id.
-                        if (hypervisorType == HypervisorType.VMware && Boolean.parseBoolean(_configDao.getValue(Config.VmwareUseNexusVSwitch.toString()))) {
-                            _clusterVSMMapDao.removeByClusterId(cmd.getId());
-                        }
-                        // remove from dedicated resources
-                        final DedicatedResourceVO dr = _dedicatedDao.findByClusterId(cluster.getId());
-                        if (dr != null) {
-                            _dedicatedDao.remove(dr.getId());
-                        }
-                        // Remove comments (if any)
-                        annotationDao.removeByEntityType(AnnotationService.EntityType.CLUSTER.name(), cluster.getUuid());
-                    }
-
-                }
-            });
-            return true;
-        } catch (final CloudRuntimeException e) {
-            throw e;
-        } catch (final Throwable t) {
-            logger.error("Unable to delete cluster: {}", _clusterDao.findById(cmd.getId()), t);
-            return false;
-        }
+        return clusterLifecycleService.deleteCluster(cmd);
     }
 
     @Override
     @DB
-    public Cluster updateCluster(UpdateClusterCmd cmd) {
-        ClusterVO cluster = (ClusterVO) getCluster(cmd.getId());
-        String clusterType = cmd.getClusterType();
-        String hypervisor = cmd.getHypervisor();
-        String allocationState = cmd.getAllocationState();
-        String managedstate = cmd.getManagedstate();
-        String name = cmd.getClusterName();
-        CPU.CPUArch arch = cmd.getArch();
-        final Map<String, String> externalDetails = cmd.getExternalDetails();
-
-        // Verify cluster information and update the cluster if needed
-        boolean doUpdate = false;
-        Pair<Boolean, ExtensionResourceMap> needDetailsUpdateMapPair =
-                extensionsManager.extensionResourceMapDetailsNeedUpdate(cluster.getId(),
-                ExtensionResourceMap.ResourceType.Cluster, externalDetails);
-        if (Boolean.TRUE.equals(needDetailsUpdateMapPair.first()) && needDetailsUpdateMapPair.second() == null) {
-            throw new InvalidParameterValueException(
-                    String.format("Cluster: %s is not registered with any extension, details cannot be updated",
-                            cluster.getName()));
-        }
-
-        if (StringUtils.isNotBlank(name)) {
-            if(cluster.getHypervisorType() == HypervisorType.VMware) {
-                throw new InvalidParameterValueException("Renaming VMware cluster is not supported as it could cause problems if the updated  cluster name is not mapped on VCenter.");
-            }
-            logger.debug("Updating Cluster name to: " + name);
-            cluster.setName(name);
-            doUpdate = true;
-        }
-
-        if (hypervisor != null && !hypervisor.isEmpty()) {
-            final Hypervisor.HypervisorType hypervisorType = Hypervisor.HypervisorType.getType(hypervisor);
-            if (hypervisorType == null) {
-                logger.error("Unable to resolve " + hypervisor + " to a valid supported hypervisor type");
-                throw new InvalidParameterValueException("Unable to resolve " + hypervisor + " to a supported type");
-            } else {
-                cluster.setHypervisorType(hypervisor);
-                doUpdate = true;
-            }
-        }
-
-        Cluster.ClusterType newClusterType;
-        if (clusterType != null && !clusterType.isEmpty()) {
-            try {
-                newClusterType = Cluster.ClusterType.valueOf(clusterType);
-            } catch (final IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("Unable to resolve " + clusterType + " to a supported type");
-            }
-            if (newClusterType == null) {
-                logger.error("Unable to resolve " + clusterType + " to a valid supported cluster type");
-                throw new InvalidParameterValueException("Unable to resolve " + clusterType + " to a supported type");
-            } else {
-                cluster.setClusterType(newClusterType);
-                doUpdate = true;
-            }
-        }
-
-        Grouping.AllocationState newAllocationState;
-        if (allocationState != null && !allocationState.isEmpty()) {
-            try {
-                newAllocationState = Grouping.AllocationState.valueOf(allocationState);
-            } catch (final IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("Unable to resolve Allocation State '" + allocationState + "' to a supported state");
-            }
-            if (newAllocationState == null) {
-                logger.error("Unable to resolve " + allocationState + " to a valid supported allocation State");
-                throw new InvalidParameterValueException("Unable to resolve " + allocationState + " to a supported state");
-            } else {
-                cluster.setAllocationState(newAllocationState);
-                doUpdate = true;
-            }
-        }
-
-        Managed.ManagedState newManagedState = null;
-        final Managed.ManagedState oldManagedState = cluster.getManagedState();
-        if (managedstate != null && !managedstate.isEmpty()) {
-            try {
-                newManagedState = Managed.ManagedState.valueOf(managedstate);
-            } catch (final IllegalArgumentException ex) {
-                throw new InvalidParameterValueException("Unable to resolve Managed State '" + managedstate + "' to a supported state");
-            }
-            if (newManagedState == null) {
-                logger.error("Unable to resolve Managed State '" + managedstate + "' to a supported state");
-                throw new InvalidParameterValueException("Unable to resolve Managed State '" + managedstate + "' to a supported state");
-            } else {
-                doUpdate = true;
-            }
-        }
-
-        if (arch != null) {
-            List<CPU.CPUArch> architectureTypes = _hostDao.listDistinctArchTypes(cluster.getId());
-            if (architectureTypes.stream().anyMatch(a -> !a.equals(arch))) {
-                throw new InvalidParameterValueException(String.format(
-                        "Cluster has host(s) present with arch type(s): %s",
-                        StringUtils.join(architectureTypes.stream().map(CPU.CPUArch::getType).toArray())));
-            }
-            cluster.setArch(arch.getType());
-            doUpdate = true;
-        }
-
-        if (doUpdate) {
-            _clusterDao.update(cluster.getId(), cluster);
-        }
-
-        if (Boolean.TRUE.equals(needDetailsUpdateMapPair.first())) {
-            ExtensionResourceMap extensionResourceMap = needDetailsUpdateMapPair.second();
-            extensionsManager.updateExtensionResourceMapDetails(extensionResourceMap.getId(), externalDetails);
-        }
-
-        if (newManagedState != null && !newManagedState.equals(oldManagedState)) {
-            if (newManagedState.equals(Managed.ManagedState.Unmanaged)) {
-                boolean success = false;
-                try {
-                    cluster.setManagedState(Managed.ManagedState.PrepareUnmanaged);
-                    _clusterDao.update(cluster.getId(), cluster);
-                    List<HostVO> hosts = listAllHosts(Host.Type.Routing, cluster.getId(), cluster.getPodId(), cluster.getDataCenterId());
-                    for (final HostVO host : hosts) {
-                        if (host.getType().equals(Host.Type.Routing) && !host.getStatus().equals(Status.Down) && !host.getStatus().equals(Status.Disconnected) &&
-                                !host.getStatus().equals(Status.Up) && !host.getStatus().equals(Status.Alert)) {
-                            final String msg = "host " + host.getPrivateIpAddress() + " should not be in " + host.getStatus().toString() + " status";
-                            throw new CloudRuntimeException("PrepareUnmanaged Failed due to " + msg);
-                        }
-                    }
-
-                    for (final HostVO host : hosts) {
-                        if (host.getStatus().equals(Status.Up)) {
-                            umanageHost(host.getId());
-                        }
-                    }
-                    final int retry = 40;
-                    boolean lsuccess;
-                    for (int i = 0; i < retry; i++) {
-                        lsuccess = true;
-                        try {
-                            Thread.sleep(5 * 1000);
-                        } catch (final InterruptedException e) {
-                            logger.debug("thread unexpectedly interrupted during wait, while updating cluster");
-                        }
-                        hosts = listAllUpAndEnabledHosts(Host.Type.Routing, cluster.getId(), cluster.getPodId(), cluster.getDataCenterId());
-                        for (final HostVO host : hosts) {
-                            if (!host.getStatus().equals(Status.Down) && !host.getStatus().equals(Status.Disconnected) && !host.getStatus().equals(Status.Alert)) {
-                                lsuccess = false;
-                                break;
-                            }
-                        }
-                        if (lsuccess) {
-                            success = true;
-                            break;
-                        }
-                    }
-                    if (!success) {
-                        throw new CloudRuntimeException("PrepareUnmanaged Failed due to some hosts are still in UP status after 5 Minutes, please try later ");
-                    }
-                } finally {
-                    cluster.setManagedState(success ? Managed.ManagedState.Unmanaged : Managed.ManagedState.PrepareUnmanagedError);
-                    _clusterDao.update(cluster.getId(), cluster);
-                }
-            } else if (newManagedState.equals(Managed.ManagedState.Managed)) {
-                cluster.setManagedState(Managed.ManagedState.Managed);
-                _clusterDao.update(cluster.getId(), cluster);
-            }
-
-        }
-
-        return _clusterDao.findById(cluster.getId());
+    public Cluster updateCluster(final UpdateClusterCmd cmd) {
+        return clusterLifecycleService.updateCluster(cmd);
     }
 
     @Override
@@ -3801,6 +3367,14 @@ public class ResourceManagerImpl extends ManagerBase implements ResourceManager,
         }
 
         return doUmanageHost(hostId);
+    }
+
+    @Override
+    public Host createHostAndAgentForDiscovery(final ServerResource resource,
+                                               final Map<String, String> details,
+                                               final List<String> hostTags,
+                                               final List<String> storageAccessGroups) {
+        return createHostAndAgent(resource, details, true, hostTags, storageAccessGroups, false);
     }
 
     private boolean doUpdateHostPassword(final long hostId) {
