@@ -17,9 +17,6 @@
 package com.cloud.vm;
 
 import static com.cloud.hypervisor.Hypervisor.HypervisorType.Functionality;
-import static org.apache.cloudstack.api.ApiConstants.MAX_IOPS;
-import static org.apache.cloudstack.api.ApiConstants.MIN_IOPS;
-
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,7 +56,6 @@ import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseCmd.HTTPMethod;
 import org.apache.cloudstack.api.command.admin.vm.AssignVMCmd;
-import org.apache.cloudstack.api.command.admin.vm.CreateVMFromBackupCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.vm.DeployVMCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.vm.RecoverVMCmd;
 import org.apache.cloudstack.api.command.user.vm.AddNicToVMCmd;
@@ -87,8 +83,6 @@ import org.apache.cloudstack.api.command.user.vmgroup.DeleteVMGroupCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.BackupScheduleVO;
-import org.apache.cloudstack.backup.BackupVO;
-import org.apache.cloudstack.backup.dao.BackupDao;
 import org.apache.cloudstack.backup.dao.BackupScheduleDao;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.cloud.entity.api.VirtualMachineEntity;
@@ -351,7 +345,6 @@ import com.cloud.vm.dao.VmStatsDao;
 import com.cloud.vm.snapshot.VMSnapshotManager;
 import com.cloud.vm.snapshot.VMSnapshotVO;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 
@@ -534,9 +527,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private StorageManager storageManager;
     @Inject
     private ServiceOfferingJoinDao serviceOfferingJoinDao;
-    @Inject
-    private BackupDao backupDao;
-    @Inject
     private BackupManager backupManager;
     @Inject
     private AnnotationDao annotationDao;
@@ -592,6 +582,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     protected VmRestoreService vmRestoreService;
     @Inject
     protected VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
+    @Inject
+    protected VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -4620,7 +4612,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
 
         List<Long> networkIds = cmd.getNetworkIds();
-        LinkedHashMap<Integer, Long> userVmNetworkMap = getVmOvfNetworkMapping(zone, owner, template, cmd.getVmNetworkMap());
+        LinkedHashMap<Integer, Long> userVmNetworkMap = getDeployAsIsVmNetworkMapping(zone, owner, template, cmd.getVmNetworkMap());
         if (MapUtils.isNotEmpty(userVmNetworkMap)) {
             networkIds = new ArrayList<>(userVmNetworkMap.values());
         }
@@ -6700,231 +6692,76 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    private void updateDetailsWithRootDiskAttributes(Map<String, String> details, VmDiskInfo rootVmDiskInfo) {
-        details.put(VmDetailConstants.ROOT_DISK_SIZE, rootVmDiskInfo.getSize().toString());
-        if (rootVmDiskInfo.getMinIops() != null) {
-            details.put(MIN_IOPS, rootVmDiskInfo.getMinIops().toString());
-        }
-        if (rootVmDiskInfo.getMaxIops() != null) {
-            details.put(MAX_IOPS, rootVmDiskInfo.getMaxIops().toString());
-        }
-    }
-
-    private void checkRootDiskSizeAgainstBackup(Long instanceVolumeSize,DiskOffering rootDiskOffering, Long backupVolumeSize) {
-        Long instanceRootDiskSize = rootDiskOffering.isCustomized() ? instanceVolumeSize : rootDiskOffering.getDiskSize() / GiB_TO_BYTES;
-        if (instanceRootDiskSize < backupVolumeSize) {
-            throw new InvalidParameterValueException(
-                    String.format("Instance volume root disk size %d[GiB] cannot be less than the backed-up volume size %d[GiB].",
-                            instanceVolumeSize, backupVolumeSize));
-        }
-    }
-
     @Override
     public UserVm allocateVMFromBackup(CreateVMFromBackupCmd cmd) throws InsufficientCapacityException, ResourceAllocationException, ResourceUnavailableException {
-        BackupVO backup = backupDao.findById(cmd.getBackupId());
-        if (backup == null) {
-            throw new InvalidParameterValueException("Backup " + cmd.getBackupId() + " does not exist");
-        }
-        backupManager.validateBackupForZone(backup.getZoneId());
-
-        if (!backupManager.canCreateInstanceFromBackup(cmd.getBackupId())) {
-            throw new CloudRuntimeException("Create instance from backup is not supported for this provider.");
-        }
-
-        DataCenter targetZone = _dcDao.findById(cmd.getZoneId());
-        if (targetZone == null) {
-            throw new InvalidParameterValueException("Unable to find zone by id=" + cmd.getZoneId());
-        }
-
-        if (cmd.getZoneId() != backup.getZoneId() &&
-            !backupManager.canCreateInstanceFromBackupAcrossZones(cmd.getBackupId())) {
-            throw new CloudRuntimeException("Create Instance from Backup on another Zone is not supported by this provider or the Backup Repository.");
-        }
-
-        backupDao.loadDetails(backup);
-        verifyDetails(cmd.getDetails());
-
-        UserVmVO backupVm = _vmDao.findByIdIncludingRemoved(backup.getVmId());
-        HypervisorType hypervisorType = backupVm.getHypervisorType();
-
-        Long serviceOfferingId = cmd.getServiceOfferingId();
-        ServiceOffering serviceOffering;
-        if (serviceOfferingId != null) {
-            serviceOffering = serviceOfferingDao.findById(serviceOfferingId);
-            if (serviceOffering == null) {
-                throw new InvalidParameterValueException("Unable to find service offering: " + serviceOffering.getId());
-            }
-        } else {
-            String serviceOfferingUuid = backup.getDetail(ApiConstants.SERVICE_OFFERING_ID);
-            if (serviceOfferingUuid == null) {
-                throw new CloudRuntimeException("Backup doesn't contain a Service Offering UUID. Please specify a valid Service Offering while creating the Instance");
-            }
-            serviceOffering = serviceOfferingDao.findByUuid(serviceOfferingUuid);
-            if (serviceOffering == null) {
-                throw new CloudRuntimeException("Unable to find Service Offering with the UUID stored in the Backup. Please specify a valid Service Offering while creating the Instance");
-            }
-        }
-        verifyServiceOffering(cmd, serviceOffering);
-
-        VirtualMachineTemplate template;
-        if (cmd.getTemplateId() != null) {
-            Long templateId = cmd.getTemplateId();
-            template = _templateDao.findById(templateId);
-            if (template == null) {
-                throw new InvalidParameterValueException("Unable to use template " + templateId);
-            }
-        } else {
-            String templateUuid = backup.getDetail(ApiConstants.TEMPLATE_ID);
-            if (templateUuid == null) {
-                throw new CloudRuntimeException("Backup doesn't contain a Template UUID. Please specify a valid Template/ISO while creating the Instance");
-            }
-            template = _templateDao.findByUuid(templateUuid);
-            if (template == null) {
-                throw new CloudRuntimeException("Unable to find Template with the UUID stored in the Backup. Please specify a valid Template/ISO while creating the Instance");
-            }
-        }
-        verifyTemplate(cmd, template, serviceOffering.getId());
-
-        Long size = cmd.getSize();
-
-        Long diskOfferingId = cmd.getDiskOfferingId();
-        Boolean isIso = template.getFormat().equals(ImageFormat.ISO);
-        if (diskOfferingId != null) {
-            if (!isIso) {
-                throw new InvalidParameterValueException(ApiConstants.DISK_OFFERING_ID + " parameter is supported for creating instance from backup only for ISO. For creating VMs with templates, please use the parameter " + ApiConstants.DATADISKS_DETAILS);
-            }
-            DiskOffering diskOffering = _diskOfferingDao.findById(diskOfferingId);
-            if (diskOffering == null) {
-                throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
-            }
-            if (diskOffering.isComputeOnly()) {
-                throw new InvalidParameterValueException(String.format("The disk offering %s provided is directly mapped to a service offering, please provide an individual disk offering", diskOffering));
-            }
-        }
-
-        Long overrideDiskOfferingId = cmd.getOverrideDiskOfferingId();
-
-        VmDiskInfo rootVmDiskInfoFromBackup = backupManager.getRootDiskInfoFromBackup(backup);
-
-        if (isIso) {
-            if (diskOfferingId == null) {
-                diskOfferingId = rootVmDiskInfoFromBackup.getDiskOffering().getId();
-                updateDetailsWithRootDiskAttributes(cmd.getDetails(), rootVmDiskInfoFromBackup);
-                size = rootVmDiskInfoFromBackup.getSize();
-            } else {
-                DiskOffering rootDiskOffering = _diskOfferingDao.findById(diskOfferingId);
-                checkRootDiskSizeAgainstBackup(size, rootDiskOffering, rootVmDiskInfoFromBackup.getSize());
-            }
-        } else {
-            if (overrideDiskOfferingId == null) {
-                overrideDiskOfferingId = serviceOffering.getDiskOfferingId();
-                updateDetailsWithRootDiskAttributes(cmd.getDetails(), rootVmDiskInfoFromBackup);
-            } else {
-                DiskOffering overrideDiskOffering = _diskOfferingDao.findById(overrideDiskOfferingId);
-                if (overrideDiskOffering.isComputeOnly()) {
-                    updateDetailsWithRootDiskAttributes(cmd.getDetails(), rootVmDiskInfoFromBackup);
-                } else {
-                    String diskSizeFromDetails = cmd.getDetails().get(VmDetailConstants.ROOT_DISK_SIZE);
-                    Long rootDiskSize = diskSizeFromDetails == null ? null : Long.parseLong(diskSizeFromDetails);
-                    checkRootDiskSizeAgainstBackup(rootDiskSize, overrideDiskOffering, rootVmDiskInfoFromBackup.getSize());
-                }
-            }
-        }
-
-        List<VmDiskInfo> dataDiskInfoList = cmd.getDataDiskInfoList();
-        if (dataDiskInfoList != null) {
-            backupManager.checkVmDisksSizeAgainstBackup(dataDiskInfoList, backup);
-        } else {
-            dataDiskInfoList = backupManager.getDataDiskInfoListFromBackup(backup);
-        }
-
-        List<Long> networkIds = cmd.getNetworkIds();
-        Account owner = _accountService.getActiveAccountById(cmd.getEntityOwnerId());
-        LinkedHashMap<Integer, Long> userVmNetworkMap = getVmOvfNetworkMapping(targetZone, owner, template, cmd.getVmNetworkMap());
-        if (MapUtils.isNotEmpty(userVmNetworkMap)) {
-            networkIds = new ArrayList<>(userVmNetworkMap.values());
-        }
-
-        Map<Long, IpAddresses> ipToNetworkMap = cmd.getIpToNetworkMap();
-        if (networkIds == null && ipToNetworkMap == null) {
-            networkIds = new ArrayList<>();
-            ipToNetworkMap = backupManager.getIpToNetworkMapFromBackup(backup, cmd.getPreserveIp(), networkIds);
-        }
-
-        UserVm vm = createVirtualMachine(cmd, targetZone, owner, serviceOffering, template, hypervisorType, diskOfferingId, size, overrideDiskOfferingId, dataDiskInfoList, networkIds, ipToNetworkMap, null, null);
-
-        String vmSettingsFromBackup = backup.getDetail(ApiConstants.VM_SETTINGS);
-        if (vm != null && vmSettingsFromBackup != null) {
-            UserVmVO vmVO = _vmDao.findById(vm.getId());
-            Map<String, String> details = vmInstanceDetailsDao.listDetailsKeyPairs(vm.getId());
-            vmVO.setDetails(details);
-
-            Type type = new TypeToken<Map<String, String>>(){}.getType();
-            Map<String, String> vmDetailsFromBackup = new Gson().fromJson(vmSettingsFromBackup, type);
-            for (Entry<String, String> entry : vmDetailsFromBackup.entrySet()) {
-                if (!details.containsKey(entry.getKey())) {
-                    vmVO.setDetail(entry.getKey(), entry.getValue());
-                }
-            }
-            _vmDao.saveDetails(vmVO);
-        }
-
-        return vm;
+        return vmBackupInstanceLifecycleService.allocateVMFromBackup(cmd, backupInstanceLifecycleManagerOperations());
     }
 
     @Override
     public UserVm restoreVMFromBackup(CreateVMFromBackupCmd cmd) throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        long vmId = cmd.getEntityId();
-        UserVm vm;
-        Map<Long, DiskOffering> diskOfferingMap = cmd.getDataDiskTemplateToDiskOfferingMap();
-        Map<VirtualMachineProfile.Param, Object> additonalParams = new HashMap<>();
-        additonalParams.put(VirtualMachineProfile.Param.ReturnAfterVolumePrepare, true);
+        return vmBackupInstanceLifecycleService.restoreVMFromBackup(cmd, backupInstanceLifecycleManagerOperations());
+    }
 
-        try {
-            Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> vmParamPair = null;
-            vmParamPair = startVirtualMachine(vmId, null, null, null, additonalParams, null);
-            vm = vmParamPair.first();
-
-            Long isoId = vm.getIsoId();
-            if (isoId != null) {
-                UserVmVO vmVO = _vmDao.findById(vmId);
-                vmVO.setIsoId(null);
-                _vmDao.update(vm.getId(), vmVO);
+    private VmBackupInstanceLifecycleService.ManagerOperations backupInstanceLifecycleManagerOperations() {
+        return new VmBackupInstanceLifecycleService.ManagerOperations() {
+            @Override
+            public void verifyDetails(Map<String, String> details) {
+                UserVmManagerImpl.this.verifyDetails(details);
             }
 
-            backupManager.restoreBackupToVM(cmd.getBackupId(), vmId);
-
-        } catch (CloudRuntimeException | ResourceUnavailableException | ResourceAllocationException | InsufficientCapacityException  e) {
-            UserVmVO vmVO = _vmDao.findById(vmId);
-            try {
-                expunge(vmVO);
-                logger.debug("Successfully cleaned up Instance {} after create Instance from backup failed", vmId);
-            } catch (Exception cleanupException) {
-                logger.debug("Failed to cleanup Instance {} after create Instance from backup failed", vmId, cleanupException);
+            @Override
+            public void verifyServiceOffering(BaseDeployVMCmd cmd, ServiceOffering serviceOffering) {
+                UserVmManagerImpl.this.verifyServiceOffering(cmd, serviceOffering);
             }
-            throw e;
-        }
 
-        Account owner = _accountService.getActiveAccountById(cmd.getEntityOwnerId());
-        UserVmVO userVm = _vmDao.findById(vmId);
-
-        List<String> sshKeyPairNames = cmd.getSSHKeyPairNames();
-        if (sshKeyPairNames != null && !sshKeyPairNames.isEmpty()) {
-            vm = resetVMSSHKeyInternal(userVm, owner, sshKeyPairNames);
-        }
-
-        if (cmd.getStartVm()) {
-            Long podId = null;
-            Long clusterId = null;
-            if (cmd instanceof CreateVMFromBackupCmdByAdmin) {
-                CreateVMFromBackupCmdByAdmin adminCmd = (CreateVMFromBackupCmdByAdmin)cmd;
-                podId = adminCmd.getPodId();
-                clusterId = adminCmd.getClusterId();
+            @Override
+            public void verifyTemplate(BaseDeployVMCmd cmd, VirtualMachineTemplate template, Long serviceOfferingId) {
+                UserVmManagerImpl.this.verifyTemplate(cmd, template, serviceOfferingId);
             }
-            additonalParams.remove(VirtualMachineProfile.Param.ReturnAfterVolumePrepare);
-            vm = startVirtualMachine(vmId, podId, clusterId, cmd.getHostId(), diskOfferingMap, additonalParams, cmd.getDeploymentPlanner());
-        }
-        return vm;
+
+            @Override
+            public UserVm createVirtualMachine(BaseDeployVMCmd cmd, DataCenter zone, Account owner,
+                    ServiceOffering serviceOffering, VirtualMachineTemplate template, HypervisorType hypervisor,
+                    Long diskOfferingId, Long size, Long overrideDiskOfferingId, List<VmDiskInfo> dataDiskInfoList,
+                    List<Long> networkIds, Map<Long, IpAddresses> ipToNetworkMap, Volume volume, Snapshot snapshot)
+                    throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
+                return UserVmManagerImpl.this.createVirtualMachine(cmd, zone, owner, serviceOffering, template, hypervisor,
+                        diskOfferingId, size, overrideDiskOfferingId, dataDiskInfoList, networkIds, ipToNetworkMap, volume, snapshot);
+            }
+
+            @Override
+            public Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> startVirtualMachine(long vmId, Long podId,
+                    Long clusterId, Long hostId, Map<VirtualMachineProfile.Param, Object> additionalParams,
+                    String deploymentPlannerToUse)
+                    throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+                return UserVmManagerImpl.this.startVirtualMachine(vmId, podId, clusterId, hostId, additionalParams, deploymentPlannerToUse);
+            }
+
+            @Override
+            public UserVm startVirtualMachine(long vmId, Long podId, Long clusterId, Long hostId,
+                    Map<Long, DiskOffering> diskOfferingMap, Map<VirtualMachineProfile.Param, Object> additionalParams,
+                    String deploymentPlannerToUse)
+                    throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+                return UserVmManagerImpl.this.startVirtualMachine(vmId, podId, clusterId, hostId, diskOfferingMap, additionalParams, deploymentPlannerToUse);
+            }
+
+            @Override
+            public boolean expunge(UserVmVO vm) {
+                return UserVmManagerImpl.this.expunge(vm);
+            }
+
+            @Override
+            public UserVmVO resetVMSSHKeyInternal(UserVmVO userVm, Account owner, List<String> names)
+                    throws ResourceUnavailableException, InsufficientCapacityException {
+                return UserVmManagerImpl.this.resetVMSSHKeyInternal(userVm, owner, names);
+            }
+
+            @Override
+            public Network getDefaultNetwork(DataCenter zone, Account owner, boolean selectAny)
+                    throws InsufficientCapacityException, ResourceAllocationException {
+                return UserVmManagerImpl.this.getDefaultNetwork(zone, owner, selectAny);
+            }
+        };
     }
 
     /*
@@ -7013,7 +6850,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmVolumeLifecycleValidationService.checkUnmanagingVMVolumes(vm, volumes);
     }
 
-    private LinkedHashMap<Integer, Long> getVmOvfNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
+    private LinkedHashMap<Integer, Long> getDeployAsIsVmNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
         LinkedHashMap<Integer, Long> mapping = new LinkedHashMap<>();
         if (ImageFormat.OVA.equals(template.getFormat())) {
             List<OVFNetworkTO> OVFNetworkTOList =
@@ -7023,7 +6860,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 for (OVFNetworkTO OVFNetworkTO : OVFNetworkTOList) {
                     Long networkId = vmNetworkMapping.get(OVFNetworkTO.getInstanceID());
                     if (networkId == null && lastMappedNetwork == null) {
-                        lastMappedNetwork = getNetworkForOvfNetworkMapping(zone, owner);
+                        lastMappedNetwork = getNetworkForDeployAsIsOvfNetworkMapping(zone, owner);
                     }
                     if (networkId == null) {
                         networkId = lastMappedNetwork.getId();
@@ -7035,7 +6872,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return mapping;
     }
 
-    private Network getNetworkForOvfNetworkMapping(DataCenter zone, Account owner) throws InsufficientCapacityException, ResourceAllocationException {
+    private Network getNetworkForDeployAsIsOvfNetworkMapping(DataCenter zone, Account owner) throws InsufficientCapacityException, ResourceAllocationException {
         Network network = null;
         if (zone.isSecurityGroupEnabled() || _networkModel.isSecurityGroupSupportedForZone(zone.getId())) {
             network = _networkModel.getNetworkWithSGWithFreeIPs(owner, zone.getId());
