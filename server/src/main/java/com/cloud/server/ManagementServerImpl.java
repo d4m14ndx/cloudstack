@@ -709,7 +709,6 @@ import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.host.DetailVO;
 import com.cloud.host.Host;
 import com.cloud.host.Host.Type;
-import com.cloud.host.HostTagVO;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.host.dao.HostDetailsDao;
@@ -920,6 +919,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     protected UserDataRegistryService userDataRegistryService;
     @Inject
     protected SystemVmOperationsService systemVmOperationsService;
+    @Inject
+    protected ClusterHostQueryService clusterHostQueryService;
     @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
@@ -1144,100 +1145,12 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public List<? extends Cluster> searchForClusters(long zoneId, final Long startIndex, final Long pageSizeVal, final String hypervisorType) {
-        final Filter searchFilter = new Filter(ClusterVO.class, "id", true, startIndex, pageSizeVal);
-        final SearchCriteria<ClusterVO> sc = _clusterDao.createSearchCriteria();
-
-        zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), zoneId);
-
-        sc.addAnd("dataCenterId", SearchCriteria.Op.EQ, zoneId);
-        sc.addAnd("hypervisorType", SearchCriteria.Op.EQ, hypervisorType);
-
-        return _clusterDao.search(sc, searchFilter);
+        return clusterHostQueryService.searchForClusters(zoneId, startIndex, pageSizeVal, hypervisorType);
     }
 
     @Override
     public Pair<List<? extends Cluster>, Integer> searchForClusters(final ListClustersCmd cmd) {
-        final Object id = cmd.getId();
-        final Object name = cmd.getClusterName();
-        final Object podId = cmd.getPodId();
-        Long zoneId = cmd.getZoneId();
-        final String hypervisorType = cmd.getHypervisorType();
-        final Object clusterType = cmd.getClusterType();
-        final Object allocationState = cmd.getAllocationState();
-        final String keyword = cmd.getKeyword();
-        final CPU.CPUArch arch = cmd.getArch();
-        final String storageAccessGroup = cmd.getStorageAccessGroup();
-        zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), zoneId);
-
-        final Filter searchFilter = new Filter(ClusterVO.class, "id", true, cmd.getStartIndex(), cmd.getPageSizeVal());
-
-        final SearchBuilder<ClusterVO> sb = _clusterDao.createSearchBuilder();
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("podId", sb.entity().getPodId(), SearchCriteria.Op.EQ);
-        sb.and("dataCenterId", sb.entity().getDataCenterId(), SearchCriteria.Op.EQ);
-        sb.and("hypervisorType", sb.entity().getHypervisorType(), SearchCriteria.Op.EQ);
-        sb.and("clusterType", sb.entity().getClusterType(), SearchCriteria.Op.EQ);
-        sb.and("allocationState", sb.entity().getAllocationState(), SearchCriteria.Op.EQ);
-        sb.and("arch", sb.entity().getArch(), SearchCriteria.Op.EQ);
-        if (storageAccessGroup != null) {
-            sb.and().op("storageAccessGroupExact", sb.entity().getStorageAccessGroups(), SearchCriteria.Op.EQ);
-            sb.or("storageAccessGroupPrefix", sb.entity().getStorageAccessGroups(), SearchCriteria.Op.LIKE);
-            sb.or("storageAccessGroupSuffix", sb.entity().getStorageAccessGroups(), SearchCriteria.Op.LIKE);
-            sb.or("storageAccessGroupMiddle", sb.entity().getStorageAccessGroups(), SearchCriteria.Op.LIKE);
-            sb.cp();
-        }
-
-        final SearchCriteria<ClusterVO> sc = sb.create();
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (name != null) {
-            sc.setParameters("name", name);
-        }
-
-        if (podId != null) {
-            sc.setParameters("podId", podId);
-        }
-
-        if (zoneId != null) {
-            sc.setParameters("dataCenterId", zoneId);
-        }
-
-        if (hypervisorType != null) {
-            String hypervisorSearch = HypervisorType.getType(hypervisorType).toString();
-            sc.setParameters("hypervisorType", hypervisorSearch);
-        }
-
-        if (clusterType != null) {
-            sc.setParameters("clusterType", clusterType);
-        }
-
-        if (allocationState != null) {
-            sc.setParameters("allocationState", allocationState);
-        }
-
-        if (keyword != null) {
-            final SearchCriteria<ClusterVO> ssc = _clusterDao.createSearchCriteria();
-            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("hypervisorType", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (arch != null) {
-            sc.setParameters("arch", arch);
-        }
-
-        if (storageAccessGroup != null) {
-            sc.setParameters("storageAccessGroupExact", storageAccessGroup);
-            sc.setParameters("storageAccessGroupPrefix", storageAccessGroup + ",%");
-            sc.setParameters("storageAccessGroupSuffix", "%," + storageAccessGroup);
-            sc.setParameters("storageAccessGroupMiddle", "%," + storageAccessGroup + ",%");
-        }
-
-        final Pair<List<ClusterVO>, Integer> result = _clusterDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return clusterHostQueryService.searchForClusters(cmd);
     }
 
     private HypervisorType getHypervisorType(VMInstanceVO vm, StoragePool srcVolumePool) {
@@ -1263,21 +1176,7 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public Pair<List<? extends Host>, Integer> searchForServers(final ListHostsCmd cmd) {
-
-        final Long zoneId = _accountMgr.checkAccessAndSpecifyAuthority(CallContext.current().getCallingAccount(), cmd.getZoneId());
-        final Object name = cmd.getHostName();
-        final Object type = cmd.getType();
-        final Object state = cmd.getState();
-        final Object pod = cmd.getPodId();
-        final Object cluster = cmd.getClusterId();
-        final Object id = cmd.getId();
-        final Object keyword = cmd.getKeyword();
-        final Object resourceState = cmd.getResourceState();
-        final Object haHosts = cmd.getHaHost();
-
-        final Pair<List<HostVO>, Integer> result = searchForServers(cmd.getStartIndex(), cmd.getPageSizeVal(), name, type, state, zoneId, pod,
-            cluster, id, keyword, resourceState, haHosts, null, null);
-        return new Pair<>(result.first(), result.second());
+        return clusterHostQueryService.searchForServers(cmd);
     }
 
     protected Pair<Boolean, List<HostVO>> filterUefiHostsForMigration(List<HostVO> allHosts, List<HostVO> filteredHosts, VirtualMachine vm) {
@@ -1925,89 +1824,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     Pair<List<HostVO>, Integer> searchForServers(final Long startIndex, final Long pageSize, final Object name, final Object type,
         final Object state, final Object zone, final Object pod, final Object cluster, final Object id, final Object keyword,
         final Object resourceState, final Object haHosts, final Object hypervisorType, final Object hypervisorVersion, final Object... excludes) {
-        final Filter searchFilter = new Filter(HostVO.class, "id", Boolean.TRUE, startIndex, pageSize);
-
-        final SearchBuilder<HostVO> sb = _hostDao.createSearchBuilder();
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("idsNotIn", sb.entity().getId(), SearchCriteria.Op.NOTIN);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.and("type", sb.entity().getType(), SearchCriteria.Op.LIKE);
-        sb.and("status", sb.entity().getStatus(), SearchCriteria.Op.EQ);
-        sb.and("dataCenterId", sb.entity().getDataCenterId(), SearchCriteria.Op.EQ);
-        sb.and("podId", sb.entity().getPodId(), SearchCriteria.Op.EQ);
-        sb.and("clusterId", sb.entity().getClusterId(), SearchCriteria.Op.EQ);
-        sb.and("resourceState", sb.entity().getResourceState(), SearchCriteria.Op.EQ);
-        sb.and("hypervisorType", sb.entity().getHypervisorType(), SearchCriteria.Op.EQ);
-        sb.and("hypervisorVersion", sb.entity().getHypervisorVersion(), SearchCriteria.Op.GTEQ);
-
-        final String haTag = _haMgr.getHaTag();
-        SearchBuilder<HostTagVO> hostTagSearch;
-        if (haHosts != null && StringUtils.isNotEmpty(haTag)) {
-            hostTagSearch = _hostTagsDao.createSearchBuilder();
-            if ((Boolean)haHosts) {
-                hostTagSearch.and().op("tag", hostTagSearch.entity().getTag(), SearchCriteria.Op.EQ);
-            } else {
-                hostTagSearch.and().op("tag", hostTagSearch.entity().getTag(), SearchCriteria.Op.NEQ);
-                hostTagSearch.or("tagNull", hostTagSearch.entity().getTag(), SearchCriteria.Op.NULL);
-            }
-
-            hostTagSearch.cp();
-            sb.join("hostTagSearch", hostTagSearch, sb.entity().getId(), hostTagSearch.entity().getHostId(), JoinBuilder.JoinType.LEFTOUTER);
-        }
-
-        final SearchCriteria<HostVO> sc = sb.create();
-
-        if (keyword != null) {
-            final SearchCriteria<HostVO> ssc = _hostDao.createSearchCriteria();
-            ssc.addOr("name", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("status", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-            ssc.addOr("type", SearchCriteria.Op.LIKE, "%" + keyword + "%");
-
-            sc.addAnd("name", SearchCriteria.Op.SC, ssc);
-        }
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (excludes != null && excludes.length > 0) {
-            sc.setParameters("idsNotIn", excludes);
-        }
-
-        if (name != null) {
-            sc.setParameters("name", name);
-        }
-        if (type != null) {
-            sc.setParameters("type", "%" + type);
-        }
-        if (state != null) {
-            sc.setParameters("status", state);
-        }
-        if (zone != null) {
-            sc.setParameters("dataCenterId", zone);
-        }
-        if (pod != null) {
-            sc.setParameters("podId", pod);
-        }
-        if (cluster != null) {
-            sc.setParameters("clusterId", cluster);
-        }
-        if (hypervisorType != null) {
-            sc.setParameters("hypervisorType", hypervisorType);
-        }
-        if (hypervisorVersion != null) {
-            sc.setParameters("hypervisorVersion", hypervisorVersion);
-        }
-
-        if (resourceState != null) {
-            sc.setParameters("resourceState", resourceState);
-        }
-
-        if (haHosts != null && StringUtils.isNotEmpty(haTag)) {
-            sc.setJoinParameters("hostTagSearch", "tag", haTag);
-        }
-
-        return _hostDao.searchAndCount(sc, searchFilter);
+        return clusterHostQueryService.searchForServers(startIndex, pageSize, name, type, state, zone, pod, cluster, id, keyword, resourceState,
+                haHosts, hypervisorType, hypervisorVersion, excludes);
     }
 
     @Override
