@@ -95,6 +95,7 @@ import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
+import com.cloud.storage.StoragePool;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.storage.dao.GuestOSHypervisorDao;
@@ -197,6 +198,9 @@ public class ManagementServerImplTest {
 
     @Mock
     ClusterHostQueryService clusterHostQueryService;
+
+    @Mock
+    VolumeStoragePoolMigrationService volumeStoragePoolMigrationService;
 
     @Mock
     IPAddressDao publicIpAddressDao;
@@ -352,6 +356,7 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(guestOsManagementService, "templateDao", templateDao);
         ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
         ReflectionTestUtils.setField(spy, "clusterHostQueryService", clusterHostQueryService);
+        ReflectionTestUtils.setField(spy, "volumeStoragePoolMigrationService", volumeStoragePoolMigrationService);
 
         PublicIpAddressSearchServiceImpl publicIpAddressSearchService = new PublicIpAddressSearchServiceImpl();
         ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountMgr", accountManager);
@@ -1067,5 +1072,48 @@ public class ManagementServerImplTest {
         Assert.assertSame(expected, result);
         Mockito.verify(clusterHostQueryService).searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
                 "Enabled", Boolean.TRUE, "KVM", "8.0", 99L);
+    }
+
+    @Test
+    public void listStoragePoolsForMigrationOfVolumeWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForMigrationOfVolume(11L, "fast")).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForMigrationOfVolume(11L, "fast");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForMigrationOfVolume(11L, "fast");
+    }
+
+    @Test
+    public void listStoragePoolsForSystemMigrationOfVolumeWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForSystemMigrationOfVolume(
+                11L, 22L, 33L, 44L, 55L, true, false)).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForSystemMigrationOfVolume(11L, 22L, 33L, 44L, 55L, true, false);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForSystemMigrationOfVolume(
+                11L, 22L, 33L, 44L, 55L, true, false);
+    }
+
+    @Test
+    public void listStoragePoolsForMigrationOfVolumeInternalWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForMigrationOfVolumeInternal(
+                11L, 22L, 33L, 44L, 55L, true, false, true, "fast")).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForMigrationOfVolumeInternal(11L, 22L, 33L, 44L, 55L, true, false, true, "fast");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForMigrationOfVolumeInternal(
+                11L, 22L, 33L, 44L, 55L, true, false, true, "fast");
     }
 }
