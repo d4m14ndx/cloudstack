@@ -32,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -136,7 +135,6 @@ import com.cloud.network.Network.Event;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
-import com.cloud.network.NetworkMigrationResponder;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.NetworkProfile;
 import com.cloud.network.NetworkService;
@@ -446,6 +444,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NicProfileMtuService nicProfileMtuService;
     @Inject
     NicImportService nicImportService;
+    @Inject
+    NicMigrationService nicMigrationService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -2209,47 +2209,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public void prepareNicForMigration(final VirtualMachineProfile vm, final DeployDestination dest) {
-        if (vm.getType().equals(VirtualMachine.Type.DomainRouter) && (vm.getHypervisorType().equals(HypervisorType.KVM) || vm.getHypervisorType().equals(HypervisorType.VMware))) {
-            //Include nics hot plugged and not stored in DB
-            prepareAllNicsForMigration(vm, dest);
-            return;
-        }
-        final List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        final ReservationContext context = new ReservationContextImpl(UUID.randomUUID().toString(), null, null);
-        for (final NicVO nic : nics) {
-            final NetworkVO network = _networksDao.findById(nic.getNetworkId());
-            final Integer networkRate = _networkModel.getNetworkRate(network.getId(), vm.getId());
-
-            final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-            final NicProfile profile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), networkRate, _networkModel.isSecurityGroupSupportedInNetwork(network),
-                    _networkModel.getNetworkTag(vm.getHypervisorType(), network));
-            if (guru instanceof NetworkMigrationResponder) {
-                if (!((NetworkMigrationResponder) guru).prepareMigration(profile, network, vm, dest, context)) {
-                    logger.error("NetworkGuru {} prepareForMigration failed.", guru); // XXX: Transaction error
-                }
-            }
-
-            if (network.getGuestType() == Network.GuestType.L2 && vm.getType() == VirtualMachine.Type.User) {
-                _userVmMgr.setupVmForPvlan(false, vm.getVirtualMachine().getHostId(), profile);
-            }
-
-            final List<Provider> providersToImplement = getNetworkProviders(network.getId());
-            for (final NetworkElement element : networkElements) {
-                if (providersToImplement.contains(element.getProvider())) {
-                    if (!_networkModel.isProviderEnabledInPhysicalNetwork(_networkModel.getPhysicalNetworkId(network), element.getProvider().getName())) {
-                        throw new CloudRuntimeException("Service provider " + element.getProvider().getName() + " either doesn't exist or is not enabled in physical network id: "
-                                + network.getPhysicalNetworkId());
-                    }
-                    if (element instanceof NetworkMigrationResponder) {
-                        if (!((NetworkMigrationResponder) element).prepareMigration(profile, network, vm, dest, context)) {
-                            logger.error("NetworkElement {} prepareForMigration failed.", element); // XXX: Transaction error
-                        }
-                    }
-                }
-            }
-            guru.updateNicProfile(profile, network);
-            vm.addNic(profile);
-        }
+        nicMigrationService.prepareNicForMigration(vm, dest);
     }
 
     /*
@@ -2259,155 +2219,17 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
      */
     @Override
     public void prepareAllNicsForMigration(final VirtualMachineProfile vm, final DeployDestination dest) {
-        final List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        final ReservationContext context = new ReservationContextImpl(UUID.randomUUID().toString(), null, null);
-        Long guestNetworkId = null;
-        for (final NicVO nic : nics) {
-            final NetworkVO network = _networksDao.findById(nic.getNetworkId());
-            if (network.getTrafficType().equals(TrafficType.Guest) && network.getGuestType().equals(GuestType.Isolated)) {
-                guestNetworkId = network.getId();
-            }
-            final Integer networkRate = _networkModel.getNetworkRate(network.getId(), vm.getId());
-
-            final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-            final NicProfile profile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), networkRate,
-                    _networkModel.isSecurityGroupSupportedInNetwork(network), _networkModel.getNetworkTag(vm.getHypervisorType(), network));
-            if (guru instanceof NetworkMigrationResponder) {
-                if (!((NetworkMigrationResponder) guru).prepareMigration(profile, network, vm, dest, context)) {
-                    logger.error("NetworkGuru {} prepareForMigration failed.", guru); // XXX: Transaction error
-                }
-            }
-            final List<Provider> providersToImplement = getNetworkProviders(network.getId());
-            for (final NetworkElement element : networkElements) {
-                if (providersToImplement.contains(element.getProvider())) {
-                    if (!_networkModel.isProviderEnabledInPhysicalNetwork(_networkModel.getPhysicalNetworkId(network), element.getProvider().getName())) {
-                        throw new CloudRuntimeException(String.format("Service provider %s either doesn't exist or is not enabled in physical network: %s",
-                                element.getProvider().getName(), _physicalNetworkDao.findById(network.getPhysicalNetworkId())));
-                    }
-                    if (element instanceof NetworkMigrationResponder) {
-                        if (!((NetworkMigrationResponder) element).prepareMigration(profile, network, vm, dest, context)) {
-                            logger.error("NetworkElement {} prepareForMigration failed.", element); // XXX: Transaction error
-                        }
-                    }
-                }
-            }
-            guru.updateNicProfile(profile, network);
-            vm.addNic(profile);
-        }
-
-        final List<String> addedURIs = new ArrayList<>();
-        if (guestNetworkId != null) {
-            final List<IPAddressVO> publicIps = _ipAddressDao.listByAssociatedNetwork(guestNetworkId, null);
-            for (final IPAddressVO userIp : publicIps) {
-                final PublicIp publicIp = PublicIp.createFromAddrAndVlan(userIp, _vlanDao.findById(userIp.getVlanId()));
-                final URI broadcastUri = BroadcastDomainType.Vlan.toUri(publicIp.getVlanTag());
-                final long ntwkId = publicIp.getNetworkId();
-                final Nic nic = _nicDao.findByNetworkIdInstanceIdAndBroadcastUri(ntwkId, vm.getId(),
-                        broadcastUri.toString());
-                if (nic == null && !addedURIs.contains(broadcastUri.toString())) {
-                    //Nic details are not available in DB
-                    //Create nic profile for migration
-                    final NetworkVO network = _networksDao.findById(ntwkId);
-                    final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-                    final NicProfile profile = new NicProfile();
-                    logger.debug("Creating NIC profile for migration. BroadcastUri: {} NetworkId: {} Instance: {}", broadcastUri.toString(), network, vm);
-                    profile.setDeviceId(255); //dummyId
-                    profile.setIPv4Address(userIp.getAddress().toString());
-                    profile.setIPv4Netmask(publicIp.getNetmask());
-                    profile.setIPv4Gateway(publicIp.getGateway());
-                    profile.setMacAddress(publicIp.getMacAddress());
-                    profile.setBroadcastType(network.getBroadcastDomainType());
-                    profile.setTrafficType(network.getTrafficType());
-                    profile.setBroadcastUri(broadcastUri);
-                    profile.setIsolationUri(Networks.IsolationType.Vlan.toUri(publicIp.getVlanTag()));
-                    profile.setSecurityGroupEnabled(_networkModel.isSecurityGroupSupportedInNetwork(network));
-                    profile.setName(_networkModel.getNetworkTag(vm.getHypervisorType(), network));
-                    profile.setNetworkRate(_networkModel.getNetworkRate(network.getId(), vm.getId()));
-                    profile.setNetworkId(network.getId());
-
-                    guru.updateNicProfile(profile, network);
-                    vm.addNic(profile);
-                    addedURIs.add(broadcastUri.toString());
-                }
-            }
-        }
-    }
-
-    private NicProfile findNicProfileById(final VirtualMachineProfile vm, final long id) {
-        for (final NicProfile nic : vm.getNics()) {
-            if (nic.getId() == id) {
-                return nic;
-            }
-        }
-        return null;
+        nicMigrationService.prepareAllNicsForMigration(vm, dest);
     }
 
     @Override
     public void commitNicForMigration(final VirtualMachineProfile src, final VirtualMachineProfile dst) {
-        for (final NicProfile nicSrc : src.getNics()) {
-            final NetworkVO network = _networksDao.findById(nicSrc.getNetworkId());
-            final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-            final NicProfile nicDst = findNicProfileById(dst, nicSrc.getId());
-            final ReservationContext src_context = new ReservationContextImpl(nicSrc.getReservationId(), null, null);
-            final ReservationContext dst_context = new ReservationContextImpl(nicDst.getReservationId(), null, null);
-
-            if (guru instanceof NetworkMigrationResponder) {
-                ((NetworkMigrationResponder) guru).commitMigration(nicSrc, network, src, src_context, dst_context);
-            }
-
-            if (network.getGuestType() == Network.GuestType.L2 && src.getType() == VirtualMachine.Type.User) {
-                _userVmMgr.setupVmForPvlan(true, src.getVirtualMachine().getHostId(), nicSrc);
-            }
-
-            final List<Provider> providersToImplement = getNetworkProviders(network.getId());
-            for (final NetworkElement element : networkElements) {
-                if (providersToImplement.contains(element.getProvider())) {
-                    if (!_networkModel.isProviderEnabledInPhysicalNetwork(_networkModel.getPhysicalNetworkId(network), element.getProvider().getName())) {
-                        throw new CloudRuntimeException("Service provider " + element.getProvider().getName() + " either doesn't exist or is not enabled in physical network id: "
-                                + network.getPhysicalNetworkId());
-                    }
-                    if (element instanceof NetworkMigrationResponder) {
-                        ((NetworkMigrationResponder) element).commitMigration(nicSrc, network, src, src_context, dst_context);
-                    }
-                }
-            }
-            // update the reservation id
-            final NicVO nicVo = _nicDao.findById(nicDst.getId());
-            nicVo.setReservationId(nicDst.getReservationId());
-            _nicDao.persist(nicVo);
-        }
+        nicMigrationService.commitNicForMigration(src, dst);
     }
 
     @Override
     public void rollbackNicForMigration(final VirtualMachineProfile src, final VirtualMachineProfile dst) {
-        for (final NicProfile nicDst : dst.getNics()) {
-            final NetworkVO network = _networksDao.findById(nicDst.getNetworkId());
-            final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-            final NicProfile nicSrc = findNicProfileById(src, nicDst.getId());
-            final ReservationContext src_context = new ReservationContextImpl(nicSrc.getReservationId(), null, null);
-            final ReservationContext dst_context = new ReservationContextImpl(nicDst.getReservationId(), null, null);
-
-            if (guru instanceof NetworkMigrationResponder) {
-                ((NetworkMigrationResponder) guru).rollbackMigration(nicDst, network, dst, src_context, dst_context);
-            }
-
-            if (network.getGuestType() == Network.GuestType.L2 && src.getType() == VirtualMachine.Type.User) {
-                _userVmMgr.setupVmForPvlan(true, dst.getVirtualMachine().getHostId(), nicDst);
-            }
-
-            final List<Provider> providersToImplement = getNetworkProviders(network.getId());
-            for (final NetworkElement element : networkElements) {
-                if (providersToImplement.contains(element.getProvider())) {
-                    if (!_networkModel.isProviderEnabledInPhysicalNetwork(_networkModel.getPhysicalNetworkId(network), element.getProvider().getName())) {
-                        throw new CloudRuntimeException("Service provider " + element.getProvider().getName() + " either doesn't exist or is not enabled in physical network id: "
-                                + network.getPhysicalNetworkId());
-                    }
-                    if (element instanceof NetworkMigrationResponder) {
-                        ((NetworkMigrationResponder) element).rollbackMigration(nicDst, network, dst, src_context, dst_context);
-                    }
-                }
-            }
-        }
+        nicMigrationService.rollbackNicForMigration(src, dst);
     }
 
     @Override
