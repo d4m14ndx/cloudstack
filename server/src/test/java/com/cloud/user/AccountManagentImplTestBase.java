@@ -340,6 +340,20 @@ public class AccountManagentImplTestBase {
         userAuthenticationService.setAllowedLoginAttempts(5);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userAuthenticationService",
                 userAuthenticationService);
+        // Phase 4 slice (9th): wire AccountStateServiceImpl so AccountManagerImpl's
+        // delegating wrappers for account/user state transitions still exercise the
+        // extracted real logic while the legacy spy-based AccountManagerImplTest
+        // suite keeps observing the same outer orchestration in the god class.
+        AccountStateServiceImpl accountStateService = new AccountStateServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "vmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "itMgr", _itMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "hostDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "hostDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "accountManager", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountStateService", accountStateService);
         CallContext.register(callingUser, callingAccount);
     }
 

@@ -125,11 +125,9 @@ import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEvent;
 import com.cloud.event.ActionEvents;
 import com.cloud.event.EventTypes;
-import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.CloudTwoFactorAuthenticationException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InvalidParameterValueException;
-import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.host.dao.HostDao;
@@ -236,6 +234,8 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     protected AccountOwnerResolverService accountOwnerResolverService;
     @Inject
     protected UserAuthenticationService userAuthenticationService;
+    @Inject
+    protected AccountStateService accountStateService;
     @Inject
     private ConfigurationDao _configDao;
     @Inject
@@ -865,41 +865,13 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
         userAuthenticationService.updateLoginAttempts(id, attempts, toDisable);
     }
 
-    private boolean doSetUserStatus(long userId, State state) {
-        UserVO userForUpdate = _userDao.createForUpdate();
-        userForUpdate.setState(state);
-        return _userDao.update(userId, userForUpdate);
-    }
-
     @Override
     public boolean enableAccount(long accountId) {
-        boolean success = false;
-        AccountVO acctForUpdate = _accountDao.createForUpdate();
-        acctForUpdate.setState(State.ENABLED);
-        acctForUpdate.setNeedsCleanup(false);
-        success = _accountDao.update(accountId, acctForUpdate);
-        return success;
+        return accountStateService.enableAccount(accountId);
     }
 
     protected boolean lockAccount(long accountId) {
-        boolean success = false;
-        Account account = _accountDao.findById(accountId);
-        if (account != null) {
-            if (account.getState().equals(State.LOCKED)) {
-                return true; // already locked, no-op
-            } else if (account.getState().equals(State.ENABLED)) {
-                AccountVO acctForUpdate = _accountDao.createForUpdate();
-                acctForUpdate.setState(State.LOCKED);
-                success = _accountDao.update(accountId, acctForUpdate);
-            } else {
-                if (logger.isInfoEnabled()) {
-                    logger.info("Attempting to lock a non-enabled account {}, current state is {}, locking failed.", account, account.getState());
-                }
-            }
-        } else {
-            logger.warn("Failed to lock account " + accountId + ", account not found.");
-        }
-        return success;
+        return accountStateService.lockAccount(accountId);
     }
 
     @Override
@@ -1247,59 +1219,7 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
 
     @Override
     public boolean disableAccount(long accountId) throws ConcurrentOperationException, ResourceUnavailableException {
-        boolean success = false;
-        if (accountId <= 2) {
-            if (logger.isInfoEnabled()) {
-                logger.info("disableAccount -- invalid account id: " + accountId);
-            }
-            return false;
-        }
-
-        AccountVO account = _accountDao.findById(accountId);
-        if ((account == null) || (account.getState().equals(State.DISABLED) && !account.getNeedsCleanup())) {
-            success = true;
-        } else {
-            AccountVO acctForUpdate = _accountDao.createForUpdate();
-            acctForUpdate.setState(State.DISABLED);
-            success = _accountDao.update(accountId, acctForUpdate);
-
-            if (success) {
-                boolean disableAccountResult = false;
-                try {
-                    disableAccountResult = doDisableAccount(accountId);
-                } finally {
-                    if (!disableAccountResult) {
-                        logger.warn("Failed to disable account " + account + " resources as a part of disableAccount call, marking the account for cleanup");
-                        _accountDao.markForCleanup(accountId);
-                    } else {
-                        acctForUpdate = _accountDao.createForUpdate();
-                        account.setNeedsCleanup(false);
-                        _accountDao.update(accountId, account);
-                    }
-                }
-            }
-        }
-        return success;
-    }
-
-    private boolean doDisableAccount(long accountId) throws ConcurrentOperationException, ResourceUnavailableException {
-        List<VMInstanceVO> vms = _vmDao.listByAccountId(accountId);
-        boolean success = true;
-        for (VMInstanceVO vm : vms) {
-            try {
-                try {
-                    _itMgr.advanceStop(vm.getUuid(), false);
-                } catch (OperationTimedoutException ote) {
-                    logger.warn("Operation for stopping vm timed out, unable to stop vm {}", vm, ote);
-                    success = false;
-                }
-            } catch (AgentUnavailableException aue) {
-                logger.warn("Agent running on host {} is unavailable, unable to stop vm {}", () -> hostDao.findById(vm.getHostId()), vm::toString, () -> aue);
-                success = false;
-            }
-        }
-
-        return success;
+        return accountStateService.disableAccount(accountId);
     }
 
     @Override
@@ -1871,164 +1791,20 @@ public class AccountManagerImpl extends ManagerBase implements AccountManager, M
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_USER_DISABLE, eventDescription = "disabling User", async = true)
     public UserAccount disableUser(long userId) {
-        Account caller = getCurrentCallingAccount();
-
-        // Check if user exists in the system
-        User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find active user by id " + userId);
-        }
-
-        Account account = _accountDao.findById(user.getAccountId());
-        if (account == null) {
-            throw new InvalidParameterValueException("unable to find user account " + user.getAccountId());
-        }
-
-        // don't allow disabling user belonging to project's account
-        if (account.getType() == Account.Type.PROJECT) {
-            throw new InvalidParameterValueException(String.format("Unable to find active user %s", user));
-        }
-
-        // If the user is a System user, return an error
-        if (account.getId() == Account.ACCOUNT_ID_SYSTEM) {
-            throw new InvalidParameterValueException(String.format("User: %s is a system user, disabling is not allowed", user));
-        }
-
-        checkAccess(caller, AccessType.OperateEntry, true, account);
-        verifyCallerPrivilegeForUserOrAccountOperations(user);
-
-        boolean success = doSetUserStatus(userId, State.DISABLED);
-        if (success) {
-
-            CallContext.current().putContextParameter(User.class, user.getUuid());
-
-            // user successfully disabled
-            return userAccountDao.findById(userId);
-        } else {
-            throw new CloudRuntimeException(String.format("Unable to disable user %s", user));
-        }
+        return accountStateService.disableUser(userId);
     }
 
     @Override
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_USER_ENABLE, eventDescription = "enabling User")
     public UserAccount enableUser(final long userId) {
-
-        Account caller = getCurrentCallingAccount();
-
-        // Check if user exists in the system
-        final User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find active user by id " + userId);
-        }
-
-        Account account = _accountDao.findById(user.getAccountId());
-        if (account == null) {
-            throw new InvalidParameterValueException("unable to find user account " + user.getAccountId());
-        }
-
-        if (account.getType() == Account.Type.PROJECT) {
-            throw new InvalidParameterValueException(String.format("Unable to find active user %s", user));
-        }
-
-        // If the user is a System user, return an error
-        if (account.getId() == Account.ACCOUNT_ID_SYSTEM) {
-            throw new InvalidParameterValueException(String.format("User: %s is a system user, enabling is not allowed", user));
-        }
-
-        checkAccess(caller, AccessType.OperateEntry, true, account);
-        verifyCallerPrivilegeForUserOrAccountOperations(user);
-
-        boolean success = Transaction.execute(new TransactionCallback<>() {
-            @Override
-            public Boolean doInTransaction(TransactionStatus status) {
-                boolean success = doSetUserStatus(userId, State.ENABLED);
-
-                // make sure the account is enabled too
-                success = success && enableAccount(user.getAccountId());
-
-                return success;
-            }
-        });
-
-        if (success) {
-            // whenever the user is successfully enabled, reset the login attempts to zero
-            updateLoginAttempts(userId, 0, false);
-
-            CallContext.current().putContextParameter(User.class, user.getUuid());
-
-            return userAccountDao.findById(userId);
-        } else {
-            throw new CloudRuntimeException(String.format("Unable to enable user %s", user));
-        }
+        return accountStateService.enableUser(userId);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_USER_LOCK, eventDescription = "locking User")
     public UserAccount lockUser(long userId) {
-        Account caller = getCurrentCallingAccount();
-
-        // Check if user with id exists in the system
-        User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find user by id");
-        }
-
-        Account account = _accountDao.findById(user.getAccountId());
-        if (account == null) {
-            throw new InvalidParameterValueException("unable to find user account " + user.getAccountId());
-        }
-
-        // don't allow to lock user of the account of type Project
-        if (account.getType() == Account.Type.PROJECT) {
-            throw new InvalidParameterValueException("Unable to find user by id");
-        }
-
-        // If the user is a System user, return an error. We do not allow this
-        if (account.getId() == Account.ACCOUNT_ID_SYSTEM) {
-            throw new PermissionDeniedException(String.format("user: %s is a system user, locking is not allowed", user));
-        }
-
-        checkAccess(caller, AccessType.OperateEntry, true, account);
-        verifyCallerPrivilegeForUserOrAccountOperations(user);
-
-        // make sure the account is enabled too
-        // if the user is either locked already or disabled already, don't change state...only lock currently enabled
-        // users
-        boolean success;
-        if (user.getState().equals(State.LOCKED)) {
-            // already locked...no-op
-            return userAccountDao.findById(userId);
-        } else if (user.getState().equals(State.ENABLED)) {
-            success = doSetUserStatus(user.getId(), State.LOCKED);
-
-            boolean lockAccount = true;
-            List<UserVO> allUsersByAccount = _userDao.listByAccount(user.getAccountId());
-            for (UserVO oneUser : allUsersByAccount) {
-                if (oneUser.getState().equals(State.ENABLED)) {
-                    lockAccount = false;
-                    break;
-                }
-            }
-
-            if (lockAccount) {
-                success = (success && lockAccount(user.getAccountId()));
-            }
-        } else {
-            if (logger.isInfoEnabled()) {
-                logger.info("Attempting to lock a non-enabled user {}, current state is {}, locking failed.", user, user.getState());
-            }
-            success = false;
-        }
-
-        if (success) {
-
-            CallContext.current().putContextParameter(User.class, user.getUuid());
-
-            return userAccountDao.findById(userId);
-        } else {
-            throw new CloudRuntimeException(String.format("Unable to lock user %s", user));
-        }
+        return accountStateService.lockUser(userId);
     }
 
     @Override
