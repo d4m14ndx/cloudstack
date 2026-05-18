@@ -36,7 +36,9 @@ import java.util.stream.Collectors;
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ResponseObject;
+import org.apache.cloudstack.api.command.admin.host.ListHostTagsCmd;
 import org.apache.cloudstack.api.command.admin.storage.ListObjectStoragePoolsCmd;
+import org.apache.cloudstack.api.command.admin.storage.ListStorageTagsCmd;
 import org.apache.cloudstack.api.command.admin.user.ListUsersCmd;
 import org.apache.cloudstack.api.command.admin.vm.ListAffectedVmsForStorageScopeChangeCmd;
 import org.apache.cloudstack.api.command.user.account.ListAccountsCmd;
@@ -50,9 +52,11 @@ import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DetailOptionsResponse;
 import org.apache.cloudstack.api.response.EventResponse;
 import org.apache.cloudstack.api.response.HostResponse;
+import org.apache.cloudstack.api.response.HostTagResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
+import org.apache.cloudstack.api.response.StorageTagResponse;
 import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.VirtualMachineResponse;
 import org.apache.cloudstack.context.CallContext;
@@ -90,6 +94,7 @@ import com.cloud.event.dao.EventDao;
 import com.cloud.event.dao.EventJoinDao;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
+import com.cloud.host.HostTagVO;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
@@ -99,6 +104,7 @@ import com.cloud.network.dao.NetworkVO;
 import com.cloud.server.ResourceTag;
 import com.cloud.storage.BucketVO;
 import com.cloud.storage.ScopeType;
+import com.cloud.storage.StoragePoolTagVO;
 import com.cloud.storage.dao.BucketDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
@@ -196,6 +202,9 @@ public class QueryManagerImplTest {
     @Mock
     AccountQueryService accountQueryService;
 
+    @Mock
+    StorageAndHostTagQueryService storageAndHostTagQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -252,6 +261,9 @@ public class QueryManagerImplTest {
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "accountQueryService", accountQueryService);
         ReflectionTestUtils.setField(queryManager, "accountQueryService", accountQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "storageAndHostTagQueryService", storageAndHostTagQueryService);
+        ReflectionTestUtils.setField(queryManager, "storageAndHostTagQueryService", storageAndHostTagQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -582,6 +594,52 @@ public class QueryManagerImplTest {
 
         Assert.assertSame(expected, actual);
         verify(diskOfferingQueryService).searchForDiskOfferings(cmd);
+    }
+
+    @Test
+    public void searchForStorageTagsDelegatesToStorageAndHostTagQueryService() {
+        ListStorageTagsCmd cmd = mock(ListStorageTagsCmd.class);
+        ListResponse<StorageTagResponse> expected = new ListResponse<>();
+        when(storageAndHostTagQueryService.searchForStorageTags(cmd)).thenReturn(expected);
+
+        ListResponse<StorageTagResponse> actual = queryManager.searchForStorageTags(cmd);
+
+        Assert.assertSame(expected, actual);
+        verify(storageAndHostTagQueryService).searchForStorageTags(cmd);
+    }
+
+    @Test
+    public void searchForStorageTagsInternalDelegatesToStorageAndHostTagQueryService() {
+        Pair<List<StoragePoolTagVO>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        when(storageAndHostTagQueryService.searchForStorageTagsInternal()).thenReturn(expected);
+
+        Pair<List<StoragePoolTagVO>, Integer> actual = queryManagerImplSpy.searchForStorageTagsInternal();
+
+        Assert.assertSame(expected, actual);
+        verify(storageAndHostTagQueryService).searchForStorageTagsInternal();
+    }
+
+    @Test
+    public void searchForHostTagsDelegatesToStorageAndHostTagQueryService() {
+        ListHostTagsCmd cmd = mock(ListHostTagsCmd.class);
+        ListResponse<HostTagResponse> expected = new ListResponse<>();
+        when(storageAndHostTagQueryService.searchForHostTags(cmd)).thenReturn(expected);
+
+        ListResponse<HostTagResponse> actual = queryManager.searchForHostTags(cmd);
+
+        Assert.assertSame(expected, actual);
+        verify(storageAndHostTagQueryService).searchForHostTags(cmd);
+    }
+
+    @Test
+    public void searchForHostTagsInternalDelegatesToStorageAndHostTagQueryService() {
+        Pair<List<HostTagVO>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        when(storageAndHostTagQueryService.searchForHostTagsInternal()).thenReturn(expected);
+
+        Pair<List<HostTagVO>, Integer> actual = queryManagerImplSpy.searchForHostTagsInternal();
+
+        Assert.assertSame(expected, actual);
+        verify(storageAndHostTagQueryService).searchForHostTagsInternal();
     }
 
     @Test
