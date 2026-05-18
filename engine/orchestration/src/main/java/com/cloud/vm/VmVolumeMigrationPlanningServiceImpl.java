@@ -94,16 +94,13 @@ public class VmVolumeMigrationPlanningServiceImpl implements VmVolumeMigrationPl
     @Override
     public Map<Volume, StoragePool> createMappingVolumeAndStoragePool(VirtualMachineProfile profile, Host targetHost,
             Map<Long, Long> userDefinedMapOfVolumesAndStoragePools) {
-        return createMappingVolumeAndStoragePoolInternal(profile,
+        return createMappingVolumeAndStoragePool(profile,
                 new DataCenterDeployment(targetHost.getDataCenterId(), targetHost.getPodId(), targetHost.getClusterId(), targetHost.getId(), null, null),
                 userDefinedMapOfVolumesAndStoragePools);
     }
 
-    // -------------------------------------------------------------------------
-    // Internal helpers (package-private so unit tests can exercise directly)
-    // -------------------------------------------------------------------------
-
-    Map<Volume, StoragePool> createMappingVolumeAndStoragePoolInternal(final VirtualMachineProfile profile, final DataCenterDeployment plan,
+    @Override
+    public Map<Volume, StoragePool> createMappingVolumeAndStoragePool(final VirtualMachineProfile profile, final DataCenterDeployment plan,
             final Map<Long, Long> userDefinedMapOfVolumesAndStoragePools) {
         Host targetHost = null;
         if (plan.getHostId() != null) {

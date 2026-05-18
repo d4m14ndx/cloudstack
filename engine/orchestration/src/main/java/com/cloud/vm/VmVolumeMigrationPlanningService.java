@@ -19,6 +19,7 @@ package com.cloud.vm;
 
 import java.util.Map;
 
+import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.host.Host;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.Volume;
@@ -41,5 +42,8 @@ public interface VmVolumeMigrationPlanningService {
      * @return complete volume → storage-pool mapping for all VM volumes
      */
     Map<Volume, StoragePool> createMappingVolumeAndStoragePool(VirtualMachineProfile profile, Host targetHost,
+            Map<Long, Long> userDefinedMapOfVolumesAndStoragePools);
+
+    Map<Volume, StoragePool> createMappingVolumeAndStoragePool(VirtualMachineProfile profile, DataCenterDeployment plan,
             Map<Long, Long> userDefinedMapOfVolumesAndStoragePools);
 }
