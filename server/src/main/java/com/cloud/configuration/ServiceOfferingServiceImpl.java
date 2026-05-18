@@ -104,7 +104,7 @@ import org.apache.cloudstack.utils.jsinterpreter.TagAsRuleHelper;
 /**
  * Service-offering CRUD — extracted from {@link ConfigurationManagerImpl}.
  *
- * <p>Holds local copies of the inner write path ({@code persistServiceOffering},
+ * <p>Holds the inner write path ({@code createServiceOffering(userId, ...)},
  * {@code createDiskOfferingInternal}), the rate / cache-mode / tag validators,
  * and the lease / vGPU / extra-config helpers so this slice has no
  * back-reference into the manager. {@link ConfigurationManagerImpl} retains
@@ -352,7 +352,7 @@ public class ServiceOfferingServiceImpl implements ServiceOfferingService {
         final Long vgpuProfileId = cmd.getVgpuProfileId();
         Integer gpuCount = validateVgpuProfileAndGetGpuCount(vgpuProfileId, cmd.getGpuCount());
 
-        return persistServiceOffering(userId, cmd.isSystem(), vmType, cmd.getServiceOfferingName(), cpuNumber, memory, cpuSpeed, cmd.getDisplayText(),
+        return createServiceOffering(userId, cmd.isSystem(), vmType, cmd.getServiceOfferingName(), cpuNumber, memory, cpuSpeed, cmd.getDisplayText(),
                 cmd.getProvisioningType(), localStorageRequired, offerHA, limitCpuUse, volatileVm, cmd.getTags(), cmd.getDomainIds(), cmd.getZoneIds(), cmd.getHostTag(),
                 cmd.getNetworkRate(), cmd.getDeploymentPlanner(), details, cmd.getRootDiskSize(), isCustomizedIops, cmd.getMinIops(), cmd.getMaxIops(),
                 cmd.getBytesReadRate(), cmd.getBytesReadRateMax(), cmd.getBytesReadRateMaxLength(),
@@ -656,21 +656,21 @@ public class ServiceOfferingServiceImpl implements ServiceOfferingService {
     // ------------------------------------------------------------------
 
     /**
-     * Inner persistence path for {@code createServiceOffering(cmd)}. Mirrors
-     * the protected {@code createServiceOffering(userId, ...)} on the manager
-     * (which is still called from {@code cloneServiceOffering}).
+     * Inner persistence path for {@code createServiceOffering(cmd)} and the
+     * manager's protected clone-compatible wrapper.
      */
-    protected ServiceOfferingVO persistServiceOffering(final long userId, final boolean isSystem, final VirtualMachine.Type vmType,
-                                                       final String name, final Integer cpu, final Integer ramSize, final Integer speed, final String displayText, final String provisioningType, final boolean localStorageRequired,
-                                                       final boolean offerHA, final boolean limitResourceUse, final boolean volatileVm, String tags, final List<Long> domainIds, List<Long> zoneIds, final String hostTag,
-                                                       final Integer networkRate, final String deploymentPlanner, final Map<String, String> details, Long rootDiskSizeInGiB, final Boolean isCustomizedIops, Long minIops, Long maxIops,
-                                                       Long bytesReadRate, Long bytesReadRateMax, Long bytesReadRateMaxLength,
-                                                       Long bytesWriteRate, Long bytesWriteRateMax, Long bytesWriteRateMaxLength,
-                                                       Long iopsReadRate, Long iopsReadRateMax, Long iopsReadRateMaxLength,
-                                                       Long iopsWriteRate, Long iopsWriteRateMax, Long iopsWriteRateMaxLength,
-                                                       final Integer hypervisorSnapshotReserve, String cacheMode, final Long storagePolicyID,
-                                                       final boolean dynamicScalingEnabled, final Long diskOfferingId, final boolean diskOfferingStrictness,
-                                                       final boolean isCustomized, final boolean encryptRoot, Long vgpuProfileId, Integer gpuCount, Boolean gpuDisplay, final boolean purgeResources, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
+    @Override
+    public ServiceOfferingVO createServiceOffering(final long userId, final boolean isSystem, final VirtualMachine.Type vmType,
+                                                   final String name, final Integer cpu, final Integer ramSize, final Integer speed, final String displayText, final String provisioningType, final boolean localStorageRequired,
+                                                   final boolean offerHA, final boolean limitResourceUse, final boolean volatileVm, String tags, final List<Long> domainIds, List<Long> zoneIds, final String hostTag,
+                                                   final Integer networkRate, final String deploymentPlanner, final Map<String, String> details, Long rootDiskSizeInGiB, final Boolean isCustomizedIops, Long minIops, Long maxIops,
+                                                   Long bytesReadRate, Long bytesReadRateMax, Long bytesReadRateMaxLength,
+                                                   Long bytesWriteRate, Long bytesWriteRateMax, Long bytesWriteRateMaxLength,
+                                                   Long iopsReadRate, Long iopsReadRateMax, Long iopsReadRateMaxLength,
+                                                   Long iopsWriteRate, Long iopsWriteRateMax, Long iopsWriteRateMaxLength,
+                                                   final Integer hypervisorSnapshotReserve, String cacheMode, final Long storagePolicyID,
+                                                   final boolean dynamicScalingEnabled, final Long diskOfferingId, final boolean diskOfferingStrictness,
+                                                   final boolean isCustomized, final boolean encryptRoot, Long vgpuProfileId, Integer gpuCount, Boolean gpuDisplay, final boolean purgeResources, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
 
         // Filter child domains when both parent and child domains are present
         List<Long> filteredDomainIds = domainHelper.filterChildSubDomains(domainIds);
@@ -871,14 +871,15 @@ public class ServiceOfferingServiceImpl implements ServiceOfferingService {
         diskOffering.setHypervisorSnapshotReserve(hypervisorSnapshotReserve);
 
         if ((diskOffering = _diskOfferingDao.persist(diskOffering)) != null) {
-            if ((details != null && !details.isEmpty()) || (storagePolicyID != null)) {
+            Map<String, String> diskDetails = details == null ? Collections.emptyMap() : details;
+            if (!diskDetails.isEmpty() || storagePolicyID != null) {
                 List<DiskOfferingDetailVO> diskDetailsVO = new ArrayList<>();
                 // Support disk offering details for below parameters
-                if (details.containsKey(Volume.BANDWIDTH_LIMIT_IN_MBPS)) {
-                    diskDetailsVO.add(new DiskOfferingDetailVO(diskOffering.getId(), Volume.BANDWIDTH_LIMIT_IN_MBPS, details.get(Volume.BANDWIDTH_LIMIT_IN_MBPS), false));
+                if (diskDetails.containsKey(Volume.BANDWIDTH_LIMIT_IN_MBPS)) {
+                    diskDetailsVO.add(new DiskOfferingDetailVO(diskOffering.getId(), Volume.BANDWIDTH_LIMIT_IN_MBPS, diskDetails.get(Volume.BANDWIDTH_LIMIT_IN_MBPS), false));
                 }
-                if (details.containsKey(Volume.IOPS_LIMIT)) {
-                    diskDetailsVO.add(new DiskOfferingDetailVO(diskOffering.getId(), Volume.IOPS_LIMIT, details.get(Volume.IOPS_LIMIT), false));
+                if (diskDetails.containsKey(Volume.IOPS_LIMIT)) {
+                    diskDetailsVO.add(new DiskOfferingDetailVO(diskOffering.getId(), Volume.IOPS_LIMIT, diskDetails.get(Volume.IOPS_LIMIT), false));
                 }
 
                 if (storagePolicyID != null) {

@@ -51,7 +51,6 @@ import org.apache.cloudstack.api.command.admin.offering.CloneDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.CloneServiceOfferingCmd;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
-import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -75,7 +74,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -280,13 +278,13 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(persistedDisk);
 
         Mockito.doReturn(clonedOffering).when(configurationManager).createServiceOffering(
-            anyLong(), anyBoolean(), any(VirtualMachine.Type.class), anyString(),
-            any(Integer.class), any(Integer.class), any(Integer.class), anyString(), anyString(), anyBoolean(),
-            anyBoolean(), anyBoolean(), anyBoolean(), anyString(), anyList(), anyList(), anyString(), any(Integer.class),
-            anyString(), anyMap(), anyLong(), any(Boolean.class),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            any(Integer.class), anyString(), anyLong(), anyBoolean(), anyLong(), anyBoolean(), anyBoolean(), anyBoolean(),
-            anyLong(), any(Integer.class), any(Boolean.class), anyBoolean(), any(Integer.class), any(VMLeaseManager.ExpiryAction.class)
+            anyLong(), anyBoolean(), any(VirtualMachine.Type.class), any(),
+            any(), any(), any(), any(), any(), anyBoolean(),
+            anyBoolean(), anyBoolean(), anyBoolean(), any(), anyList(), anyList(), any(), any(),
+            any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+            any(), any(), any(), anyBoolean(), any(), any()
         );
 
         ServiceOffering result = configurationManager.cloneServiceOffering(cmd);
@@ -356,14 +354,14 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(serviceOfferingDao.persist(any(ServiceOfferingVO.class))).thenReturn(clonedOffering);
 
         Mockito.doReturn(clonedOffering).when(configurationManager).createServiceOffering(
-            anyLong(), anyBoolean(), any(), anyString(), eq(4), eq(4096), eq(2000),
-            anyString(), anyString(), anyBoolean(), eq(false), anyBoolean(), anyBoolean(),
-            anyString(), anyList(), anyList(), anyString(), anyInt(), anyString(), any(),
-            anyLong(), anyBoolean(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyInt(), anyString(), anyLong(), anyBoolean(), anyLong(),
-            anyBoolean(), anyBoolean(), anyBoolean(), anyLong(), anyInt(), anyBoolean(),
-            anyBoolean(), anyInt(), any());
+            anyLong(), anyBoolean(), any(), any(), eq(4), eq(4096), eq(2000),
+            any(), any(), anyBoolean(), eq(false), anyBoolean(), anyBoolean(),
+            any(), anyList(), anyList(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), anyBoolean(), any(),
+            anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(),
+            anyBoolean(), any(), any());
 
         ServiceOffering result = configurationManager.cloneServiceOffering(cmd);
 
@@ -581,14 +579,14 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(serviceOfferingDao.persist(any(ServiceOfferingVO.class))).thenReturn(clonedOffering);
 
         Mockito.doReturn(clonedOffering).when(configurationManager).createServiceOffering(
-            anyLong(), anyBoolean(), any(), anyString(), anyInt(), anyInt(), anyInt(),
-            anyString(), anyString(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
-            anyString(), anyList(), anyList(), anyString(), anyInt(), anyString(), any(),
-            anyLong(), anyBoolean(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyInt(), anyString(), anyLong(), anyBoolean(), anyLong(),
-            anyBoolean(), anyBoolean(), anyBoolean(), anyLong(), anyInt(), anyBoolean(),
-            anyBoolean(), anyInt(), any());
+            anyLong(), anyBoolean(), any(), any(), any(), any(), any(),
+            any(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+            any(), anyList(), anyList(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), any(), any(),
+            any(), any(), any(), any(), any(), anyBoolean(), any(),
+            anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(),
+            anyBoolean(), any(), any());
 
         ServiceOffering result = configurationManager.cloneServiceOffering(cmd);
 

@@ -33,6 +33,7 @@ import org.apache.cloudstack.api.command.admin.offering.CreateServiceOfferingCmd
 import org.apache.cloudstack.api.command.admin.offering.DeleteServiceOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateServiceOfferingCmd;
 import org.apache.cloudstack.context.CallContext;
+import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.junit.After;
 import org.junit.Before;
@@ -64,6 +65,7 @@ import com.cloud.user.dao.UserDao;
 import com.cloud.utils.DomainHelper;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.vm.dao.VMInstanceDao;
+import com.cloud.vm.VirtualMachine;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 
@@ -81,6 +83,7 @@ public class ServiceOfferingServiceImplTest {
     @Mock private ServiceOfferingDao serviceOfferingDao;
     @Mock private ServiceOfferingDetailsDao serviceOfferingDetailsDao;
     @Mock private DiskOfferingDao diskOfferingDao;
+    @Mock private DiskOfferingDetailsDao diskOfferingDetailsDao;
     @Mock private VMInstanceDao vmInstanceDao;
     @Mock private DataCenterDao zoneDao;
     @Mock private DomainDao domainDao;
@@ -111,6 +114,7 @@ public class ServiceOfferingServiceImplTest {
         ReflectionTestUtils.setField(service, "_serviceOfferingDao",        serviceOfferingDao);
         ReflectionTestUtils.setField(service, "_serviceOfferingDetailsDao", serviceOfferingDetailsDao);
         ReflectionTestUtils.setField(service, "_diskOfferingDao",           diskOfferingDao);
+        ReflectionTestUtils.setField(service, "diskOfferingDetailsDao",     diskOfferingDetailsDao);
         ReflectionTestUtils.setField(service, "_vmInstanceDao",             vmInstanceDao);
         ReflectionTestUtils.setField(service, "_zoneDao",                   zoneDao);
         ReflectionTestUtils.setField(service, "_domainDao",                 domainDao);
@@ -273,6 +277,36 @@ public class ServiceOfferingServiceImplTest {
                 () -> service.createServiceOffering(cmd));
         assertTrue("unexpected message: " + ex.getMessage(),
                 ex.getMessage().contains("valid disk offering"));
+    }
+
+    @Test
+    public void createServiceOfferingOverloadPersistsStoragePolicyWithNullDetails() {
+        CallContext.register(userVO, adminAccount);
+        Mockito.when(userDao.findById(USER_ID)).thenReturn(userVO);
+        Mockito.when(accountDao.findById(Mockito.anyLong())).thenReturn(adminAccount);
+        Mockito.when(domainHelper.filterChildSubDomains(Collections.emptyList())).thenReturn(Collections.emptyList());
+
+        DiskOfferingVO diskOffering = Mockito.mock(DiskOfferingVO.class);
+        Mockito.when(diskOffering.getId()).thenReturn(DISK_ID);
+        Mockito.when(diskOfferingDao.persist(Mockito.any(DiskOfferingVO.class))).thenReturn(diskOffering);
+
+        ServiceOfferingVO persistedOffering = new ServiceOfferingVO("offer1", 1, 512, 1000, null, null, false,
+                false, false, "display1", false, VirtualMachine.Type.User, null, null, false, false);
+        persistedOffering.setId(SO_ID);
+        Mockito.when(serviceOfferingDao.persist(Mockito.any(ServiceOfferingVO.class))).thenReturn(persistedOffering);
+
+        ServiceOfferingService serviceContract = service;
+        ServiceOfferingVO result = serviceContract.createServiceOffering(USER_ID, false, VirtualMachine.Type.User,
+                "offer1", 1, 512, 1000, "display1", "thin", false,
+                false, false, false, null, Collections.emptyList(), Collections.emptyList(), null,
+                null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, 123L, false, null, false,
+                false, false, null, null, null, false, null, null);
+
+        assertEquals(persistedOffering, result);
+        Mockito.verify(diskOfferingDetailsDao).saveDetails(Mockito.anyList());
     }
 
     // -------------------------------------------------------------------------

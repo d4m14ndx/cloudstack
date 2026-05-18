@@ -17,12 +17,16 @@
 package com.cloud.configuration;
 
 import java.util.List;
+import java.util.Map;
 
 import org.apache.cloudstack.api.command.admin.offering.CreateServiceOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.DeleteServiceOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateServiceOfferingCmd;
+import org.apache.cloudstack.vm.lease.VMLeaseManager;
 
 import com.cloud.offering.ServiceOffering;
+import com.cloud.service.ServiceOfferingVO;
+import com.cloud.vm.VirtualMachine;
 
 /**
  * Service-offering CRUD operations — create, update, delete and lookup of a
@@ -34,10 +38,8 @@ import com.cloud.offering.ServiceOffering;
  * {@code ConfigurationService} / {@link ConfigurationManager} interface
  * contracts keep working unchanged. The protected
  * {@code createServiceOffering(userId, ...)} overload remains on the manager
- * because {@code cloneServiceOffering} calls it directly; this slice keeps its
- * own internal copy of that flow that backs {@link CreateServiceOfferingCmd}
- * here, mirroring the duplicate-helpers pattern used by
- * {@link DiskOfferingServiceImpl} and {@link PodServiceImpl}.
+ * because {@code cloneServiceOffering} calls it directly, but that wrapper
+ * delegates to this service-owned write path.
  *
  * <p>The helpers {@code updateServiceOfferingHostTagsIfNotNull},
  * {@code serviceOfferingExternalDetailsNeedUpdate},
@@ -62,6 +64,19 @@ public interface ServiceOfferingService {
      * domain-id, zone-id and detail rows.
      */
     ServiceOffering createServiceOffering(CreateServiceOfferingCmd cmd);
+
+    ServiceOfferingVO createServiceOffering(long userId, boolean isSystem, VirtualMachine.Type vmType,
+            String name, Integer cpu, Integer ramSize, Integer speed, String displayText, String provisioningType,
+            boolean localStorageRequired, boolean offerHA, boolean limitResourceUse, boolean volatileVm, String tags,
+            List<Long> domainIds, List<Long> zoneIds, String hostTag, Integer networkRate, String deploymentPlanner,
+            Map<String, String> details, Long rootDiskSizeInGiB, Boolean isCustomizedIops, Long minIops, Long maxIops,
+            Long bytesReadRate, Long bytesReadRateMax, Long bytesReadRateMaxLength, Long bytesWriteRate,
+            Long bytesWriteRateMax, Long bytesWriteRateMaxLength, Long iopsReadRate, Long iopsReadRateMax,
+            Long iopsReadRateMaxLength, Long iopsWriteRate, Long iopsWriteRateMax, Long iopsWriteRateMaxLength,
+            Integer hypervisorSnapshotReserve, String cacheMode, Long storagePolicyID, boolean dynamicScalingEnabled,
+            Long diskOfferingId, boolean diskOfferingStrictness, boolean isCustomized, boolean encryptRoot,
+            Long vgpuProfileId, Integer gpuCount, Boolean gpuDisplay, boolean purgeResources, Integer leaseDuration,
+            VMLeaseManager.ExpiryAction leaseExpiryAction);
 
     /**
      * Update an existing service offering. Re-validates domain / zone
