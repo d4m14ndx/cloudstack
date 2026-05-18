@@ -44,7 +44,6 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import com.cloud.api.query.dao.DomainRouterJoinDao;
 import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.VlanDao;
@@ -132,7 +131,6 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.routerDao = mock(DomainRouterDao.class);
         testOrchestrator.routerNetworkDao = mock(RouterNetworkDao.class);
         testOrchestrator._vpcMgr = mock(VpcManager.class);
-        testOrchestrator.routerJoinDao = mock(DomainRouterJoinDao.class);
         testOrchestrator._ipAddrMgr = mock(IpAddressManager.class);
         testOrchestrator._entityMgr = mock(EntityManager.class);
 
@@ -161,6 +159,15 @@ public class NetworkOrchestratorTest extends TestCase {
         dhcpCleanupService.networkProviderResolutionService = resolutionService;
         dhcpCleanupService.networkElements = new ArrayList<>();
         testOrchestrator.nicDhcpCleanupService = dhcpCleanupService;
+
+        // Wire a real NicProfileMtuServiceImpl backed by mocks. No tests trigger
+        // the MTU code path directly, but the orchestrator-level call sites in
+        // allocateNic/prepareNic/importNic delegate to it.
+        NicProfileMtuServiceImpl mtuService = new NicProfileMtuServiceImpl();
+        mtuService.routerJoinDao = mock(com.cloud.api.query.dao.DomainRouterJoinDao.class);
+        mtuService.networksDao = testOrchestrator._networksDao;
+        mtuService.entityManager = testOrchestrator._entityMgr;
+        testOrchestrator.nicProfileMtuService = mtuService;
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
