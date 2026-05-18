@@ -138,7 +138,6 @@ import com.cloud.network.dao.NetworkDetailsDao;
 import com.cloud.network.dao.NetworkDomainDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.OvsProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
@@ -147,7 +146,6 @@ import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.VirtualRouterProviderDao;
 import com.cloud.network.element.NetworkElement;
-import com.cloud.network.element.NsxProviderVO;
 import com.cloud.network.element.VirtualRouterProviderVO;
 import com.cloud.network.guru.GuestNetworkGuru;
 import com.cloud.network.guru.NetworkGuru;
@@ -372,8 +370,6 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     @Inject
     ServiceOfferingDao serviceOfferingDao;
     @Inject
-    NsxProviderDao nsxProviderDao;
-    @Inject
     private VirtualRouterProviderDao virtualRouterProviderDao;
     @Inject
     RoutedIpv4Manager routedIpv4Manager;
@@ -412,6 +408,9 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
 
     @Inject
     protected NetworkMtuService networkMtuService;
+
+    @Inject
+    protected NetworkCreationValidationService networkCreationValidationService;
 
     int _cidrLimit;
     boolean _allowSubdomainNetworkAccess;
@@ -777,150 +776,19 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     }
 
     private void checkSharedNetworkCidrOverlap(Long zoneId, long physicalNetworkId, String cidr) {
-        if (zoneId == null || cidr == null) {
-            return;
-        }
-
-        DataCenter zone = _dcDao.findById(zoneId);
-        List<NetworkVO> networks = _networksDao.listByZone(zoneId);
-        Map<Long, String> networkToCidr = new HashMap<Long, String>();
-
-        // check for CIDR overlap with all possible CIDR for isolated guest networks
-        // in the zone when using external networking
-        PhysicalNetworkVO pNetwork = _physicalNetworkDao.findById(physicalNetworkId);
-        if (pNetwork.getVnet() != null) {
-            List<Pair<Integer, Integer>> vlanList = pNetwork.getVnet();
-            for (Pair<Integer, Integer> vlanRange : vlanList) {
-                Integer lowestVlanTag = vlanRange.first();
-                Integer highestVlanTag = vlanRange.second();
-                for (int vlan = lowestVlanTag; vlan <= highestVlanTag; ++vlan) {
-                    int offset = vlan - lowestVlanTag;
-                    String globalVlanBits = _configDao.getValue(Config.GuestVlanBits.key());
-                    int cidrSize = 8 + Integer.parseInt(globalVlanBits);
-                    String guestNetworkCidr = zone.getGuestNetworkCidr();
-                    String[] cidrTuple = guestNetworkCidr.split("\\/");
-                    long newCidrAddress = (NetUtils.ip2Long(cidrTuple[0]) & 0xff000000) | (offset << (32 - cidrSize));
-                    if (NetUtils.isNetworksOverlap(NetUtils.long2Ip(newCidrAddress), cidr)) {
-                        throw new InvalidParameterValueException("Specified CIDR for shared network conflict with CIDR that is reserved for zone vlan " + vlan);
-                    }
-                }
-            }
-        }
-
-        // check for CIDR overlap with all CIDR's of the shared networks in the zone
-        for (NetworkVO network : networks) {
-            if (network.getGuestType() == GuestType.Isolated) {
-                continue;
-            }
-            if (network.getCidr() != null) {
-                networkToCidr.put(network.getId(), network.getCidr());
-            }
-        }
-        if (networkToCidr != null && !networkToCidr.isEmpty()) {
-            for (long networkId : networkToCidr.keySet()) {
-                String ntwkCidr = networkToCidr.get(networkId);
-                if (NetUtils.isNetworksOverlap(ntwkCidr, cidr)) {
-                    throw new InvalidParameterValueException("Specified CIDR for shared network conflict with CIDR of a shared network in the zone.");
-                }
-            }
-        }
+        networkCreationValidationService.checkSharedNetworkCidrOverlap(zoneId, physicalNetworkId, cidr);
     }
 
     void validateNetworkCidrSize(Account caller, Integer cidrSize, String cidr, NetworkOffering networkOffering, long accountId, long zoneId) {
-        if (!GuestType.Isolated.equals(networkOffering.getGuestType())) {
-            if (cidrSize != null) {
-                throw new InvalidParameterValueException("network cidr size is only applicable on Isolated networks");
-            }
-            return;
-        }
-        if (ObjectUtils.allNotNull(cidr, cidrSize)) {
-            throw new InvalidParameterValueException("network cidr and cidr size are mutually exclusive");
-        }
-        if (NetworkOffering.NetworkMode.ROUTED.equals(networkOffering.getNetworkMode())
-                && routedIpv4Manager.isVirtualRouterGateway(networkOffering)) {
-            if (cidr != null) {
-                if (!networkOffering.isForVpc() && !_accountMgr.isRootAdmin(caller.getId())) {
-                    throw new InvalidParameterValueException("Only root admin can set the gateway/netmask of Isolated networks with ROUTED mode");
-                }
-                return;
-            }
-            if (cidrSize == null) {
-                throw new InvalidParameterValueException("network cidr or cidr size is required for Isolated networks with ROUTED mode");
-            }
-            Integer maxCidrSize = RoutedIpv4Manager.RoutedNetworkIPv4MaxCidrSize.valueIn(accountId);
-            if (cidrSize > maxCidrSize) {
-                throw new InvalidParameterValueException("network cidr size cannot be bigger than maximum cidr size " + maxCidrSize);
-            }
-            Integer minCidrSize = RoutedIpv4Manager.RoutedNetworkIPv4MinCidrSize.valueIn(accountId);
-            if (cidrSize < minCidrSize) {
-                throw new InvalidParameterValueException("network cidr size cannot be smaller than minimum cidr size " + minCidrSize);
-            }
-        } else if (cidrSize != null) {
-            throw new InvalidParameterValueException("network cidr size is only applicable on Isolated networks with ROUTED mode: " + cidrSize);
-        }
+        networkCreationValidationService.validateNetworkCidrSize(caller, cidrSize, cidr, networkOffering, accountId, zoneId);
     }
 
     void validateSharedNetworkRouterIPs(String gateway, String startIP, String endIP, String netmask, String routerIPv4, String routerIPv6, String startIPv6, String endIPv6, String ip6Cidr, NetworkOffering ntwkOff) {
-        if (ntwkOff.getGuestType() == GuestType.Shared) {
-            validateSharedNetworkRouterIPv4(routerIPv4, startIP, endIP, gateway, netmask);
-            validateSharedNetworkRouterIPv6(routerIPv6, startIPv6, endIPv6, ip6Cidr);
-
-        }
-    }
-
-    private void validateSharedNetworkRouterIPv4(String routerIp, String startIp, String endIp, String gateway, String netmask) {
-        if (StringUtils.isNotBlank(routerIp)) {
-            if (startIp != null && endIp == null) {
-                endIp = startIp;
-            }
-            isIPv4AddressValid(routerIp);
-            if (StringUtils.isNoneBlank(startIp, endIp)) {
-                if (!NetUtils.isIpInRange(routerIp, startIp, endIp)) {
-                    throw new CloudRuntimeException("Router IPv4 IP provided is not within the specified range: " + startIp + " - " + endIp);
-                }
-            } else {
-                String cidr = NetUtils.ipAndNetMaskToCidr(gateway, netmask);
-                if (!NetUtils.isIpWithInCidrRange(routerIp, cidr)) {
-                    throw new CloudRuntimeException("Router IP provided in not within the network range");
-                }
-            }
-        }
-    }
-
-    private void validateSharedNetworkRouterIPv6(String routerIPv6, String startIPv6, String endIPv6, String cidrIPv6) {
-        if (StringUtils.isNotBlank(routerIPv6)) {
-            if (startIPv6 != null && endIPv6 == null) {
-                endIPv6 = startIPv6;
-            }
-            isIPv6AddressValid(routerIPv6);
-            if (StringUtils.isNoneBlank(startIPv6, endIPv6)) {
-                String ipv6Range = startIPv6 + "-" + endIPv6;
-                if (!NetUtils.isIp6InRange(routerIPv6, ipv6Range)) {
-                    throw new CloudRuntimeException("Router IPv6 address provided is not within the specified range: " + startIPv6 + " - " + endIPv6);
-                }
-            } else {
-                if (!NetUtils.isIp6InNetwork(routerIPv6, cidrIPv6)) {
-                    throw new CloudRuntimeException("Router IPv6 address provided is not with the network range");
-                }
-            }
-        }
-    }
-
-    private void isIPv4AddressValid(String routerIp) {
-        if (!NetUtils.isValidIp4(routerIp)) {
-            throw new CloudRuntimeException("Router IPv4 IP provided is of incorrect format");
-        }
-    }
-
-    private void isIPv6AddressValid(String routerIPv6) {
-        if (!NetUtils.isValidIp6(routerIPv6)) {
-            throw new CloudRuntimeException("Router IPv6 address provided is of incorrect format");
-        }
+        networkCreationValidationService.validateSharedNetworkRouterIPs(gateway, startIP, endIP, netmask, routerIPv4, routerIPv6, startIPv6, endIPv6, ip6Cidr, ntwkOff);
     }
 
     private String getVpcPrependedNetworkName(String networkName, Vpc vpc) {
-        final String delimiter = VpcManager.VpcTierNamePrependDelimiter.value();
-        return vpc.getName() + delimiter + networkName;
+        return networkCreationValidationService.getVpcPrependedNetworkName(networkName, vpc);
     }
 
     @Override
@@ -1297,34 +1165,15 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     }
 
     private boolean isNonVpcNetworkSupportingDynamicRouting(NetworkOffering networkOffering) {
-        return !networkOffering.isForVpc() && NetworkOffering.RoutingMode.Dynamic == networkOffering.getRoutingMode();
+        return networkCreationValidationService.isNonVpcNetworkSupportingDynamicRouting(networkOffering);
     }
 
     private void validateNetworkCreationSupported(long zoneId, String zoneName, GuestType guestType) {
-        NsxProviderVO nsxProviderVO = nsxProviderDao.findByZoneId(zoneId);
-        if (Objects.nonNull(nsxProviderVO) && GuestType.L2.equals(guestType)) {
-            throw new InvalidParameterValueException(
-                    String.format("Creation of %s networks is not supported in NSX enabled zone %s", guestType.name(), zoneName)
-            );
-        }
+        networkCreationValidationService.validateNetworkCreationSupported(zoneId, zoneName, guestType);
     }
 
     protected boolean getAndValidateSupportForKeepMacAddressOnPublicNicParameter(Boolean keepMacAddressOnPublicNic, NetworkOffering networkOffering) {
-        if (networkOffering.isForVpc() && keepMacAddressOnPublicNic != null) {
-            throw new InvalidParameterValueException(
-                    String.format("The [%s] parameter cannot be specified on the creation of VPC tiers.", ApiConstants.KEEP_MAC_ADDRESS_ON_PUBLIC_NIC)
-            );
-        }
-
-        GuestType guestType = networkOffering.getGuestType();
-        if (guestType != GuestType.Isolated && keepMacAddressOnPublicNic != null) {
-            throw new InvalidParameterValueException(String.format(
-                    "The [%s] parameter can only be specified on the creation of [%s] networks.",
-                    ApiConstants.KEEP_MAC_ADDRESS_ON_PUBLIC_NIC, GuestType.Isolated
-            ));
-        }
-
-        return keepMacAddressOnPublicNic == null || keepMacAddressOnPublicNic;
+        return networkCreationValidationService.getAndValidateSupportForKeepMacAddressOnPublicNicParameter(keepMacAddressOnPublicNic, networkOffering);
     }
 
     @Override
@@ -1621,62 +1470,21 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     }
 
     private void validateNetworkOfferingForNonRootAdminUser(NetworkOffering ntwkOff) {
-        if (ntwkOff.getTrafficType() != TrafficType.Guest) {
-            throw new InvalidParameterValueException("This user can only create a Guest network");
-        }
-        if (ntwkOff.getGuestType() == GuestType.L2 || ntwkOff.getGuestType() == GuestType.Isolated) {
-            logger.debug(String.format("Creating a network from network offerings having traffic type [%s] and network type [%s].",
-                    TrafficType.Guest, ntwkOff.getGuestType()));
-        } else if (ntwkOff.getGuestType() == GuestType.Shared && ! ntwkOff.isSpecifyVlan()) {
-            logger.debug(String.format("Creating a network from network offerings having traffic type [%s] and network type [%s] with specifyVlan=%s.",
-                    TrafficType.Guest, GuestType.Shared, ntwkOff.isSpecifyVlan()));
-        } else {
-            throw new InvalidParameterValueException(
-                    String.format("This user can only create an %s network, a %s network or a %s network with specifyVlan=false.", GuestType.Isolated, GuestType.L2, GuestType.Shared));
-        }
+        networkCreationValidationService.validateNetworkOfferingForNonRootAdminUser(ntwkOff);
     }
 
     /**
      * Retrieve information (if set) for private VLAN when creating the network
      */
     protected Pair<String, PVlanType> getPrivateVlanPair(String pvlanId, String pvlanTypeStr, String vlanId) {
-        String secondaryVlanId = pvlanId;
-        PVlanType type = null;
-
-        if (StringUtils.isNotBlank(pvlanTypeStr)) {
-            PVlanType providedType = PVlanType.fromValue(pvlanTypeStr);
-            type = providedType;
-        } else if (StringUtils.isNoneBlank(vlanId, secondaryVlanId)) {
-            // Preserve the existing functionality
-            type = vlanId.equals(secondaryVlanId) ? PVlanType.Promiscuous : PVlanType.Isolated;
-        }
-
-        if (StringUtils.isBlank(secondaryVlanId) && type == PVlanType.Promiscuous) {
-            secondaryVlanId = vlanId;
-        }
-
-        if (StringUtils.isNotBlank(secondaryVlanId)) {
-            try {
-                Integer.parseInt(secondaryVlanId);
-            } catch (NumberFormatException e) {
-                throw new CloudRuntimeException("The secondary VLAN ID: " + secondaryVlanId + " is not in numeric format", e);
-            }
-        }
-
-        return new Pair<>(secondaryVlanId, type);
+        return networkCreationValidationService.getPrivateVlanPair(pvlanId, pvlanTypeStr, vlanId);
     }
 
     /**
      * Basic checks for setting up private VLANs, considering the VLAN ID, secondary VLAN ID and private VLAN type
      */
     protected void performBasicPrivateVlanChecks(String vlanId, String secondaryVlanId, PVlanType privateVlanType) {
-        if (StringUtils.isNotBlank(vlanId) && StringUtils.isBlank(secondaryVlanId) && privateVlanType != null && privateVlanType != PVlanType.Promiscuous) {
-            throw new InvalidParameterValueException("Private VLAN ID has not been set, therefore Promiscuous type is expected");
-        } else if (StringUtils.isNoneBlank(vlanId, secondaryVlanId) && !vlanId.equalsIgnoreCase(secondaryVlanId) && privateVlanType == PVlanType.Promiscuous) {
-            throw new InvalidParameterValueException("Private VLAN type is set to Promiscuous, but VLAN ID and Secondary VLAN ID differ");
-        } else if (StringUtils.isNoneBlank(vlanId, secondaryVlanId) && privateVlanType != null && privateVlanType != PVlanType.Promiscuous && vlanId.equalsIgnoreCase(secondaryVlanId)) {
-            throw new InvalidParameterValueException("Private VLAN type is set to " + privateVlanType + ", but VLAN ID and Secondary VLAN ID are equal");
-        }
+        networkCreationValidationService.performBasicPrivateVlanChecks(vlanId, secondaryVlanId, privateVlanType);
     }
 
     protected Network commitNetwork(final Long networkOfferingId, final String gateway, final String startIP, final String endIP, final String netmask, final String networkDomain, final String vlanIdFinal,
