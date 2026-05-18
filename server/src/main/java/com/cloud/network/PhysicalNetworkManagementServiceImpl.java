@@ -31,6 +31,7 @@ import java.util.Map;
 
 import jakarta.inject.Inject;
 
+import org.apache.cloudstack.api.command.admin.network.ListGuestVlansCmd;
 import org.apache.cloudstack.api.command.admin.usage.ListTrafficTypeImplementorsCmd;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.network.element.InternalLoadBalancerElementService;
@@ -55,6 +56,7 @@ import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
 import com.cloud.network.Networks.TrafficType;
@@ -1198,6 +1200,22 @@ public class PhysicalNetworkManagementServiceImpl implements PhysicalNetworkMana
     }
 
     @Override
+    //TODO: duplicated in NetworkModel
+    public NetworkVO getExclusiveGuestNetwork(long zoneId) {
+        List<NetworkVO> networks = _networksDao.listBy(Account.ACCOUNT_ID_SYSTEM, zoneId, GuestType.Shared, TrafficType.Guest);
+        if (networks == null || networks.isEmpty()) {
+            throw new InvalidParameterValueException("Unable to find network with trafficType " + TrafficType.Guest + " and guestType " + GuestType.Shared + " in zone " + zoneId);
+        }
+
+        if (networks.size() > 1) {
+            throw new InvalidParameterValueException("Found more than 1 network with trafficType " + TrafficType.Guest + " and guestType " + GuestType.Shared + " in zone " + zoneId);
+
+        }
+
+        return networks.get(0);
+    }
+
+    @Override
     public List<Pair<TrafficType, String>> listTrafficTypeImplementor(ListTrafficTypeImplementorsCmd cmd) {
         String type = cmd.getTrafficType();
         List<Pair<TrafficType, String>> results = new ArrayList<Pair<TrafficType, String>>();
@@ -1218,6 +1236,42 @@ public class PhysicalNetworkManagementServiceImpl implements PhysicalNetworkMana
         }
 
         return results;
+    }
+
+    @Override
+    public Pair<List<? extends GuestVlan>, Integer> listGuestVlans(ListGuestVlansCmd cmd) {
+        Long id = cmd.getId();
+        Long zoneId = cmd.getZoneId();
+        Long physicalNetworkId = cmd.getPhysicalNetworkId();
+        String vnet = cmd.getVnet();
+        Boolean allocatedOnly = cmd.getAllocatedOnly();
+        String keyword = cmd.getKeyword();
+
+        SearchCriteria<DataCenterVnetVO> vlanSearch = _dcVnetDao.createSearchCriteria();
+        if (id != null) {
+            vlanSearch.addAnd("id", Op.EQ, id);
+        }
+        if (zoneId != null) {
+            vlanSearch.addAnd("dataCenterId", Op.EQ, zoneId);
+        }
+        if (physicalNetworkId != null) {
+            vlanSearch.addAnd("physicalNetworkId", Op.EQ, physicalNetworkId);
+        }
+        if (vnet != null) {
+            vlanSearch.addAnd("vnet", Op.EQ, vnet);
+        }
+        if (allocatedOnly != null && allocatedOnly) {
+            vlanSearch.addAnd("takenAt", Op.NNULL);
+        }
+        if (keyword != null) {
+            vlanSearch.addAnd("vnet", Op.LIKE, "%" + keyword + "%");
+        }
+        Long pageSizeVal = cmd.getPageSizeVal();
+        Long startIndex = cmd.getStartIndex();
+        Filter searchFilter = new Filter(DataCenterVnetVO.class, "vnet", true, startIndex, pageSizeVal);
+
+        Pair<List<DataCenterVnetVO>, Integer> vlans = _dcVnetDao.searchAndCount(vlanSearch, searchFilter);
+        return new Pair<List<? extends GuestVlan>, Integer>(vlans.first(), vlans.second());
     }
 
     // -----------------------------------------------------------------------

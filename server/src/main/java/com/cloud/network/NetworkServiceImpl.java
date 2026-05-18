@@ -91,7 +91,6 @@ import com.cloud.configuration.Resource;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
-import com.cloud.dc.DataCenterVnetVO;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ASNumberDao;
 import com.cloud.dc.dao.DataCenterDao;
@@ -194,9 +193,6 @@ import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
-import com.cloud.utils.db.Filter;
-import com.cloud.utils.db.SearchCriteria;
-import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionCallbackWithException;
@@ -2599,17 +2595,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
     @Override
     //TODO: duplicated in NetworkModel
     public NetworkVO getExclusiveGuestNetwork(long zoneId) {
-        List<NetworkVO> networks = _networksDao.listBy(Account.ACCOUNT_ID_SYSTEM, zoneId, GuestType.Shared, TrafficType.Guest);
-        if (networks == null || networks.isEmpty()) {
-            throw new InvalidParameterValueException("Unable to find network with trafficType " + TrafficType.Guest + " and guestType " + GuestType.Shared + " in zone " + zoneId);
-        }
-
-        if (networks.size() > 1) {
-            throw new InvalidParameterValueException("Found more than 1 network with trafficType " + TrafficType.Guest + " and guestType " + GuestType.Shared + " in zone " + zoneId);
-
-        }
-
-        return networks.get(0);
+        return physicalNetworkManagementService.getExclusiveGuestNetwork(zoneId);
     }
 
     protected PhysicalNetworkServiceProvider addDefaultVirtualRouterToPhysicalNetwork(long physicalNetworkId) {
@@ -2847,38 +2833,7 @@ public class NetworkServiceImpl extends ManagerBase implements NetworkService, C
 
     @Override
     public Pair<List<? extends GuestVlan>, Integer> listGuestVlans(ListGuestVlansCmd cmd) {
-        Long id = cmd.getId();
-        Long zoneId = cmd.getZoneId();
-        Long physicalNetworkId = cmd.getPhysicalNetworkId();
-        String vnet = cmd.getVnet();
-        Boolean allocatedOnly = cmd.getAllocatedOnly();
-        String keyword = cmd.getKeyword();
-
-        SearchCriteria<DataCenterVnetVO> vlanSearch = _dcVnetDao.createSearchCriteria();
-        if (id != null) {
-            vlanSearch.addAnd("id", Op.EQ, id);
-        }
-        if (zoneId != null) {
-            vlanSearch.addAnd("dataCenterId", Op.EQ, zoneId);
-        }
-        if (physicalNetworkId != null) {
-            vlanSearch.addAnd("physicalNetworkId", Op.EQ, physicalNetworkId);
-        }
-        if (vnet != null) {
-            vlanSearch.addAnd("vnet", Op.EQ, vnet);
-        }
-        if (allocatedOnly != null && allocatedOnly) {
-            vlanSearch.addAnd("takenAt", Op.NNULL);
-        }
-        if (keyword != null) {
-            vlanSearch.addAnd("vnet", Op.LIKE, "%" + keyword + "%");
-        }
-        Long pageSizeVal = cmd.getPageSizeVal();
-        Long startIndex = cmd.getStartIndex();
-        Filter searchFilter = new Filter(DataCenterVnetVO.class, "vnet", true, startIndex, pageSizeVal);
-
-        Pair<List<DataCenterVnetVO>, Integer> vlans = _dcVnetDao.searchAndCount(vlanSearch, searchFilter);
-        return new Pair<List<? extends GuestVlan>, Integer>(vlans.first(), vlans.second());
+        return physicalNetworkManagementService.listGuestVlans(cmd);
     }
 
     @Override

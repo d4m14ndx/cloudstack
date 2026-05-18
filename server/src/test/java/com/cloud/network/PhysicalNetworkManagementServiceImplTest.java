@@ -31,26 +31,32 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.cloudstack.api.command.admin.network.ListGuestVlansCmd;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import com.cloud.dc.DataCenterVnetVO;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.DataCenterVnetDao;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.network.Network.GuestType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.dao.AccountGuestVlanMapDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.NetworkDao;
+import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.OvsProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
@@ -61,6 +67,7 @@ import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.element.NetworkElement;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.user.Account;
 import com.cloud.utils.Pair;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.SearchBuilder;
@@ -505,6 +512,141 @@ public class PhysicalNetworkManagementServiceImplTest {
         when(_physicalNetworkDao.findById(anyLong())).thenReturn(null);
         assertThrows(InvalidParameterValueException.class,
                 () -> service.listTrafficTypes(99L));
+    }
+
+    @Test
+    public void getExclusiveGuestNetwork_noSharedGuestNetwork_throws() {
+        when(_networksDao.listBy(Account.ACCOUNT_ID_SYSTEM, 7L, GuestType.Shared, TrafficType.Guest))
+                .thenReturn(Collections.emptyList());
+
+        InvalidParameterValueException ex = assertThrows(InvalidParameterValueException.class,
+                () -> service.getExclusiveGuestNetwork(7L));
+
+        assertEquals("Unable to find network with trafficType Guest and guestType Shared in zone 7", ex.getMessage());
+    }
+
+    @Test
+    public void getExclusiveGuestNetwork_multipleSharedGuestNetworks_throws() {
+        NetworkVO first = mock(NetworkVO.class);
+        NetworkVO second = mock(NetworkVO.class);
+        when(_networksDao.listBy(Account.ACCOUNT_ID_SYSTEM, 7L, GuestType.Shared, TrafficType.Guest))
+                .thenReturn(Arrays.asList(first, second));
+
+        InvalidParameterValueException ex = assertThrows(InvalidParameterValueException.class,
+                () -> service.getExclusiveGuestNetwork(7L));
+
+        assertEquals("Found more than 1 network with trafficType Guest and guestType Shared in zone 7", ex.getMessage());
+    }
+
+    @Test
+    public void getExclusiveGuestNetwork_oneSharedGuestNetwork_returnsIt() {
+        NetworkVO network = mock(NetworkVO.class);
+        when(_networksDao.listBy(Account.ACCOUNT_ID_SYSTEM, 7L, GuestType.Shared, TrafficType.Guest))
+                .thenReturn(Collections.singletonList(network));
+
+        assertEquals(network, service.getExclusiveGuestNetwork(7L));
+    }
+
+    private static class TestListGuestVlansCmd extends ListGuestVlansCmd {
+        private final Long id;
+        private final Long zoneId;
+        private final Long physicalNetworkId;
+        private final String vnet;
+        private final Boolean allocatedOnly;
+        private final String keyword;
+        private final Long startIndex;
+        private final Long pageSizeVal;
+
+        TestListGuestVlansCmd(Long id, Long zoneId, Long physicalNetworkId, String vnet,
+                Boolean allocatedOnly, String keyword, Long startIndex, Long pageSizeVal) {
+            this.id = id;
+            this.zoneId = zoneId;
+            this.physicalNetworkId = physicalNetworkId;
+            this.vnet = vnet;
+            this.allocatedOnly = allocatedOnly;
+            this.keyword = keyword;
+            this.startIndex = startIndex;
+            this.pageSizeVal = pageSizeVal;
+        }
+
+        @Override
+        public Long getId() {
+            return id;
+        }
+
+        @Override
+        public Long getZoneId() {
+            return zoneId;
+        }
+
+        @Override
+        public Long getPhysicalNetworkId() {
+            return physicalNetworkId;
+        }
+
+        @Override
+        public String getVnet() {
+            return vnet;
+        }
+
+        @Override
+        public Boolean getAllocatedOnly() {
+            return allocatedOnly;
+        }
+
+        @Override
+        public String getKeyword() {
+            return keyword;
+        }
+
+        @Override
+        public Long getStartIndex() {
+            return startIndex;
+        }
+
+        @Override
+        public Long getPageSizeVal() {
+            return pageSizeVal;
+        }
+    }
+
+    @Test
+    public void listGuestVlans_allFilters_buildsSearchAndReturnsCount() {
+        SearchCriteria<DataCenterVnetVO> sc = mock(SearchCriteria.class);
+        DataCenterVnetVO vlan = mock(DataCenterVnetVO.class);
+        when(_dcVnetDao.createSearchCriteria()).thenReturn(sc);
+        when(_dcVnetDao.searchAndCount(any(SearchCriteria.class), any(Filter.class)))
+                .thenReturn(new Pair<>(Collections.singletonList(vlan), 1));
+
+        TestListGuestVlansCmd cmd = new TestListGuestVlansCmd(11L, 12L, 13L, "400",
+                true, "40", 0L, 50L);
+
+        Pair<List<? extends GuestVlan>, Integer> result = service.listGuestVlans(cmd);
+
+        verify(sc).addAnd("id", SearchCriteria.Op.EQ, 11L);
+        verify(sc).addAnd("dataCenterId", SearchCriteria.Op.EQ, 12L);
+        verify(sc).addAnd("physicalNetworkId", SearchCriteria.Op.EQ, 13L);
+        verify(sc).addAnd("vnet", SearchCriteria.Op.EQ, "400");
+        verify(sc).addAnd("takenAt", SearchCriteria.Op.NNULL);
+        verify(sc).addAnd("vnet", SearchCriteria.Op.LIKE, "%40%");
+        assertEquals(1, result.second().intValue());
+        assertEquals(vlan, result.first().get(0));
+    }
+
+    @Test
+    public void listGuestVlans_allocatedOnlyFalse_doesNotFilterTakenAt() {
+        SearchCriteria<DataCenterVnetVO> sc = mock(SearchCriteria.class);
+        when(_dcVnetDao.createSearchCriteria()).thenReturn(sc);
+        when(_dcVnetDao.searchAndCount(any(SearchCriteria.class), any(Filter.class)))
+                .thenReturn(new Pair<>(Collections.emptyList(), 0));
+
+        TestListGuestVlansCmd cmd = new TestListGuestVlansCmd(null, null, null, null,
+                false, null, 5L, 10L);
+
+        Pair<List<? extends GuestVlan>, Integer> result = service.listGuestVlans(cmd);
+
+        verify(sc, Mockito.never()).addAnd(Mockito.eq("takenAt"), Mockito.eq(SearchCriteria.Op.NNULL));
+        assertEquals(0, result.second().intValue());
     }
 
     // -------------------------------------------------------------------
