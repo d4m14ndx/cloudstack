@@ -169,6 +169,7 @@ import com.cloud.storage.ScopeType;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage;
 import com.cloud.storage.StorageManager;
+import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeApiService;
@@ -478,6 +479,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
 
+    @Mock
+    VmStorageMigrationService vmStorageMigrationService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -657,6 +661,8 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRestoreService", vmRestoreService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmRootDiskOfferingChangeService", vmRootDiskOfferingChangeService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmStorageMigrationService", vmStorageMigrationService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -686,6 +692,31 @@ public class UserVmManagerImplTest {
         for (Map.Entry<ConfigKey, Object> entry : originalConfigValues.entrySet()) {
             updateDefaultConfigValue(entry.getKey(), entry.getValue(), true);
         }
+    }
+
+    @Test
+    public void vmStorageMigrationWithDestinationPoolDelegatesToVmStorageMigrationService() {
+        StoragePool destPool = mock(StoragePool.class);
+        VirtualMachine expectedVm = mock(VirtualMachine.class);
+        when(vmStorageMigrationService.vmStorageMigration(vmId, destPool)).thenReturn(expectedVm);
+
+        VirtualMachine result = userVmManagerImpl.vmStorageMigration(vmId, destPool);
+
+        assertEquals(expectedVm, result);
+        verify(vmStorageMigrationService).vmStorageMigration(vmId, destPool);
+    }
+
+    @Test
+    public void vmStorageMigrationWithVolumePoolMapDelegatesToVmStorageMigrationService() {
+        Map<String, String> volumeToPool = new HashMap<>();
+        volumeToPool.put("volume-uuid", "pool-uuid");
+        VirtualMachine expectedVm = mock(VirtualMachine.class);
+        when(vmStorageMigrationService.vmStorageMigration(vmId, volumeToPool)).thenReturn(expectedVm);
+
+        VirtualMachine result = userVmManagerImpl.vmStorageMigration(vmId, volumeToPool);
+
+        assertEquals(expectedVm, result);
+        verify(vmStorageMigrationService).vmStorageMigration(vmId, volumeToPool);
     }
 
     @Test
