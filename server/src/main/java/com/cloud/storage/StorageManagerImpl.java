@@ -41,7 +41,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -235,7 +234,6 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.db.Transaction;
-import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionCallbackWithExceptionNoReturn;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.db.TransactionStatus;
@@ -382,6 +380,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     protected ObjectStoreService objectStoreService;
     @Inject
     protected StoragePoolScopeService storagePoolScopeService;
+    @Inject
+    protected StoragePoolDeletionService storagePoolDeletionService;
     @Inject
     ConfigDepot configDepot;
     @Inject
@@ -1466,37 +1466,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     @Override
     @DB
     public boolean deletePool(DeletePoolCmd cmd) {
-        Long id = cmd.getId();
-        boolean forced = cmd.isForced();
-
-        StoragePoolVO sPool = _storagePoolDao.findById(id);
-        if (sPool == null) {
-            logger.warn("Unable to find pool:" + id);
-            throw new InvalidParameterValueException("Unable to find pool by id " + id);
-        }
-        if (sPool.getStatus() != StoragePoolStatus.Maintenance) {
-            logger.warn("Unable to delete storage pool: {} due to it is not in Maintenance state", sPool);
-            throw new InvalidParameterValueException(String.format("Unable to delete storage due to it is not in Maintenance state, pool: %s", sPool));
-        }
-
-        if (sPool.getPoolType() == StoragePoolType.DatastoreCluster) {
-            // FR41 yet to handle on failure of deletion of any of the child storage pool
-            if (checkIfDataStoreClusterCanbeDeleted(sPool, forced)) {
-                Transaction.execute(new TransactionCallbackNoReturn() {
-                    @Override
-                    public void doInTransactionWithoutResult(TransactionStatus status) {
-                        List<StoragePoolVO> childStoragePools = _storagePoolDao.listChildStoragePoolsInDatastoreCluster(sPool.getId());
-                        for (StoragePoolVO childPool : childStoragePools) {
-                            deleteDataStoreInternal(childPool, forced);
-                        }
-                    }
-                });
-            } else {
-                logger.debug("Cannot delete storage pool {} as the following non-destroyed volumes are on it: {}.", sPool::toString, () -> getStoragePoolNonDestroyedVolumesLog(sPool.getId()));
-                throw new CloudRuntimeException(String.format("Cannot delete pool %s as there are associated non-destroyed vols for this pool", sPool));
-            }
-        }
-        return deleteDataStoreInternal(sPool, forced);
+        return storagePoolDeletionService.deletePool(cmd);
     }
 
     @Override
@@ -1525,100 +1495,8 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
         }
     }
 
-    private boolean checkIfDataStoreClusterCanbeDeleted(StoragePoolVO sPool, boolean forced) {
-        List<StoragePoolVO> childStoragePools = _storagePoolDao.listChildStoragePoolsInDatastoreCluster(sPool.getId());
-        boolean canDelete = true;
-        for (StoragePoolVO childPool : childStoragePools) {
-            Pair<Long, Long> vlms = volumeDao.getCountAndTotalByPool(childPool.getId());
-            if (forced) {
-                if (vlms.first() > 0) {
-                    Pair<Long, Long> nonDstrdVlms = volumeDao.getNonDestroyedCountAndTotalByPool(childPool.getId());
-                    if (nonDstrdVlms.first() > 0) {
-                        canDelete = false;
-                        break;
-                    }
-                }
-            } else {
-                if (vlms.first() > 0) {
-                    canDelete = false;
-                    break;
-                }
-            }
-        }
-        return canDelete;
-    }
-
-    private boolean deleteDataStoreInternal(StoragePoolVO sPool, boolean forced) {
-        Pair<Long, Long> vlms = volumeDao.getCountAndTotalByPool(sPool.getId());
-        if (forced) {
-            if (vlms.first() > 0) {
-                Pair<Long, Long> nonDstrdVlms = volumeDao.getNonDestroyedCountAndTotalByPool(sPool.getId());
-                if (nonDstrdVlms.first() > 0) {
-                    logger.debug("Cannot delete storage pool {} as the following non-destroyed volumes are on it: {}.", sPool::toString, () -> getStoragePoolNonDestroyedVolumesLog(sPool.getId()));
-                    throw new CloudRuntimeException(String.format("Cannot delete pool %s as there are non-destroyed volumes associated to this pool.", sPool));
-                }
-                // force expunge non-destroyed volumes
-                List<VolumeVO> vols = volumeDao.listVolumesToBeDestroyed();
-                for (VolumeVO vol : vols) {
-                    AsyncCallFuture<VolumeApiResult> future = volService.expungeVolumeAsync(volFactory.getVolume(vol.getId()));
-                    try {
-                        future.get();
-                    } catch (InterruptedException | ExecutionException e) {
-                        logger.debug("expunge volume failed: {}", vol, e);
-                    }
-                }
-            }
-        } else {
-            // Check if the pool has associated volumes in the volumes table
-            // If it does , then you cannot delete the pool
-            if (vlms.first() > 0) {
-                logger.debug("Cannot delete storage pool {} as the following non-destroyed volumes are on it: {}.", sPool::toString, () -> getStoragePoolNonDestroyedVolumesLog(sPool.getId()));
-                throw new CloudRuntimeException(String.format("Cannot delete pool %s as there are non-destroyed volumes associated to this pool.", sPool));
-            }
-        }
-
-        // First get the host_id from storage_pool_host_ref for given pool id
-        StoragePoolVO lock = _storagePoolDao.acquireInLockTable(sPool.getId());
-
-        if (lock == null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Failed to acquire lock when deleting PrimaryDataStoreVO: {}", sPool);
-            }
-            return false;
-        }
-
-        _storagePoolDao.releaseFromLockTable(lock.getId());
-        logger.trace("Released lock for storage pool {}", sPool);
-
-        DataStoreProvider storeProvider = _dataStoreProviderMgr.getDataStoreProvider(sPool.getStorageProviderName());
-        DataStoreLifeCycle lifeCycle = storeProvider.getDataStoreLifeCycle();
-        DataStore store = _dataStoreMgr.getDataStore(sPool.getId(), DataStoreRole.Primary);
-        return lifeCycle.deleteDataStore(store);
-    }
-
     protected String getStoragePoolNonDestroyedVolumesLog(long storagePoolId) {
-        StringBuilder sb = new StringBuilder();
-        List<VolumeVO> nonDestroyedVols = volumeDao.findNonDestroyedVolumesByPoolId(storagePoolId, null);
-        VMInstanceVO volInstance;
-        List<String> logMessageInfo = new ArrayList<>();
-
-        sb.append("[");
-        for (VolumeVO vol : nonDestroyedVols) {
-            if (vol.getInstanceId() != null) {
-                volInstance = _vmInstanceDao.findById(vol.getInstanceId());
-                if (volInstance != null) {
-                    logMessageInfo.add(String.format("Volume [%s] (attached to VM [%s])", vol.getUuid(), volInstance.getUuid()));
-                } else {
-                    logMessageInfo.add(String.format("Volume [%s] (attached VM with ID [%d] doesn't exists)", vol.getUuid(), vol.getInstanceId()));
-                }
-            } else {
-                logMessageInfo.add(String.format("Volume [%s] (not attached to any VM)", vol.getUuid()));
-            }
-        }
-        sb.append(String.join(", ", logMessageInfo));
-        sb.append("]");
-
-        return sb.toString();
+        return storagePoolDeletionService.getStoragePoolNonDestroyedVolumesLog(storagePoolId);
     }
 
     protected void cleanupConnectedHostConnectionForFailedStorage(DataStore primaryStore, List<Long> poolHostIds) {
