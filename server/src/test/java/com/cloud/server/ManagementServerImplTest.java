@@ -31,12 +31,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
-import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -70,6 +67,8 @@ import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
 import com.cloud.cpu.CPU;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.Vlan.VlanType;
+import com.cloud.dc.dao.VlanDao;
+import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.exception.InvalidParameterValueException;
@@ -78,13 +77,21 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.network.IpAddress;
+import com.cloud.network.IpAddressManager;
 import com.cloud.network.IpAddressManagerImpl;
+import com.cloud.network.NetworkModel;
+import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
+import com.cloud.network.dao.LoadBalancerDao;
+import com.cloud.network.dao.NetworkAccountDao;
+import com.cloud.network.dao.NetworkDao;
+import com.cloud.network.dao.NetworkDomainDao;
 import org.apache.cloudstack.resourcedetail.dao.GuestOsDetailsDao;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
+import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
@@ -92,6 +99,7 @@ import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.storage.dao.GuestOSHypervisorDao;
 import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.tags.dao.ResourceTagDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.SSHKeyPair;
@@ -190,9 +198,43 @@ public class ManagementServerImplTest {
     @Mock
     ClusterHostQueryService clusterHostQueryService;
 
-    @Spy
-    @InjectMocks
-    ManagementServerImpl spy = new ManagementServerImpl();
+    @Mock
+    IPAddressDao publicIpAddressDao;
+
+    @Mock
+    VlanDao vlanDao;
+
+    @Mock
+    VlanDetailsDao vlanDetailsDao;
+
+    @Mock
+    NetworkDao networkDao;
+
+    @Mock
+    LoadBalancerDao loadBalancerDao;
+
+    @Mock
+    ResourceTagDao resourceTagDao;
+
+    @Mock
+    IpAddressManager ipAddressManager;
+
+    @Mock
+    NetworkAccountDao networkAccountDao;
+
+    @Mock
+    NetworkDomainDao networkDomainDao;
+
+    @Mock
+    NetworkModel networkModel;
+
+    @Mock
+    VpcDao vpcDao;
+
+    @Mock
+    com.cloud.user.dao.AccountDao accountDao;
+
+    ManagementServerImpl spy;
 
     @Mock
     HostAllocator hostAllocator;
@@ -215,17 +257,19 @@ public class ManagementServerImplTest {
     @Mock
     DeploymentPlanningManager deploymentPlanningManagerMock;
 
-    private AutoCloseable closeable;
     private MockedStatic<ApiDBUtils> apiDBUtilsMock;
 
     @Before
     public void setup() throws IllegalAccessException, NoSuchFieldException {
-        closeable = MockitoAnnotations.openMocks(this);
         CallContext.register(Mockito.mock(User.class), Mockito.mock(Account.class));
+        spy = Mockito.spy(new ManagementServerImpl());
         spy._accountMgr = accountManager;
         spy.templateDao = templateDao;
         spy._userVmDao = userVmDao;
+        spy._vmInstanceDetailsDao = vmInstanceDetailsDao;
         spy._detailsDao = hostDetailsDao;
+        ReflectionTestUtils.setField(spy, "_dpMgr", deploymentPlanningManagerMock);
+        ReflectionTestUtils.setField(spy, "extensionsManager", extensionManager);
         ReflectionTestUtils.setField(spy, "userDataRegistryService", userDataRegistryService);
 
         // SSH keypair slice: wire a real SshKeyPairServiceImpl backed by the
@@ -309,6 +353,23 @@ public class ManagementServerImplTest {
         ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
         ReflectionTestUtils.setField(spy, "clusterHostQueryService", clusterHostQueryService);
 
+        PublicIpAddressSearchServiceImpl publicIpAddressSearchService = new PublicIpAddressSearchServiceImpl();
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountMgr", accountManager);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_publicIpAddressDao", publicIpAddressDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_vlanDao", vlanDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "vlanDetailsDao", vlanDetailsDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_domainDao", domainDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountDao", accountDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "networkDao", networkDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_loadbalancerDao", loadBalancerDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_resourceTagDao", resourceTagDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_ipAddressMgr", ipAddressManager);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkAccountDao", networkAccountDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkDomainDao", networkDomainDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkMgr", networkModel);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_vpcDao", vpcDao);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
+
         spy.setHostAllocators(List.of(hostAllocator));
 
         // Mock ApiDBUtils static method
@@ -324,7 +385,6 @@ public class ManagementServerImplTest {
             apiDBUtilsMock.close();
         }
         CallContext.unregister();
-        closeable.close();
     }
 
     private void overrideDefaultConfigValue(final ConfigKey configKey, final String name, final Object o) throws IllegalAccessException, NoSuchFieldException {
@@ -473,6 +533,34 @@ public class ManagementServerImplTest {
         Mockito.verify(sc, Mockito.times(1)).setParameters("sourceNetworkId", 10L);
         Mockito.verify(sc, Mockito.times(1)).setParameters("state", IpAddress.State.Allocated);
         Mockito.verify(sc, Mockito.times(1)).setParameters("forsystemvms", false);
+    }
+
+    @Test
+    public void testSearchForIPAddressesDelegatesToPublicIpAddressSearchService() {
+        PublicIpAddressSearchService publicIpAddressSearchService = Mockito.mock(PublicIpAddressSearchService.class);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
+        ListPublicIpAddressesCmd cmd = Mockito.mock(ListPublicIpAddressesCmd.class);
+        Pair<List<? extends IpAddress>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(publicIpAddressSearchService.searchForIPAddresses(cmd)).thenReturn(expected);
+
+        Pair<List<? extends IpAddress>, Integer> result = spy.searchForIPAddresses(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(publicIpAddressSearchService).searchForIPAddresses(cmd);
+    }
+
+    @Test
+    public void testGetStatesForIpAddressSearchDelegatesToPublicIpAddressSearchService() {
+        PublicIpAddressSearchService publicIpAddressSearchService = Mockito.mock(PublicIpAddressSearchService.class);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
+        ListPublicIpAddressesCmd cmd = Mockito.mock(ListPublicIpAddressesCmd.class);
+        List<IpAddress.State> expected = Collections.singletonList(IpAddress.State.Allocated);
+        Mockito.when(publicIpAddressSearchService.getStatesForIpAddressSearch(cmd)).thenReturn(expected);
+
+        List<IpAddress.State> result = spy.getStatesForIpAddressSearch(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(publicIpAddressSearchService).getStatesForIpAddressSearch(cmd);
     }
 
     private UserVmVO mockFilterUefiHostsTestVm(String uefiValue) {
