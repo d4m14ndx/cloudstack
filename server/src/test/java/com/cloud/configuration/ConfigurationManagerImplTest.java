@@ -212,6 +212,28 @@ public class ConfigurationManagerImplTest {
         ReflectionTestUtils.setField(configurationManagerImplSpy, "templateZoneDao", vmTemplateZoneDao);
         ReflectionTestUtils.setField(configurationManagerImplSpy, "annotationDao", annotationDao);
 
+        // Phase 4: wire a real NetworkOfferingServiceImpl backed by the mocks
+        // already declared in this test class, so delegate calls work end-to-end.
+        NetworkOfferingServiceImpl networkOfferingServiceImpl = new NetworkOfferingServiceImpl();
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkOfferingDao", networkOfferingDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingJoinDao", Mockito.mock(com.cloud.api.query.dao.NetworkOfferingJoinDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingDetailsDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDetailsDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_ntwkOffServiceMapDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingServiceMapDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_physicalNetworkDao", physicalNetworkDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_zoneDao", zoneDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_domainDao", domainDaoMock);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkDao", Mockito.mock(com.cloud.network.dao.NetworkDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_configDao", configDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_entityMgr", entityManagerMock);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "annotationDao", annotationDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_accountMgr", Mockito.mock(com.cloud.user.AccountManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_vpcMgr", Mockito.mock(com.cloud.network.vpc.VpcManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkSvc", networkService);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkModel", networkModel);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", Mockito.mock(org.apache.cloudstack.framework.messagebus.MessageBus.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
+        ReflectionTestUtils.setField(configurationManagerImplSpy, "networkOfferingService", networkOfferingServiceImpl);
+
         deleteZoneCmd = Mockito.mock(DeleteZoneCmd.class);
         createNetworkOfferingCmd = Mockito.mock(CreateNetworkOfferingCmd.class);
     }
@@ -1282,27 +1304,20 @@ public class ConfigurationManagerImplTest {
         providers.add(Network.Provider.Nsx);
         serviceProviderMap.put(Network.Service.Firewall, providers);
         try {
-            Method method = null;
-            try {
-                method = configurationManagerImplSpy.getClass().getDeclaredMethod("validateProvider", NetworkOfferingVO.class, Map.class, String.class, String.class);
-            } catch (NoSuchMethodException nsme) {
-                // Method not found; will use ReflectionTestUtils as fallback
-            }
-
+            Method method = NetworkOfferingServiceImpl.class.getDeclaredMethod("validateProvider", NetworkOfferingVO.class, Map.class, String.class, String.class);
+            method.setAccessible(true);
+            NetworkOfferingServiceImpl serviceImpl = new NetworkOfferingServiceImpl();
             final String requestedNetworkMode = "routed";
-            if (method != null) {
-                method.setAccessible(true);
-                try {
-                    method.invoke(configurationManagerImplSpy, sourceOffering, serviceProviderMap, null, requestedNetworkMode);
-                    Assert.fail("Expected InvalidParameterValueException to be thrown");
-                } catch (InvocationTargetException ite) {
-                    Throwable cause = ite.getCause();
-                    if (cause instanceof InvalidParameterValueException) {
-                        return;
-                    }
-                    cause.printStackTrace(System.out);
-                    Assert.fail("Unexpected exception type: " + cause);
+            try {
+                method.invoke(serviceImpl, sourceOffering, serviceProviderMap, null, requestedNetworkMode);
+                Assert.fail("Expected InvalidParameterValueException to be thrown");
+            } catch (InvocationTargetException ite) {
+                Throwable cause = ite.getCause();
+                if (cause instanceof InvalidParameterValueException) {
+                    return;
                 }
+                cause.printStackTrace(System.out);
+                Assert.fail("Unexpected exception type: " + cause);
             }
         } catch (Exception e) {
             e.printStackTrace(System.out);
