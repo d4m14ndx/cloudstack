@@ -354,6 +354,16 @@ public class AccountManagentImplTestBase {
                 org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "hostDao"));
         org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "accountManager", accountManagerImpl);
         org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountStateService", accountStateService);
+        // Phase 4 slice (10th): wire AccountAccessServiceImpl so AccountManagerImpl's
+        // one-line access wrappers delegate to the same DAO and checker mocks while
+        // validateAccountHasAccessToResource keeps its spy-observed orchestration.
+        AccountAccessServiceImpl accountAccessService = new AccountAccessServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "dataCenterDao", _dcDao);
+        accountAccessService.setSecurityCheckers(Arrays.asList(securityChecker));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountAccessService", accountAccessService);
         CallContext.register(callingUser, callingAccount);
     }
 
