@@ -227,7 +227,6 @@ import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
-import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
@@ -448,6 +447,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmExternalProvisioningManager vmExternalProvisioningManager;
     @Inject
     protected VmVolumeMigrationPlanningService vmVolumeMigrationPlanningService;
+    @Inject
+    protected VmVolumeMigrationPlanningServiceImpl vmVolumeMigrationPlanningServiceImpl;
     @Inject
     protected VmOfflineStorageMigrationService vmOfflineStorageMigrationService;
     @Inject
@@ -2913,218 +2914,49 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         _vmDao.persist(newVm);
     }
 
-    /**
-     * We create the mapping of volumes and storage pool to migrate the VMs according to the information sent by the user.
-     * If the user did not enter a complete mapping, the volumes that were left behind will be auto mapped using {@link #createStoragePoolMappingsForVolumes(VirtualMachineProfile, DataCenterDeployment, Map, List)}
-     */
     protected Map<Volume, StoragePool> createMappingVolumeAndStoragePool(VirtualMachineProfile profile, Host targetHost, Map<Long, Long> userDefinedMapOfVolumesAndStoragePools) {
-        return createMappingVolumeAndStoragePool(profile,
-                new DataCenterDeployment(targetHost.getDataCenterId(), targetHost.getPodId(), targetHost.getClusterId(), targetHost.getId(), null, null),
-                userDefinedMapOfVolumesAndStoragePools);
+        return vmVolumeMigrationPlanningService.createMappingVolumeAndStoragePool(profile, targetHost, userDefinedMapOfVolumesAndStoragePools);
     }
 
     private Map<Volume, StoragePool> createMappingVolumeAndStoragePool(final VirtualMachineProfile profile, final DataCenterDeployment plan, final Map<Long, Long> userDefinedMapOfVolumesAndStoragePools) {
-        Host targetHost = null;
-        if (plan.getHostId() != null) {
-            targetHost = _hostDao.findById(plan.getHostId());
-        }
-        Map<Volume, StoragePool> volumeToPoolObjectMap = buildMapUsingUserInformation(profile, targetHost, userDefinedMapOfVolumesAndStoragePools);
-
-        List<Volume> volumesNotMapped = findVolumesThatWereNotMappedByTheUser(profile, volumeToPoolObjectMap);
-        createStoragePoolMappingsForVolumes(profile, plan, volumeToPoolObjectMap, volumesNotMapped);
-        return volumeToPoolObjectMap;
+        return vmVolumeMigrationPlanningService.createMappingVolumeAndStoragePool(profile, plan, userDefinedMapOfVolumesAndStoragePools);
     }
 
-    /**
-     *  Given the map of volume to target storage pool entered by the user, we check for other volumes that the VM might have and were not configured.
-     *  This map can be then used by CloudStack to find new target storage pools according to the target host.
-     */
     protected List<Volume> findVolumesThatWereNotMappedByTheUser(VirtualMachineProfile profile, Map<Volume, StoragePool> volumeToStoragePoolObjectMap) {
-        List<VolumeVO> allVolumes = _volsDao.findUsableVolumesForInstance(profile.getId());
-        List<Volume> volumesNotMapped = new ArrayList<>();
-        for (Volume volume : allVolumes) {
-            if (!volumeToStoragePoolObjectMap.containsKey(volume)) {
-                volumesNotMapped.add(volume);
-            }
-        }
-        return volumesNotMapped;
+        return vmVolumeMigrationPlanningServiceImpl.findVolumesThatWereNotMappedByTheUser(profile, volumeToStoragePoolObjectMap);
     }
 
-    /**
-     *  Builds the map of storage pools and volumes with the information entered by the user. Before creating the an entry we validate if the migration is feasible checking if the migration is allowed and if the target host can access the defined target storage pool.
-     */
     protected Map<Volume, StoragePool> buildMapUsingUserInformation(VirtualMachineProfile profile, Host targetHost, Map<Long, Long> userDefinedVolumeToStoragePoolMap) {
-        Map<Volume, StoragePool> volumeToPoolObjectMap = new HashMap<>();
-        if (MapUtils.isEmpty(userDefinedVolumeToStoragePoolMap)) {
-            return volumeToPoolObjectMap;
-        }
-        for(Long volumeId: userDefinedVolumeToStoragePoolMap.keySet()) {
-            VolumeVO volume = _volsDao.findById(volumeId);
-
-            Long poolId = userDefinedVolumeToStoragePoolMap.get(volumeId);
-            StoragePoolVO targetPool = _storagePoolDao.findById(poolId);
-            StoragePoolVO currentPool = _storagePoolDao.findById(volume.getPoolId());
-
-            executeManagedStorageChecksWhenTargetStoragePoolProvided(currentPool, volume, targetPool);
-            if (targetHost != null && _poolHostDao.findByPoolHost(targetPool.getId(), targetHost.getId()) == null) {
-                throw new CloudRuntimeException(
-                        String.format("Cannot migrate the volume [%s] to the storage pool [%s] while migrating VM [%s] to target host [%s]. The host does not have access to the storage pool entered.",
-                                volume.getUuid(), targetPool.getUuid(), profile.getUuid(), targetHost.getUuid()));
-            }
-            if (currentPool.getId() == targetPool.getId()) {
-                logger.info("The volume [{}] is already allocated in storage pool [{}].", volume.getUuid(), targetPool.getUuid());
-            }
-            volumeToPoolObjectMap.put(volume, targetPool);
-        }
-        return volumeToPoolObjectMap;
+        return vmVolumeMigrationPlanningServiceImpl.buildMapUsingUserInformation(profile, targetHost, userDefinedVolumeToStoragePoolMap);
     }
 
-    /**
-     *  Executes the managed storage checks for the mapping<volume, storage pool> entered by the user. The checks execute by this method are the following.
-     *  <ul>
-     *      <li> If the current storage pool of the volume is not a managed storage, we do not need to validate anything here.
-     *      <li> If the current storage pool is a managed storage and the target storage pool ID is different from the current one, we throw an exception.
-     *      <li> If the current storage pool is a managed storage and explicitly declared its capable of migration to alternate storage pools
-     *  </ul>
-     */
     protected void executeManagedStorageChecksWhenTargetStoragePoolProvided(StoragePoolVO currentPool, VolumeVO volume, StoragePoolVO targetPool) {
-        if (!currentPool.isManaged() || currentPool.getPoolType().equals(Storage.StoragePoolType.PowerFlex)) {
-            return;
-        }
-        if (currentPool.getId() == targetPool.getId()) {
-            return;
-        }
-
-        Map<String, String> details = _storagePoolDao.getDetails(currentPool.getId());
-        if (details != null && Boolean.parseBoolean(details.get(Storage.Capability.ALLOW_MIGRATE_OTHER_POOLS.toString()))) {
-            return;
-        }
-        throw new CloudRuntimeException(String.format("Currently, a volume on managed storage can only be 'migrated' to itself " + "[volumeId=%s, currentStoragePoolId=%s, targetStoragePoolId=%s].",
-                volume.getUuid(), currentPool.getUuid(), targetPool.getUuid()));
+        vmVolumeMigrationPlanningServiceImpl.executeManagedStorageChecksWhenTargetStoragePoolProvided(currentPool, volume, targetPool);
     }
 
-    /**
-     * For each one of the volumes we will map it to a storage pool that is available via the target host.
-     * An exception is thrown if we cannot find a storage pool that is accessible in the target host to migrate the volume to.
-     */
     protected void createStoragePoolMappingsForVolumes(VirtualMachineProfile profile, DataCenterDeployment plan, Map<Volume, StoragePool> volumeToPoolObjectMap, List<Volume> volumesNotMapped) {
-        for (Volume volume : volumesNotMapped) {
-            StoragePoolVO currentPool = _storagePoolDao.findById(volume.getPoolId());
-
-            Host targetHost = null;
-            if (plan.getHostId() != null) {
-                targetHost = _hostDao.findById(plan.getHostId());
-            }
-            executeManagedStorageChecksWhenTargetStoragePoolNotProvided(targetHost, currentPool, volume);
-            if (ScopeType.HOST.equals(currentPool.getScope()) || isStorageCrossClusterMigration(plan.getClusterId(), currentPool)) {
-                createVolumeToStoragePoolMappingIfPossible(profile, plan, volumeToPoolObjectMap, volume, currentPool);
-            } else if (shouldMapVolume(profile, currentPool)){
-                volumeToPoolObjectMap.put(volume, currentPool);
-            }
-        }
+        vmVolumeMigrationPlanningServiceImpl.createStoragePoolMappingsForVolumes(profile, plan, volumeToPoolObjectMap, volumesNotMapped);
     }
 
-    /**
-     * Returns true if it should map the volume for a storage pool to migrate.
-     * <br><br>
-     * Some context: VMware migration workflow requires all volumes to be mapped (even if volume stays on its current pool);
-     *  however, this is not necessary/desirable for the KVM flow.
-     */
     protected boolean shouldMapVolume(VirtualMachineProfile profile, StoragePoolVO currentPool) {
-        boolean isManaged = currentPool.isManaged();
-        boolean isNotKvm = HypervisorType.KVM != profile.getHypervisorType();
-        return isNotKvm || isManaged;
+        return vmVolumeMigrationPlanningServiceImpl.shouldMapVolume(profile, currentPool);
     }
 
-    /**
-     *  Executes the managed storage checks for the volumes that the user has not entered a mapping of <volume, storage pool>. The following checks are performed.
-     *   <ul>
-     *      <li> If the current storage pool is not a managed storage, we do not need to proceed with this method;
-     *      <li> We check if the target host has access to the current managed storage pool. If it does not have an exception will be thrown.
-     *   </ul>
-     */
     protected void executeManagedStorageChecksWhenTargetStoragePoolNotProvided(Host targetHost, StoragePoolVO currentPool, Volume volume) {
-        if (!currentPool.isManaged()) {
-            return;
-        }
-        if (targetHost != null && _poolHostDao.findByPoolHost(currentPool.getId(), targetHost.getId()) == null) {
-            throw new CloudRuntimeException(String.format("The target host does not have access to the volume's managed storage pool. [volumeId=%s, storageId=%s, targetHostId=%s].", volume.getUuid(),
-                    currentPool.getUuid(), targetHost.getUuid()));
-        }
+        vmVolumeMigrationPlanningServiceImpl.executeManagedStorageChecksWhenTargetStoragePoolNotProvided(targetHost, currentPool, volume);
     }
 
-    /**
-     *  Return true if the VM migration is a cross cluster migration. To execute that, we check if the volume current storage pool cluster is different from the target cluster.
-     */
     protected boolean isStorageCrossClusterMigration(Long clusterId, StoragePoolVO currentPool) {
-        return clusterId != null && ScopeType.CLUSTER.equals(currentPool.getScope()) && !currentPool.getClusterId().equals(clusterId);
+        return vmVolumeMigrationPlanningServiceImpl.isStorageCrossClusterMigration(clusterId, currentPool);
     }
 
-    /**
-     * We will add a mapping of volume to storage pool if needed. The conditions to add a mapping are the following:
-     * <ul>
-     *  <li> The candidate storage pool where the volume is to be allocated can be accessed by the target host
-     *  <li> If no storage pool is found to allocate the volume we throw an exception.
-     * </ul>
-     *
-     * Side note: this method should only be called if the volume is on local storage or if we are executing a cross cluster migration.
-     */
     protected void createVolumeToStoragePoolMappingIfPossible(VirtualMachineProfile profile, DataCenterDeployment plan, Map<Volume, StoragePool> volumeToPoolObjectMap, Volume volume,
             StoragePoolVO currentPool) {
-        List<StoragePool> storagePoolList = getCandidateStoragePoolsToMigrateLocalVolume(profile, plan, volume);
-
-        if (CollectionUtils.isEmpty(storagePoolList)) {
-            String msg;
-            if (plan.getHostId() != null) {
-                Host targetHost = _hostDao.findById(plan.getHostId());
-                msg = String.format("There are no storage pools available at the target host [%s] to migrate volume [%s]", targetHost.getUuid(), volume.getUuid());
-            } else {
-                Cluster targetCluster = _clusterDao.findById(plan.getClusterId());
-                msg = String.format("There are no storage pools available in the target cluster [%s] to migrate volume [%s]", targetCluster.getUuid(), volume.getUuid());
-            }
-            throw new CloudRuntimeException(msg);
-        }
-
-        Collections.shuffle(storagePoolList);
-        boolean candidatePoolsListContainsVolumeCurrentStoragePool = false;
-        for (StoragePool storagePool : storagePoolList) {
-            if (storagePool.getId() == currentPool.getId()) {
-                candidatePoolsListContainsVolumeCurrentStoragePool = true;
-                break;
-            }
-
-        }
-        if (!candidatePoolsListContainsVolumeCurrentStoragePool) {
-            volumeToPoolObjectMap.put(volume, _storagePoolDao.findByUuid(storagePoolList.get(0).getUuid()));
-        }
+        vmVolumeMigrationPlanningServiceImpl.createVolumeToStoragePoolMappingIfPossible(profile, plan, volumeToPoolObjectMap, volume, currentPool);
     }
 
-    /**
-     * We use {@link StoragePoolAllocator} objects to find storage pools for given DataCenterDeployment where we would be able to allocate the given volume.
-     */
     protected List<StoragePool> getCandidateStoragePoolsToMigrateLocalVolume(VirtualMachineProfile profile, DataCenterDeployment plan, Volume volume) {
-        List<StoragePool> poolList = new ArrayList<>();
-
-        DiskOfferingVO diskOffering = _diskOfferingDao.findById(volume.getDiskOfferingId());
-        DiskProfile diskProfile = new DiskProfile(volume, diskOffering, profile.getHypervisorType());
-        ExcludeList avoid = new ExcludeList();
-
-        StoragePoolVO volumeStoragePool = _storagePoolDao.findById(volume.getPoolId());
-        if (volumeStoragePool.isLocal()) {
-            diskProfile.setUseLocalStorage(true);
-        }
-        for (StoragePoolAllocator allocator : _storagePoolAllocators) {
-            List<StoragePool> poolListFromAllocator = allocator.allocateToPool(diskProfile, profile, plan, avoid, StoragePoolAllocator.RETURN_UPTO_ALL);
-            if (CollectionUtils.isEmpty(poolListFromAllocator)) {
-                continue;
-            }
-            for (StoragePool pool : poolListFromAllocator) {
-                if (pool.isLocal() || isStorageCrossClusterMigration(plan.getClusterId(), volumeStoragePool)) {
-                    poolList.add(pool);
-                }
-            }
-        }
-        return poolList;
+        return vmVolumeMigrationPlanningServiceImpl.getCandidateStoragePoolsToMigrateLocalVolume(profile, plan, volume);
     }
 
     private <T extends VMInstanceVO> void moveVmToMigratingState(final T vm, final Long hostId, final ItWorkVO work) throws ConcurrentOperationException {
