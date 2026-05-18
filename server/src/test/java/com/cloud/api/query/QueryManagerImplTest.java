@@ -18,7 +18,6 @@
 package com.cloud.api.query;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -34,7 +33,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import com.cloud.host.dao.HostTagsDao;
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ResponseObject;
@@ -45,6 +43,7 @@ import org.apache.cloudstack.api.command.user.account.ListAccountsCmd;
 import org.apache.cloudstack.api.command.user.bucket.ListBucketsCmd;
 import org.apache.cloudstack.api.command.user.event.ListEventsCmd;
 import org.apache.cloudstack.api.command.user.offering.ListDiskOfferingsCmd;
+import org.apache.cloudstack.api.command.user.offering.ListServiceOfferingsCmd;
 import org.apache.cloudstack.api.command.user.resource.ListDetailOptionsCmd;
 import org.apache.cloudstack.api.response.AccountResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
@@ -53,6 +52,7 @@ import org.apache.cloudstack.api.response.EventResponse;
 import org.apache.cloudstack.api.response.HostResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
+import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.VirtualMachineResponse;
 import org.apache.cloudstack.context.CallContext;
@@ -62,7 +62,6 @@ import org.apache.cloudstack.storage.datastore.db.ObjectStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ObjectStoreVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.commons.collections.CollectionUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -100,9 +99,7 @@ import com.cloud.network.dao.NetworkVO;
 import com.cloud.server.ResourceTag;
 import com.cloud.storage.BucketVO;
 import com.cloud.storage.ScopeType;
-import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.dao.BucketDao;
-import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
@@ -161,15 +158,10 @@ public class QueryManagerImplTest {
     HostDao hostDao;
 
     @Mock
-    HostTagsDao hostTagsDao;
-
-    @Mock
     ClusterDao clusterDao;
 
     @Mock
     BucketDao bucketDao;
-    @Mock
-    VMTemplateDao templateDao;
 
     @Mock
     UserVmJoinDao userVmJoinDao;
@@ -197,6 +189,9 @@ public class QueryManagerImplTest {
 
     @Mock
     DiskOfferingQueryService diskOfferingQueryService;
+
+    @Mock
+    ServiceOfferingQueryService serviceOfferingQueryService;
 
     @Mock
     AccountQueryService accountQueryService;
@@ -251,6 +246,9 @@ public class QueryManagerImplTest {
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "diskOfferingQueryService", diskOfferingQueryService);
         ReflectionTestUtils.setField(queryManager, "diskOfferingQueryService", diskOfferingQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "serviceOfferingQueryService", serviceOfferingQueryService);
+        ReflectionTestUtils.setField(queryManager, "serviceOfferingQueryService", serviceOfferingQueryService);
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "accountQueryService", accountQueryService);
         ReflectionTestUtils.setField(queryManager, "accountQueryService", accountQueryService);
@@ -437,52 +435,37 @@ public class QueryManagerImplTest {
     }
 
     @Test
-    public void testGetHostTagsFromTemplateForServiceOfferingsListingNoTemplateId() {
-        Assert.assertTrue(CollectionUtils.isEmpty(queryManager.getHostTagsFromTemplateForServiceOfferingsListing(mock(AccountVO.class), null)));
-    }
+    public void searchForServiceOfferingsDelegatesToServiceOfferingQueryService() {
+        ListServiceOfferingsCmd cmd = mock(ListServiceOfferingsCmd.class);
+        ListResponse<ServiceOfferingResponse> expected = new ListResponse<>();
+        when(serviceOfferingQueryService.searchForServiceOfferings(cmd)).thenReturn(expected);
 
-    @Test(expected = InvalidParameterValueException.class)
-    public void testGetHostTagsFromTemplateForServiceOfferingsListingException() {
-        queryManager.getHostTagsFromTemplateForServiceOfferingsListing(mock(AccountVO.class), 1L);
-    }
+        ListResponse<ServiceOfferingResponse> actual = queryManager.searchForServiceOfferings(cmd);
 
-    @Test(expected = PermissionDeniedException.class)
-    public void testGetHostTagsForServiceOfferingsListingNoAccess() {
-        long templateId = 1L;
-        Account account = mock(Account.class);
-        Mockito.when(account.getType()).thenReturn(Account.Type.NORMAL);
-        VMTemplateVO template = mock(VMTemplateVO.class);
-        Mockito.when(templateDao.findByIdIncludingRemoved(templateId)).thenReturn(template);
-        Mockito.lenient().doThrow(PermissionDeniedException.class).when(accountManager).checkAccess(account, null, false, template);
-        queryManager.getHostTagsFromTemplateForServiceOfferingsListing(account, templateId);
+        Assert.assertSame(expected, actual);
+        verify(serviceOfferingQueryService).searchForServiceOfferings(cmd);
     }
 
     @Test
-    public void testGetHostTagsFromTemplateForServiceOfferingsListingAdmin() {
-        long templateId = 1L;
-        Account account = mock(Account.class);
-        Mockito.when(account.getType()).thenReturn(Account.Type.ADMIN);
-        VMTemplateVO template = mock(VMTemplateVO.class);
-        Mockito.when(template.getTemplateTag()).thenReturn("tag");
-        Mockito.when(templateDao.findByIdIncludingRemoved(templateId)).thenReturn(template);
-        Mockito.lenient().doThrow(PermissionDeniedException.class).when(accountManager).checkAccess(account, null, false, template);
-        List<String> result = queryManager.getHostTagsFromTemplateForServiceOfferingsListing(account, templateId);
-        Assert.assertTrue(CollectionUtils.isNotEmpty(result));
+    public void getHostTagsFromTemplateForServiceOfferingsListingDelegatesToServiceOfferingQueryService() {
+        Account caller = mock(Account.class);
+        List<String> expected = Collections.singletonList("tag");
+        when(serviceOfferingQueryService.getHostTagsFromTemplateForServiceOfferingsListing(caller, 1L)).thenReturn(expected);
+
+        List<String> actual = queryManager.getHostTagsFromTemplateForServiceOfferingsListing(caller, 1L);
+
+        Assert.assertSame(expected, actual);
+        verify(serviceOfferingQueryService).getHostTagsFromTemplateForServiceOfferingsListing(caller, 1L);
     }
 
     @Test
-    public void testGetHostTagsForServiceOfferingsListingSuccess() {
-        long templateId = 1L;
-        Account account = mock(Account.class);
-        Mockito.when(account.getType()).thenReturn(Account.Type.NORMAL);
-        VMTemplateVO template = mock(VMTemplateVO.class);
-        Mockito.when(templateDao.findByIdIncludingRemoved(templateId)).thenReturn(template);
-        Mockito.lenient().doNothing().when(accountManager).checkAccess(account, null, false, template);
-        List<String> result = queryManager.getHostTagsFromTemplateForServiceOfferingsListing(account, templateId);
-        Assert.assertTrue(CollectionUtils.isEmpty(result));
-        Mockito.when(template.getTemplateTag()).thenReturn("tag");
-        result = queryManager.getHostTagsFromTemplateForServiceOfferingsListing(account, templateId);
-        Assert.assertTrue(CollectionUtils.isNotEmpty(result));
+    public void addVmCurrentClusterHostTagsDelegatesToServiceOfferingQueryService() {
+        VMInstanceVO vmInstance = mock(VMInstanceVO.class);
+        List<String> hostTags = new ArrayList<>();
+
+        queryManagerImplSpy.addVmCurrentClusterHostTags(vmInstance, hostTags);
+
+        verify(serviceOfferingQueryService).addVmCurrentClusterHostTags(vmInstance, hostTags);
     }
 
     public void testListAffectedVmsForScopeChange() {
@@ -639,38 +622,4 @@ public class QueryManagerImplTest {
         verify(host2).setExtensionId("b");
     }
 
-    @Test
-    public void testAddVmCurrentClusterHostTags() {
-        String tag1 = "tag1";
-        String tag2 = "tag2";
-        VMInstanceVO vmInstance = mock(VMInstanceVO.class);
-        HostVO host = mock(HostVO.class);
-        when(vmInstance.getHostId()).thenReturn(null);
-        when(vmInstance.getLastHostId()).thenReturn(1L);
-        when(hostDao.findById(1L)).thenReturn(host);
-        when(host.getClusterId()).thenReturn(1L);
-        when(hostTagsDao.listByClusterId(1L)).thenReturn(Arrays.asList(tag1, tag2));
-
-        List<String> hostTags = new ArrayList<>(Collections.singleton(tag1));
-        queryManagerImplSpy.addVmCurrentClusterHostTags(vmInstance, hostTags);
-        assertEquals(2, hostTags.size());
-        assertTrue(hostTags.contains(tag2));
-    }
-
-    @Test
-    public void testAddVmCurrentClusterHostTagsEmptyHostTagsInCluster() {
-        String tag1 = "tag1";
-        VMInstanceVO vmInstance = mock(VMInstanceVO.class);
-        HostVO host = mock(HostVO.class);
-        when(vmInstance.getHostId()).thenReturn(null);
-        when(vmInstance.getLastHostId()).thenReturn(1L);
-        when(hostDao.findById(1L)).thenReturn(host);
-        when(host.getClusterId()).thenReturn(1L);
-        when(hostTagsDao.listByClusterId(1L)).thenReturn(null);
-
-        List<String> hostTags = new ArrayList<>(Collections.singleton(tag1));
-        queryManagerImplSpy.addVmCurrentClusterHostTags(vmInstance, hostTags);
-        assertEquals(1, hostTags.size());
-        assertTrue(hostTags.contains(tag1));
-    }
 }
