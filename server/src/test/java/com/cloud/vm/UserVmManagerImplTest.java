@@ -48,7 +48,6 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -79,8 +78,6 @@ import org.apache.cloudstack.api.command.user.vm.CreateVMFromBackupCmd;
 import org.apache.cloudstack.api.command.user.vm.DeployVMCmd;
 import org.apache.cloudstack.api.command.user.vm.DeployVnfApplianceCmd;
 import org.apache.cloudstack.api.command.user.vm.DestroyVMCmd;
-import org.apache.cloudstack.api.command.user.vm.ResetVMSSHKeyCmd;
-import org.apache.cloudstack.api.command.user.vm.ResetVMUserDataCmd;
 import org.apache.cloudstack.api.command.user.vm.RestoreVMCmd;
 import org.apache.cloudstack.api.command.user.vm.UpdateVMCmd;
 import org.apache.cloudstack.api.command.user.vm.UpdateVmNicCmd;
@@ -150,7 +147,6 @@ import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.network.element.UserDataServiceProvider;
 import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.rules.FirewallRuleVO;
 import com.cloud.network.rules.PortForwardingRule;
@@ -189,7 +185,6 @@ import com.cloud.user.AccountManager;
 import com.cloud.user.AccountService;
 import com.cloud.user.AccountVO;
 import com.cloud.user.ResourceLimitService;
-import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.UserData;
 import com.cloud.user.UserDataVO;
 import com.cloud.user.UserVO;
@@ -475,6 +470,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmRecoveryService vmRecoveryService;
 
+    @Mock
+    VmPasswordSSHKeyResetService vmPasswordSSHKeyResetService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -640,6 +638,14 @@ public class UserVmManagerImplTest {
         // behaviour is covered by VmRecoveryServiceImplTest; the existing
         // recoverRootVolumeTestDestroyState test has been migrated there.
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRecoveryService", vmRecoveryService);
+        // Slice 22: wire VmPasswordSSHKeyResetService mock so the delegating
+        // wrappers resetVMPassword / resetVMUserData / resetVMSSHKey /
+        // resetVMPasswordInternal / resetVMSSHKeyInternal /
+        // getCurrentVmPasswordOrDefineNewPassword don't NPE. Per-branch
+        // behaviour is covered by VmPasswordSSHKeyResetServiceImplTest; the
+        // migrated resetVMUserData / resetVMSSHKey / getCurrentVmPassword tests
+        // have been removed from this class.
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmPasswordSSHKeyResetService", vmPasswordSSHKeyResetService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -1157,139 +1163,6 @@ public class UserVmManagerImplTest {
     }
 
     @Test(expected = InvalidParameterValueException.class)
-    public void testResetVMUserDataVMStateNotStopped() {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
-        ResetVMUserDataCmd cmd = Mockito.mock(ResetVMUserDataCmd.class);
-        when(cmd.getId()).thenReturn(1L);
-        when(userVmDao.findById(1L)).thenReturn(userVmVoMock);
-
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        when(userVmVoMock.getTemplateId()).thenReturn(2L);
-        when(templateDao.findByIdIncludingRemoved(2L)).thenReturn(template);
-
-
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Running);
-
-        try {
-            userVmManagerImpl.resetVMUserData(cmd);
-        } catch (ResourceUnavailableException e) {
-            throw new RuntimeException(e);
-        } catch (InsufficientCapacityException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testResetVMUserDataDontAcceptBothUserdataAndUserdataId() {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
-        ResetVMUserDataCmd cmd = Mockito.mock(ResetVMUserDataCmd.class);
-        when(cmd.getId()).thenReturn(1L);
-        when(userVmDao.findById(1L)).thenReturn(userVmVoMock);
-
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        when(userVmVoMock.getTemplateId()).thenReturn(2L);
-        when(templateDao.findByIdIncludingRemoved(2L)).thenReturn(template);
-
-
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Stopped);
-
-        when(cmd.getUserData()).thenReturn("testUserdata");
-        when(cmd.getUserdataId()).thenReturn(1L);
-
-        try {
-            userVmManagerImpl.resetVMUserData(cmd);
-        } catch (ResourceUnavailableException e) {
-            throw new RuntimeException(e);
-        } catch (InsufficientCapacityException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Test
-    public void testResetVMUserDataSuccessResetWithUserdata() {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
-        UserVmVO userVmVO = new UserVmVO();
-        userVmVO.setTemplateId(2L);
-        userVmVO.setState(VirtualMachine.State.Stopped);
-        userVmVO.setUserDataId(100L);
-        userVmVO.setUserData("RandomUserdata");
-
-        ResetVMUserDataCmd cmd = Mockito.mock(ResetVMUserDataCmd.class);
-        when(cmd.getId()).thenReturn(1L);
-        when(userVmDao.findById(1L)).thenReturn(userVmVO);
-
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        when(templateDao.findByIdIncludingRemoved(2L)).thenReturn(template);
-        when(template.getUserDataId()).thenReturn(null);
-
-        String testUserData = "testUserdata";
-        when(cmd.getUserData()).thenReturn(testUserData);
-        when(cmd.getUserdataId()).thenReturn(null);
-        when(cmd.getHttpMethod()).thenReturn(HTTPMethod.GET);
-
-        when(userDataManager.validateUserData(testUserData, HTTPMethod.GET)).thenReturn(testUserData);
-
-        try {
-            doNothing().when(userVmManagerImpl).updateUserData(userVmVO);
-            userVmManagerImpl.resetVMUserData(cmd);
-        } catch (ResourceUnavailableException e) {
-            throw new RuntimeException(e);
-        } catch (InsufficientCapacityException e) {
-            throw new RuntimeException(e);
-        }
-
-        Assert.assertEquals("testUserdata", userVmVO.getUserData());
-        Assert.assertEquals(null, userVmVO.getUserDataId());
-    }
-
-    @Test
-    public void testResetVMUserDataSuccessResetWithUserdataId() {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
-        UserVmVO userVmVO = new UserVmVO();
-        userVmVO.setTemplateId(2L);
-        userVmVO.setState(VirtualMachine.State.Stopped);
-        userVmVO.setUserDataId(100L);
-        userVmVO.setUserData("RandomUserdata");
-
-        ResetVMUserDataCmd cmd = Mockito.mock(ResetVMUserDataCmd.class);
-        when(cmd.getId()).thenReturn(1L);
-        when(userVmDao.findById(1L)).thenReturn(userVmVO);
-
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        when(templateDao.findByIdIncludingRemoved(2L)).thenReturn(template);
-        when(template.getUserDataId()).thenReturn(null);
-
-        String testUserData = "testUserdata";
-        when(cmd.getUserdataId()).thenReturn(1L);
-        UserDataVO apiUserDataVO = Mockito.mock(UserDataVO.class);
-        when(userDataDao.findById(1L)).thenReturn(apiUserDataVO);
-        when(apiUserDataVO.getUserData()).thenReturn(testUserData);
-        when(cmd.getHttpMethod()).thenReturn(HTTPMethod.GET);
-
-        when(userDataManager.validateUserData(testUserData, HTTPMethod.GET)).thenReturn(testUserData);
-
-        try {
-            doNothing().when(userVmManagerImpl).updateUserData(userVmVO);
-            userVmManagerImpl.resetVMUserData(cmd);
-        } catch (ResourceUnavailableException e) {
-            throw new RuntimeException(e);
-        } catch (InsufficientCapacityException e) {
-            throw new RuntimeException(e);
-        }
-
-        Assert.assertEquals("testUserdata", userVmVO.getUserData());
-        Assert.assertEquals(1L, (long)userVmVO.getUserDataId());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
     public void createVirtualMachineWithInactiveServiceOffering() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
         DeployVMCmd deployVMCmd = new DeployVMCmd();
         ReflectionTestUtils.setField(deployVMCmd, "zoneId", zoneId);
@@ -1497,60 +1370,6 @@ public class UserVmManagerImplTest {
 
         Mockito.verify(userVmManagerImpl).getSecurityGroupIdList(cmd);
         Mockito.verify(vnfTemplateManager).createSecurityGroupForVnfAppliance(any(), any(), any(), any(DeployVnfApplianceCmd.class));
-    }
-
-    @Test
-    public void getCurrentVmPasswordOrDefineNewPasswordTestTemplateIsNotPasswordEnabledReturnPreDefinedString() {
-        String expected = "saved_password";
-
-        Mockito.doReturn(false).when(vmTemplateVoMock).isEnablePassword();
-
-        String result = userVmManagerImpl.getCurrentVmPasswordOrDefineNewPassword("", userVmVoMock, vmTemplateVoMock);
-
-        Assert.assertEquals(expected, result);
-    }
-
-    @Test
-    public void getCurrentVmPasswordOrDefineNewPasswordTestVmHasPasswordReturnCurrentPassword() {
-        String expected = "current_password";
-
-        Mockito.doReturn(true).when(vmTemplateVoMock).isEnablePassword();
-        Mockito.doReturn(expected).when(userVmVoMock).getDetail("password");
-
-        String result = userVmManagerImpl.getCurrentVmPasswordOrDefineNewPassword("", userVmVoMock, vmTemplateVoMock);
-
-        Assert.assertEquals(expected, result);
-    }
-
-    @Test
-    public void getCurrentVmPasswordOrDefineNewPasswordTestUserDefinedPasswordReturnNewPasswordAndSetVmPassword() {
-        String expected = "new_password";
-
-        Mockito.doReturn(true).when(vmTemplateVoMock).isEnablePassword();
-        Mockito.doReturn(null).when(userVmVoMock).getDetail("password");
-        Mockito.doCallRealMethod().when(userVmVoMock).setPassword(Mockito.any());
-        Mockito.doCallRealMethod().when(userVmVoMock).getPassword();
-
-        String result = userVmManagerImpl.getCurrentVmPasswordOrDefineNewPassword(expected, userVmVoMock, vmTemplateVoMock);
-
-        Assert.assertEquals(expected, result);
-        Assert.assertEquals(expected, userVmVoMock.getPassword());
-    }
-
-    @Test
-    public void getCurrentVmPasswordOrDefineNewPasswordTestUserDefinedPasswordReturnRandomPasswordAndSetVmPassword() {
-        String expected = "random_password";
-
-        Mockito.doReturn(true).when(vmTemplateVoMock).isEnablePassword();
-        Mockito.doReturn(null).when(userVmVoMock).getDetail("password");
-        Mockito.doReturn(expected).when(managementServiceMock).generateRandomPassword();
-        Mockito.doCallRealMethod().when(userVmVoMock).setPassword(Mockito.any());
-        Mockito.doCallRealMethod().when(userVmVoMock).getPassword();
-
-        String result = userVmManagerImpl.getCurrentVmPasswordOrDefineNewPassword("", userVmVoMock, vmTemplateVoMock);
-
-        Assert.assertEquals(expected, result);
-        Assert.assertEquals(expected, userVmVoMock.getPassword());
     }
 
     @Test
@@ -3565,57 +3384,6 @@ public class UserVmManagerImplTest {
         Mockito.verify(userVmManagerImpl).createAdvancedVirtualMachine(any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), eq(false), any(), any(), any(),
                 any(), any(), any(), any(), eq(false), any(), any(), any(), any());
-    }
-
-    @Test
-    public void testResetVMSSHKey() throws ResourceUnavailableException, InsufficientCapacityException {
-        Long domainId = 4L;
-        Long projectId = 5L;
-        Long networkId = 6L;
-
-        List<String> names = List.of("keypair1", "keypair2");
-        ResetVMSSHKeyCmd cmd = mock(ResetVMSSHKeyCmd.class);
-        when(cmd.getId()).thenReturn(vmId);
-        when(cmd.getAccountName()).thenReturn("testAccount");
-        when(cmd.getDomainId()).thenReturn(domainId);
-        when(cmd.getProjectId()).thenReturn(projectId);
-        when(cmd.getNames()).thenReturn(names);
-
-        Account owner = mock(Account.class);
-        when(owner.getAccountId()).thenReturn(accountId);
-        when(owner.getDomainId()).thenReturn(domainId);
-        when(accountManager.finalizeOwner(callerAccount, "testAccount", domainId, projectId)).thenReturn(owner);
-
-        UserVmVO userVm = new UserVmVO(vmId, null, null, templateId, Hypervisor.HypervisorType.KVM, 0,
-                true, false, domainId, accountId, 0L, 0L, null, null, null, null);
-        ReflectionTestUtils.setField(userVm, "state", VirtualMachine.State.Stopped);
-        userVm.setUserVmType("User");
-        when(userVmDao.findById(vmId)).thenReturn(userVm);
-        VMTemplateVO template = mock(VMTemplateVO.class);
-        when(templateDao.findByIdIncludingRemoved(templateId)).thenReturn(template);
-
-        Nic nic = mock(Nic.class);
-        when(nic.getNetworkId()).thenReturn(networkId);
-        when(networkModel.getDefaultNic(vmId)).thenReturn(nic);
-        NetworkVO network = mock(NetworkVO.class);
-        when(_networkDao.findById(networkId)).thenReturn(network);
-        UserDataServiceProvider element = mock(UserDataServiceProvider.class);
-        when(element.saveSSHKey(any(), any(), any(), any())).thenReturn(true);
-        when(_networkMgr.getSSHKeyResetProvider(network)).thenReturn(element);
-
-        SSHKeyPairVO keyPair1 = mock(SSHKeyPairVO.class);
-        SSHKeyPairVO keyPair2 = mock(SSHKeyPairVO.class);
-        when(keyPair1.getPublicKey()).thenReturn("ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAr...");
-        when(keyPair2.getPublicKey()).thenReturn("ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAr...");
-        when(sshKeyPairDao.findByNames(accountId, domainId, names)).thenReturn(Arrays.asList(keyPair1, keyPair2));
-
-        UserVm result = userVmManagerImpl.resetVMSSHKey(cmd);
-
-        assertNotNull(result);
-        Map<String, String> details = result.getDetails();
-        Assert.assertEquals(details.get(VmDetailConstants.SSH_PUBLIC_KEY), "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAr...\n" +
-                "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAr...");
-        Assert.assertEquals(details.get(VmDetailConstants.SSH_KEY_PAIR_NAMES), "keypair1,keypair2");
     }
 
     @Test
