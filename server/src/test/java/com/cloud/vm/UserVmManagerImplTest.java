@@ -606,6 +606,16 @@ public class UserVmManagerImplTest {
         vmDestroyPermissionServiceSpy = Mockito.spy(new VmDestroyPermissionServiceImpl());
         org.springframework.test.util.ReflectionTestUtils.setField(vmDestroyPermissionServiceSpy, "accountManager", accountManager);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmDestroyPermissionService", vmDestroyPermissionServiceSpy);
+        // Slice 26: wire volume lifecycle validation/cleanup services so destroy,
+        // migration, restore, and unmanage orchestration keep flowing through the
+        // manager wrappers while the leaf behavior lives in focused service tests.
+        VmVolumeLifecycleValidationServiceImpl volumeLifecycleValidationService = new VmVolumeLifecycleValidationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(volumeLifecycleValidationService, "volumeDao", volumeDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(volumeLifecycleValidationService, "snapshotDao", snapshotDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmVolumeLifecycleValidationService", volumeLifecycleValidationService);
+        VmVolumeDestroyCleanupServiceImpl volumeDestroyCleanupService = new VmVolumeDestroyCleanupServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(volumeDestroyCleanupService, "volumeService", volumeApiService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmVolumeDestroyCleanupService", volumeDestroyCleanupService);
         // Slice 13: wire VmHostNameUniquenessServiceImpl so the verifyExtraDhcpOptionsNetwork /
         // checkIfHostNameUniqueInNtwkDomain wrappers don't NPE when updateVirtualMachine
         // tests pass through them. Per-branch behavior is covered by
