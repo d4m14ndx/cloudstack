@@ -29,6 +29,7 @@ import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.resource.ResourceManager;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
+import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.storage.ChangeStoragePoolScopeCmd;
 import org.apache.cloudstack.api.command.admin.storage.ConfigureStorageAccessCmd;
@@ -50,6 +51,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -154,12 +156,16 @@ public class StorageManagerImplTest {
 
     @Mock
     DataStoreProviderManager dataStoreProviderMgr;
+    @Mock
+    org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager dataStoreMgr;
 
     @Mock
     StorageCapacityService storageCapacityService;
 
     @Mock
     ObjectStoreService objectStoreService;
+
+    private StoragePoolScopeServiceImpl scopeService;
 
     @Before
     public void setUp() {
@@ -190,6 +196,16 @@ public class StorageManagerImplTest {
         // Phase 4 (slice 8): object-store lifecycle methods extracted into
         // ObjectStoreServiceImpl. Wire the mock so wrapper delegation is testable.
         ReflectionTestUtils.setField(storageManagerImpl, "objectStoreService", objectStoreService);
+
+        scopeService = Mockito.spy(new StoragePoolScopeServiceImpl());
+        ReflectionTestUtils.setField(scopeService, "accountMgr", accountMgr);
+        ReflectionTestUtils.setField(scopeService, "storagePoolDao", storagePoolDao);
+        ReflectionTestUtils.setField(scopeService, "dcDao", dataCenterDao);
+        ReflectionTestUtils.setField(scopeService, "clusterDao", clusterDao);
+        ReflectionTestUtils.setField(scopeService, "vmInstanceDao", vmInstanceDao);
+        ReflectionTestUtils.setField(scopeService, "dataStoreProviderMgr", dataStoreProviderMgr);
+        ReflectionTestUtils.setField(scopeService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(storageManagerImpl, "storagePoolScopeService", scopeService);
     }
 
     @Test
@@ -606,7 +622,11 @@ public class StorageManagerImplTest {
         prepareTestChangeStoragePoolScope(ScopeType.CLUSTER, StoragePoolStatus.Initialized);
 
         ChangeStoragePoolScopeCmd cmd = mockChangeStoragePooolScopeCmd("ZONE");
-        storageManagerImpl.changeStoragePoolScope(cmd);
+        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
+            CallContext callContext = Mockito.mock(CallContext.class);
+            ignored.when(CallContext::current).thenReturn(callContext);
+            storageManagerImpl.changeStoragePoolScope(cmd);
+        }
     }
 
     @Test(expected = InvalidParameterValueException.class)
@@ -618,7 +638,11 @@ public class StorageManagerImplTest {
         Mockito.when(clusterDao.findById(1L)).thenReturn(cluster);
 
         ChangeStoragePoolScopeCmd cmd = mockChangeStoragePooolScopeCmd("ZONE");
-        storageManagerImpl.changeStoragePoolScope(cmd);
+        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
+            CallContext callContext = Mockito.mock(CallContext.class);
+            ignored.when(CallContext::current).thenReturn(callContext);
+            storageManagerImpl.changeStoragePoolScope(cmd);
+        }
     }
 
     @Test(expected = CloudRuntimeException.class)
@@ -633,7 +657,21 @@ public class StorageManagerImplTest {
         Mockito.when(vmInstanceDao.listByVmsNotInClusterUsingPool(1L, 1L)).thenReturn(vms);
 
         ChangeStoragePoolScopeCmd cmd = mockChangeStoragePooolScopeCmd("CLUSTER");
+        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
+            CallContext callContext = Mockito.mock(CallContext.class);
+            ignored.when(CallContext::current).thenReturn(callContext);
+            storageManagerImpl.changeStoragePoolScope(cmd);
+        }
+    }
+
+    @Test
+    public void testChangeStoragePoolScopeDelegatesToInjectedService() {
+        ChangeStoragePoolScopeCmd cmd = mockChangeStoragePooolScopeCmd("ZONE");
+
+        Mockito.doNothing().when(scopeService).changeStoragePoolScope(cmd);
         storageManagerImpl.changeStoragePoolScope(cmd);
+
+        Mockito.verify(scopeService).changeStoragePoolScope(cmd);
     }
 
     @Test
