@@ -203,6 +203,9 @@ public class NetworkServiceImplTest {
     @Mock
     IpAddressLifecycleService ipAddressLifecycleService;
 
+    @Mock
+    PhysicalNetworkManagementService physicalNetworkManagementService;
+
     private static final String VLAN_ID_900 = "900";
     private static final String VLAN_ID_901 = "901";
     private static final String VLAN_ID_902 = "902";
@@ -276,6 +279,7 @@ public class NetworkServiceImplTest {
         Mockito.when(entityMgr.findById(NetworkOffering.class, 1L)).thenReturn(networkOffering);
         Mockito.when(networkOfferingDao.findById(1L)).thenReturn(offering);
         Mockito.when(physicalNetworkDao.findById(Mockito.anyLong())).thenReturn(phyNet);
+        Mockito.lenient().when(physicalNetworkManagementService.getPhysicalNetwork(Mockito.anyLong())).thenReturn(phyNet);
         Mockito.when(_dcDao.findById(Mockito.anyLong())).thenReturn(dc);
         Mockito.when(accountManager.isRootAdmin(accountMock.getId())).thenReturn(true);
     }
@@ -525,7 +529,9 @@ public class NetworkServiceImplTest {
             Mockito.when(cmd.getGateway()).thenReturn(IP4_GATEWAY);
             Mockito.when(cmd.getNetmask()).thenReturn(IP4_NETMASK);
         }
-        Mockito.when(physicalNetworkDao.findById(Mockito.anyLong())).thenReturn(Mockito.mock(PhysicalNetworkVO.class));
+        PhysicalNetworkVO aPhyNet = Mockito.mock(PhysicalNetworkVO.class);
+        Mockito.lenient().when(physicalNetworkDao.findById(Mockito.anyLong())).thenReturn(aPhyNet);
+        Mockito.lenient().when(physicalNetworkManagementService.getPhysicalNetwork(Mockito.anyLong())).thenReturn(aPhyNet);
         Mockito.when(networkOfferingServiceMapDao.areServicesSupportedByNetworkOffering(networkOfferingId, Network.Service.Dns)).thenReturn(dnsServiceSupported);
         if(ipv6 && Network.GuestType.Isolated.equals(guestType)) {
             Mockito.when(networkOfferingDao.isIpv6Supported(networkOfferingId)).thenReturn(true);
