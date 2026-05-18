@@ -44,7 +44,9 @@ import org.apache.cloudstack.api.command.admin.vm.ListAffectedVmsForStorageScope
 import org.apache.cloudstack.api.command.user.account.ListAccountsCmd;
 import org.apache.cloudstack.api.command.user.bucket.ListBucketsCmd;
 import org.apache.cloudstack.api.command.user.event.ListEventsCmd;
+import org.apache.cloudstack.api.command.user.offering.ListDiskOfferingsCmd;
 import org.apache.cloudstack.api.command.user.resource.ListDetailOptionsCmd;
+import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DetailOptionsResponse;
 import org.apache.cloudstack.api.response.EventResponse;
 import org.apache.cloudstack.api.response.HostResponse;
@@ -192,6 +194,9 @@ public class QueryManagerImplTest {
     @Mock
     TemplateQueryService templateQueryService;
 
+    @Mock
+    DiskOfferingQueryService diskOfferingQueryService;
+
     private AccountVO account;
     private UserVO user;
 
@@ -239,6 +244,9 @@ public class QueryManagerImplTest {
         // Wire the TemplateQueryService mock so QueryManagerImpl.templateQueryService is non-null.
         ReflectionTestUtils.setField(queryManagerImplSpy, "templateQueryService", templateQueryService);
         ReflectionTestUtils.setField(queryManager, "templateQueryService", templateQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "diskOfferingQueryService", diskOfferingQueryService);
+        ReflectionTestUtils.setField(queryManager, "diskOfferingQueryService", diskOfferingQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -587,6 +595,18 @@ public class QueryManagerImplTest {
         verify(sc).setParameters("apiKeyAccess", true);
         verify(accountDao, Mockito.times(1)).searchAndCount(
                 any(SearchCriteria.class), any(Filter.class));
+    }
+
+    @Test
+    public void searchForDiskOfferingsDelegatesToDiskOfferingQueryService() {
+        ListDiskOfferingsCmd cmd = mock(ListDiskOfferingsCmd.class);
+        ListResponse<DiskOfferingResponse> expected = new ListResponse<>();
+        when(diskOfferingQueryService.searchForDiskOfferings(cmd)).thenReturn(expected);
+
+        ListResponse<DiskOfferingResponse> actual = queryManager.searchForDiskOfferings(cmd);
+
+        Assert.assertSame(expected, actual);
+        verify(diskOfferingQueryService).searchForDiskOfferings(cmd);
     }
 
     @Test
