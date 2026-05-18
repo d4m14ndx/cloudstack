@@ -20,8 +20,6 @@ import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -75,7 +73,6 @@ import org.apache.cloudstack.framework.jobs.impl.OutcomeImpl;
 import org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO;
 import org.apache.cloudstack.jobs.JobInfo;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
-import org.apache.cloudstack.resourcedetail.DiskOfferingDetailVO;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.resourcedetail.dao.SnapshotPolicyDetailsDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
@@ -83,7 +80,6 @@ import org.apache.cloudstack.snapshot.SnapshotHelper;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreVO;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.datastore.db.VolumeDataStoreDao;
@@ -103,7 +99,6 @@ import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.DataCenter;
-import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.Pod;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
@@ -125,7 +120,6 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorCapabilitiesVO;
 import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.offering.DiskOffering;
-import com.cloud.org.Grouping;
 import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.resourcelimit.ReservationHelper;
@@ -155,7 +149,6 @@ import com.cloud.user.ResourceLimitService;
 import com.cloud.user.User;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.VmDiskStatisticsDao;
-import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.Predicate;
 import com.cloud.utils.ReflectionUse;
@@ -164,7 +157,6 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.Transaction;
-import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.db.UUIDManager;
@@ -350,6 +342,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     protected VolumeUploadRegistrationService volumeUploadRegistrationService;
     @Inject
     protected VolumeUpdateDisplayService volumeUpdateDisplayService;
+    @Inject
+    protected VolumeCreateService volumeCreateService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -435,13 +429,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      * @return Either the retrieved name or a random name.
      */
     public String getVolumeNameFromCommand(CreateVolumeCmd cmd) {
-        String userSpecifiedName = cmd.getVolumeName();
-
-        if (StringUtils.isBlank(userSpecifiedName)) {
-            userSpecifiedName = getRandomVolumeName();
-        }
-
-        return userSpecifiedName;
+        return volumeCreateService.getVolumeNameFromCommand(cmd);
     }
 
     /*
@@ -453,418 +441,24 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_CREATE, eventDescription = "creating volume", create = true)
     public VolumeVO allocVolume(CreateVolumeCmd cmd) throws ResourceAllocationException {
-        Account caller = CallContext.current().getCallingAccount();
-
-        long ownerId = cmd.getEntityOwnerId();
-        Account owner = _accountMgr.getActiveAccountById(ownerId);
-        Boolean displayVolume = cmd.getDisplayVolume();
-
-        // permission check
-        _accountMgr.checkAccess(caller, null, true, _accountMgr.getActiveAccountById(ownerId));
-
-        if (displayVolume == null) {
-            displayVolume = true;
-        } else {
-            if (!_accountMgr.isRootAdmin(caller.getId())) {
-                throw new PermissionDeniedException("Cannot update parameter displayvolume, only admin permitted ");
-            }
-        }
-
-        Long zoneId = cmd.getZoneId();
-        Long diskOfferingId = null;
-        DiskOfferingVO diskOffering = null;
-        Long size = null;
-        Long minIops = null;
-        Long maxIops = null;
-        // Volume VO used for extracting the source template id
-        VolumeVO parentVolume = null;
-
-        // validate input parameters before creating the volume
-        if (cmd.getSnapshotId() == null && cmd.getDiskOfferingId() == null) {
-            throw new InvalidParameterValueException("At least one of disk Offering ID or snapshot ID must be passed whilst creating volume");
-        }
-
-        // disallow passing disk offering ID with DATA disk volume snapshots
-        if (cmd.getSnapshotId() != null && cmd.getDiskOfferingId() != null) {
-            SnapshotVO snapshot = _snapshotDao.findById(cmd.getSnapshotId());
-            if (snapshot != null) {
-                parentVolume = _volsDao.findByIdIncludingRemoved(snapshot.getVolumeId());
-                if (parentVolume != null && parentVolume.getVolumeType() != Volume.Type.ROOT)
-                    throw new InvalidParameterValueException("Disk Offering ID cannot be passed whilst creating volume from snapshot other than ROOT disk snapshots");
-            }
-            parentVolume = null;
-        }
-
-        Map<String, String> details = new HashMap<>();
-        if (cmd.getDiskOfferingId() != null) { // create a new volume
-
-            diskOfferingId = cmd.getDiskOfferingId();
-            size = cmd.getSize();
-            Long sizeInGB = size;
-            if (size != null) {
-                if (size > 0) {
-                    size = size * 1024 * 1024 * 1024; // user specify size in GB
-                } else {
-                    throw new InvalidParameterValueException("Disk size must be larger than 0");
-                }
-            }
-
-            // Check that the disk offering is specified
-            diskOffering = _diskOfferingDao.findById(diskOfferingId);
-            if ((diskOffering == null) || diskOffering.getRemoved() != null || diskOffering.isComputeOnly()) {
-                throw new InvalidParameterValueException("Please specify a valid disk offering.");
-            }
-
-            if (diskOffering.isCustomized()) {
-                if (size == null) {
-                    throw new InvalidParameterValueException("This disk offering requires a custom size specified");
-                }
-                validateCustomDiskOfferingSizeRange(sizeInGB);
-            }
-
-            if (!diskOffering.isCustomized() && size != null) {
-                throw new InvalidParameterValueException("This disk offering does not allow custom size");
-            }
-
-            _configMgr.checkDiskOfferingAccess(owner, diskOffering, _dcDao.findById(zoneId));
-
-            if (diskOffering.getDiskSize() > 0) {
-                size = diskOffering.getDiskSize();
-            }
-
-            DiskOfferingDetailVO bandwidthLimitDetail = _diskOfferingDetailsDao.findDetail(diskOfferingId, Volume.BANDWIDTH_LIMIT_IN_MBPS);
-            if (bandwidthLimitDetail != null) {
-                details.put(Volume.BANDWIDTH_LIMIT_IN_MBPS, bandwidthLimitDetail.getValue());
-            }
-            DiskOfferingDetailVO iopsLimitDetail = _diskOfferingDetailsDao.findDetail(diskOfferingId, Volume.IOPS_LIMIT);
-            if (iopsLimitDetail != null) {
-                details.put(Volume.IOPS_LIMIT, iopsLimitDetail.getValue());
-            }
-
-            Boolean isCustomizedIops = diskOffering.isCustomizedIops();
-
-            if (isCustomizedIops != null) {
-                if (isCustomizedIops) {
-                    minIops = cmd.getMinIops();
-                    maxIops = cmd.getMaxIops();
-
-                    if (minIops == null && maxIops == null) {
-                        minIops = 0L;
-                        maxIops = 0L;
-                    } else {
-                        if (minIops == null || minIops <= 0) {
-                            throw new InvalidParameterValueException("The min IOPS must be greater than 0.");
-                        }
-
-                        if (maxIops == null) {
-                            maxIops = 0L;
-                        }
-
-                        if (minIops > maxIops) {
-                            throw new InvalidParameterValueException("The min IOPS must be less than or equal to the max IOPS.");
-                        }
-                    }
-                } else {
-                    minIops = diskOffering.getMinIops();
-                    maxIops = diskOffering.getMaxIops();
-                }
-            } else {
-                minIops = diskOffering.getMinIops();
-                maxIops = diskOffering.getMaxIops();
-            }
-
-            if (!validateVolumeSizeInBytes(size == null ? 0 : size)) {
-                throw new InvalidParameterValueException(String.format("Invalid size for custom volume creation: %s, max volume size is: %s GB", NumbersUtil.toReadableSize(size), VolumeOrchestrationService.MaxVolumeSize.value()));
-            }
-        }
-
-        if (cmd.getSnapshotId() != null) { // create volume from snapshot
-            Long snapshotId = cmd.getSnapshotId();
-            SnapshotVO snapshotCheck = _snapshotDao.findById(snapshotId);
-            if (snapshotCheck == null) {
-                throw new InvalidParameterValueException("unable to find a snapshot with id " + snapshotId);
-            }
-
-            if (snapshotCheck.getState() != Snapshot.State.BackedUp) {
-                throw new InvalidParameterValueException(String.format("Snapshot %s is not in %s state yet and can't be used for volume creation", snapshotCheck, Snapshot.State.BackedUp));
-            }
-
-            SnapshotDataStoreVO snapshotStore = _snapshotDataStoreDao.findOneBySnapshotAndDatastoreRole(snapshotId, DataStoreRole.Primary);
-            if (snapshotStore != null) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(snapshotStore.getDataStoreId());
-                if (storagePoolVO.getPoolType() == Storage.StoragePoolType.PowerFlex) {
-                    throw new InvalidParameterValueException("Create volume from snapshot is not supported for PowerFlex volume snapshots");
-                }
-            }
-
-            parentVolume = _volsDao.findByIdIncludingRemoved(snapshotCheck.getVolumeId());
-
-            // Don't support creating templates from encrypted volumes (yet)
-            if (parentVolume.getPassphraseId() != null) {
-                throw new UnsupportedOperationException("Cannot create new volumes from encrypted volume snapshots");
-            }
-
-            if (zoneId == null) {
-                // if zoneId is not provided, we default to create volume in the same zone as the snapshot zone.
-                zoneId = parentVolume.getDataCenterId();
-            }
-
-            if (diskOffering == null) { // Pure snapshot is being used to create volume.
-                diskOfferingId = snapshotCheck.getDiskOfferingId();
-                diskOffering = _diskOfferingDao.findById(diskOfferingId);
-
-                minIops = snapshotCheck.getMinIops();
-                maxIops = snapshotCheck.getMaxIops();
-                size = snapshotCheck.getSize(); // ; disk offering is used for tags purposes
-            } else {
-                if (size < snapshotCheck.getSize()) {
-                    throw new InvalidParameterValueException(String.format("Invalid size for volume creation: %dGB, snapshot size is: %dGB",
-                            size / (1024 * 1024 * 1024), snapshotCheck.getSize() / (1024 * 1024 * 1024)));
-                }
-            }
-
-            _configMgr.checkDiskOfferingAccess(null, diskOffering, _dcDao.findById(zoneId));
-
-            // check snapshot permissions
-            _accountMgr.checkAccess(caller, null, true, snapshotCheck);
-
-            // one step operation - create volume in VM's cluster and attach it
-            // to the VM
-            Long vmId = cmd.getVirtualMachineId();
-            if (vmId != null) {
-                // Check that the virtual machine ID is valid and it's a user vm
-                UserVmVO vm = _userVmDao.findById(vmId);
-                if (vm == null || vm.getType() != VirtualMachine.Type.User) {
-                    throw new InvalidParameterValueException("Please specify a valid User VM.");
-                }
-                if (vm.getDataCenterId() != zoneId) {
-                    throw new InvalidParameterValueException("The specified zone is different than zone of the VM");
-                }
-                // Check that the VM is in the correct state
-                if (vm.getState() != State.Running && vm.getState() != State.Stopped) {
-                    throw new InvalidParameterValueException("Please specify a VM that is either running or stopped.");
-                }
-
-                // permission check
-                _accountMgr.checkAccess(caller, null, false, vm);
-            }
-        }
-
-        Storage.ProvisioningType provisioningType = diskOffering.getProvisioningType();
-
-        List<String> tags = _resourceLimitMgr.getResourceLimitStorageTagsForResourceCountOperation(displayVolume, diskOffering);
-        if (tags.size() == 1 && tags.get(0) == null) {
-            tags = new ArrayList<>();
-        }
-
-        List<Reserver> reservations = new ArrayList<>();
-        try {
-            _resourceLimitMgr.checkVolumeResourceLimit(owner, displayVolume, size, diskOffering, reservations);
-
-            // Verify that zone exists
-            DataCenterVO zone = _dcDao.findById(zoneId);
-            if (zone == null) {
-                throw new InvalidParameterValueException("Unable to find zone by id " + zoneId);
-            }
-
-            // Check if zone is disabled
-            if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(caller.getId())) {
-                throw new PermissionDeniedException(String.format("Cannot perform this operation, Zone: %s is currently disabled", zone));
-            }
-
-            // If local storage is disabled then creation of volume with local disk
-            // offering not allowed
-            if (!zone.isLocalStorageEnabled() && diskOffering.isUseLocalStorage()) {
-                throw new InvalidParameterValueException("Zone is not configured to use local storage but volume's disk offering " + diskOffering.getName() + " uses it");
-            }
-
-            String userSpecifiedName = getVolumeNameFromCommand(cmd);
-
-            return commitVolume(cmd.getSnapshotId(), caller, owner, displayVolume, zoneId, diskOfferingId, provisioningType, size, minIops, maxIops, parentVolume, userSpecifiedName,
-                    _uuidMgr.generateUuid(Volume.class, cmd.getCustomId()), details);
-        } finally {
-            ReservationHelper.closeAll(reservations);
-        }
+        return volumeCreateService.allocVolume(cmd);
     }
 
     @Override
     public void validateCustomDiskOfferingSizeRange(Long sizeInGB) {
-        Long customDiskOfferingMaxSize = VolumeOrchestrationService.CustomDiskOfferingMaxSize.value();
-        Long customDiskOfferingMinSize = VolumeOrchestrationService.CustomDiskOfferingMinSize.value();
-
-        if ((sizeInGB < customDiskOfferingMinSize) || (sizeInGB > customDiskOfferingMaxSize)) {
-            throw new InvalidParameterValueException(String.format("Volume size: %s GB is out of allowed range. Min: %s. Max: %s", sizeInGB, customDiskOfferingMinSize, customDiskOfferingMaxSize));
-        }
-    }
-
-    private VolumeVO commitVolume(final Long snapshotId, final Account caller, final Account owner, final Boolean displayVolume, final Long zoneId, final Long diskOfferingId,
-                                  final Storage.ProvisioningType provisioningType, final Long size, final Long minIops, final Long maxIops, final VolumeVO parentVolume, final String userSpecifiedName, final String uuid, final Map<String, String> details) {
-        return Transaction.execute(new TransactionCallback<VolumeVO>() {
-            @Override
-            public VolumeVO doInTransaction(TransactionStatus status) {
-                VolumeVO volume = new VolumeVO(userSpecifiedName, -1, -1, -1, -1, -1L, null, null, provisioningType, 0, Volume.Type.DATADISK);
-                volume.setPoolId(null);
-                volume.setUuid(uuid);
-                volume.setDataCenterId(zoneId);
-                volume.setPodId(null);
-                volume.setAccountId(owner.getId());
-                volume.setDomainId(owner.getDomainId());
-                volume.setDiskOfferingId(diskOfferingId);
-                volume.setSize(size);
-                volume.setMinIops(minIops);
-                volume.setMaxIops(maxIops);
-                volume.setInstanceId(null);
-                volume.setUpdated(new Date());
-                volume.setDisplayVolume(displayVolume);
-                if (parentVolume != null) {
-                    volume.setTemplateId(parentVolume.getTemplateId());
-                    volume.setFormat(parentVolume.getFormat());
-                } else {
-                    volume.setTemplateId(null);
-                }
-
-                volume = _volsDao.persist(volume);
-
-                if (snapshotId == null && displayVolume) {
-                    // for volume created from snapshot, create usage event after volume creation
-                    UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_CREATE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(), diskOfferingId, null, size,
-                            Volume.class.getName(), volume.getUuid(), volume.getInstanceId(), displayVolume);
-                }
-
-                if (volume != null && details != null) {
-                    List<VolumeDetailVO> volumeDetailsVO = new ArrayList<VolumeDetailVO>();
-                    if (details.containsKey(Volume.BANDWIDTH_LIMIT_IN_MBPS)) {
-                        volumeDetailsVO.add(new VolumeDetailVO(volume.getId(), Volume.BANDWIDTH_LIMIT_IN_MBPS, details.get(Volume.BANDWIDTH_LIMIT_IN_MBPS), false));
-                    }
-                    if (details.containsKey(Volume.IOPS_LIMIT)) {
-                        volumeDetailsVO.add(new VolumeDetailVO(volume.getId(), Volume.IOPS_LIMIT, details.get(Volume.IOPS_LIMIT), false));
-                    }
-                    if (!volumeDetailsVO.isEmpty()) {
-                        _volsDetailsDao.saveDetails(volumeDetailsVO);
-                    }
-                }
-
-                CallContext.current().setEventDetails("Volume ID: " + volume.getUuid());
-                CallContext.current().putContextParameter(Volume.class, volume.getId());
-                // Increment resource count during allocation; if actual creation fails,
-                // decrement it
-                _resourceLimitMgr.incrementVolumeResourceCount(volume.getAccountId(), displayVolume, volume.getSize(),
-                        _diskOfferingDao.findById(volume.getDiskOfferingId()));
-                return volume;
-            }
-        });
+        volumeCreateService.validateCustomDiskOfferingSizeRange(sizeInGB);
     }
 
     @Override
     public boolean validateVolumeSizeInBytes(long size) {
-        long maxVolumeSize = VolumeOrchestrationService.MaxVolumeSize.value();
-        if (size < 0 || (size > 0 && size < (1024 * 1024 * 1024))) {
-            throw new InvalidParameterValueException("Please specify a size of at least 1 GB.");
-        } else if (size > (maxVolumeSize * 1024 * 1024 * 1024)) {
-            throw new InvalidParameterValueException(String.format("Requested volume size is %s, but the maximum size allowed is %d GB.", NumbersUtil.toReadableSize(size), maxVolumeSize));
-        }
-
-        return true;
-    }
-
-    private VolumeVO createVolumeOnStoragePool(Long volumeId, Long storageId) throws ExecutionException, InterruptedException {
-        VolumeVO volume = _volsDao.findById(volumeId);
-        StoragePool storagePool = (StoragePool) dataStoreMgr.getDataStore(storageId, DataStoreRole.Primary);
-        if (storagePool == null) {
-            throw new InvalidParameterValueException("Failed to find the storage pool: " + storageId);
-        } else if (!storagePool.getStatus().equals(StoragePoolStatus.Up)) {
-            throw new InvalidParameterValueException(String.format("Cannot create volume %s on storage pool %s as the storage pool is not in Up state.",
-                    volume.getUuid(), storagePool.getName()));
-        }
-
-        if (storagePool.getDataCenterId() != volume.getDataCenterId()) {
-            throw new InvalidParameterValueException(String.format("Cannot create volume %s in zone %s on storage pool %s in zone %s.",
-                    volume.getUuid(), volume.getDataCenterId(), storagePool.getUuid(), storagePool.getDataCenterId()));
-        }
-
-        DiskOfferingVO diskOffering = _diskOfferingDao.findById(volume.getDiskOfferingId());
-        if (!doesStoragePoolSupportDiskOffering(storagePool, diskOffering)) {
-            throw new InvalidParameterValueException(String.format("Disk offering: %s is not compatible with the storage pool", diskOffering.getUuid()));
-        }
-
-        DataStore dataStore = dataStoreMgr.getDataStore(storageId, DataStoreRole.Primary);
-        VolumeInfo volumeInfo = volFactory.getVolume(volumeId, dataStore);
-        AsyncCallFuture<VolumeApiResult> createVolumeFuture = volService.createVolumeAsync(volumeInfo, dataStore);
-        VolumeApiResult createVolumeResult = createVolumeFuture.get();
-        if (createVolumeResult.isFailed()) {
-            throw new CloudRuntimeException("Volume creation on storage failed: " + createVolumeResult.getResult());
-        }
-        return _volsDao.findById(volumeInfo.getId());
+        return volumeCreateService.validateVolumeSizeInBytes(size);
     }
 
     @Override
     @DB
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_CREATE, eventDescription = "creating volume", async = true)
     public VolumeVO createVolume(CreateVolumeCmd cmd) {
-        VolumeVO volume = _volsDao.findById(cmd.getEntityId());
-        boolean created = true;
-
-        try {
-            if (cmd.getSnapshotId() != null) {
-                volume = createVolumeFromSnapshot(volume, cmd.getSnapshotId(), cmd.getVirtualMachineId());
-                if (volume.getState() != Volume.State.Ready) {
-                    created = false;
-                }
-
-                // if VM Id is provided, attach the volume to the VM
-                if (cmd.getVirtualMachineId() != null) {
-                    try {
-                        attachVolumeToVM(cmd.getVirtualMachineId(), volume.getId(), volume.getDeviceId(), false);
-                    } catch (Exception ex) {
-                        StringBuilder message = new StringBuilder("Volume: ");
-                        message.append(volume.getUuid());
-                        message.append(" created successfully, but failed to attach the newly created volume to VM: ");
-                        message.append(cmd.getVirtualMachineId());
-                        message.append(" due to error: ");
-                        message.append(ex.getMessage());
-                        if (logger.isDebugEnabled()) {
-                            logger.debug(message, ex);
-                        }
-                        throw new CloudRuntimeException(message.toString());
-                    }
-                }
-            } else if (cmd.getStorageId() != null) {
-                volume = createVolumeOnStoragePool(cmd.getEntityId(), cmd.getStorageId());
-            }
-            return volume;
-        } catch (Exception e) {
-            created = false;
-            VolumeInfo vol = volFactory.getVolume(cmd.getEntityId());
-            vol.stateTransit(Volume.Event.DestroyRequested);
-            throw new CloudRuntimeException(String.format("Failed to create volume: %s", volume), e);
-        } finally {
-            if (!created) {
-                VolumeVO finalVolume = volume;
-                logger.trace("Decrementing volume resource count for account {} as volume failed to create on the backend", () -> _accountMgr.getAccount(finalVolume.getAccountId()));
-                _resourceLimitMgr.decrementVolumeResourceCount(volume.getAccountId(), cmd.getDisplayVolume(),
-                        volume.getSize(), _diskOfferingDao.findByIdIncludingRemoved(volume.getDiskOfferingId()));
-            }
-        }
-    }
-
-    protected VolumeVO createVolumeFromSnapshot(VolumeVO volume, long snapshotId, Long vmId) throws StorageUnavailableException {
-        VolumeInfo createdVolume = null;
-        SnapshotVO snapshot = _snapshotDao.findById(snapshotId);
-        snapshot.getVolumeId();
-
-        UserVmVO vm = null;
-        if (vmId != null) {
-            vm = _userVmDao.findById(vmId);
-        }
-
-        // sync old snapshots to region store if necessary
-
-        createdVolume = _volumeMgr.createVolumeFromSnapshot(volume, snapshot, vm);
-        VolumeVO volumeVo = _volsDao.findById(createdVolume.getId());
-        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_CREATE, createdVolume.getAccountId(), createdVolume.getDataCenterId(), createdVolume.getId(), createdVolume.getName(),
-                createdVolume.getDiskOfferingId(), null, createdVolume.getSize(), Volume.class.getName(), createdVolume.getUuid(), volume.getInstanceId(), volumeVo.isDisplayVolume());
-
-        return volumeVo;
+        return volumeCreateService.createVolume(cmd);
     }
 
     @Override
@@ -921,7 +515,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 }
 
                 if (diskOffering.isCustomized()) {
-                    validateCustomDiskOfferingSizeRange(newSize);
+                    volumeCreateService.validateCustomDiskOfferingSizeRange(newSize);
                 }
 
                 if (isNotPossibleToResize(volume, diskOffering)) {
@@ -1003,7 +597,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                     throw new InvalidParameterValueException("The new disk offering requires that a size be specified.");
                 }
 
-                validateCustomDiskOfferingSizeRange(newSize);
+                volumeCreateService.validateCustomDiskOfferingSizeRange(newSize);
 
                 // convert from GiB to bytes
                 newSize = newSize << 30;
@@ -1974,7 +1568,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         if (newSize != null && currentSize != newSize) {
             validateNoVmSnapshots(volume);
 
-            if (!validateVolumeSizeInBytes(newSize)) {
+            if (!volumeCreateService.validateVolumeSizeInBytes(newSize)) {
                 throw new InvalidParameterValueException("Requested size out of range");
             }
 

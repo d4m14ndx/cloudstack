@@ -689,6 +689,40 @@ public class VolumeApiServiceImplTest {
         ReflectionTestUtils.setField(updateDisplayService, "resourceLimitMgr", resourceLimitServiceMock);
         ReflectionTestUtils.setField(updateDisplayService, "diskOfferingDao", _diskOfferingDao);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", updateDisplayService);
+
+        // Phase 4 (slice 14): wire VolumeCreateServiceImpl with the same DAO and
+        // manager mocks. The public allocVolume/createVolume/validateCustomDiskOfferingSizeRange/
+        // validateVolumeSizeInBytes/getVolumeNameFromCommand wrappers on VolumeApiServiceImpl
+        // forward to this service, so existing getVolumeNameFromCommand assertions (L832-L850)
+        // continue to pass through the real wired-in service.
+        org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao diskOfferingDetailsDaoMock =
+                Mockito.mock(org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao.class);
+        org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao snapshotDataStoreDaoMock =
+                Mockito.mock(org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao.class);
+        com.cloud.storage.dao.VolumeDetailsDao volumeDetailsDaoMock =
+                Mockito.mock(com.cloud.storage.dao.VolumeDetailsDao.class);
+        com.cloud.utils.db.UUIDManager uuidMgrMock = Mockito.mock(com.cloud.utils.db.UUIDManager.class);
+        VolumeCreateServiceImpl createService = new VolumeCreateServiceImpl();
+        ReflectionTestUtils.setField(createService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(createService, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(createService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(createService, "dcDao", _dcDao);
+        ReflectionTestUtils.setField(createService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(createService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(createService, "diskOfferingDetailsDao", diskOfferingDetailsDaoMock);
+        ReflectionTestUtils.setField(createService, "snapshotDataStoreDao", snapshotDataStoreDaoMock);
+        ReflectionTestUtils.setField(createService, "volsDetailsDao", volumeDetailsDaoMock);
+        ReflectionTestUtils.setField(createService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(createService, "configMgr", _configMgr);
+        ReflectionTestUtils.setField(createService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(createService, "uuidMgr", uuidMgrMock);
+        ReflectionTestUtils.setField(createService, "volumeMgr", volumeOrchestrationService);
+        ReflectionTestUtils.setField(createService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(createService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(createService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(createService, "volumeAttachService", attachService);
+        ReflectionTestUtils.setField(createService, "diskOfferingCompatibilityService", compatibilityService);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", createService);
     }
 
     /**
@@ -2558,5 +2592,55 @@ public class VolumeApiServiceImplTest {
         Mockito.doReturn(t2).when(mock2).getType();
         Mockito.doReturn(1L).when(mock2).getId();
         return List.of(mock1, mock2);
+    }
+
+    // ---- VolumeCreateService wrapper delegation regressions (slice 14) ----
+
+    @Test
+    public void testAllocVolumeDelegatesToInjectedService() throws ResourceAllocationException {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        CreateVolumeCmd cmd = Mockito.mock(CreateVolumeCmd.class);
+        VolumeVO expected = Mockito.mock(VolumeVO.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.allocVolume(cmd)).thenReturn(expected);
+
+        VolumeVO result = volumeApiServiceImpl.allocVolume(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(serviceMock).allocVolume(cmd);
+    }
+
+    @Test
+    public void testCreateVolumeDelegatesToInjectedService() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        CreateVolumeCmd cmd = Mockito.mock(CreateVolumeCmd.class);
+        VolumeVO expected = Mockito.mock(VolumeVO.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.createVolume(cmd)).thenReturn(expected);
+
+        VolumeVO result = volumeApiServiceImpl.createVolume(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(serviceMock).createVolume(cmd);
+    }
+
+    @Test
+    public void testValidateCustomDiskOfferingSizeRangeDelegates() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+
+        volumeApiServiceImpl.validateCustomDiskOfferingSizeRange(50L);
+
+        Mockito.verify(serviceMock).validateCustomDiskOfferingSizeRange(50L);
+    }
+
+    @Test
+    public void testValidateVolumeSizeInBytesDelegates() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5)).thenReturn(true);
+
+        Assert.assertTrue(volumeApiServiceImpl.validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5));
+        Mockito.verify(serviceMock).validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5);
     }
 }
