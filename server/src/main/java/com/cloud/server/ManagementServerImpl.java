@@ -51,7 +51,6 @@ import org.apache.cloudstack.affinity.AffinityGroupProcessor;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
 import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
-import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.account.CreateAccountCmd;
 import org.apache.cloudstack.api.command.admin.account.DeleteAccountCmd;
@@ -652,17 +651,11 @@ import org.apache.cloudstack.utils.CloudStackVersion;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.CheckGuestOsMappingAnswer;
-import com.cloud.agent.api.CheckGuestOsMappingCommand;
 import com.cloud.agent.api.Command;
-import com.cloud.agent.api.GetHypervisorGuestOsNamesAnswer;
-import com.cloud.agent.api.GetHypervisorGuestOsNamesCommand;
 import com.cloud.agent.api.PatchSystemVmAnswer;
 import com.cloud.agent.api.PatchSystemVmCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
@@ -766,7 +759,6 @@ import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.GuestOS;
-import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSHypervisor;
 import com.cloud.storage.GuestOSHypervisorVO;
 import com.cloud.storage.GuestOSVO;
@@ -944,6 +936,8 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
     protected ConfigurationListingService configurationListingService;
     @Inject
     protected InfrastructureUsageService infrastructureUsageService;
+    @Inject
+    protected GuestOsManagementService guestOsManagementService;
     @Inject
     private LoadBalancerDao _loadbalancerDao;
     @Inject
@@ -2637,486 +2631,77 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public Pair<List<? extends GuestOS>, Integer> listGuestOSByCriteria(final ListGuestOsCmd cmd) {
-        List<Long> ids = getIdsListFromCmd(cmd.getId(), cmd.getIds());
-        final Long osCategoryId = cmd.getOsCategoryId();
-        final String description = cmd.getDescription();
-        final String keyword = cmd.getKeyword();
-        final Long startIndex = cmd.getStartIndex();
-        final Long pageSize = cmd.getPageSizeVal();
-        Boolean forDisplay = cmd.getDisplay();
-
-        return _guestOSDao.listGuestOSByCriteria(startIndex, pageSize, ids, osCategoryId, description, keyword, forDisplay);
+        return guestOsManagementService.listGuestOSByCriteria(cmd);
     }
 
     @Override
     public Pair<List<? extends GuestOsCategory>, Integer> listGuestOSCategoriesByCriteria(final ListGuestOsCategoriesCmd cmd) {
-        final Filter searchFilter = new Filter(GuestOSCategoryVO.class, "sortKey", true,
-                cmd.getStartIndex(), cmd.getPageSizeVal());
-        searchFilter.addOrderBy(GuestOSCategoryVO.class, "id", true);
-        final Long id = cmd.getId();
-        final String name = cmd.getName();
-        final String keyword = cmd.getKeyword();
-        final Boolean featured = cmd.isFeatured();
-        final Boolean isIso = cmd.isIso();
-        final Boolean isVnf = cmd.isVnf();
-        final Long zoneId = cmd.getZoneId();
-        final CPU.CPUArch arch = cmd.getArch();
-
-        final SearchBuilder<GuestOSCategoryVO> sb = _guestOSCategoryDao.createSearchBuilder();
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("name", sb.entity().getName(), SearchCriteria.Op.LIKE);
-        sb.and("keyword", sb.entity().getName(), SearchCriteria.Op.LIKE);
-        sb.and("featured", sb.entity().isFeatured(), SearchCriteria.Op.EQ);
-        if (ObjectUtils.anyNotNull(zoneId, arch, isIso, isVnf)) {
-            final SearchBuilder<GuestOSVO> guestOsSearch = _guestOSDao.createSearchBuilder();
-            guestOsSearch.and("ids", guestOsSearch.entity().getId(), SearchCriteria.Op.IN);
-            sb.join("guestOsSearch", guestOsSearch, guestOsSearch.entity().getCategoryId(), sb.entity().getId(),
-                    JoinType.INNER);
-            guestOsSearch.done();
-            sb.groupBy(sb.entity().getId());
-        }
-        sb.done();
-        SearchCriteria<GuestOSCategoryVO> sc = sb.create();
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-        if (name != null) {
-            sc.setParameters("name", "%" + name + "%");
-        }
-        if (keyword != null) {
-            sc.setParameters("name", "%" + keyword + "%");
-        }
-        if (featured != null) {
-            sc.setParameters("featured", featured);
-        }
-        if (ObjectUtils.anyNotNull(zoneId, arch, isIso, isVnf)) {
-            List<Long> guestOsIds = templateDao.listTemplateIsoByArchVnfAndZone(zoneId, arch, isIso, isVnf);
-            if (CollectionUtils.isEmpty(guestOsIds)) {
-                return new Pair<>(Collections.emptyList(), 0);
-            }
-            sc.setJoinParameters("guestOsSearch", "ids", guestOsIds.toArray());
-        }
-        final Pair<List<GuestOSCategoryVO>, Integer> result = _guestOSCategoryDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return guestOsManagementService.listGuestOSCategoriesByCriteria(cmd);
     }
 
-
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_CATEGORY_ADD, eventDescription = "adding OS category")
     public GuestOsCategory addGuestOsCategory(AddGuestOsCategoryCmd cmd) {
-        final String name = cmd.getName();
-        final boolean featured = cmd.isFeatured();
-        final GuestOSCategoryVO guestOSCategory = new GuestOSCategoryVO(name, featured);
-        GuestOsCategory guestOsCategory = _guestOSCategoryDao.persist(guestOSCategory);
-        CallContext.current().setEventResourceId(guestOsCategory.getId());
-        CallContext.current().setEventResourceType(ApiCommandResourceType.GuestOsCategory);
-        return guestOSCategory;
+        return guestOsManagementService.addGuestOsCategory(cmd);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_CATEGORY_UPDATE, eventDescription = "updating OS category")
     public GuestOsCategory updateGuestOsCategory(UpdateGuestOsCategoryCmd cmd) {
-        final long id = cmd.getId();
-        final String name = cmd.getName();
-        final Boolean featured = cmd.isFeatured();
-        Integer sortKey = cmd.getSortKey();
-        final GuestOSCategoryVO guestOSCategory = _guestOSCategoryDao.findById(id);
-        if (guestOSCategory == null) {
-            throw new InvalidParameterValueException("Invalid OS category ID specified");
-        }
-        if (ObjectUtils.allNull(name, featured, sortKey)) {
-            return guestOSCategory;
-        }
-        if (StringUtils.isNotBlank(name)) {
-            guestOSCategory.setName(name);
-        }
-        if (featured != null) {
-            guestOSCategory.setFeatured(featured);
-        }
-        if (sortKey != null) {
-            guestOSCategory.setSortKey(sortKey);
-        }
-        if (!_guestOSCategoryDao.update(id, guestOSCategory)) {
-            return null;
-        }
-        return guestOSCategory;
+        return guestOsManagementService.updateGuestOsCategory(cmd);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_CATEGORY_DELETE, eventDescription = "deleting OS category")
     public boolean deleteGuestOsCategory(DeleteGuestOsCategoryCmd cmd) {
-        final long id = cmd.getId();
-        final GuestOSCategoryVO guestOSCategory = _guestOSCategoryDao.findById(id);
-        if (guestOSCategory == null) {
-            throw new InvalidParameterValueException("Invalid OS category ID specified");
-        }
-        List<Long> guestOses = _guestOSDao.listIdsByCategoryId(id);
-        if (!guestOses.isEmpty()) {
-            throw new InvalidParameterValueException(String.format(
-                    "Unable to delete the OS category. %d guest OS exist for it.", guestOses.size()));
-        }
-        return _guestOSCategoryDao.remove(id);
+        return guestOsManagementService.deleteGuestOsCategory(cmd);
     }
 
     @Override
     public Pair<List<? extends GuestOSHypervisor>, Integer> listGuestOSMappingByCriteria(final ListGuestOsMappingCmd cmd) {
-        final String guestOsId = "guestOsId";
-        final Filter searchFilter = new Filter(GuestOSHypervisorVO.class, "hypervisorType", true, cmd.getStartIndex(), cmd.getPageSizeVal());
-        searchFilter.addOrderBy(GuestOSHypervisorVO.class, "hypervisorVersion", false);
-        searchFilter.addOrderBy(GuestOSHypervisorVO.class, guestOsId, true);
-        searchFilter.addOrderBy(GuestOSHypervisorVO.class, "created", false);
-        final Long id = cmd.getId();
-        final Long osTypeId = cmd.getOsTypeId();
-        final String osDisplayName = cmd.getOsDisplayName();
-        final String osNameForHypervisor = cmd.getOsNameForHypervisor();
-        final String hypervisor = cmd.getHypervisor();
-        final String hypervisorVersion = cmd.getHypervisorVersion();
-
-        //throw exception if hypervisor name is not passed, but a version is
-        if (hypervisorVersion != null && (hypervisor == null || hypervisor.isEmpty())) {
-            throw new InvalidParameterValueException("Hypervisor version parameter cannot be used without specifying a hypervisor : XenServer, KVM or VMware");
-        }
-
-        SearchBuilder<GuestOSHypervisorVO> sb = _guestOSHypervisorDao.createSearchBuilder();
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("guestOsName", sb.entity().getGuestOsName(), SearchCriteria.Op.LIKE);
-        sb.and("hypervisorType", sb.entity().getHypervisorType(), SearchCriteria.Op.LIKE);
-        sb.and("hypervisorVersion", sb.entity().getHypervisorVersion(), SearchCriteria.Op.LIKE);
-        sb.and(guestOsId, sb.entity().getGuestOsId(), SearchCriteria.Op.EQ);
-        SearchBuilder<GuestOSVO> guestOSSearch = _guestOSDao.createSearchBuilder();
-        guestOSSearch.and("display", guestOSSearch.entity().isDisplay(), SearchCriteria.Op.LIKE);
-        sb.join("guestOSSearch", guestOSSearch, sb.entity().getGuestOsId(), guestOSSearch.entity().getId(), JoinBuilder.JoinType.INNER);
-
-        final SearchCriteria<GuestOSHypervisorVO> sc = sb.create();
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (osTypeId != null) {
-            sc.setParameters(guestOsId, osTypeId);
-        }
-
-        if (osNameForHypervisor != null) {
-            sc.setParameters("guestOsName", "%" + osNameForHypervisor + "%");
-        }
-
-        if (hypervisor != null) {
-            sc.setParameters("hypervisorType", "%" + hypervisor + "%");
-        }
-
-        if (hypervisorVersion != null) {
-            sc.setParameters("hypervisorVersion", "%" + hypervisorVersion + "%");
-        }
-
-        // Exclude the mappings for guest OS marked as display = false
-        sc.setJoinParameters("guestOSSearch", "display", true);
-
-        if (osDisplayName != null) {
-            List<GuestOSVO> guestOSVOS = _guestOSDao.listLikeDisplayName(osDisplayName);
-            if (CollectionUtils.isNotEmpty(guestOSVOS)) {
-                List<Long> guestOSids = guestOSVOS.stream().map(mo -> mo.getId()).collect(Collectors.toList());
-                sc.addAnd(guestOsId, SearchCriteria.Op.IN, guestOSids.toArray());
-            }
-        }
-
-        final Pair<List<GuestOSHypervisorVO>, Integer> result = _guestOSHypervisorDao.searchAndCount(sc, searchFilter);
-        return new Pair<>(result.first(), result.second());
+        return guestOsManagementService.listGuestOSMappingByCriteria(cmd);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_MAPPING_ADD, eventDescription = "Adding new guest OS to hypervisor name mapping", create = true)
     public GuestOSHypervisor addGuestOsMapping(final AddGuestOsMappingCmd cmd) {
-        final Long osTypeId = cmd.getOsTypeId();
-        final String osStdName = cmd.getOsStdName();
-        final String hypervisor = cmd.getHypervisor();
-        final String hypervisorVersion = cmd.getHypervisorVersion();
-        final String osNameForHypervisor = cmd.getOsNameForHypervisor();
-        GuestOS guestOs = null;
-
-        if (osTypeId == null && StringUtils.isEmpty(osStdName)) {
-            throw new InvalidParameterValueException("Please specify either a guest OS name or UUID");
-        }
-
-        final HypervisorType hypervisorType = HypervisorType.getType(hypervisor);
-
-        if (!(hypervisorType == HypervisorType.KVM || hypervisorType == HypervisorType.XenServer || hypervisorType == HypervisorType.VMware)) {
-            throw new InvalidParameterValueException("Please specify a valid hypervisor : XenServer, KVM or VMware");
-        }
-
-        final HypervisorCapabilitiesVO hypervisorCapabilities = _hypervisorCapabilitiesDao.findByHypervisorTypeAndVersion(hypervisorType, hypervisorVersion);
-        if (hypervisorCapabilities == null) {
-            throw new InvalidParameterValueException("Please specify a valid hypervisor and supported version");
-        }
-
-        //by this point either osTypeId or osStdType is non-empty. Find by either of them. ID takes preference if both are specified
-        if (osTypeId != null) {
-            guestOs = ApiDBUtils.findGuestOSById(osTypeId);
-        } else if (osStdName != null) {
-            guestOs = ApiDBUtils.findGuestOSByDisplayName(osStdName);
-        }
-
-        if (guestOs == null) {
-            throw new InvalidParameterValueException("Unable to find the guest OS by name or UUID");
-        }
-        //check for duplicates
-        final GuestOSHypervisorVO duplicate = _guestOSHypervisorDao.findByOsIdAndHypervisorAndUserDefined(guestOs.getId(), hypervisorType.toString(), hypervisorVersion, true);
-
-        if (duplicate != null) {
-            if (!cmd.isForced()) {
-                throw new InvalidParameterValueException(
-                        "Mapping from hypervisor : " + hypervisorType + ", version : " + hypervisorVersion + " and guest OS : " + guestOs.getDisplayName() + " already exists!");
-            }
-
-            if (Boolean.TRUE.equals(cmd.getOsMappingCheckEnabled())) {
-                checkGuestOSHypervisorMapping(hypervisorType, hypervisorVersion, guestOs.getDisplayName(), osNameForHypervisor);
-            }
-
-            final long guestOsId = duplicate.getId();
-            final GuestOSHypervisorVO guestOsHypervisor = _guestOSHypervisorDao.createForUpdate(guestOsId);
-            guestOsHypervisor.setGuestOsName(osNameForHypervisor);
-            if (_guestOSHypervisorDao.update(guestOsId, guestOsHypervisor)) {
-                return _guestOSHypervisorDao.findById(guestOsId);
-            }
-            return null;
-        }
-
-        if (Boolean.TRUE.equals(cmd.getOsMappingCheckEnabled())) {
-            checkGuestOSHypervisorMapping(hypervisorType, hypervisorVersion, guestOs.getDisplayName(), osNameForHypervisor);
-        }
-
-        final GuestOSHypervisorVO guestOsMapping = new GuestOSHypervisorVO();
-        guestOsMapping.setGuestOsId(guestOs.getId());
-        guestOsMapping.setGuestOsName(osNameForHypervisor);
-        guestOsMapping.setHypervisorType(hypervisorType.toString());
-        guestOsMapping.setHypervisorVersion(hypervisorVersion);
-        guestOsMapping.setIsUserDefined(true);
-        return _guestOSHypervisorDao.persist(guestOsMapping);
-    }
-
-    private void checkGuestOSHypervisorMapping(HypervisorType hypervisorType, String hypervisorVersion, String guestOsName, String guestOsNameForHypervisor) {
-        if (!canCheckGuestOsNameInHypervisor(hypervisorType)) {
-            throw new InvalidParameterValueException(String.format("Guest OS mapping check is not supported for hypervisor: %s, please specify a valid hypervisor : VMware, XenServer", hypervisorType.toString()));
-        }
-        final HostVO host = _hostDao.findHostByHypervisorTypeAndVersion(hypervisorType, hypervisorVersion);
-        if (host == null) {
-            throw new CloudRuntimeException(String.format("No %s hypervisor with version: %s exists, please specify available hypervisor and version", hypervisorType.toString(), hypervisorVersion));
-        }
-        CheckGuestOsMappingAnswer answer = (CheckGuestOsMappingAnswer) _agentMgr.easySend(host.getId(), new CheckGuestOsMappingCommand(guestOsName, guestOsNameForHypervisor, hypervisorVersion));
-        if (answer == null || !answer.getResult()) {
-            throw new CloudRuntimeException(String.format("Invalid hypervisor os mapping: %s for guest os: %s, hypervisor: %s and version: %s", guestOsNameForHypervisor, guestOsName, hypervisorType.toString(), hypervisorVersion));
-        }
-    }
-
-    private boolean canCheckGuestOsNameInHypervisor(HypervisorType hypervisorType) {
-        return (hypervisorType == HypervisorType.VMware || hypervisorType == HypervisorType.XenServer);
+        return guestOsManagementService.addGuestOsMapping(cmd);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_MAPPING_ADD, eventDescription = "Adding a new guest OS to hypervisor name mapping", async = true)
     public GuestOSHypervisor getAddedGuestOsMapping(final Long guestOsMappingId) {
-        return getGuestOsHypervisor(guestOsMappingId);
+        return guestOsManagementService.getAddedGuestOsMapping(guestOsMappingId);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_HYPERVISOR_NAME_FETCH, eventDescription = "Getting guest OS names from hypervisor", async = true)
     public List<Pair<String, String>> getHypervisorGuestOsNames(GetHypervisorGuestOsNamesCmd getHypervisorGuestOsNamesCmd) {
-        final HypervisorType hypervisorType = HypervisorType.getType(getHypervisorGuestOsNamesCmd.getHypervisor());
-        if (!canCheckGuestOsNameInHypervisor(hypervisorType)) {
-            throw new InvalidParameterValueException(String.format("Guest OS names cannot be fetched for hypervisor: %s, please specify a valid hypervisor : VMware, XenServer", hypervisorType.toString()));
-        }
-
-        final HostVO host = _hostDao.findHostByHypervisorTypeAndVersion(hypervisorType, getHypervisorGuestOsNamesCmd.getHypervisorVersion());
-        if (host == null) {
-            throw new CloudRuntimeException(String.format("No %s hypervisor with version: %s exists, please specify available hypervisor and version", hypervisorType.toString(), getHypervisorGuestOsNamesCmd.getHypervisorVersion()));
-        }
-        GetHypervisorGuestOsNamesAnswer answer = (GetHypervisorGuestOsNamesAnswer) _agentMgr.easySend(host.getId(), new GetHypervisorGuestOsNamesCommand(getHypervisorGuestOsNamesCmd.getKeyword()));
-        if (answer == null || !answer.getResult()) {
-            throw new CloudRuntimeException(String.format("Unable to get guest os names for hypervisor: %s, version: %s", hypervisorType.toString(), getHypervisorGuestOsNamesCmd.getHypervisorVersion()));
-        }
-        return answer.getHypervisorGuestOsNames();
+        return guestOsManagementService.getHypervisorGuestOsNames(getHypervisorGuestOsNamesCmd);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_ADD, eventDescription = "Adding new guest OS type", create = true)
     public GuestOS addGuestOs(final AddGuestOsCmd cmd) {
-        final Long categoryId = cmd.getOsCategoryId();
-        final String displayName = cmd.getOsDisplayName();
-        final String name = cmd.getOsName();
-
-        final GuestOSCategoryVO guestOsCategory = ApiDBUtils.findGuestOsCategoryById(categoryId);
-        if (guestOsCategory == null) {
-            throw new InvalidParameterValueException("Guest OS category not found. Please specify a valid Guest OS category");
-        }
-
-        final GuestOS guestOs = ApiDBUtils.findGuestOSByDisplayName(displayName);
-        if (guestOs != null) {
-            throw new InvalidParameterValueException("The specified Guest OS name : " + displayName + " already exists. Please specify a unique name");
-        }
-
-        logger.debug("GuestOSDetails");
-        final GuestOSVO guestOsVo = new GuestOSVO();
-        guestOsVo.setCategoryId(categoryId);
-        guestOsVo.setDisplayName(displayName);
-        guestOsVo.setName(name);
-        guestOsVo.setIsUserDefined(true);
-        guestOsVo.setDisplay(cmd.getForDisplay() == null ? true : cmd.getForDisplay());
-        final GuestOS guestOsPersisted = _guestOSDao.persist(guestOsVo);
-
-        persistGuestOsDetails(cmd.getDetails(), guestOsPersisted.getId());
-
-        return guestOsPersisted;
-    }
-
-    private void persistGuestOsDetails(Map<String, String> details, long guestOsPersistedId) {
-        for (String key : details.keySet()) {
-            _guestOsDetailsDao.addDetail(guestOsPersistedId, key, details.get(key), false);
-        }
+        return guestOsManagementService.addGuestOs(cmd);
     }
 
     @Override
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_ADD, eventDescription = "Adding a new guest OS type", async = true)
     public GuestOS getAddedGuestOs(final Long guestOsId) {
-        return getGuestOs(guestOsId);
+        return guestOsManagementService.getAddedGuestOs(guestOsId);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_UPDATE, eventDescription = "updating guest OS type", async = true)
     public GuestOS updateGuestOs(final UpdateGuestOsCmd cmd) {
-        final Long id = cmd.getId();
-        final String displayName = cmd.getOsDisplayName();
-        final Long osCategoryId = cmd.getOsCategoryId();
-        final Boolean display = cmd.getForDisplay();
-        final Map<String, String> details = cmd.getDetails();
-        boolean updateNeeded = false;
-
-        //check if guest OS exists
-        final GuestOS guestOsHandle = ApiDBUtils.findGuestOSById(id);
-        if (guestOsHandle == null) {
-            throw new InvalidParameterValueException("Guest OS not found. Please specify a valid ID for the Guest OS");
-        }
-
-        //Check if update is needed
-        if (StringUtils.isNotBlank(displayName) && !displayName.equals(guestOsHandle.getDisplayName())) {
-            //Check if another Guest OS by same name exists
-            final GuestOS duplicate = ApiDBUtils.findGuestOSByDisplayName(displayName);
-            if (duplicate != null) {
-                throw new InvalidParameterValueException("The specified Guest OS name : " + displayName + " already exists. Please specify a unique guest OS name");
-            }
-            updateNeeded = true;
-        }
-
-        if (osCategoryId != null) {
-            if (_guestOSCategoryDao.findById(osCategoryId) == null) {
-                throw new InvalidParameterValueException("Invalid OS category ID specified");
-            }
-            updateNeeded = true;
-        }
-
-        if (!guestOsHandle.getIsUserDefined() && (StringUtils.isNotBlank(displayName) || MapUtils.isNotEmpty(details)
-                || display != null)) {
-            throw new InvalidParameterValueException("Unable to modify system defined guest OS");
-        }
-
-        if (MapUtils.isNotEmpty(details)) {
-            persistGuestOsDetails(details, id);
-        }
-
-        if (!updateNeeded) {
-            return guestOsHandle;
-        }
-
-        final GuestOSVO guestOs = _guestOSDao.createForUpdate(id);
-        if (StringUtils.isNotBlank(displayName)) {
-            guestOs.setDisplayName(displayName);
-        }
-        if (cmd.getForDisplay() != null) {
-            guestOs.setDisplay(cmd.getForDisplay());
-        }
-        if (osCategoryId != null) {
-            guestOs.setCategoryId(osCategoryId);
-        }
-        if (_guestOSDao.update(id, guestOs)) {
-            return _guestOSDao.findById(id);
-        } else {
-            return null;
-        }
+        return guestOsManagementService.updateGuestOs(cmd);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_REMOVE, eventDescription = "removing guest OS type", async = true)
     public boolean removeGuestOs(final RemoveGuestOsCmd cmd) {
-        final Long id = cmd.getId();
-
-        //check if guest OS exists
-        final GuestOS guestOs = ApiDBUtils.findGuestOSById(id);
-        if (guestOs == null) {
-            throw new InvalidParameterValueException("Guest OS not found. Please specify a valid ID for the Guest OS");
-        }
-
-        if (!guestOs.getIsUserDefined()) {
-            throw new InvalidParameterValueException("Unable to remove system defined guest OS");
-        }
-
-        return _guestOSDao.remove(id);
+        return guestOsManagementService.removeGuestOs(cmd);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_MAPPING_UPDATE, eventDescription = "updating guest OS mapping", async = true)
     public GuestOSHypervisor updateGuestOsMapping(final UpdateGuestOsMappingCmd cmd) {
-        final Long id = cmd.getId();
-        final String osNameForHypervisor = cmd.getOsNameForHypervisor();
-
-        //check if mapping exists
-        final GuestOSHypervisor guestOsHypervisorHandle = _guestOSHypervisorDao.findById(id);
-        if (guestOsHypervisorHandle == null) {
-            throw new InvalidParameterValueException("Guest OS Mapping not found. Please specify a valid ID for the Guest OS Mapping");
-        }
-
-        if (!guestOsHypervisorHandle.getIsUserDefined()) {
-            throw new InvalidParameterValueException("Unable to modify system defined Guest OS mapping");
-        }
-
-        if (Boolean.TRUE.equals(cmd.getOsMappingCheckEnabled())) {
-            GuestOS guestOs = ApiDBUtils.findGuestOSById(guestOsHypervisorHandle.getGuestOsId());
-            if (guestOs == null) {
-                throw new InvalidParameterValueException("Unable to find the guest OS for the mapping");
-            }
-            checkGuestOSHypervisorMapping(HypervisorType.getType(guestOsHypervisorHandle.getHypervisorType()), guestOsHypervisorHandle.getHypervisorVersion(), guestOs.getDisplayName(), osNameForHypervisor);
-        }
-
-        final GuestOSHypervisorVO guestOsHypervisor = _guestOSHypervisorDao.createForUpdate(id);
-        guestOsHypervisor.setGuestOsName(osNameForHypervisor);
-        if (_guestOSHypervisorDao.update(id, guestOsHypervisor)) {
-            return _guestOSHypervisorDao.findById(id);
-        } else {
-            return null;
-        }
+        return guestOsManagementService.updateGuestOsMapping(cmd);
     }
 
     @Override
-    @DB
-    @ActionEvent(eventType = EventTypes.EVENT_GUEST_OS_MAPPING_REMOVE, eventDescription = "removing guest OS mapping", async = true)
     public boolean removeGuestOsMapping(final RemoveGuestOsMappingCmd cmd) {
-        final Long id = cmd.getId();
-
-        //check if mapping exists
-        final GuestOSHypervisor guestOsHypervisorHandle = _guestOSHypervisorDao.findById(id);
-        if (guestOsHypervisorHandle == null) {
-            throw new InvalidParameterValueException("Guest OS Mapping not found. Please specify a valid ID for the Guest OS Mapping");
-        }
-
-        if (!guestOsHypervisorHandle.getIsUserDefined()) {
-            throw new InvalidParameterValueException("Unable to remove system defined Guest OS mapping");
-        }
-
-        return _guestOSHypervisorDao.removeGuestOsMapping(id);
-
+        return guestOsManagementService.removeGuestOsMapping(cmd);
     }
 
     @Override
@@ -4036,12 +3621,12 @@ public class ManagementServerImpl extends MutualExclusiveIdsManagerBase implemen
 
     @Override
     public GuestOSVO getGuestOs(final Long guestOsId) {
-        return _guestOSDao.findById(guestOsId);
+        return guestOsManagementService.getGuestOs(guestOsId);
     }
 
     @Override
     public GuestOSHypervisorVO getGuestOsHypervisor(final Long guestOsHypervisorId) {
-        return _guestOSHypervisorDao.findById(guestOsHypervisorId);
+        return guestOsManagementService.getGuestOsHypervisor(guestOsHypervisorId);
     }
 
     @Override

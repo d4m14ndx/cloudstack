@@ -84,12 +84,18 @@ import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.network.IpAddress;
 import com.cloud.network.IpAddressManagerImpl;
 import com.cloud.network.dao.IPAddressVO;
+import org.apache.cloudstack.resourcedetail.dao.GuestOsDetailsDao;
+
+import com.cloud.agent.AgentManager;
+import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
+import com.cloud.storage.dao.GuestOSHypervisorDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
@@ -174,6 +180,21 @@ public class ManagementServerImplTest {
 
     @Mock
     GuestOSDao guestOSDao;
+
+    @Mock
+    GuestOSHypervisorDao guestOSHypervisorDao;
+
+    @Mock
+    HypervisorCapabilitiesDao hypervisorCapabilitiesDao;
+
+    @Mock
+    GuestOsDetailsDao guestOsDetailsDao;
+
+    @Mock
+    AgentManager agentMgr;
+
+    @Mock
+    HostDao hostDao;
 
     @Mock
     ExtensionsManager extensionManager;
@@ -283,6 +304,20 @@ public class ManagementServerImplTest {
                 Mockito.mock(InfrastructureUsageService.class);
         ReflectionTestUtils.setField(spy, "infrastructureUsageService",
                 infrastructureUsageServiceMock);
+
+        // GuestOS management slice: wire a real GuestOsManagementServiceImpl
+        // backed by the DAO mocks so that the delegating wrappers on the god
+        // class exercise the real logic in the migrated tests.
+        GuestOsManagementServiceImpl guestOsManagementService = new GuestOsManagementServiceImpl();
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSDao", guestOSDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSCategoryDao", guestOSCategoryDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSHypervisorDao", guestOSHypervisorDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "hypervisorCapabilitiesDao", hypervisorCapabilitiesDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOsDetailsDao", guestOsDetailsDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "agentMgr", agentMgr);
+        ReflectionTestUtils.setField(guestOsManagementService, "hostDao", hostDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "templateDao", templateDao);
+        ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
 
         spy.setHostAllocators(List.of(hostAllocator));
 
