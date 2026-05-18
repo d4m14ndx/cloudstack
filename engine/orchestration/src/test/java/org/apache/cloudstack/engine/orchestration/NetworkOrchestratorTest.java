@@ -167,6 +167,7 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.nicImportService = mock(NicImportService.class);
         testOrchestrator.nicMigrationService = mock(NicMigrationService.class);
         testOrchestrator.networkHostSetupService = mock(NetworkHostSetupService.class);
+        testOrchestrator.networkUpdateSequenceService = mock(NetworkUpdateSequenceService.class);
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
@@ -196,6 +197,44 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.processConnect(host, startup, true);
 
         verify(testOrchestrator.networkHostSetupService).processConnect(host, startup, true);
+    }
+
+    @Test
+    public void canUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+        when(testOrchestrator.networkUpdateSequenceService.canUpdateInSequence(network, true)).thenReturn(true);
+
+        Assert.assertTrue(testOrchestrator.canUpdateInSequence(network, true));
+
+        verify(testOrchestrator.networkUpdateSequenceService).canUpdateInSequence(network, true);
+    }
+
+    @Test
+    public void configureUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+
+        testOrchestrator.configureUpdateInSequence(network);
+
+        verify(testOrchestrator.networkUpdateSequenceService).configureUpdateInSequence(network);
+    }
+
+    @Test
+    public void getResourceCountDelegatesToService() {
+        Network network = mock(Network.class);
+        when(testOrchestrator.networkUpdateSequenceService.getResourceCount(network)).thenReturn(2);
+
+        Assert.assertEquals(2, testOrchestrator.getResourceCount(network));
+
+        verify(testOrchestrator.networkUpdateSequenceService).getResourceCount(network);
+    }
+
+    @Test
+    public void finalizeUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+
+        testOrchestrator.finalizeUpdateInSequence(network, false);
+
+        verify(testOrchestrator.networkUpdateSequenceService).finalizeUpdateInSequence(network, false);
     }
 
     @Test
