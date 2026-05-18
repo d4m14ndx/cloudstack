@@ -108,10 +108,7 @@ import org.apache.cloudstack.jsinterpreter.JsInterpreterHelper;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;
 import org.apache.cloudstack.management.ManagementServerHost;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
-import org.apache.cloudstack.secstorage.HeuristicVO;
-import org.apache.cloudstack.secstorage.dao.SecondaryStorageHeuristicDao;
 import org.apache.cloudstack.secstorage.heuristics.Heuristic;
-import org.apache.cloudstack.secstorage.heuristics.HeuristicType;
 import org.apache.cloudstack.storage.command.CheckDataStoreStoragePolicyComplianceCommand;
 import org.apache.cloudstack.storage.command.DettachCommand;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
@@ -365,7 +362,7 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
     private AnnotationDao annotationDao;
 
     @Inject
-    private SecondaryStorageHeuristicDao secondaryStorageHeuristicDao;
+    protected SecondaryStorageHeuristicService secondaryStorageHeuristicService;
 
     @Inject
     protected UserVmManager userVmManager;
@@ -2393,61 +2390,17 @@ public class StorageManagerImpl extends ManagerBase implements StorageManager, C
 
     @Override
     public Heuristic createSecondaryStorageHeuristic(CreateSecondaryStorageSelectorCmd cmd) {
-        String name = cmd.getName();
-        String description = cmd.getDescription();
-        long zoneId = cmd.getZoneId();
-        String heuristicRule = cmd.getHeuristicRule();
-        String type = cmd.getType();
-        HeuristicType formattedType = EnumUtils.getEnumIgnoreCase(HeuristicType.class, type);
-
-        if (formattedType == null) {
-            throw new IllegalArgumentException(String.format("The given heuristic type [%s] is not valid for creating a new secondary storage selector." +
-                    " The valid options are %s.", type, Arrays.asList(HeuristicType.values())));
-        }
-
-        HeuristicVO heuristic = secondaryStorageHeuristicDao.findByZoneIdAndType(zoneId, formattedType);
-
-        if (heuristic != null) {
-            DataCenterVO dataCenter = _dcDao.findById(zoneId);
-            throw new CloudRuntimeException(String.format("There is already a heuristic rule in the specified %s with the type [%s].",
-                    dataCenter, type));
-        }
-
-        validateHeuristicRule(heuristicRule);
-
-        HeuristicVO heuristicVO = new HeuristicVO(name, description, zoneId, formattedType.toString(), heuristicRule);
-        return secondaryStorageHeuristicDao.persist(heuristicVO);
+        return secondaryStorageHeuristicService.createSecondaryStorageHeuristic(cmd);
     }
 
     @Override
     public Heuristic updateSecondaryStorageHeuristic(UpdateSecondaryStorageSelectorCmd cmd) {
-        long heuristicId = cmd.getId();
-        String heuristicRule = cmd.getHeuristicRule();
-
-        HeuristicVO heuristicVO = secondaryStorageHeuristicDao.findById(heuristicId);
-        validateHeuristicRule(heuristicRule);
-        heuristicVO.setHeuristicRule(heuristicRule);
-
-        return secondaryStorageHeuristicDao.persist(heuristicVO);
+        return secondaryStorageHeuristicService.updateSecondaryStorageHeuristic(cmd);
     }
 
     @Override
     public void removeSecondaryStorageHeuristic(RemoveSecondaryStorageSelectorCmd cmd) {
-        Long heuristicId = cmd.getId();
-        HeuristicVO heuristicVO = secondaryStorageHeuristicDao.findById(heuristicId);
-
-        if (heuristicVO != null) {
-            secondaryStorageHeuristicDao.remove(heuristicId);
-        } else {
-            throw new CloudRuntimeException("Unable to find an active heuristic with the specified UUID.");
-        }
-    }
-
-    protected void validateHeuristicRule(String heuristicRule) {
-        if (StringUtils.isBlank(heuristicRule)) {
-            throw new IllegalArgumentException("Unable to create a new secondary storage selector as the given heuristic rule is blank.");
-        }
-        jsInterpreterHelper.ensureInterpreterEnabledIfParameterProvided(ApiConstants.HEURISTIC_RULE, true);
+        secondaryStorageHeuristicService.removeSecondaryStorageHeuristic(cmd);
     }
 
     @Override
