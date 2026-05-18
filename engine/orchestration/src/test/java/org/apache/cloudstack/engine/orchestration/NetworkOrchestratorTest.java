@@ -162,6 +162,7 @@ public class NetworkOrchestratorTest extends TestCase {
         mtuService.entityManager = testOrchestrator._entityMgr;
         testOrchestrator.nicProfileMtuService = mtuService;
         testOrchestrator.nicImportService = mock(NicImportService.class);
+        testOrchestrator.nicMigrationService = mock(NicMigrationService.class);
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
@@ -793,6 +794,46 @@ public class NetworkOrchestratorTest extends TestCase {
         verify(network).getState();
         verify(testOrchestrator._networksDao, times(1)).acquireInLockTable(networkId, NetworkLockTimeout.value());
         verify(testOrchestrator._networksDao, times(1)).releaseFromLockTable(networkId);
+    }
+
+    @Test
+    public void testPrepareNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile vm = mock(VirtualMachineProfile.class);
+        DeployDestination dest = mock(DeployDestination.class);
+
+        testOrchestrator.prepareNicForMigration(vm, dest);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).prepareNicForMigration(vm, dest);
+    }
+
+    @Test
+    public void testPrepareAllNicsForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile vm = mock(VirtualMachineProfile.class);
+        DeployDestination dest = mock(DeployDestination.class);
+
+        testOrchestrator.prepareAllNicsForMigration(vm, dest);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).prepareAllNicsForMigration(vm, dest);
+    }
+
+    @Test
+    public void testCommitNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile src = mock(VirtualMachineProfile.class);
+        VirtualMachineProfile dst = mock(VirtualMachineProfile.class);
+
+        testOrchestrator.commitNicForMigration(src, dst);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).commitNicForMigration(src, dst);
+    }
+
+    @Test
+    public void testRollbackNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile src = mock(VirtualMachineProfile.class);
+        VirtualMachineProfile dst = mock(VirtualMachineProfile.class);
+
+        testOrchestrator.rollbackNicForMigration(src, dst);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).rollbackNicForMigration(src, dst);
     }
 
 }
