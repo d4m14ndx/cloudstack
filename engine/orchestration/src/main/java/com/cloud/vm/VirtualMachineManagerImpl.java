@@ -457,6 +457,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     private VmStatsCollector vmStatsCollector;
     @Inject
     protected VmExternalProvisioningManager vmExternalProvisioningManager;
+    @Inject
+    protected VmVolumeMigrationPlanningService vmVolumeMigrationPlanningService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
