@@ -47,8 +47,10 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.deploy.DataCenterDeployment;
+import com.cloud.deploy.DeploymentPlan;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Storage;
@@ -168,6 +170,17 @@ public class VmVolumeMigrationPlanningServiceImplTest {
 
         assertThrows(CloudRuntimeException.class, () ->
                 service.executeManagedStorageChecksWhenTargetStoragePoolProvided(currentPoolMock, volumeMock, targetPool));
+    }
+
+    @Test
+    public void executeManagedStorageChecksWhenTargetStoragePoolProvided_powerFlex_noOp() {
+        when(currentPoolMock.isManaged()).thenReturn(true);
+        when(currentPoolMock.getPoolType()).thenReturn(Storage.StoragePoolType.PowerFlex);
+        StoragePoolVO targetPool = mock(StoragePoolVO.class);
+
+        service.executeManagedStorageChecksWhenTargetStoragePoolProvided(currentPoolMock, volumeMock, targetPool);
+
+        verify(targetPool, never()).getId();
     }
 
     // -------------------------------------------------------------------------
@@ -306,6 +319,134 @@ public class VmVolumeMigrationPlanningServiceImplTest {
         verify(poolHostDao, never()).findByPoolHost(anyLong(), anyLong());
     }
 
+    @Test
+    public void shouldMapVolume_kvmUnmanaged_returnsFalse() {
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        when(currentPoolMock.isManaged()).thenReturn(false);
+
+        assertFalse(service.shouldMapVolume(profileMock, currentPoolMock));
+    }
+
+    @Test
+    public void shouldMapVolume_kvmManaged_returnsTrue() {
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        when(currentPoolMock.isManaged()).thenReturn(true);
+
+        assertTrue(service.shouldMapVolume(profileMock, currentPoolMock));
+    }
+
+    @Test
+    public void shouldMapVolume_vmwareUnmanaged_returnsTrue() {
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.VMware);
+        when(currentPoolMock.isManaged()).thenReturn(false);
+
+        assertTrue(service.shouldMapVolume(profileMock, currentPoolMock));
+    }
+
+    @Test
+    public void createStoragePoolMappingsForVolumes_hostScopeDelegatesToCandidateMapping() {
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, clusterAId, hostId, null, null);
+        StoragePoolVO targetPool = mock(StoragePoolVO.class);
+        String targetPoolUuid = UUID.randomUUID().toString();
+        Map<Volume, StoragePool> mapped = new HashMap<>();
+
+        when(hostDao.findById(hostId)).thenReturn(hostMock);
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPoolMock);
+        when(currentPoolMock.isManaged()).thenReturn(false);
+        when(currentPoolMock.getScope()).thenReturn(ScopeType.HOST);
+        configureSingleLocalCandidate(targetPool, targetPoolId, targetPoolUuid);
+        when(storagePoolDao.findByUuid(targetPoolUuid)).thenReturn(targetPool);
+
+        service.createStoragePoolMappingsForVolumes(profileMock, plan, mapped, List.of(volumeMock));
+
+        assertEquals(targetPool, mapped.get(volumeMock));
+    }
+
+    @Test
+    public void createStoragePoolMappingsForVolumes_clusterSameClusterKvmUnmanagedSkipsMapping() {
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, clusterAId, null, null, null);
+        Map<Volume, StoragePool> mapped = new HashMap<>();
+
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPoolMock);
+        when(currentPoolMock.isManaged()).thenReturn(false);
+        when(currentPoolMock.getScope()).thenReturn(ScopeType.CLUSTER);
+        when(currentPoolMock.getClusterId()).thenReturn(clusterAId);
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.KVM);
+
+        service.createStoragePoolMappingsForVolumes(profileMock, plan, mapped, List.of(volumeMock));
+
+        assertTrue(mapped.isEmpty());
+    }
+
+    @Test
+    public void createVolumeToStoragePoolMappingIfPossible_emptyCandidatesForHostThrows() {
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, clusterAId, hostId, null, null);
+        DiskOfferingVO diskOffering = mock(DiskOfferingVO.class);
+
+        when(volumeMock.getDiskOfferingId()).thenReturn(5L);
+        when(diskOfferingDao.findById(5L)).thenReturn(diskOffering);
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPoolMock);
+        when(currentPoolMock.isLocal()).thenReturn(false);
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        when(hostDao.findById(hostId)).thenReturn(hostMock);
+        when(hostMock.getUuid()).thenReturn(UUID.randomUUID().toString());
+
+        assertThrows(CloudRuntimeException.class, () ->
+                service.createVolumeToStoragePoolMappingIfPossible(profileMock, plan, new HashMap<>(), volumeMock, currentPoolMock));
+    }
+
+    @Test
+    public void createVolumeToStoragePoolMappingIfPossible_currentPoolCandidateLeavesMapEmpty() {
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, clusterAId, hostId, null, null);
+        Map<Volume, StoragePool> mapped = new HashMap<>();
+        configureSingleLocalCandidate(currentPoolMock, currentPoolId, UUID.randomUUID().toString());
+
+        service.createVolumeToStoragePoolMappingIfPossible(profileMock, plan, mapped, volumeMock, currentPoolMock);
+
+        assertTrue(mapped.isEmpty());
+    }
+
+    @Test
+    public void createVolumeToStoragePoolMappingIfPossible_differentCandidateMapsByUuid() {
+        DataCenterDeployment plan = new DataCenterDeployment(1L, 2L, clusterAId, hostId, null, null);
+        StoragePoolVO targetPool = mock(StoragePoolVO.class);
+        String targetPoolUuid = UUID.randomUUID().toString();
+        Map<Volume, StoragePool> mapped = new HashMap<>();
+
+        configureSingleLocalCandidate(targetPool, targetPoolId, targetPoolUuid);
+        when(storagePoolDao.findByUuid(targetPoolUuid)).thenReturn(targetPool);
+
+        service.createVolumeToStoragePoolMappingIfPossible(profileMock, plan, mapped, volumeMock, currentPoolMock);
+
+        assertEquals(targetPool, mapped.get(volumeMock));
+    }
+
+    @Test
+    public void createMappingVolumeAndStoragePool_hostOverloadUsesHostPlan() {
+        long vmId = 99L;
+        long zoneId = 7L;
+        long podId = 8L;
+        StoragePoolVO targetPool = mock(StoragePoolVO.class);
+        String targetPoolUuid = UUID.randomUUID().toString();
+
+        when(profileMock.getId()).thenReturn(vmId);
+        when(hostMock.getDataCenterId()).thenReturn(zoneId);
+        when(hostMock.getPodId()).thenReturn(podId);
+        when(hostMock.getClusterId()).thenReturn(clusterAId);
+        when(hostMock.getId()).thenReturn(hostId);
+        when(hostDao.findById(hostId)).thenReturn(hostMock);
+        when(volumeDao.findUsableVolumesForInstance(vmId)).thenReturn(List.of(volumeMock));
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPoolMock);
+        when(currentPoolMock.isManaged()).thenReturn(false);
+        when(currentPoolMock.getScope()).thenReturn(ScopeType.HOST);
+        configureSingleLocalCandidate(targetPool, targetPoolId, targetPoolUuid, zoneId, podId, clusterAId, hostId);
+        when(storagePoolDao.findByUuid(targetPoolUuid)).thenReturn(targetPool);
+
+        Map<Volume, StoragePool> result = service.createMappingVolumeAndStoragePool(profileMock, hostMock, new HashMap<>());
+
+        assertEquals(targetPool, result.get(volumeMock));
+    }
+
     // -------------------------------------------------------------------------
     // getCandidateStoragePoolsToMigrateLocalVolume (2 cases)
     // -------------------------------------------------------------------------
@@ -353,5 +494,42 @@ public class VmVolumeMigrationPlanningServiceImplTest {
 
         List<StoragePool> result = service.getCandidateStoragePoolsToMigrateLocalVolume(profileMock, plan, volumeMock);
         assertTrue(result.isEmpty());
+    }
+
+    private void configureSingleLocalCandidate(StoragePool candidatePool, long candidatePoolId, String candidatePoolUuid) {
+        configureSingleLocalCandidate(candidatePool, candidatePoolId, candidatePoolUuid, null, null, null, null);
+    }
+
+    private void configureSingleLocalCandidate(StoragePool candidatePool, long candidatePoolId, String candidatePoolUuid, Long expectedZoneId, Long expectedPodId,
+            Long expectedClusterId, Long expectedHostId) {
+        StoragePoolAllocator allocator = mock(StoragePoolAllocator.class);
+        service.setStoragePoolAllocators(List.of(allocator));
+
+        DiskOfferingVO diskOffering = mock(DiskOfferingVO.class);
+        when(volumeMock.getDiskOfferingId()).thenReturn(5L);
+        when(diskOfferingDao.findById(5L)).thenReturn(diskOffering);
+        when(storagePoolDao.findById(currentPoolId)).thenReturn(currentPoolMock);
+        when(currentPoolMock.isLocal()).thenReturn(true);
+        when(profileMock.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        when(candidatePool.getId()).thenReturn(candidatePoolId);
+        when(candidatePool.getUuid()).thenReturn(candidatePoolUuid);
+        when(candidatePool.isLocal()).thenReturn(true);
+        when(allocator.allocateToPool(Mockito.any(), Mockito.any(), Mockito.any(DeploymentPlan.class), Mockito.any(), Mockito.anyInt()))
+                .thenAnswer(invocation -> {
+                    DeploymentPlan plan = invocation.getArgument(2);
+                    if (expectedZoneId != null) {
+                        assertTrue(expectedZoneId.longValue() == plan.getDataCenterId());
+                    }
+                    if (expectedPodId != null) {
+                        assertTrue(expectedPodId.longValue() == plan.getPodId());
+                    }
+                    if (expectedClusterId != null) {
+                        assertTrue(expectedClusterId.longValue() == plan.getClusterId());
+                    }
+                    if (expectedHostId != null) {
+                        assertTrue(expectedHostId.longValue() == plan.getHostId());
+                    }
+                    return List.of(candidatePool);
+                });
     }
 }
