@@ -72,7 +72,6 @@ import org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
-import org.apache.commons.collections.MapUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -102,7 +101,6 @@ import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterDetailsVO;
-import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.Pod;
@@ -110,7 +108,6 @@ import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
-import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deploy.DeploymentPlanner;
 import com.cloud.deploy.DeploymentPlanner.ExcludeList;
 import com.cloud.deploy.DeploymentPlanningManager;
@@ -294,6 +291,8 @@ public class VirtualMachineManagerImplTest {
     private VmVolumeMigrationPlanningService vmVolumeMigrationPlanningService;
     @Mock
     private VmVolumeMigrationPlanningServiceImpl vmVolumeMigrationPlanningServiceImpl;
+    @Mock
+    private VmDiskOfferingSuitabilityService vmDiskOfferingSuitabilityService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -362,6 +361,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmOfflineStorageMigrationServiceImpl", vmOfflineStorageMigrationServiceImpl);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningService", vmVolumeMigrationPlanningService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningServiceImpl", vmVolumeMigrationPlanningServiceImpl);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmDiskOfferingSuitabilityService", vmDiskOfferingSuitabilityService);
     }
 
     @After
@@ -998,46 +998,47 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
-    public void testIsDiskOfferingSuitableForVmSuccess() {
-        Mockito.doReturn(Mockito.mock(DiskOfferingVO.class)).when(diskOfferingDaoMock).findById(anyLong());
-        List<StoragePool> poolListMock = new ArrayList<>();
-        poolListMock.add(storagePoolVoMock);
-        Mockito.doReturn(poolListMock).when(storagePoolAllocatorMock).allocateToPool(any(DiskProfile.class), any(VirtualMachineProfile.class), any(DeploymentPlan.class),
-                any(ExcludeList.class), Mockito.eq(1));
-        boolean result = virtualMachineManagerImpl.isDiskOfferingSuitableForVm(vmInstanceMock, virtualMachineProfileMock, 1L, 1L, 1L, 1L);
+    public void testFindClusterAndHostIdForVmDelegatesToDiskOfferingSuitabilityService() {
+        Pair<Long, Long> expected = new Pair<>(clusterMockId, hostMockId);
+        when(vmDiskOfferingSuitabilityService.findClusterAndHostIdForVm(vmInstanceMock, true)).thenReturn(expected);
+
+        Pair<Long, Long> result = virtualMachineManagerImpl.findClusterAndHostIdForVm(vmInstanceMock, true);
+
+        assertEquals(expected, result);
+        verify(vmDiskOfferingSuitabilityService).findClusterAndHostIdForVm(vmInstanceMock, true);
+    }
+
+    @Test
+    public void testFindClusterAndHostIdForVmByIdDelegatesToDiskOfferingSuitabilityService() {
+        Pair<Long, Long> expected = new Pair<>(clusterMockId, hostMockId);
+        when(vmDiskOfferingSuitabilityService.findClusterAndHostIdForVm(vmInstanceVoMockId)).thenReturn(expected);
+
+        Pair<Long, Long> result = virtualMachineManagerImpl.findClusterAndHostIdForVm(vmInstanceVoMockId);
+
+        assertEquals(expected, result);
+        verify(vmDiskOfferingSuitabilityService).findClusterAndHostIdForVm(vmInstanceVoMockId);
+    }
+
+    @Test
+    public void testIsDiskOfferingSuitableForVmDelegatesToDiskOfferingSuitabilityService() {
+        when(vmDiskOfferingSuitabilityService.isDiskOfferingSuitableForVm(vmInstanceMock, virtualMachineProfileMock, 1L, 2L, 3L, 4L)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.isDiskOfferingSuitableForVm(vmInstanceMock, virtualMachineProfileMock, 1L, 2L, 3L, 4L);
+
         assertTrue(result);
+        verify(vmDiskOfferingSuitabilityService).isDiskOfferingSuitableForVm(vmInstanceMock, virtualMachineProfileMock, 1L, 2L, 3L, 4L);
     }
 
     @Test
-    public void testIsDiskOfferingSuitableForVmNegative() {
-        Mockito.doReturn(Mockito.mock(DiskOfferingVO.class)).when(diskOfferingDaoMock).findById(anyLong());
-        Mockito.doReturn(new ArrayList<>()).when(storagePoolAllocatorMock).allocateToPool(any(DiskProfile.class), any(VirtualMachineProfile.class), any(DeploymentPlan.class),
-                any(ExcludeList.class), Mockito.eq(1));
-        boolean result = virtualMachineManagerImpl.isDiskOfferingSuitableForVm(vmInstanceMock, virtualMachineProfileMock, 1L, 1L, 1L, 1L);
-        assertFalse(result);
-    }
-
-    @Test
-    public void testGetDiskOfferingSuitabilityForVm() {
-        Mockito.doReturn(vmInstanceMock).when(vmInstanceDaoMock).findById(1L);
-        Mockito.when(vmInstanceMock.getHostId()).thenReturn(1L);
-        Mockito.doReturn(hostMock).when(hostDaoMock).findById(1L);
-        Mockito.when(hostMock.getClusterId()).thenReturn(1L);
-        ClusterVO cluster = Mockito.mock(ClusterVO.class);
-        Mockito.when(cluster.getPodId()).thenReturn(1L);
-        Mockito.doReturn(cluster).when(clusterDao).findById(1L);
+    public void testGetDiskOfferingSuitabilityForVmDelegatesToDiskOfferingSuitabilityService() {
         List<Long> diskOfferingIds = List.of(1L, 2L);
-        Mockito.doReturn(false).when(virtualMachineManagerImpl)
-                .isDiskOfferingSuitableForVm(eq(vmInstanceMock), any(VirtualMachineProfile.class),
-                        eq(1L), eq(1L), eq(1L), eq(1L));
-        Mockito.doReturn(true).when(virtualMachineManagerImpl)
-                .isDiskOfferingSuitableForVm(eq(vmInstanceMock), any(VirtualMachineProfile.class),
-                        eq(1L), eq(1L), eq(1L), eq(2L));
-        Map<Long, Boolean> result = virtualMachineManagerImpl.getDiskOfferingSuitabilityForVm(1L, diskOfferingIds);
-        assertTrue(MapUtils.isNotEmpty(result));
-        assertEquals(2, result.keySet().size());
-        assertFalse(result.get(1L));
-        assertTrue(result.get(2L));
+        Map<Long, Boolean> expected = Map.of(1L, false, 2L, true);
+        when(vmDiskOfferingSuitabilityService.getDiskOfferingSuitabilityForVm(vmInstanceVoMockId, diskOfferingIds)).thenReturn(expected);
+
+        Map<Long, Boolean> result = virtualMachineManagerImpl.getDiskOfferingSuitabilityForVm(vmInstanceVoMockId, diskOfferingIds);
+
+        assertEquals(expected, result);
+        verify(vmDiskOfferingSuitabilityService).getDiskOfferingSuitabilityForVm(vmInstanceVoMockId, diskOfferingIds);
     }
 
     private void overrideVmMetadataConfigValue(final String manufacturer, final String product) {
