@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 
 import jakarta.inject.Inject;
 
-import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
 import org.apache.cloudstack.api.InternalIdentity;
 import org.apache.cloudstack.api.ServerApiException;
@@ -58,7 +57,6 @@ import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationSer
 import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreCapabilities;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
@@ -67,7 +65,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.HostScope;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
@@ -88,7 +85,6 @@ import org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO;
 import org.apache.cloudstack.jobs.JobInfo;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
 import org.apache.cloudstack.resourcedetail.DiskOfferingDetailVO;
-import org.apache.cloudstack.resourcedetail.SnapshotPolicyDetailVO;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.resourcedetail.dao.SnapshotPolicyDetailsDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
@@ -376,6 +372,8 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private VolumeHostTopologyService volumeHostTopologyService;
     @Inject
     private VolumeMigrationValidator volumeMigrationValidator;
+    @Inject
+    protected VolumeTakeSnapshotService volumeTakeSnapshotService;
 
     public static final String KVM_FILE_BASED_STORAGE_SNAPSHOT = "kvmFileBasedStorageSnapshot";
 
@@ -3703,330 +3701,26 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     private Snapshot takeSnapshotInternal(Long volumeId, Long policyId, Long snapshotId, Account account,
           boolean quiescevm, Snapshot.LocationType locationType, boolean asyncBackup, List<Long> zoneIds, List<Long> poolIds, Boolean useStorageReplication)
             throws ResourceAllocationException {
-        Account caller = CallContext.current().getCallingAccount();
-        VolumeInfo volume = volFactory.getVolume(volumeId);
-        poolIds = snapshotHelper.addStoragePoolsForCopyToPrimary(volume, zoneIds, poolIds, useStorageReplication);
-        canCopyOnPrimary(poolIds, volume,CollectionUtils.isEmpty(poolIds));
-        if (volume == null) {
-            throw new InvalidParameterValueException("Creating snapshot failed due to volume:" + volumeId + " doesn't exist");
-        }
-        if (HypervisorType.External.equals(volume.getHypervisorType())) {
-            throw new InvalidParameterValueException("Snapshot operations are not allowed for External hypervisor type");
-        }
-        if (policyId != null && policyId > 0) {
-            if (CollectionUtils.isNotEmpty(zoneIds)) {
-                throw new InvalidParameterValueException(String.format("%s can not be specified for snapshots linked with snapshot policy", ApiConstants.ZONE_ID_LIST));
-            }
-            List<SnapshotPolicyDetailVO> details = snapshotPolicyDetailsDao.findDetails(policyId, ApiConstants.ZONE_ID);
-            zoneIds = details.stream().map(d -> Long.valueOf(d.getValue())).collect(Collectors.toList());
-            poolIds = getPoolIdsByPolicy(policyId, poolIds);
-        }
-        if (CollectionUtils.isNotEmpty(zoneIds)) {
-            for (Long destZoneId : zoneIds) {
-                DataCenterVO dstZone = _dcDao.findById(destZoneId);
-                if (dstZone == null) {
-                    throw new InvalidParameterValueException("Please specify a valid destination zone.");
-                }
-            }
-        }
-
-        _accountMgr.checkAccess(caller, null, true, volume);
-
-        if (volume.getState() != Volume.State.Ready) {
-            throw new InvalidParameterValueException(String.format("Volume: %s is not in %s state but %s. Cannot take snapshot.", volume.getVolume(), Volume.State.Ready, volume.getState()));
-        }
-
-        StoragePoolVO storagePoolVO = _storagePoolDao.findById(volume.getPoolId());
-
-        if (storagePoolVO.isManaged() && locationType == null) {
-            locationType = Snapshot.LocationType.PRIMARY;
-        }
-
-        VMInstanceVO vm = null;
-        if (volume.getInstanceId() != null) {
-            vm = _vmInstanceDao.findById(volume.getInstanceId());
-        }
-
-        if (vm != null) {
-            _accountMgr.checkAccess(caller, null, true, vm);
-            // serialize VM operation
-            AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-            if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-                // avoid re-entrance
-
-                VmWorkJobVO placeHolder = null;
-                placeHolder = createPlaceHolderWork(vm.getId());
-                try {
-                    return orchestrateTakeVolumeSnapshot(volumeId, policyId, snapshotId, account, quiescevm,
-                            locationType, asyncBackup, zoneIds, poolIds);
-                } finally {
-                    _workJobDao.expunge(placeHolder.getId());
-                }
-
-            } else {
-                Outcome<Snapshot> outcome = takeVolumeSnapshotThroughJobQueue(vm.getId(), volumeId, policyId,
-                        snapshotId, account.getId(), quiescevm, locationType, asyncBackup, zoneIds, poolIds);
-
-                try {
-                    outcome.get();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException("Operation is interrupted", e);
-                } catch (ExecutionException e) {
-                    throw new CloudRuntimeException("Execution exception getting the outcome of the asynchronous take volume snapshot job", e);
-                }
-
-                Object jobResult = _jobMgr.unmarshallResultObject(outcome.getJob());
-                if (jobResult != null) {
-                    if (jobResult instanceof ConcurrentOperationException) {
-                        throw (ConcurrentOperationException)jobResult;
-                    } else if (jobResult instanceof ResourceAllocationException) {
-                        throw (ResourceAllocationException)jobResult;
-                    } else if (jobResult instanceof Throwable) {
-                        throw new RuntimeException("Unexpected exception", (Throwable)jobResult);
-                    }
-                }
-
-                return _snapshotDao.findById(snapshotId);
-            }
-        } else {
-            CreateSnapshotPayload payload = new CreateSnapshotPayload();
-            payload.setSnapshotId(snapshotId);
-            payload.setSnapshotPolicyId(policyId);
-            payload.setAccount(account);
-            payload.setQuiescevm(quiescevm);
-            payload.setAsyncBackup(asyncBackup);
-            if (CollectionUtils.isNotEmpty(zoneIds)) {
-                payload.setZoneIds(zoneIds);
-            }
-            if (CollectionUtils.isNotEmpty(poolIds)) {
-                payload.setStoragePoolIds(poolIds);
-            }
-            volume.addPayload(payload);
-            return volService.takeSnapshot(volume);
-        }
-    }
-
-    @NotNull
-    private List<Long> getPoolIdsByPolicy(Long policyId, List<Long> poolIds) {
-        if (CollectionUtils.isNotEmpty(poolIds)) {
-            throw new InvalidParameterValueException(String.format("%s can not be specified for snapshots linked with snapshot policy", ApiConstants.STORAGE_ID_LIST));
-        }
-        List<SnapshotPolicyDetailVO> poolDetails = snapshotPolicyDetailsDao.findDetails(policyId, ApiConstants.STORAGE_ID);
-        poolIds = poolDetails.stream().map(d -> Long.valueOf(d.getValue())).collect(Collectors.toList());
-        return poolIds;
+        return volumeTakeSnapshotService.takeSnapshotInternal(volumeId, policyId, snapshotId, account,
+                quiescevm, locationType, asyncBackup, zoneIds, poolIds, useStorageReplication);
     }
 
     private Snapshot orchestrateTakeVolumeSnapshot(Long volumeId, Long policyId, Long snapshotId, Account account,
         boolean quiescevm, Snapshot.LocationType locationType, boolean asyncBackup, List<Long> zoneIds, List<Long> poolIds)
             throws ResourceAllocationException {
-
-        VolumeInfo volume = volFactory.getVolume(volumeId);
-
-        if (volume == null) {
-            throw new InvalidParameterValueException("Creating snapshot failed due to volume:" + volumeId + " doesn't exist");
-        }
-
-        if (volume.getState() != Volume.State.Ready) {
-            throw new InvalidParameterValueException(String.format("Volume: %s is not in %s state but %s. Cannot take snapshot.", volume.getVolume(), Volume.State.Ready, volume.getState()));
-        }
-
-        boolean isSnapshotOnStorPoolOnly = volume.getStoragePoolType() == StoragePoolType.StorPool && SnapshotInfo.BackupSnapshotAfterTakingSnapshot.value();
-        if (volume.getEncryptFormat() != null && volume.getAttachedVM() != null && volume.getAttachedVM().getState() != State.Stopped && !isSnapshotOnStorPoolOnly) {
-            logger.debug(String.format("Refusing to take snapshot of encrypted volume (%s) on running VM (%s)", volume, volume.getAttachedVM()));
-            throw new UnsupportedOperationException("Volume snapshots for encrypted volumes are not supported if VM is running");
-        }
-
-        CreateSnapshotPayload payload = new CreateSnapshotPayload();
-
-        payload.setSnapshotId(snapshotId);
-        payload.setSnapshotPolicyId(policyId);
-        payload.setAccount(account);
-        payload.setQuiescevm(quiescevm);
-        payload.setLocationType(locationType);
-        payload.setAsyncBackup(asyncBackup);
-        if (CollectionUtils.isNotEmpty(zoneIds)) {
-            payload.setZoneIds(zoneIds);
-        }
-        if (CollectionUtils.isNotEmpty(poolIds)) {
-            payload.setStoragePoolIds(poolIds);
-        }
-
-        volume.addPayload(payload);
-
-        return volService.takeSnapshot(volume);
-    }
-
-    private boolean isOperationSupported(VMTemplateVO template, UserVmVO userVm) {
-        if (template != null && template.getTemplateType() == Storage.TemplateType.SYSTEM &&
-                (userVm == null || !UserVmManager.CKS_NODE.equals(userVm.getUserVmType()) || !UserVmManager.SHAREDFSVM.equals(userVm.getUserVmType()))) {
-            return false;
-        }
-        return true;
+        return volumeTakeSnapshotService.orchestrateTakeVolumeSnapshot(volumeId, policyId, snapshotId, account,
+                quiescevm, locationType, asyncBackup, zoneIds, poolIds);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_SNAPSHOT_CREATE, eventDescription = "allocating snapshot", create = true)
     public Snapshot allocSnapshot(Long volumeId, Long policyId, String snapshotName, Snapshot.LocationType locationType, List<Long> zoneIds, List<Long> poolIds, Boolean useStorageReplication) throws ResourceAllocationException {
-        Account caller = CallContext.current().getCallingAccount();
-
-        VolumeInfo volume = volFactory.getVolume(volumeId);
-        if (volume == null) {
-            throw new InvalidParameterValueException("Creating snapshot failed due to volume:" + volumeId + " doesn't exist");
-        }
-        DataCenter zone = _dcDao.findById(volume.getDataCenterId());
-        if (zone == null) {
-            throw new InvalidParameterValueException(String.format("Can't find zone for the volume ID: %s", volume.getUuid()));
-        }
-
-        if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(caller.getId())) {
-            throw new PermissionDeniedException("Cannot perform this operation, Zone is currently disabled: " + zone.getName());
-        }
-
-        if (volume.getState() != Volume.State.Ready) {
-            throw new InvalidParameterValueException(String.format("Volume: %s is not in %s state but %s. Cannot take snapshot.", volume.getVolume(), Volume.State.Ready, volume.getState()));
-        }
-
-        if (ImageFormat.DIR.equals(volume.getFormat())) {
-            throw new InvalidParameterValueException(String.format("Snapshot not supported for volume: %s", volume.getVolume()));
-        }
-        if (volume.getTemplateId() != null) {
-            VMTemplateVO template = _templateDao.findById(volume.getTemplateId());
-            Long instanceId = volume.getInstanceId();
-            UserVmVO userVmVO = null;
-            if (instanceId != null) {
-                userVmVO = _userVmDao.findById(instanceId);
-            }
-            if (!isOperationSupported(template, userVmVO)) {
-                throw new InvalidParameterValueException(String.format("Volume: %s is for System VM , Creating snapshot against System VM volumes is not supported", volume.getVolume()));
-            }
-        }
-        snapshotHelper.addStoragePoolsForCopyToPrimary(volume, zoneIds, poolIds, useStorageReplication);
-        canCopyOnPrimary(poolIds, volume,CollectionUtils.isEmpty(poolIds));
-
-        StoragePoolVO storagePoolVO = _storagePoolDao.findById(volume.getPoolId());
-
-        if (!storagePoolVO.isManaged() && locationType != null) {
-            throw new InvalidParameterValueException("VolumeId: " + volumeId + " LocationType is supported only for managed storage");
-        }
-
-        if (storagePoolVO.isManaged() && locationType == null) {
-            locationType = Snapshot.LocationType.PRIMARY;
-        }
-
-        StoragePool storagePool = (StoragePool)volume.getDataStore();
-        if (storagePool == null) {
-            throw new InvalidParameterValueException(String.format("Volume: %s please attach this volume to a VM before create snapshot for it", volume.getVolume()));
-        }
-        boolean canCopyOnPrimary = useStorageReplication;
-
-        if (CollectionUtils.isNotEmpty(zoneIds)) {
-            if (policyId != null && policyId > 0) {
-                throw new InvalidParameterValueException(String.format("%s parameter can not be specified with %s parameter", ApiConstants.ZONE_ID_LIST, ApiConstants.POLICY_ID));
-            }
-            if (Snapshot.LocationType.PRIMARY.equals(locationType)) {
-                throw new InvalidParameterValueException(String.format("%s cannot be specified with snapshot %s as %s", ApiConstants.ZONE_ID_LIST, ApiConstants.LOCATION_TYPE, Snapshot.LocationType.PRIMARY));
-            }
-            if (Boolean.FALSE.equals(SnapshotInfo.BackupSnapshotAfterTakingSnapshot.value()) && !canCopyOnPrimary) {
-                throw new InvalidParameterValueException("Backing up of snapshot has been disabled. Snapshot can not be taken for multiple zones");
-            }
-            if (DataCenter.Type.Edge.equals(zone.getType())) {
-                throw new InvalidParameterValueException("Backing up of snapshot is not supported by the zone of the volume. Snapshot can not be taken for multiple zones");
-            }
-            for (Long zoneId : zoneIds) {
-                DataCenter dataCenter = _dcDao.findById(zoneId);
-                if (dataCenter == null) {
-                    throw new InvalidParameterValueException("Unable to find the specified zone");
-                }
-                if (Grouping.AllocationState.Disabled.equals(dataCenter.getAllocationState()) && !_accountMgr.isRootAdmin(caller.getId())) {
-                    throw new PermissionDeniedException("Cannot perform this operation, Zone is currently disabled: " + dataCenter.getName());
-                }
-                if (DataCenter.Type.Edge.equals(dataCenter.getType())) {
-                    throw new InvalidParameterValueException("Snapshot functionality is not supported on zone %s");
-                }
-            }
-        }
-
-
-        return snapshotMgr.allocSnapshot(volumeId, policyId, snapshotName, locationType, false, zoneIds);
-    }
-
-    private boolean canCopyOnPrimary(List<Long> poolIds, VolumeInfo volume, boolean isPoolIdsEmpty) {
-        if (!isPoolIdsEmpty) {
-            for (Long poolId : poolIds){
-                DataStore dataStore = dataStoreMgr.getDataStore(poolId, DataStoreRole.Primary);
-                StoragePoolVO sPool = _storagePoolDao.findById(poolId);
-                if (dataStore != null
-                        && !dataStore.getDriver().getCapabilities().containsKey(DataStoreCapabilities.CAN_COPY_SNAPSHOT_BETWEEN_ZONES_AND_SAME_POOL_TYPE.toString())
-                        && sPool.getPoolType() != volume.getStoragePoolType()
-                && volume.getPoolId() == poolId) {
-                    throw new InvalidParameterValueException("The specified pool doesn't support copying snapshots between zones" + poolId);
-                }
-            }
-        } else {
-            return false;
-        }
-        snapshotHelper.checkIfThereAreMoreThanOnePoolInTheZone(poolIds);
-        return true;
+        return volumeTakeSnapshotService.allocSnapshot(volumeId, policyId, snapshotName, locationType, zoneIds, poolIds, useStorageReplication);
     }
 
     @Override
     public Snapshot allocSnapshotForVm(Long vmId, Long volumeId, String snapshotName, Long vmSnapshotId) throws ResourceAllocationException {
-        Account caller = CallContext.current().getCallingAccount();
-        VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        if (vm == null) {
-            throw new InvalidParameterValueException("Creating snapshot failed due to vm:" + vmId + " doesn't exist");
-        }
-        _accountMgr.checkAccess(caller, null, true, vm);
-
-        VolumeInfo volume = volFactory.getVolume(volumeId);
-        if (volume == null) {
-            throw new InvalidParameterValueException("Creating snapshot failed due to volume:" + volumeId + " doesn't exist");
-        }
-        _accountMgr.checkAccess(caller, null, true, volume);
-        VirtualMachine attachVM = volume.getAttachedVM();
-        if (attachVM == null || attachVM.getId() != vm.getId()) {
-            throw new InvalidParameterValueException(String.format("Creating snapshot failed due to volume:%s doesn't attach to vm :%s", volume.getVolume(), vm));
-        }
-
-        DataCenter zone = _dcDao.findById(volume.getDataCenterId());
-        if (zone == null) {
-            throw new InvalidParameterValueException("Can't find zone by id " + volume.getDataCenterId());
-        }
-
-        if (Grouping.AllocationState.Disabled == zone.getAllocationState() && !_accountMgr.isRootAdmin(caller.getId())) {
-            throw new PermissionDeniedException("Cannot perform this operation, Zone is currently disabled: " + zone.getName());
-        }
-
-        if (volume.getState() != Volume.State.Ready) {
-            throw new InvalidParameterValueException(String.format("Volume: %s is not in %s state but %s. Cannot take snapshot.", volume.getVolume(), Volume.State.Ready, volume.getState()));
-        }
-
-        if (volume.getTemplateId() != null) {
-            VMTemplateVO template = _templateDao.findById(volume.getTemplateId());
-            Long instanceId = volume.getInstanceId();
-            UserVmVO userVmVO = null;
-            if (instanceId != null) {
-                userVmVO = _userVmDao.findById(instanceId);
-            }
-            if (!isOperationSupported(template, userVmVO)) {
-                throw new InvalidParameterValueException(String.format("Volume: %s is for System VM , Creating snapshot against System VM volumes is not supported", volume.getVolume()));
-            }
-        }
-
-        StoragePool storagePool = (StoragePool)volume.getDataStore();
-        if (storagePool == null) {
-            throw new InvalidParameterValueException(String.format("Volume: %s please attach this volume to a VM before create snapshot for it", volume.getVolume()));
-        }
-
-        if (storagePool.getPoolType() == Storage.StoragePoolType.PowerFlex) {
-            throw new InvalidParameterValueException("Cannot perform this operation, unsupported on storage pool type " + storagePool.getPoolType());
-        }
-
-        if (vmSnapshotDetailsDao.listDetails(vmSnapshotId).stream().anyMatch(vmSnapshotDetailsVO -> KVM_FILE_BASED_STORAGE_SNAPSHOT.equals(vmSnapshotDetailsVO.getName()))) {
-            throw new InvalidParameterValueException("Cannot perform this operation, unsupported VM snapshot type.");
-        }
-
-        return snapshotMgr.allocSnapshot(volumeId, Snapshot.MANUAL_POLICY_ID, snapshotName, null, true, null);
+        return volumeTakeSnapshotService.allocSnapshotForVm(vmId, volumeId, snapshotName, vmSnapshotId);
     }
 
     @Override

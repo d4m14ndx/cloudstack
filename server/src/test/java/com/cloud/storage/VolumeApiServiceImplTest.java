@@ -279,6 +279,9 @@ public class VolumeApiServiceImplTest {
     @Mock
     private VMSnapshotDetailsDao vmSnapshotDetailsDaoMock;
 
+    @Mock
+    private VolumeTakeSnapshotService volumeTakeSnapshotServiceMock;
+
     private long accountMockId = 456l;
     private long volumeMockId = 12313l;
     private long vmInstanceMockId = 1123l;
@@ -384,8 +387,8 @@ public class VolumeApiServiceImplTest {
             when(correctRootVolume.getVolumeType()).thenReturn(Volume.Type.ROOT);
             when(correctRootVolume.getInstanceId()).thenReturn(null);
             when(correctRootVolume.getState()).thenReturn(Volume.State.Ready);
-            when(correctRootVolume.getTemplateId()).thenReturn(null);
-            when(correctRootVolume.getPoolId()).thenReturn(1L);
+            lenient().when(correctRootVolume.getTemplateId()).thenReturn(null);
+            lenient().when(correctRootVolume.getPoolId()).thenReturn(1L);
             when(volumeDataFactoryMock.getVolume(6L)).thenReturn(correctRootVolume);
 
             VolumeVO correctRootVolumeVO = new VolumeVO("root", 1L, 1L, 1L, 1L, 2L, "root", "root", Storage.ProvisioningType.THIN, 1, null, null, "root", Volume.Type.ROOT);
@@ -454,9 +457,9 @@ public class VolumeApiServiceImplTest {
             when(_vmInstanceDao.findById(any(Long.class))).thenReturn(stoppedVm);
 
             DataCenterVO enabledZone = Mockito.mock(DataCenterVO.class);
-            when(enabledZone.getAllocationState()).thenReturn(Grouping.AllocationState.Enabled);
+            lenient().when(enabledZone.getAllocationState()).thenReturn(Grouping.AllocationState.Enabled);
 
-            when(_dcDao.findById(anyLong())).thenReturn(enabledZone);
+            lenient().when(_dcDao.findById(anyLong())).thenReturn(enabledZone);
 
         } finally {
             txn.close("runVolumeDaoImplTest");
@@ -695,26 +698,29 @@ public class VolumeApiServiceImplTest {
         }
     }
 
-    // volume not Ready
+    // Snapshot logic has moved to VolumeTakeSnapshotService (slice 8).
+    // These tests verify that VolumeApiServiceImpl correctly delegates to it.
+
     @Test(expected = InvalidParameterValueException.class)
     public void testTakeSnapshotF1() throws ResourceAllocationException {
-        when(volumeDataFactoryMock.getVolume(anyLong())).thenReturn(volumeInfoMock);
-        when(volumeInfoMock.getState()).thenReturn(Volume.State.Allocated);
-        lenient().when(volumeInfoMock.getPoolId()).thenReturn(1L);
+        when(volumeTakeSnapshotServiceMock.takeSnapshotInternal(anyLong(), any(), anyLong(), any(),
+                anyBoolean(), any(), anyBoolean(), any(), any(), any()))
+                .thenThrow(new InvalidParameterValueException("Volume not in Ready state"));
         volumeApiServiceImpl.takeSnapshot(5L, Snapshot.MANUAL_POLICY_ID, 3L, null, false, null, false, null, null, null, false);
     }
 
     @Test
     public void testTakeSnapshotF2() throws ResourceAllocationException {
-        when(volumeDataFactoryMock.getVolume(anyLong())).thenReturn(volumeInfoMock);
-        when(volumeInfoMock.getState()).thenReturn(Volume.State.Ready);
-        when(volumeInfoMock.getInstanceId()).thenReturn(null);
-        when(volumeInfoMock.getPoolId()).thenReturn(1L);
-        when(volumeServiceMock.takeSnapshot(any(VolumeInfo.class))).thenReturn(snapshotInfoMock);
+        Snapshot mockSnapshot = Mockito.mock(Snapshot.class);
+        when(volumeTakeSnapshotServiceMock.takeSnapshotInternal(anyLong(), any(), anyLong(), any(),
+                anyBoolean(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(mockSnapshot);
         final TaggedResourceService taggedResourceService = Mockito.mock(TaggedResourceService.class);
         Mockito.lenient().when(taggedResourceService.createTags(any(), any(), any(), any())).thenReturn(null);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "taggedResourceService", taggedResourceService);
         volumeApiServiceImpl.takeSnapshot(5L, Snapshot.MANUAL_POLICY_ID, 3L, null, false, null, false, null, null, null, false);
+        verify(volumeTakeSnapshotServiceMock).takeSnapshotInternal(eq(5L), eq(Snapshot.MANUAL_POLICY_ID), eq(3L),
+                any(), anyBoolean(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -757,19 +763,21 @@ public class VolumeApiServiceImplTest {
     }
 
     /**
-     * Setting locationType for a non-managed storage should give an error
+     * VolumeApiServiceImpl now delegates allocSnapshot to VolumeTakeSnapshotService (slice 8).
+     * This test verifies that delegation occurs; the business logic is covered by
+     * VolumeTakeSnapshotServiceImplTest.
      */
     @Test
-    public void testAllocSnapshotNonManagedStorageArchive() {
+    public void testAllocSnapshotNonManagedStorageArchive() throws ResourceAllocationException {
+        when(volumeTakeSnapshotServiceMock.allocSnapshot(eq(6L), eq(1L), eq("test"),
+                eq(Snapshot.LocationType.SECONDARY), any(), any(), any()))
+                .thenThrow(new InvalidParameterValueException("VolumeId: 6 LocationType is supported only for managed storage"));
         try {
             volumeApiServiceImpl.allocSnapshot(6L, 1L, "test", Snapshot.LocationType.SECONDARY, null, null, null);
         } catch (InvalidParameterValueException e) {
-            Assert.assertEquals(e.getMessage(), "VolumeId: 6 LocationType is supported only for managed storage");
+            Assert.assertEquals("VolumeId: 6 LocationType is supported only for managed storage", e.getMessage());
             return;
-        } catch (ResourceAllocationException e) {
-            Assert.fail("Unexpected excepiton " + e.getMessage());
         }
-
         Assert.fail("Expected Exception for archive in non-managed storage");
     }
 
