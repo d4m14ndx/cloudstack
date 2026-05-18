@@ -475,6 +475,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmRestoreService vmRestoreService;
 
+    @Mock
+    VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -492,8 +495,7 @@ public class UserVmManagerImplTest {
 
     String[] detailsConstants = {VmDetailConstants.MEMORY, VmDetailConstants.CPU_NUMBER, VmDetailConstants.CPU_SPEED};
 
-    private DiskOfferingVO smallerDisdkOffering = prepareDiskOffering(5l * GiB_TO_BYTES, 1l, 1L, 2L);
-    private DiskOfferingVO largerDisdkOffering = prepareDiskOffering(10l * GiB_TO_BYTES, 2l, 10L, 20L);
+    private DiskOfferingVO smallerDisdkOffering = Mockito.mock(DiskOfferingVO.class);
     Class<InvalidParameterValueException> expectedInvalidParameterValueException = InvalidParameterValueException.class;
     Class<CloudRuntimeException> expectedCloudRuntimeException = CloudRuntimeException.class;
 
@@ -653,6 +655,8 @@ public class UserVmManagerImplTest {
         // through the manager wrappers while branch-heavy restore validation now
         // lives in VmRestoreServiceImplTest.
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRestoreService", vmRestoreService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmRootDiskOfferingChangeService", vmRootDiskOfferingChangeService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -1032,68 +1036,19 @@ public class UserVmManagerImplTest {
         Assert.assertEquals(expectedExceptionCounter, exceptionCounter);
     }
 
-    @Test (expected = InvalidParameterValueException.class)
-    public void prepareResizeVolumeCmdTestRootVolumeNull() {
-        DiskOfferingVO newRootDiskOffering = Mockito.mock(DiskOfferingVO.class);
-        DiskOfferingVO currentRootDiskOffering = Mockito.mock(DiskOfferingVO.class);
-        userVmManagerImpl.prepareResizeVolumeCmd(null, currentRootDiskOffering, newRootDiskOffering);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void prepareResizeVolumeCmdTestCurrentRootDiskOffering() {
-        DiskOfferingVO newRootDiskOffering = Mockito.mock(DiskOfferingVO.class);
-        VolumeVO rootVolumeOfVm = Mockito.mock(VolumeVO.class);
-        userVmManagerImpl.prepareResizeVolumeCmd(rootVolumeOfVm, null, newRootDiskOffering);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void prepareResizeVolumeCmdTestNewRootDiskOffering() {
-        VolumeVO rootVolumeOfVm = Mockito.mock(VolumeVO.class);
-        DiskOfferingVO currentRootDiskOffering = Mockito.mock(DiskOfferingVO.class);
-        userVmManagerImpl.prepareResizeVolumeCmd(rootVolumeOfVm, currentRootDiskOffering, null);
-    }
-
     @Test
-    public void prepareResizeVolumeCmdTestNewOfferingLarger() {
-        prepareAndRunResizeVolumeTest(2L, 10L, 20L, smallerDisdkOffering, largerDisdkOffering);
-    }
+    public void prepareResizeVolumeCmdDelegatesToVmRootDiskOfferingChangeService() {
+        VolumeVO rootVolume = Mockito.mock(VolumeVO.class);
+        DiskOfferingVO currentOffering = Mockito.mock(DiskOfferingVO.class);
+        DiskOfferingVO newOffering = Mockito.mock(DiskOfferingVO.class);
+        ResizeVolumeCmd expected = Mockito.mock(ResizeVolumeCmd.class);
+        Mockito.when(vmRootDiskOfferingChangeService.prepareResizeVolumeCmd(rootVolume, currentOffering, newOffering))
+                .thenReturn(expected);
 
-    @Test
-    public void prepareResizeVolumeCmdTestSameOfferingSize() {
-        prepareAndRunResizeVolumeTest(null, 1L, 2L, smallerDisdkOffering, smallerDisdkOffering);
-    }
+        ResizeVolumeCmd result = userVmManagerImpl.prepareResizeVolumeCmd(rootVolume, currentOffering, newOffering);
 
-    @Test
-    public void prepareResizeVolumeCmdTestOfferingRootSizeZero() {
-        DiskOfferingVO rootSizeZero = prepareDiskOffering(0l, 3l, 100L, 200L);
-        prepareAndRunResizeVolumeTest(null, 100L, 200L, smallerDisdkOffering, rootSizeZero);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void prepareResizeVolumeCmdTestNewOfferingSmaller() {
-        prepareAndRunResizeVolumeTest(2L, 10L, 20L, largerDisdkOffering, smallerDisdkOffering);
-    }
-
-    private void prepareAndRunResizeVolumeTest(Long expectedOfferingId, long expectedMinIops, long expectedMaxIops, DiskOfferingVO currentRootDiskOffering, DiskOfferingVO newRootDiskOffering) {
-        long rootVolumeId = 1l;
-        VolumeVO rootVolumeOfVm = Mockito.mock(VolumeVO.class);
-        Mockito.when(rootVolumeOfVm.getId()).thenReturn(rootVolumeId);
-
-        ResizeVolumeCmd resizeVolumeCmd = userVmManagerImpl.prepareResizeVolumeCmd(rootVolumeOfVm, currentRootDiskOffering, newRootDiskOffering);
-
-        Assert.assertEquals(rootVolumeId, resizeVolumeCmd.getId().longValue());
-        Assert.assertEquals(expectedOfferingId, resizeVolumeCmd.getNewDiskOfferingId());
-        Assert.assertEquals(expectedMinIops, resizeVolumeCmd.getMinIops().longValue());
-        Assert.assertEquals(expectedMaxIops, resizeVolumeCmd.getMaxIops().longValue());
-    }
-
-    private DiskOfferingVO prepareDiskOffering(long rootSize, long diskOfferingId, long offeringMinIops, long offeringMaxIops) {
-        DiskOfferingVO newRootDiskOffering = Mockito.mock(DiskOfferingVO.class);
-        Mockito.when(newRootDiskOffering.getDiskSize()).thenReturn(rootSize);
-        Mockito.when(newRootDiskOffering.getId()).thenReturn(diskOfferingId);
-        Mockito.when(newRootDiskOffering.getMinIops()).thenReturn(offeringMinIops);
-        Mockito.when(newRootDiskOffering.getMaxIops()).thenReturn(offeringMaxIops);
-        return newRootDiskOffering;
+        Assert.assertSame(expected, result);
+        Mockito.verify(vmRootDiskOfferingChangeService).prepareResizeVolumeCmd(rootVolume, currentOffering, newOffering);
     }
 
     @Test (expected = CloudRuntimeException.class)
