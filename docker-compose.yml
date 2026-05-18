@@ -57,5 +57,45 @@ services:
       retries: 6
       start_period: 180s
 
+  # Phase 5 — new Next.js UI alongside the legacy Vue UI.
+  # Phase 5a: standalone preview (no backend wiring yet).
+  # Phase 5b+: depends_on redis + authentik, proxies to cloudstack:8080.
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_APP_ENV: local
+      # NEXTAUTH_URL: http://localhost:3000
+      # NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      # REDIS_URL: redis://redis:6379
+      # CS_URL: http://cloudstack:8080
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Phase 5b — uncomment when BFF wiring lands.
+  # redis:
+  #   image: redis:7-alpine
+  #   ports: ["6379:6379"]
+  #   volumes:
+  #     - redis-data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 3
+
+  # Phase 5b — Authentik OIDC provider for local dev.
+  # authentik:
+  #   image: ghcr.io/goauthentik/server:latest
+  #   ...
+
 volumes:
   mysql-data:
+  # redis-data:

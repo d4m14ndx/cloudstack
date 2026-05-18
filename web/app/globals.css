@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/* =============================================================
+ * CloudStack design tokens
+ * Ported from new-ui/design_handoff_cloudstack_ui/styles.css
+ * Linear/Vercel/Tailscale aesthetic — Geist + electric indigo
+ * ============================================================= */
+
+@theme {
+  --color-accent: #5b5bf5;
+  --color-accent-hover: #4a4ae8;
+  --color-accent-soft: #eef0ff;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/* ---------------------------------------------------------------
+ * Theme — light (default)
+ * --------------------------------------------------------------- */
+:root, [data-theme="light"] {
+  --bg: #fafaf9;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f4f4f3;
+  --surface-3: #ececea;
+  --border: #e5e5e2;
+  --border-strong: #d4d4d0;
+  --fg: #14151a;
+  --fg-muted: #5d5f66;
+  --fg-dim: #8e9098;
+  --fg-faint: #b8b9bf;
+  --accent: #5b5bf5;
+  --accent-hover: #4a4ae8;
+  --accent-soft: #eef0ff;
+  --success: #15803d;
+  --success-bg: #dcfce7;
+  --warning: #b45309;
+  --warning-bg: #fef3c7;
+  --danger: #b91c1c;
+  --danger-bg: #fee2e2;
+  --info: #1d4ed8;
+  --info-bg: #dbeafe;
+  --shadow-sm: 0 1px 2px rgba(20,21,26,.04), 0 1px 1px rgba(20,21,26,.03);
+  --shadow-md: 0 4px 12px -2px rgba(20,21,26,.06), 0 2px 4px rgba(20,21,26,.04);
+  --shadow-lg: 0 20px 40px -12px rgba(20,21,26,.14), 0 8px 16px -4px rgba(20,21,26,.06);
+}
+
+/* ---------------------------------------------------------------
+ * Theme — dark
+ * --------------------------------------------------------------- */
+[data-theme="dark"] {
+  --bg: #0b0c0f;
+  --bg-elevated: #131418;
+  --surface: #131418;
+  --surface-2: #1a1c21;
+  --surface-3: #23262c;
+  --border: #25272d;
+  --border-strong: #34373e;
+  --fg: #f5f5f4;
+  --fg-muted: #a1a3aa;
+  --fg-dim: #74767d;
+  --fg-faint: #4d4f55;
+  --accent-soft: #1a1d3a;
+  --success: #4ade80;
+  --success-bg: rgba(34,197,94,.14);
+  --warning: #fbbf24;
+  --warning-bg: rgba(245,158,11,.14);
+  --danger: #f87171;
+  --danger-bg: rgba(239,68,68,.14);
+  --info: #60a5fa;
+  --info-bg: rgba(59,130,246,.14);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4), 0 1px 1px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px -2px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
+  --shadow-lg: 0 20px 40px -12px rgba(0,0,0,.6), 0 8px 16px -4px rgba(0,0,0,.4);
+}
+
+/* ---------------------------------------------------------------
+ * Density
+ * --------------------------------------------------------------- */
+:root, [data-density="cozy"] {
+  --row-h: 40px;
+  --pad-y: 14px;
+  --pad-x: 16px;
+  --card-pad: 20px;
+}
+[data-density="compact"] {
+  --row-h: 32px;
+  --pad-y: 10px;
+  --pad-x: 12px;
+  --card-pad: 14px;
+}
+[data-density="comfortable"] {
+  --row-h: 48px;
+  --pad-y: 18px;
+  --pad-x: 20px;
+  --card-pad: 24px;
+}
+
+/* ---------------------------------------------------------------
+ * Sidebar width — driven by sidebar style preference
+ * --------------------------------------------------------------- */
+:root, [data-sidebar="default"]  { --sidebar-w: 248px; }
+[data-sidebar="compact"]         { --sidebar-w: 68px; }
+[data-sidebar="wide"]            { --sidebar-w: 288px; }
+
+/* ---------------------------------------------------------------
+ * Base
+ * --------------------------------------------------------------- */
+html, body {
+  height: 100%;
+}
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03", "tnum";
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+*, *::before, *::after { box-sizing: border-box; }
+
+@keyframes status-pulse {
+  0%   { transform: scale(1);   opacity: .6; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: var(--accent);
+  color: white;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

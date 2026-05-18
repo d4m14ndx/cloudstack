@@ -1,0 +1,127 @@
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing,
+ software distributed under the License is distributed on an
+ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ KIND, either express or implied.  See the License for the
+ specific language governing permissions and limitations
+ under the License.
+-->
+
+# CloudStack Web — Phase 5 UI
+
+Next-generation Apache CloudStack web console. Built on Next.js 14 (App Router), TypeScript, Tailwind 4, and a modern infrastructure-console aesthetic (Linear / Vercel / Tailscale influence).
+
+**Status:** Phase 5a scaffold — design system + shell + 17 route stubs. No backend wiring yet; auth + API land in Phase 5b. See `/Users/damian/Claude/PHASE5-PLAN.md` for the roadmap.
+
+This lives alongside the legacy Vue UI at `../ui/`. Both can ship simultaneously. The legacy UI is abandoned-in-place and will be deprecated once feature parity is reached.
+
+## Getting started
+
+```bash
+cp .env.example .env.local        # nothing required for Phase 5a
+npm install
+npm run dev
+# open http://localhost:3000
+```
+
+## Scripts
+
+| Script             | Purpose                                              |
+|--------------------|------------------------------------------------------|
+| `npm run dev`      | Dev server with Turbopack on port 3000               |
+| `npm run build`    | Production build (standalone output for Docker)      |
+| `npm run start`    | Run the production build                             |
+| `npm run lint`     | ESLint (next/core-web-vitals)                        |
+| `npm run typecheck`| `tsc --noEmit` — strict mode, no unchecked indexes   |
+
+## Stack
+
+| Layer        | Choice                              |
+|--------------|-------------------------------------|
+| Framework    | Next.js 14 App Router               |
+| Language     | TypeScript (strict)                 |
+| Styling      | Tailwind CSS 4 + CSS custom props   |
+| State (client)| Zustand                            |
+| State (server)| TanStack Query *(Phase 5c)*        |
+| Auth         | Auth.js v5 / NextAuth *(Phase 5b)*  |
+| Session store| Redis *(Phase 5b)*                  |
+| Icons        | Lucide                              |
+| Components   | Radix primitives + hand-rolled UI   |
+| Command palette | cmdk                             |
+| Fonts        | Geist Sans + Geist Mono             |
+
+## Directory layout
+
+```
+app/
+  layout.tsx               root layout (theme provider + Geist font)
+  globals.css              design tokens + base styles
+  login/                   login page (no shell, Phase 5b auth)
+  (app)/                   authenticated shell wrapper
+    layout.tsx             sidebar + topbar + ⌘K + tweaks panel
+    page.tsx               Overview / dashboard
+    instances/             list + detail
+    networks/              list + detail
+    volumes, templates, kubernetes, events, accounts,
+    ssh-keys, security, infrastructure, domains,
+    billing, settings/     remaining 11 routes (stubs in 5a)
+components/
+  ui/                      design primitives (Button, Card, Badge, ...)
+  shell/                   sidebar, topbar, scope switcher, ⌘K palette
+  icons.tsx                Lucide re-exports aliased to design names
+  page-header.tsx          page-title + stub helpers
+  theme-provider.tsx       data-theme / data-density / --accent binding
+  tweaks-panel.tsx         floating dev-tool for theme / accent / density
+lib/
+  utils.ts                 cn(), formatBytes, relativeTime
+  nav.ts                   sidebar nav config
+  store/tweaks.ts          Zustand store (persisted)
+  auth/mock.ts             stub current user — Phase 5a only
+```
+
+## Design tokens
+
+Ported verbatim from `../new-ui/design_handoff_cloudstack_ui/styles.css`. Defined in `app/globals.css` as CSS custom properties under `:root` / `[data-theme="dark"]` blocks. Tweakable at runtime (theme, accent color, density, sidebar style) via the floating tweaks panel.
+
+| Token         | Light  | Dark    |
+|---------------|--------|---------|
+| `--bg`        | `#fafaf9` | `#0b0c0f` |
+| `--surface`   | `#ffffff` | `#131418` |
+| `--fg`        | `#14151a` | `#f5f5f4` |
+| `--border`    | `#e5e5e2` | `#25272d` |
+| `--accent`    | `#5b5bf5` (electric indigo, tweakable) |
+
+Full palette + sizing + radius + typography tokens in `app/globals.css`.
+
+## Phase 5a acceptance criteria
+
+- [x] `npm install && npm run dev` starts on `http://localhost:3000`
+- [x] Visiting `/` renders the Overview route stub inside the shell
+- [x] Sidebar navigation routes between all 17 screens
+- [x] Theme toggle in topbar swaps light ↔ dark instantly (no flash)
+- [x] ⌘K / Ctrl+K opens command palette with mock results
+- [x] Tweaks panel changes accent color + density across all screens
+- [x] `npm run build` succeeds with standalone output
+- [x] `docker build -t cloudstack-web ./web` succeeds
+- [x] Zero TypeScript errors with strict + `noUncheckedIndexedAccess`
+- [x] ESLint clean
+
+## What's next
+
+- **Phase 5b — BFF + Auth:** wire NextAuth.js + Authentik OIDC + Redis sessions + `/api/cs/*` proxy
+- **Phase 5b-java — CloudStack `createUserSessionToken` API:** the Java-side companion that enables sessionkey exchange (planned in `../PHASE5B-JAVA-API.md`)
+- **Phase 5c-d:** real screens (Dashboard, Instances, Deploy Wizard, etc.)
+- **Phase 5e:** i18n, a11y, polish
+- **Phase 5f:** production cutover from legacy UI
+
+See `/Users/damian/Claude/PHASE5A-SCAFFOLD.md` and `/Users/damian/Claude/PHASE5-BFF-ARCHITECTURE.md` for full specs.
