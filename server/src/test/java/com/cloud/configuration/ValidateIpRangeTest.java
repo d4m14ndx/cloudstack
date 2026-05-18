@@ -47,6 +47,12 @@ public class ValidateIpRangeTest {
     public void setup() {
         closeable = MockitoAnnotations.openMocks(this);
         configurationMgr._networkModel = _networkModel;
+        // Phase 4 Spring-component decomposition: validateIpRange now lives
+        // on VlanServiceImpl. Wire a real impl with the same NetworkModel
+        // mock so this test exercises the delegating wrapper end-to-end.
+        VlanServiceImpl vlanServiceImpl = new VlanServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(vlanServiceImpl, "_networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(configurationMgr, "vlanService", vlanServiceImpl);
         vlanVOList.add(vlan);
         when(vlan.getVlanGateway()).thenReturn("10.147.33.1");
         when(vlan.getVlanNetmask()).thenReturn("255.255.255.128");

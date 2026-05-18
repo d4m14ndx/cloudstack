@@ -307,6 +307,46 @@ public class ConfigurationManagerTest {
         ReflectionTestUtils.setField(zoneService, "netrisProviderDao", Mockito.mock(com.cloud.network.dao.NetrisProviderDao.class));
         ReflectionTestUtils.setField(configurationMgr, "zoneService", zoneService);
 
+        // Phase 4 Spring-component decomposition: VLAN/public-IP-range was
+        // extracted into VlanServiceImpl. The dedicate/release public IP
+        // range tests below exercise that behavior through the manager's
+        // delegating wrappers, so wire up a real VlanServiceImpl backed
+        // by the existing DAO mocks.
+        VlanServiceImpl vlanServiceImpl = new VlanServiceImpl();
+        ReflectionTestUtils.setField(vlanServiceImpl, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "vlanDetailsDao", Mockito.mock(com.cloud.dc.dao.VlanDetailsDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountVlanMapDao", _accountVlanMapDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_domainVlanMapDao", _domainVlanMapDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "podVlanMapDao", Mockito.mock(com.cloud.dc.dao.PodVlanMapDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkDao", _networkDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountDao", _accountDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_podDao", _podDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_portableIpRangeDao", Mockito.mock(org.apache.cloudstack.region.PortableIpRangeDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_nicIpAliasDao", Mockito.mock(com.cloud.vm.dao.NicIpAliasDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ipv6Dao", Mockito.mock(com.cloud.network.dao.UserIpv6AddressDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "reservationDao", Mockito.mock(org.apache.cloudstack.reservation.dao.ReservationDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ntwkOffServiceMapDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingServiceMapDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_firewallDao", _firewallDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "nsxProviderDao", Mockito.mock(com.cloud.network.dao.NsxProviderDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "netrisProviderDao", Mockito.mock(com.cloud.network.dao.NetrisProviderDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_projectMgr", _projectMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ipAddrMgr", _ipAddrMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_resourceLimitMgr", _resourceLimitMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "ipv6Service", Mockito.mock(com.cloud.network.Ipv6Service.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "messageBus", messageBus);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_regionDao", Mockito.mock(org.apache.cloudstack.region.dao.RegionDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkMgr", _networkMgr);
+        ReflectionTestUtils.setField(configurationMgr, "vlanService", vlanServiceImpl);
+
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
         dedicateIdField.set(dedicatePublicIpRangesCmd, 1L);
