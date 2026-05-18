@@ -588,6 +588,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmStatsCollectionService vmStatsCollectionService;
     @Inject
+    protected VmRebootService vmRebootService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -1141,85 +1143,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private UserVm rebootVirtualMachine(long userId, long vmId, boolean enterSetup, boolean forced) throws InsufficientCapacityException, ResourceUnavailableException {
-        UserVmVO vm = _vmDao.findById(vmId);
-
-        if (logger.isTraceEnabled()) {
-            logger.trace("reboot {} with enterSetup set to {}", vm, Boolean.toString(enterSetup));
-        }
-
-        if (vm == null || vm.getState() == State.Destroyed || vm.getState() == State.Expunging || vm.getRemoved() != null) {
-            logger.warn("Vm {} with id={} doesn't exist or is not in correct state", vm, vmId);
-            return null;
-        }
-
-        if (vm.getState() == State.Running && vm.getHostId() != null) {
-            collectVmDiskAndNetworkStatistics(vm, State.Running);
-
-            if (forced) {
-                Host vmOnHost = _hostDao.findById(vm.getHostId());
-                if (vmOnHost == null || vmOnHost.getResourceState() != ResourceState.Enabled || vmOnHost.getStatus() != Status.Up ) {
-                    throw new CloudRuntimeException("Unable to force reboot the VM as the host: " + vm.getHostId() + " is not in the right state");
-                }
-                return forceRebootVirtualMachine(vm, vm.getHostId(), enterSetup);
-            }
-
-            DataCenterVO dc = _dcDao.findById(vm.getDataCenterId());
-            try {
-                if (dc.getNetworkType() == DataCenter.NetworkType.Advanced) {
-                    //List all networks of vm
-                    List<Long> vmNetworks = _vmNetworkMapDao.getNetworks(vmId);
-                    List<DomainRouterVO> routers = new ArrayList<>();
-                    //List the stopped routers
-                    for (long vmNetworkId : vmNetworks) {
-                        List<DomainRouterVO> router = _routerDao.listStopped(vmNetworkId);
-                        routers.addAll(router);
-                    }
-                    //A vm may not have many nics attached and even fewer routers might be stopped (only in exceptional cases)
-                    //Safe to start the stopped router serially, this is consistent with the way how multiple networks are added to vm during deploy
-                    //and routers are started serially ,may revisit to make this process parallel
-                    for (DomainRouterVO routerToStart : routers) {
-                        logger.warn("Trying to start router {} as part of vm: {} reboot", routerToStart, vm);
-                        _virtualNetAppliance.startRouter(routerToStart.getId(),true);
-                    }
-                }
-            } catch (ConcurrentOperationException e) {
-                throw new CloudRuntimeException("Concurrent operations on starting router. " + e);
-            } catch (Exception ex) {
-                throw new CloudRuntimeException("Router start failed due to" + ex);
-            } finally {
-                if (logger.isInfoEnabled()) {
-                    logger.info("Rebooting vm {}{}.", vm, enterSetup ? " entering hardware setup menu" : " as is");
-                }
-                Map<VirtualMachineProfile.Param,Object> params = null;
-                if (enterSetup) {
-                    params = new HashMap();
-                    params.put(VirtualMachineProfile.Param.BootIntoSetup, Boolean.TRUE);
-                    if (logger.isTraceEnabled()) {
-                        logger.trace(String.format("Adding %s to paramlist", VirtualMachineProfile.Param.BootIntoSetup));
-                    }
-                }
-                _itMgr.reboot(vm.getUuid(), params);
-            }
-            return _vmDao.findById(vmId);
-        } else {
-            logger.error("Vm {} is not in Running state, failed to reboot", vm);
-            return null;
-        }
+        return vmRebootService.rebootVirtualMachineInternal(userId, vmId, enterSetup, forced);
     }
 
     private UserVm forceRebootVirtualMachine(UserVmVO vm, long hostId, boolean enterSetup) {
-        try {
-            if (stopVirtualMachine(vm.getId(), false) != null) {
-                Map<VirtualMachineProfile.Param,Object> params = new HashMap<>();
-                if (enterSetup) {
-                    params.put(VirtualMachineProfile.Param.BootIntoSetup, Boolean.TRUE);
-                }
-                return startVirtualMachine(vm.getId(), null, null, hostId, params, null, false).first();
-            }
-        } catch (CloudException e) {
-            throw new CloudRuntimeException(String.format("Unable to reboot the VM: %s", vm), e);
-        }
-        return null;
+        return vmRebootService.forceRebootVirtualMachine(vm, hostId, enterSetup);
     }
 
     @Override
@@ -1936,6 +1864,13 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         _scaleRetry = NumbersUtil.parseInt(configs.get(Config.ScaleRetry.key()), 2);
 
         _vmIpFetchThreadExecutor = Executors.newFixedThreadPool(VmIpFetchThreadPoolMax.value(), new NamedThreadFactory("vmIpFetchThread"));
+
+        if (vmRebootService instanceof VmRebootServiceImpl) {
+            VmRebootServiceImpl impl = (VmRebootServiceImpl) vmRebootService;
+            impl.setIpFetchScheduler((nicId, vmId) ->
+                    vmIdCountMap.put(nicId, new VmAndCountDetails(vmId, VmIpFetchTrialMax.value())));
+            impl.setUserVmManager(this);
+        }
 
         logger.info("User VM Manager is configured.");
 
@@ -2754,55 +2689,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_REBOOT, eventDescription = "rebooting Vm", async = true)
     public UserVm rebootVirtualMachine(RebootVMCmd cmd) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
-        Account caller = CallContext.current().getCallingAccount();
-        Long vmId = cmd.getId();
-
-        // Verify input parameters
-        UserVmVO vmInstance = _vmDao.findById(vmId);
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("Unable to find a Instance with ID " + vmId);
-        }
-
-        if (vmInstance.getState() != State.Running) {
-            throw new InvalidParameterValueException(String.format("The Instance %s (%s) is not running, unable to reboot it",
-                    vmInstance.getUuid(), vmInstance.getDisplayNameOrHostName()));
-        }
-
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        checkIfHostOfVMIsInPrepareForMaintenanceState(vmInstance, "Reboot");
-
-        // If the VM is Volatile in nature, on reboot discard the VM's root disk and create a new root disk for it: by calling restoreVM
-        long serviceOfferingId = vmInstance.getServiceOfferingId();
-        ServiceOfferingVO offering = serviceOfferingDao.findById(vmInstance.getId(), serviceOfferingId);
-        if (offering != null && offering.getRemoved() == null) {
-            if (offering.isVolatileVm()) {
-                return restoreVMInternal(caller, vmInstance);
-            }
-        } else {
-            throw new InvalidParameterValueException("Unable to find service offering: " + serviceOfferingId + " corresponding to the Instance");
-        }
-
-        Boolean enterSetup = cmd.getBootIntoSetup();
-        if (enterSetup != null && enterSetup && !HypervisorType.VMware.equals(vmInstance.getHypervisorType())) {
-            throw new InvalidParameterValueException("Booting into a hardware setup menu is not implemented on " + vmInstance.getHypervisorType());
-        }
-
-        UserVm userVm = rebootVirtualMachine(CallContext.current().getCallingUserId(), vmId, enterSetup == null ? false : cmd.getBootIntoSetup(), cmd.isForced());
-        if (userVm != null ) {
-            // update the vmIdCountMap if the vm is in advanced shared network with out services
-            final List<NicVO> nics = _nicDao.listByVmId(vmId);
-            for (NicVO nic : nics) {
-                Network network = _networkModel.getNetwork(nic.getNetworkId());
-                if (GuestType.L2.equals(network.getGuestType()) || _networkModel.isSharedNetworkWithoutServices(network.getId())) {
-                    logger.debug("Adding Instance " +vmId +" NIC ID "+ nic.getId() +" into vmIdCountMap as part of Instance " +
-                            "reboot for Instance IP fetch ");
-                    vmIdCountMap.put(nic.getId(), new VmAndCountDetails(nic.getInstanceId(), VmIpFetchTrialMax.value()));
-                }
-            }
-            return  userVm;
-        }
-        return  null;
+        return vmRebootService.rebootVirtualMachine(cmd);
     }
 
     /**
@@ -7130,6 +7017,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
 
+    @Override
     public UserVm restoreVMInternal(Account caller, UserVmVO vm) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
         return restoreVMInternal(caller, vm, null, null, false, null);
     }

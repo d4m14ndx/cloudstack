@@ -38,6 +38,7 @@ import com.cloud.offering.ServiceOffering;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.template.VirtualMachineTemplate;
+import com.cloud.user.Account;
 import com.cloud.uservm.UserVm;
 import com.cloud.utils.Pair;
 
@@ -206,5 +207,13 @@ public interface UserVmManager extends UserVmService {
      * @return true if the VM is part of a CKS cluster, false otherwise.
      */
     boolean isVMPartOfAnyCKSCluster(VMInstanceVO vm);
+
+    /**
+     * Shorthand restore that uses the VM's current template, disk offering,
+     * and details (no expunge). Delegates to
+     * {@code restoreVMInternal(caller, vm, null, null, false, null)}.
+     */
+    UserVm restoreVMInternal(Account caller, UserVmVO vm)
+            throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException;
 
 }
