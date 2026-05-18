@@ -138,6 +138,7 @@ import com.cloud.user.User;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.Pair;
+import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
@@ -185,6 +186,8 @@ public class VolumeApiServiceImplTest {
     private AsyncJobManager _jobMgr;
     @Mock
     private AsyncJobJoinMapDao _joinMapDao;
+    @Mock
+    private EntityManager _entityMgr;
     @Mock
     private VolumeDataFactory volumeDataFactoryMock;
     @Mock
@@ -332,6 +335,19 @@ public class VolumeApiServiceImplTest {
 
         volumeApiServiceImpl._gson = GsonHelper.getGsonLogger();
 
+        VolumeCheckAndRepairServiceImpl checkAndRepairService = new VolumeCheckAndRepairServiceImpl();
+        ReflectionTestUtils.setField(checkAndRepairService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "jobMgr", _jobMgr);
+        ReflectionTestUtils.setField(checkAndRepairService, "workJobDao", workJobDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(checkAndRepairService, "entityMgr", _entityMgr);
+        // Phase 4 extraction: keep the spy on VolumeApiServiceImpl while the real extracted collaborator owns this slice.
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCheckAndRepairService", checkAndRepairService);
+
         // mock caller context
         AccountVO account = new AccountVO("admin", 1L, "networkDomain", Account.Type.NORMAL, "uuid");
         UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
@@ -340,6 +356,7 @@ public class VolumeApiServiceImplTest {
         AsyncJobExecutionContext context = new AsyncJobExecutionContext();
         AsyncJobExecutionContext.init(_jobMgr, _joinMapDao);
         AsyncJobVO job = new AsyncJobVO();
+        ReflectionTestUtils.setField(job, "id", 500L);
         context.setJob(job);
         AsyncJobExecutionContext.setCurrentExecutionContext(context);
 
