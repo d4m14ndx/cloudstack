@@ -136,6 +136,10 @@ public class ConfigurationManagerCloneIntegrationTest {
 
     private MockedStatic<CallContext> callContextMock;
 
+    // Phase 4: spy on the real NetworkOfferingServiceImpl so tests can stub
+    // createNetworkOffering without relying on configurationManager's method.
+    NetworkOfferingServiceImpl networkOfferingServiceSpy;
+
     @Before
     public void setUp() {
         callContextMock = Mockito.mockStatic(CallContext.class);
@@ -173,6 +177,30 @@ public class ConfigurationManagerCloneIntegrationTest {
         Mockito.lenient().when(userVO.getRemoved()).thenReturn(null);
         Mockito.lenient().when(accountDao.findById(anyLong())).thenReturn(account);
         Mockito.lenient().when(account.getType()).thenReturn(Account.Type.ADMIN);
+
+        // Phase 4: wire a SPY on NetworkOfferingServiceImpl so that cloneNetworkOffering
+        // and related delegates reach the real implementation backed by the DAO mocks,
+        // and individual tests can stub createNetworkOffering on the spy.
+        NetworkOfferingServiceImpl networkOfferingServiceImpl = new NetworkOfferingServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkOfferingDao", networkOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingJoinDao", Mockito.mock(com.cloud.api.query.dao.NetworkOfferingJoinDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingDetailsDao", networkOfferingDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_ntwkOffServiceMapDao", networkOfferingServiceMapDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_physicalNetworkDao", Mockito.mock(com.cloud.network.dao.PhysicalNetworkDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_zoneDao", dataCenterDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_domainDao", domainDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkDao", Mockito.mock(com.cloud.network.dao.NetworkDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_configDao", Mockito.mock(org.apache.cloudstack.framework.config.dao.ConfigurationDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_entityMgr", entityManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "annotationDao", Mockito.mock(org.apache.cloudstack.annotation.dao.AnnotationDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_accountMgr", Mockito.mock(com.cloud.user.AccountManager.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_vpcMgr", Mockito.mock(com.cloud.network.vpc.VpcManager.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", Mockito.mock(org.apache.cloudstack.framework.messagebus.MessageBus.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
+        networkOfferingServiceSpy = Mockito.spy(networkOfferingServiceImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(configurationManager, "networkOfferingService", networkOfferingServiceSpy);
     }
 
     @After
@@ -797,7 +825,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getDisplayText()).thenReturn("Source Network Offering");
         when(clonedOffering.getGuestType()).thenReturn(Network.GuestType.Isolated);
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -834,7 +862,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getName()).thenReturn("cloned-network-offering");
         when(clonedOffering.getDisplayText()).thenReturn("New Display Text for Network");
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -879,7 +907,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getId()).thenReturn(2L);
         when(clonedOffering.getName()).thenReturn("cloned-network-offering");
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -926,7 +954,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getId()).thenReturn(2L);
         when(clonedOffering.getName()).thenReturn("cloned-network-offering");
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -966,7 +994,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getId()).thenReturn(2L);
         when(clonedOffering.getName()).thenReturn("cloned-network-offering");
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -1004,7 +1032,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getGuestType()).thenReturn(Network.GuestType.Shared);
         when(clonedOffering.getTrafficType()).thenReturn(Networks.TrafficType.Guest);
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 
@@ -1043,7 +1071,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         when(clonedOffering.getName()).thenReturn("cloned-network-offering");
         when(clonedOffering.getAvailability()).thenReturn(NetworkOffering.Availability.Required);
 
-        Mockito.doReturn(clonedOffering).when(configurationManager).createNetworkOffering(any());
+        Mockito.doReturn(clonedOffering).when(networkOfferingServiceSpy).createNetworkOffering(any(org.apache.cloudstack.api.command.admin.network.NetworkOfferingBaseCmd.class));
 
         NetworkOffering result = configurationManager.cloneNetworkOffering(cmd);
 

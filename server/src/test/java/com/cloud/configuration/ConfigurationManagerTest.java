@@ -347,6 +347,30 @@ public class ConfigurationManagerTest {
         ReflectionTestUtils.setField(vlanServiceImpl, "_networkMgr", _networkMgr);
         ReflectionTestUtils.setField(configurationMgr, "vlanService", vlanServiceImpl);
 
+        // Phase 4 Spring-component decomposition: NetworkOffering CRUD was
+        // extracted into NetworkOfferingServiceImpl. Wire a real instance
+        // backed by mocks so tests that call createNetworkOffering /
+        // searchForNetworkOfferings still route through the right logic.
+        NetworkOfferingServiceImpl networkOfferingServiceImpl = new NetworkOfferingServiceImpl();
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingJoinDao", networkOfferingJoinDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingDetailsDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDetailsDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_ntwkOffServiceMapDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingServiceMapDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkDao", _networkDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_configDao", _configDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_entityMgr", Mockito.mock(com.cloud.utils.db.EntityManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "annotationDao", Mockito.mock(org.apache.cloudstack.annotation.dao.AnnotationDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_vpcMgr", Mockito.mock(com.cloud.network.vpc.VpcManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", messageBus);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", Mockito.mock(com.cloud.utils.DomainHelper.class));
+        ReflectionTestUtils.setField(configurationMgr, "networkOfferingService", networkOfferingServiceImpl);
+
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
         dedicateIdField.set(dedicatePublicIpRangesCmd, 1L);
