@@ -257,6 +257,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     private String _nfsVersion;
     private final List<String> nfsIps = new ArrayList<>();
     protected String _parent = "/mnt/SecStorage";
+    final NfsSecondaryStoragePathService pathService = new NfsSecondaryStoragePathService();
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
@@ -439,14 +440,14 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         String templateDetails = ReflectionToStringBuilderUtils.reflectOnlySelectedFields(template, "uuid", "path", "name");
         logger.debug(String.format("Trying to get disks of template [%s], using path [%s].", templateDetails, templateUrl));
 
-        Pair<String, String> templateInfo = decodeTemplateRelativePathAndNameFromUrl(secondaryStorageUrl, templateUrl, template.getName());
+        Pair<String, String> templateInfo = pathService.decodeTemplateRelativePathAndNameFromUrl(secondaryStorageUrl, templateUrl, template.getName());
         String templateRelativeFolderPath = templateInfo.first();
 
         try {
             String secondaryMountPoint = getRootDir(secondaryStorageUrl, _nfsVersion);
             logger.info(String.format("Trying to find template [%s] in secondary storage root mount point [%s].", templateDetails, secondaryMountPoint));
 
-            String srcOVAFileName = getTemplateOnSecStorageFilePath(secondaryMountPoint, templateRelativeFolderPath, templateInfo.second(), ImageFormat.OVA.getFileExtension());
+            String srcOVAFileName = pathService.getTemplateOnSecStorageFilePath(secondaryMountPoint, templateRelativeFolderPath, templateInfo.second(), ImageFormat.OVA.getFileExtension());
 
             String ovfFilePath = getOVFFilePath(srcOVAFileName);
             if (ovfFilePath == null) {
@@ -523,7 +524,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             long virtualSize = dataDiskTemplate.getSize();
             String diskName = origDisk.substring((origDisk.lastIndexOf(File.separator)) + 1);
             long physicalSize = new File(origDisk).length();
-            String newTmplDir = getTemplateRelativeDirInSecStorage(dataDiskTemplate.getAccountId(), dataDiskTemplate.getId());
+            String newTmplDir = pathService.getTemplateRelativeDirInSecStorage(dataDiskTemplate.getAccountId(), dataDiskTemplate.getId());
             String newTmplDirAbsolute = secondaryMountPoint + File.separator + newTmplDir;
 
             String ovfFilePath = getOVFFilePath(origDisk);
@@ -618,69 +619,20 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         }
     }
 
-    /*
-     *  return Pair of <Template relative path, Template name>
-     *  Template url may or may not end with .ova extension
-     */
     public Pair<String, String> decodeTemplateRelativePathAndNameFromUrl(String storeUrl, String templateUrl, String defaultName) {
-        logger.debug(String.format("Trying to get template relative path and name from URL [%s].", templateUrl));
-        String templateName = null;
-        String mountPoint = null;
-        if (templateUrl.endsWith(".ova")) {
-            int index = templateUrl.lastIndexOf("/");
-            mountPoint = templateUrl.substring(0, index);
-            mountPoint = mountPoint.substring(storeUrl.length() + 1);
-            if (!mountPoint.endsWith("/")) {
-                mountPoint = mountPoint + "/";
-            }
-
-            templateName = templateUrl.substring(index + 1).replace(".ova", "");
-
-            if (templateName == null || templateName.isEmpty()) {
-                logger.debug(String.format("Cannot find template name from URL [%s]. Using default name [%s].", templateUrl, defaultName));
-                templateName = defaultName;
-            }
-        } else {
-            mountPoint = templateUrl.substring(storeUrl.length() + 1);
-            if (!mountPoint.endsWith("/")) {
-                mountPoint = mountPoint + "/";
-            }
-            templateName = defaultName;
-        }
-
-        logger.debug(String.format("Template relative path [%s] and name [%s] found from URL [%s].", mountPoint, templateName, templateUrl));
-        return new Pair<String, String>(mountPoint, templateName);
+        return pathService.decodeTemplateRelativePathAndNameFromUrl(storeUrl, templateUrl, defaultName);
     }
 
     public String getTemplateOnSecStorageFilePath(String secStorageMountPoint, String templateRelativeFolderPath, String templateName, String fileExtension) {
-        logger.debug(String.format("Trying to find template [%s] with file extension [%s] in secondary storage mount point [%s] using relative folder path [%s].",
-                templateName, fileExtension, secStorageMountPoint, templateRelativeFolderPath));
-        StringBuffer sb = new StringBuffer();
-        sb.append(secStorageMountPoint);
-        if (!secStorageMountPoint.endsWith("/")) {
-            sb.append("/");
-        }
-
-        sb.append(templateRelativeFolderPath);
-        if (!secStorageMountPoint.endsWith("/")) {
-            sb.append("/");
-        }
-
-        sb.append(templateName);
-        if (!fileExtension.startsWith(".")) {
-            sb.append(".");
-        }
-        sb.append(fileExtension);
-
-        return sb.toString();
+        return pathService.getTemplateOnSecStorageFilePath(secStorageMountPoint, templateRelativeFolderPath, templateName, fileExtension);
     }
 
     public static String getSecondaryDatastoreUUID(String storeUrl) {
-        return UuidUtils.nameUUIDFromBytes(storeUrl.getBytes()).toString();
+        return new NfsSecondaryStoragePathService().getSecondaryDatastoreUUID(storeUrl);
     }
 
     private static String getTemplateRelativeDirInSecStorage(long accountId, long templateId) {
-        return "template/tmpl/" + accountId + "/" + templateId;
+        return new NfsSecondaryStoragePathService().getTemplateRelativeDirInSecStorage(accountId, templateId);
     }
 
     private void postCreatePrivateTemplate(final String installFullPath, final long templateId, final String templateName, final long size, final long virtualSize) throws Exception {
