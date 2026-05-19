@@ -94,7 +94,6 @@ import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
 import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao;
-import com.cloud.domain.Domain;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
 import com.cloud.exception.ConcurrentOperationException;
@@ -121,7 +120,6 @@ import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.NetworkProfile;
-import com.cloud.network.NetworkService;
 import com.cloud.network.NetworkStateListener;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
@@ -180,7 +178,6 @@ import com.cloud.user.User;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
-import com.cloud.utils.UuidUtils;
 import com.cloud.utils.component.AdapterBase;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
@@ -199,7 +196,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.net.Dhcp;
-import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.Nic;
 import com.cloud.vm.Nic.ReservationStrategy;
@@ -414,6 +410,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     PersistentNetworkSetupService persistentNetworkSetupService;
     @Inject
     NetworkOfferingVlanValidationService networkOfferingVlanValidationService;
+    @Inject
+    GuestNetworkCreationPreparationService guestNetworkCreationPreparationService;
     @Inject
     NetworkVlanRangeCleanupService networkVlanRangeCleanupService;
     @Inject
@@ -1967,307 +1965,54 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
                                        final String ip6Dns1, final String ip6Dns2, Pair<Integer, Integer> vrIfaceMTUs, Integer networkCidrSize,
                                        boolean keepMacAddressOnPublicNic) throws ConcurrentOperationException, InsufficientCapacityException, ResourceAllocationException {
 
-        final NetworkOfferingVO ntwkOff = _networkOfferingDao.findById(networkOfferingId);
-        final DataCenterVO zone = _dcDao.findById(zoneId);
-        // this method supports only guest network creation
-        if (ntwkOff.getTrafficType() != TrafficType.Guest) {
-            logger.warn("Only guest networks can be created using this method");
-            return null;
-        }
-
-        // Validate network offering
-        if (ntwkOff.getState() != NetworkOffering.State.Enabled) {
-            // see NetworkOfferingVO
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Can't use specified network offering id as its state is not " + NetworkOffering.State.Enabled);
-            ex.addProxyObject(ntwkOff.getUuid(), "networkOfferingId");
-            throw ex;
-        }
-
-        // Validate physical network
-        if (pNtwk.getState() != PhysicalNetwork.State.Enabled) {
-            // see PhysicalNetworkVO.java
-            final InvalidParameterValueException ex = new InvalidParameterValueException("Specified physical network id is" + " in incorrect state:" + pNtwk.getState());
-            ex.addProxyObject(pNtwk.getUuid(), "physicalNetworkId");
-            throw ex;
-        }
-
-        boolean ipv6 = false;
-
         try (CheckedReservation networkReservation = new CheckedReservation(owner, domainId, Resource.ResourceType.network, null, null, 1L, reservationDao, _resourceLimitMgr)) {
-            if (StringUtils.isNoneBlank(ip6Gateway, ip6Cidr)) {
-                ipv6 = true;
+            final GuestNetworkCreationPreparation preparation = guestNetworkCreationPreparationService.prepareGuestNetworkCreation(networkOfferingId, gateway, cidr, vlanId,
+                    bypassVlanOverlapCheck, networkDomain, owner, domainId, pNtwk, zoneId, aclType, subdomainAccess, ip6Gateway, ip6Cidr, isolatedPvlan, isolatedPvlanType,
+                    externalId, isPrivateNetwork, routerIp, routerIpv6, ip4Dns1, ip4Dns2, ip6Dns1, ip6Dns2, vrIfaceMTUs, networkCidrSize, keepMacAddressOnPublicNic);
+            if (preparation == null) {
+                logger.warn("Only guest networks can be created using this method");
+                return null;
             }
-            // Validate zone
-            if (zone.getNetworkType() == NetworkType.Basic) {
-                // In Basic zone the network should have aclType=Domain, domainId=1, subdomainAccess=true
-                if (aclType == null || aclType != ACLType.Domain) {
-                    throw new InvalidParameterValueException("Only AclType=Domain can be specified for network creation in Basic zone");
-                }
-
-                // Only one guest network is supported in Basic zone
-                final List<NetworkVO> guestNetworks = _networksDao.listByZoneAndTrafficType(zone.getId(), TrafficType.Guest);
-                if (!guestNetworks.isEmpty()) {
-                    throw new InvalidParameterValueException("Can't have more than one Guest network in zone with network type " + NetworkType.Basic);
-                }
-
-                // if zone is basic, only Shared network offerings w/o source nat service are allowed
-                if (!(ntwkOff.getGuestType() == GuestType.Shared && !_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.SourceNat))) {
-                    throw new InvalidParameterValueException("For zone of type " + NetworkType.Basic + " only offerings of " + "guestType " + GuestType.Shared + " with disabled "
-                            + Service.SourceNat.getName() + " service are allowed");
-                }
-
-                if (domainId == null || domainId != Domain.ROOT_DOMAIN) {
-                    throw new InvalidParameterValueException("Guest network in Basic zone should be dedicated to ROOT domain");
-                }
-
-                if (subdomainAccess == null) {
-                    subdomainAccess = true;
-                } else if (!subdomainAccess) {
-                    throw new InvalidParameterValueException("Subdomain access should be set to true for the" + " guest network in the Basic zone");
-                }
-
-                if (vlanId == null) {
-                    vlanId = Vlan.UNTAGGED;
-                } else {
-                    if (!vlanId.equalsIgnoreCase(Vlan.UNTAGGED)) {
-                        throw new InvalidParameterValueException("Only vlan " + Vlan.UNTAGGED + " can be created in " + "the zone of type " + NetworkType.Basic);
-                    }
-                }
-
-            } else if (zone.getNetworkType() == NetworkType.Advanced) {
-                if (zone.isSecurityGroupEnabled()) {
-                    if (isolatedPvlan != null) {
-                        throw new InvalidParameterValueException("Isolated Private VLAN is not supported with security group!");
-                    }
-                    // Only Account specific Isolated network with sourceNat service disabled are allowed in security group
-                    // enabled zone
-                    if ((ntwkOff.getGuestType() != GuestType.Shared) && (ntwkOff.getGuestType() != GuestType.L2)) {
-                        throw new InvalidParameterValueException("Only shared or L2 guest network can be created in security group enabled zone");
-                    }
-                    if (_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.SourceNat)) {
-                        throw new InvalidParameterValueException("Service SourceNat is not allowed in security group enabled zone");
-                    }
-                }
-
-                //don't allow eip/elb networks in Advance zone
-                if (ntwkOff.isElasticIp() || ntwkOff.isElasticLb()) {
-                    throw new InvalidParameterValueException("Elastic IP and Elastic LB services are supported in zone of type " + NetworkType.Basic);
-                }
-            }
-
-            if (ipv6 && !GuestType.Shared.equals(ntwkOff.getGuestType())) {
-                _networkModel.checkIp6CidrSizeEqualTo64(ip6Cidr);
-            }
-
-            //TODO(VXLAN): Support VNI specified
-            networkOfferingVlanValidationService.validateGuestNetworkOfferingVlan(vlanId, isolatedPvlan, bypassVlanOverlapCheck,
-                    ntwkOff, pNtwk, zone, zoneId, owner, isPrivateNetwork);
-
-            // If networkDomain is not specified, take it from the global configuration
-            if (_networkModel.areServicesSupportedByNetworkOffering(networkOfferingId, Service.Dns)) {
-                final Map<Network.Capability, String> dnsCapabilities = _networkModel.getNetworkOfferingServiceCapabilities(_entityMgr.findById(NetworkOffering.class, networkOfferingId),
-                        Service.Dns);
-                final String isUpdateDnsSupported = dnsCapabilities.get(Capability.AllowDnsSuffixModification);
-                if (isUpdateDnsSupported == null || !Boolean.valueOf(isUpdateDnsSupported)) {
-                    if (networkDomain != null) {
-                        // TBD: NetworkOfferingId and zoneId. Send uuids instead.
-                        throw new InvalidParameterValueException(String.format(
-                                "Domain name change is not supported by network offering id=%d in zone %s",
-                                networkOfferingId, zone));
-                    }
-                } else {
-                    if (networkDomain == null) {
-                        // 1) Get networkDomain from the corresponding account/domain/zone
-                        if (aclType == ACLType.Domain) {
-                            networkDomain = _networkModel.getDomainNetworkDomain(domainId, zoneId);
-                        } else if (aclType == ACLType.Account) {
-                            networkDomain = _networkModel.getAccountNetworkDomain(owner.getId(), zoneId);
-                        }
-
-                        // 2) If null, generate networkDomain using domain suffix from the global config variables
-                        if (networkDomain == null) {
-                            networkDomain = "cs" + Long.toHexString(owner.getId()) + GuestDomainSuffix.valueIn(zoneId);
-                        }
-
+            final NetworkOfferingVO ntwkOff = preparation.getNetworkOffering();
+            final DataCenterVO zone = preparation.getZone();
+            final Boolean subdomainAccessFinal = preparation.getSubdomainAccess();
+            final Network network = Transaction.execute(new TransactionCallback<>() {
+                @Override
+                public Network doInTransaction(final TransactionStatus status) {
+                    final DataCenterDeployment plan = preparation.getPlan();
+                    final NetworkVO userNetwork = preparation.getPredefinedNetwork();
+                    final List<? extends Network> networks = setupNetwork(owner, ntwkOff, userNetwork, plan, name, displayText, true, domainId, aclType, subdomainAccessFinal, vpcId,
+                            isDisplayNetworkEnabled);
+                    Network network;
+                    if (networks == null || networks.isEmpty()) {
+                        throw new CloudRuntimeException("Fail to create a network");
                     } else {
-                        // validate network domain
-                        if (!NetUtils.verifyDomainName(networkDomain)) {
-                            throw new InvalidParameterValueException("Invalid network domain. Total length shouldn't exceed 190 chars. Each domain "
-                                    + "label must be between 1 and 63 characters long, can contain ASCII letters 'a' through 'z', the digits '0' through '9', "
-                                    + "and the hyphen ('-'); can't start or end with \"-\"");
-                        }
-                    }
-                }
-            }
-
-            // In Advance zone Cidr for Shared networks and Isolated networks w/o source nat service can't be NULL - 2.2.x
-            // limitation, remove after we introduce support for multiple ip ranges
-            // with different Cidrs for the same Shared network
-            final boolean cidrRequired = zone.getNetworkType() == NetworkType.Advanced
-                    && ntwkOff.getTrafficType() == TrafficType.Guest
-                    && (ntwkOff.getGuestType() == GuestType.Shared || (ntwkOff.getGuestType() == GuestType.Isolated
-                    && !_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.SourceNat)
-                    && !_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.Gateway)));
-            if (cidr == null && ip6Cidr == null && cidrRequired) {
-                if (ntwkOff.getGuestType() == GuestType.Shared) {
-                    throw new InvalidParameterValueException(String.format("Gateway/netmask are required when creating %s networks.", Network.GuestType.Shared));
-                } else {
-                    throw new InvalidParameterValueException("gateway/netmask are required when create network of" + " type " + GuestType.Isolated + " with service " + Service.SourceNat.getName() + " disabled");
-                }
-            }
-
-            checkL2OfferingServices(ntwkOff);
-
-            // No cidr can be specified in Basic zone
-            if (zone.getNetworkType() == NetworkType.Basic && cidr != null) {
-                throw new InvalidParameterValueException("StartIp/endIp/gateway/netmask can't be specified for zone of type " + NetworkType.Basic);
-            }
-
-            // Check if cidr is RFC1918 compliant if the network is Guest Isolated for IPv4
-            if (cidr != null && (ntwkOff.getGuestType() == Network.GuestType.Isolated && ntwkOff.getTrafficType() == TrafficType.Guest) &&
-                    !NetUtils.validateGuestCidr(cidr, !ConfigurationManager.AllowNonRFC1918CompliantIPs.value())) {
-                throw new InvalidParameterValueException("Virtual Guest Cidr " + cidr + " is not RFC 1918 or 6598 compliant");
-            }
-
-        final String networkDomainFinal = networkDomain;
-        final String vlanIdFinal = vlanId;
-        final Boolean subdomainAccessFinal = subdomainAccess;
-        final Network network = Transaction.execute(new TransactionCallback<>() {
-            @Override
-            public Network doInTransaction(final TransactionStatus status) {
-                Long physicalNetworkId = null;
-                if (pNtwk != null) {
-                    physicalNetworkId = pNtwk.getId();
-                }
-                final DataCenterDeployment plan = new DataCenterDeployment(zoneId, null, null, null, null, physicalNetworkId);
-                final NetworkVO userNetwork = new NetworkVO();
-                userNetwork.setNetworkDomain(networkDomainFinal);
-
-                    if (cidr != null && gateway != null) {
-                        userNetwork.setCidr(cidr);
-                        userNetwork.setGateway(gateway);
-                    }
-
-                    if (StringUtils.isNoneBlank(ip6Gateway, ip6Cidr)) {
-                        userNetwork.setIp6Cidr(ip6Cidr);
-                        userNetwork.setIp6Gateway(ip6Gateway);
-                    }
-
-                    if (externalId != null) {
-                        userNetwork.setExternalId(externalId);
-                    }
-
-                    if (StringUtils.isNotBlank(routerIp)) {
-                        userNetwork.setRouterIp(routerIp);
-                    }
-
-                    if (StringUtils.isNotBlank(routerIpv6)) {
-                        userNetwork.setRouterIpv6(routerIpv6);
-                    }
-
-                    if (vrIfaceMTUs != null) {
-                        if (vrIfaceMTUs.first() != null && vrIfaceMTUs.first() > 0) {
-                            userNetwork.setPublicMtu(vrIfaceMTUs.first());
-                        } else {
-                            userNetwork.setPublicMtu(Integer.valueOf(NetworkService.VRPublicInterfaceMtu.defaultValue()));
-                        }
-
-                        if (vrIfaceMTUs.second() != null && vrIfaceMTUs.second() > 0) {
-                            userNetwork.setPrivateMtu(vrIfaceMTUs.second());
-                        } else {
-                            userNetwork.setPrivateMtu(Integer.valueOf(NetworkService.VRPrivateInterfaceMtu.defaultValue()));
-                        }
-                    } else {
-                        userNetwork.setPublicMtu(Integer.valueOf(NetworkService.VRPublicInterfaceMtu.defaultValue()));
-                        userNetwork.setPrivateMtu(Integer.valueOf(NetworkService.VRPrivateInterfaceMtu.defaultValue()));
-                    }
-
-                    if (!GuestType.L2.equals(userNetwork.getGuestType())) {
-                        if (StringUtils.isNotBlank(ip4Dns1)) {
-                            userNetwork.setDns1(ip4Dns1);
-                        }
-                        if (StringUtils.isNotBlank(ip4Dns2)) {
-                            userNetwork.setDns2(ip4Dns2);
-                        }
-                        if (StringUtils.isNotBlank(ip6Dns1)) {
-                            userNetwork.setIp6Dns1(ip6Dns1);
-                        }
-                        if (StringUtils.isNotBlank(ip6Dns2)) {
-                            userNetwork.setIp6Dns2(ip6Dns2);
-                        }
-                    }
-
-                    if (vlanIdFinal != null) {
-                        if (isolatedPvlan == null) {
-                            URI uri = null;
-                            if (UuidUtils.isUuid(vlanIdFinal)) {
-                                //Logical router's UUID provided as VLAN_ID
-                                userNetwork.setVlanIdAsUUID(vlanIdFinal); //Set transient field
-                            } else {
-                                uri = encodeVlanIdIntoBroadcastUri(vlanIdFinal, pNtwk);
+                        if (networks.size() > 0 && networks.get(0).getGuestType() == Network.GuestType.Isolated && networks.get(0).getTrafficType() == TrafficType.Guest) {
+                            Network defaultGuestNetwork = networks.get(0);
+                            for (final Network nw : networks) {
+                                if (nw.getCidr() != null && nw.getCidr().equals(zone.getGuestNetworkCidr())) {
+                                    defaultGuestNetwork = nw;
+                                }
                             }
-
-                            if (_networksDao.listByPhysicalNetworkPvlan(physicalNetworkId, uri.toString()).size() > 0) {
-                                throw new InvalidParameterValueException(String.format(
-                                        "Network with vlan %s already exists or overlaps with other network pvlans in zone %s",
-                                        vlanIdFinal, zone));
-                            }
-
-                        userNetwork.setBroadcastUri(uri);
-                        if (!vlanIdFinal.equalsIgnoreCase(Vlan.UNTAGGED)) {
-                            userNetwork.setBroadcastDomainType(BroadcastDomainType.Vlan);
+                            network = defaultGuestNetwork;
                         } else {
-                            userNetwork.setBroadcastDomainType(BroadcastDomainType.Native);
+                            // For shared network
+                            network = networks.get(0);
                         }
-                    } else {
-                        if (vlanIdFinal.equalsIgnoreCase(Vlan.UNTAGGED)) {
-                            throw new InvalidParameterValueException("Cannot support pvlan with untagged primary vlan!");
-                        }
-                        URI uri = NetUtils.generateUriForPvlan(vlanIdFinal, isolatedPvlan, isolatedPvlanType.toString());
-                        if (_networksDao.listByPhysicalNetworkPvlan(physicalNetworkId, uri.toString(), isolatedPvlanType).size() > 0) {
-                            throw new InvalidParameterValueException(String.format(
-                                    "Network with primary vlan %s and secondary vlan %s type %s already exists or overlaps with other network pvlans in zone %s",
-                                    vlanIdFinal, isolatedPvlan, isolatedPvlanType, zone));
-                        }
-                        userNetwork.setBroadcastUri(uri);
-                        userNetwork.setBroadcastDomainType(BroadcastDomainType.Pvlan);
-                        userNetwork.setPvlanType(isolatedPvlanType);
                     }
-                }
-                userNetwork.setNetworkCidrSize(networkCidrSize);
-                userNetwork.setKeepMacAddressOnPublicNic(keepMacAddressOnPublicNic);
-                final List<? extends Network> networks = setupNetwork(owner, ntwkOff, userNetwork, plan, name, displayText, true, domainId, aclType, subdomainAccessFinal, vpcId,
-                        isDisplayNetworkEnabled);
-                Network network;
-                if (networks == null || networks.isEmpty()) {
-                    throw new CloudRuntimeException("Fail to create a network");
-                } else {
-                    if (networks.size() > 0 && networks.get(0).getGuestType() == Network.GuestType.Isolated && networks.get(0).getTrafficType() == TrafficType.Guest) {
-                        Network defaultGuestNetwork = networks.get(0);
-                        for (final Network nw : networks) {
-                            if (nw.getCidr() != null && nw.getCidr().equals(zone.getGuestNetworkCidr())) {
-                                defaultGuestNetwork = nw;
-                            }
-                        }
-                        network = defaultGuestNetwork;
-                    } else {
-                        // For shared network
-                        network = networks.get(0);
+
+                    if (isResourceCountUpdateNeeded(ntwkOff)) {
+                        changeAccountResourceCountOrRecalculateDomainResourceCount(owner.getAccountId(), domainId, isDisplayNetworkEnabled, true);
                     }
+                    UsageEventUtils.publishNetworkCreation(network);
+
+                    return network;
                 }
+            });
 
-                if (isResourceCountUpdateNeeded(ntwkOff)) {
-                    changeAccountResourceCountOrRecalculateDomainResourceCount(owner.getAccountId(), domainId, isDisplayNetworkEnabled, true);
-                }
-                UsageEventUtils.publishNetworkCreation(network);
-
-                return network;
-            }
-        });
-
-        CallContext.current().setEventDetails("Network ID: " + network.getUuid());
-        CallContext.current().putContextParameter(Network.class, network.getUuid());
-        return network;
+            CallContext.current().setEventDetails("Network ID: " + network.getUuid());
+            CallContext.current().putContextParameter(Network.class, network.getUuid());
+            return network;
         }
     }
 
