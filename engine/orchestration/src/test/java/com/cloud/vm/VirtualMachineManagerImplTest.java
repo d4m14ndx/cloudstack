@@ -58,6 +58,7 @@ import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkModel;
 import com.cloud.resource.ResourceManager;
+import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
@@ -70,6 +71,7 @@ import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
 import org.apache.cloudstack.framework.extensions.vo.ExtensionDetailsVO;
 import org.apache.cloudstack.framework.jobs.dao.VmWorkJobDao;
 import org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO;
+import org.apache.cloudstack.gpu.GpuService;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
@@ -152,6 +154,8 @@ import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
 import com.cloud.vm.dao.VMInstanceDao;
+import com.cloud.vm.snapshot.VMSnapshotManager;
+import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 
 @RunWith(MockitoJUnitRunner.class)
 public class VirtualMachineManagerImplTest {
@@ -297,6 +301,14 @@ public class VirtualMachineManagerImplTest {
     private VmMigrationCheckpointService vmMigrationCheckpointService;
     @Mock
     private VmAllocationOrchestrationService vmAllocationOrchestrationService;
+    @Mock
+    private VMSnapshotDao vmSnapshotDao;
+    @Mock
+    private VMSnapshotManager vmSnapshotManager;
+    @Mock
+    private GpuService gpuService;
+    @Mock
+    private BackupManager backupManager;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -348,6 +360,17 @@ public class VirtualMachineManagerImplTest {
         VmExpungeCommandServiceImpl expungeCommandService = new VmExpungeCommandServiceImpl();
         ReflectionTestUtils.setField(expungeCommandService, "agentMgr", agentManagerMock);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExpungeCommandService", expungeCommandService);
+
+        VmDestroyOrchestrationServiceImpl destroyOrchestrationService = new VmDestroyOrchestrationServiceImpl();
+        ReflectionTestUtils.setField(destroyOrchestrationService, "vmDao", vmInstanceDaoMock);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "vmSnapshotDao", vmSnapshotDao);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "vmSnapshotMgr", vmSnapshotManager);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "gpuService", gpuService);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "backupManager", backupManager);
+        ReflectionTestUtils.setField(destroyOrchestrationService, "virtualMachineManager", virtualMachineManagerImpl);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmDestroyOrchestrationService", destroyOrchestrationService);
 
         // Wire a real VmExternalProvisioningManager backed by the same
         // DAO/manager mocks so the delegating wrappers in

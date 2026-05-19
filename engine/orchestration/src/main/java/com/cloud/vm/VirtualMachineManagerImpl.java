@@ -45,7 +45,6 @@ import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.dao.BackupDao;
 import org.apache.cloudstack.ca.CAManager;
 import org.apache.cloudstack.context.CallContext;
@@ -112,8 +111,6 @@ import com.cloud.agent.api.RebootAnswer;
 import com.cloud.agent.api.RebootCommand;
 import com.cloud.agent.api.ReplugNicAnswer;
 import com.cloud.agent.api.ReplugNicCommand;
-import com.cloud.agent.api.RestoreVMSnapshotAnswer;
-import com.cloud.agent.api.RestoreVMSnapshotCommand;
 import com.cloud.agent.api.ScaleVmCommand;
 import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.StartCommand;
@@ -231,7 +228,6 @@ import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionCallbackWithException;
-import com.cloud.utils.db.TransactionCallbackWithExceptionNoReturn;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.exception.ExecutionException;
@@ -246,8 +242,6 @@ import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.snapshot.VMSnapshotManager;
-import com.cloud.vm.snapshot.VMSnapshotVO;
-import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 import com.google.gson.Gson;
 
 public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMachineManager, VmWorkJobHandler, Listener, Configurable, VmStateMachineActions {
@@ -317,8 +311,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     private StoragePoolHostDao _poolHostDao;
     @Inject
-    private VMSnapshotDao _vmSnapshotDao;
-    @Inject
     private AffinityGroupVMMapDao _affinityGroupVMMapDao;
     @Inject
     private EntityManager _entityMgr;
@@ -371,8 +363,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     DataStoreProviderManager dataStoreProviderManager;
     @Inject
-    BackupManager backupManager;
-    @Inject
     BackupDao backupDao;
 
     @Inject
@@ -411,6 +401,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmWorkJobQueueService vmWorkJobQueueService;
     @Inject
     protected VmExpungeCommandService vmExpungeCommandService;
+    @Inject
+    protected VmDestroyOrchestrationService vmDestroyOrchestrationService;
     @Inject
     protected VmMetadataSyncService vmMetadataSyncService;
     @Inject
@@ -1981,92 +1973,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public void destroy(final String vmUuid, final boolean expunge) throws AgentUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        if (vm == null || vm.getState() == State.Destroyed || vm.getState() == State.Expunging || vm.getRemoved() != null) {
-            logger.debug("Unable to find vm or vm is destroyed: {}", vm);
-            return;
-        }
-
-        logger.debug("Destroying vm {}, expunge flag {}", vm, (expunge ? "on" : "off"));
-
-        advanceStop(vmUuid, VmDestroyForcestop.value());
-
-        deleteVMSnapshots(vm, expunge);
-
-        gpuService.deallocateAllGpuDevicesForVm(vm.getId());
-
-        Transaction.execute(new TransactionCallbackWithExceptionNoReturn<CloudRuntimeException>() {
-            @Override
-            public void doInTransactionWithoutResult(final TransactionStatus status) throws CloudRuntimeException {
-                VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-                try {
-                    if (!stateTransitTo(vm, VirtualMachine.Event.DestroyRequested, vm.getHostId())) {
-                        logger.debug("Unable to destroy the vm because it is not in the correct state: {}", vm);
-                        throw new CloudRuntimeException("Unable to destroy " + vm);
-                    } else {
-                        if (expunge) {
-                            backupManager.checkAndRemoveBackupOfferingBeforeExpunge(vm);
-                            if (!stateTransitTo(vm, VirtualMachine.Event.ExpungeOperation, vm.getHostId())) {
-                                logger.debug("Unable to expunge the vm because it is not in the correct state: {}", vm);
-                                throw new CloudRuntimeException("Unable to expunge " + vm);
-                            }
-                        }
-                    }
-                } catch (final NoTransitionException e) {
-                    String message = String.format("Unable to destroy %s due to [%s].", vm.toString(), e.getMessage());
-                    logger.debug(message, e);
-                    throw new CloudRuntimeException(message, e);
-                }
-            }
-        });
-    }
-
-    /**
-     * Delete vm snapshots depending on vm's hypervisor type. For Vmware, vm snapshots removal is delegated to vm cleanup thread
-     * to reduce tasks sent to hypervisor (one tasks to delete vm snapshots and vm itself
-     * instead of one task for each vm snapshot plus another for the vm)
-     * @param vm vm
-     * @param expunge indicates if vm should be expunged
-     */
-    private void deleteVMSnapshots(VMInstanceVO vm, boolean expunge) {
-        if (! vm.getHypervisorType().equals(HypervisorType.VMware)) {
-            if (!_vmSnapshotMgr.deleteAllVMSnapshots(vm.getId(), null)) {
-                logger.debug("Unable to delete all Snapshots for {}", vm);
-                throw new CloudRuntimeException("Unable to delete Instance Snapshots for " + vm);
-            }
-        }
-        else {
-            if (expunge) {
-                _vmSnapshotMgr.deleteVMSnapshotsFromDB(vm.getId(), false);
-            }
-        }
+        vmDestroyOrchestrationService.destroy(vmUuid, expunge);
     }
 
     protected boolean checkVmOnHost(final VirtualMachine vm, final long hostId) throws AgentUnavailableException, OperationTimedoutException {
-        final Answer answer = _agentMgr.send(hostId, new CheckVirtualMachineCommand(vm.getInstanceName()));
-        if (answer == null || !answer.getResult()) {
-            return false;
-        }
-        if (answer instanceof CheckVirtualMachineAnswer) {
-            final CheckVirtualMachineAnswer vmAnswer = (CheckVirtualMachineAnswer)answer;
-            if (vmAnswer.getState() == PowerState.PowerOff) {
-                return false;
-            }
-        }
-
-        UserVmVO userVm = _userVmDao.findById(vm.getId());
-        if (userVm != null) {
-            List<VMSnapshotVO> vmSnapshots = _vmSnapshotDao.findByVm(vm.getId());
-            RestoreVMSnapshotCommand command = _vmSnapshotMgr.createRestoreCommand(userVm, vmSnapshots);
-            if (command != null) {
-                RestoreVMSnapshotAnswer restoreVMSnapshotAnswer = (RestoreVMSnapshotAnswer) _agentMgr.send(hostId, command);
-                if (restoreVMSnapshotAnswer == null || !restoreVMSnapshotAnswer.getResult()) {
-                    logger.warn("Unable to restore the Instance Snapshot from image file after live migration of Instance with vmsnapshots: {}", restoreVMSnapshotAnswer == null ? "null answer" : restoreVMSnapshotAnswer.getDetails());
-                }
-            }
-        }
-
-        return true;
+        return vmDestroyOrchestrationService.checkVmOnHost(vm, hostId);
     }
 
     @Override
