@@ -193,6 +193,11 @@ public class NetworkOrchestratorTest extends TestCase {
         dhcpCleanupService.networkElements = new ArrayList<>();
         testOrchestrator.nicDhcpCleanupService = dhcpCleanupService;
 
+        NicElementPreparationServiceImpl elementPreparationService = new NicElementPreparationServiceImpl();
+        elementPreparationService.networkModel = testOrchestrator._networkModel;
+        elementPreparationService.nicDhcpCleanupService = dhcpCleanupService;
+        testOrchestrator.nicElementPreparationService = elementPreparationService;
+
         // Wire a real NicProfileMtuServiceImpl backed by mocks. No tests trigger
         // the MTU code path directly, but the orchestrator-level call sites in
         // allocateNic/prepareNic/importNic delegate to it.
