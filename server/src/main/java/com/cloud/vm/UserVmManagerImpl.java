@@ -25,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +33,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
@@ -96,7 +94,6 @@ import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.messagebus.MessageBus;
 import org.apache.cloudstack.framework.messagebus.PublishScope;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;
-import org.apache.cloudstack.query.QueryService;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -106,7 +103,6 @@ import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang.math.NumberUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
@@ -116,7 +112,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetVmIpAddressCommand;
 import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.RestoreVMSnapshotAnswer;
@@ -478,6 +473,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmRootDiskValidator vmRootDiskValidator;
     @Inject
     private VmUpdateValidator vmUpdateValidator;
+    @Inject
+    private VmUpdateOrchestrationService vmUpdateOrchestrationService;
     @Inject
     private VmLeaseApplicationService vmLeaseApplicationService;
     @Inject
@@ -1275,57 +1272,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void verifyVmLimits(UserVmVO vmInstance, Map<String, String> details) {
-        Account owner = _accountDao.findById(vmInstance.getAccountId());
-        if (owner == null) {
-            throw new InvalidParameterValueException("The owner of " + vmInstance + " does not exist: " + vmInstance.getAccountId());
-        }
-
-        long newCpu = NumberUtils.toLong(details.get(VmDetailConstants.CPU_NUMBER));
-        long newMemory = NumberUtils.toLong(details.get(VmDetailConstants.MEMORY));
-        ServiceOfferingVO currentServiceOffering = serviceOfferingDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
-        ServiceOfferingVO svcOffering = serviceOfferingDao.findById(vmInstance.getServiceOfferingId());
-        boolean isDynamic = currentServiceOffering.isDynamic();
-        if (isDynamic) {
-            Map<String, String> customParameters = new HashMap<>();
-            customParameters.put(VmDetailConstants.CPU_NUMBER, String.valueOf(newCpu));
-            customParameters.put(VmDetailConstants.MEMORY, String.valueOf(newMemory));
-            if (details.containsKey(VmDetailConstants.CPU_SPEED)) {
-                customParameters.put(VmDetailConstants.CPU_SPEED, details.get(VmDetailConstants.CPU_SPEED));
-            }
-            validateCustomParameters(svcOffering, customParameters);
-        } else {
-            if (details.containsKey(VmDetailConstants.CPU_NUMBER) || details.containsKey(VmDetailConstants.MEMORY) ||
-                    details.containsKey(VmDetailConstants.CPU_SPEED)) {
-                throw new InvalidParameterValueException("CPU number, Memory and CPU speed cannot be updated for a " +
-                        "non-dynamic offering");
-            }
-        }
-        if (VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-            return;
-        }
-        long currentCpu = currentServiceOffering.getCpu();
-        long currentMemory = currentServiceOffering.getRamSize();
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmInstance.getTemplateId());
-        List<Reserver> reservations = new ArrayList<>();
-        try {
-            _resourceLimitMgr.checkVmResourceLimitsForServiceOfferingChange(owner, vmInstance.isDisplay(), currentCpu, newCpu,
-                    currentMemory, newMemory, currentServiceOffering, svcOffering, template, reservations);
-            if (newCpu > currentCpu) {
-                _resourceLimitMgr.incrementVmCpuResourceCount(owner.getAccountId(), vmInstance.isDisplay(), svcOffering, template, newCpu - currentCpu);
-            } else if (newCpu > 0 && currentCpu > newCpu){
-                _resourceLimitMgr.decrementVmCpuResourceCount(owner.getAccountId(), vmInstance.isDisplay(), svcOffering, template, currentCpu - newCpu);
-            }
-            if (newMemory > currentMemory) {
-                _resourceLimitMgr.incrementVmMemoryResourceCount(owner.getAccountId(), vmInstance.isDisplay(), svcOffering, template, newMemory - currentMemory);
-            } else if (newMemory > 0 && currentMemory > newMemory){
-                _resourceLimitMgr.decrementVmMemoryResourceCount(owner.getAccountId(), vmInstance.isDisplay(), svcOffering, template, currentMemory - newMemory);
-            }
-        } catch (ResourceAllocationException e) {
-            logger.error(String.format("Failed to updated VM due to: %s", e.getLocalizedMessage()));
-            throw new InvalidParameterValueException(e.getLocalizedMessage());
-        } finally {
-            ReservationHelper.closeAll(reservations);
-        }
+        vmUpdateOrchestrationService.verifyVmLimits(vmInstance, details);
     }
 
     protected void updateVmExtraConfig(UserVmVO userVm, String extraConfig, boolean cleanupExtraConfig) {
@@ -1347,174 +1294,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_UPDATE, eventDescription = "updating Vm")
     public UserVm updateVirtualMachine(UpdateVMCmd cmd) throws ResourceUnavailableException, InsufficientCapacityException {
-        validateInputsAndPermissionForUpdateVirtualMachineCommand(cmd);
-
-        String displayName = cmd.getDisplayName();
-        String group = cmd.getGroup();
-        Boolean ha = cmd.getHaEnable();
-        Boolean isDisplayVm = cmd.getDisplayVm();
-        Long id = cmd.getId();
-        Long osTypeId = cmd.getOsTypeId();
-        Boolean isDynamicallyScalable = cmd.isDynamicallyScalable();
-        String hostName = cmd.getHostName();
-        Map<String,String> details = cmd.getDetails();
-        List<Long> securityGroupIdList = getSecurityGroupIdList(cmd);
-        boolean cleanupDetails = cmd.isCleanupDetails();
-        String extraConfig = cmd.getExtraConfig();
-        boolean cleanupExtraConfig = cmd.isCleanupExtraConfig();
-
-        UserVmVO vmInstance = _vmDao.findById(cmd.getId());
-        VMTemplateVO template = _templateDao.findById(vmInstance.getTemplateId());
-
-        UserVmVO userVm = _vmDao.findById(cmd.getId());
-        if (userVm != null && UserVmManager.SHAREDFSVM.equals(userVm.getUserVmType())) {
-            throw new InvalidParameterValueException("Operation not supported on Shared FileSystem Instance");
-        }
-
-        String userData = cmd.getUserData();
-        Long userDataId = cmd.getUserdataId();
-        String userDataDetails = null;
-        if (MapUtils.isNotEmpty(cmd.getUserdataDetails())) {
-            userDataDetails = cmd.getUserdataDetails().toString();
-        }
-        userData = finalizeUserData(userData, userDataId, template);
-        userData = userDataManager.validateUserData(userData, cmd.getHttpMethod());
-
-        long accountId = vmInstance.getAccountId();
-
-        if (isDisplayVm != null && isDisplayVm != vmInstance.isDisplay()) {
-            updateDisplayVmFlag(isDisplayVm, id, vmInstance);
-        }
-        final Account caller = CallContext.current().getCallingAccount();
-        final List<String> userDenyListedSettings = Stream.of(QueryService.UserVMDeniedDetails.value().split(","))
-                .map(item -> (item).trim())
-                .collect(Collectors.toList());
-        userDenyListedSettings.addAll(QueryService.RootAdminOnlyVmSettings);
-        if (template != null && template.getExtensionId() != null) {
-            userDenyListedSettings.addAll(extensionHelper.getExtensionReservedResourceDetails(
-                    template.getExtensionId()));
-        }
-
-        final List<String> userReadOnlySettings = Stream.of(QueryService.UserVMReadOnlyDetails.value().split(","))
-                .map(item -> (item).trim())
-                .collect(Collectors.toList());
-        List<VMInstanceDetailVO> existingDetails = vmInstanceDetailsDao.listDetails(id);
-        if (cleanupDetails) {
-            if (template != null && template.isDeployAsIs()) {
-                throw new InvalidParameterValueException("Detail settings are read from OVA, it cannot be cleaned up by API call.");
-            }
-            if (caller != null && caller.getType() == Account.Type.ADMIN) {
-                for (final VMInstanceDetailVO detail : existingDetails) {
-                    if (detail != null && detail.isDisplay() && !isExtraConfig(detail.getName())) {
-                        vmInstanceDetailsDao.removeDetail(id, detail.getName());
-                    }
-                }
-            } else {
-                for (final VMInstanceDetailVO detail : existingDetails) {
-                    if (detail != null && !userDenyListedSettings.contains(detail.getName())
-                            && !userReadOnlySettings.contains(detail.getName()) && detail.isDisplay()
-                            && !isExtraConfig(detail.getName())) {
-                        vmInstanceDetailsDao.removeDetail(id, detail.getName());
-                    }
-                }
-            }
-        } else {
-            if (MapUtils.isNotEmpty(details)) {
-                // error out if lease related keys are passed in details
-                if (details.containsKey(VmDetailConstants.INSTANCE_LEASE_EXECUTION)
-                        || details.containsKey(VmDetailConstants.INSTANCE_LEASE_EXPIRY_DATE)
-                        || details.containsKey(VmDetailConstants.INSTANCE_LEASE_EXPIRY_ACTION)) {
-                    throw new InvalidParameterValueException("lease parameters should not be included in details as key");
-                }
-
-                if (details.containsKey("extraconfig")) {
-                    throw new InvalidParameterValueException("'extraconfig' should not be included in details as key");
-                }
-
-                if (template != null && template.isDeployAsIs()) {
-                    final List<String> vmwareAllowedDetailsFromOva = VmwareAdditionalDetailsFromOvaEnabled.valueIn(vmInstance.getDataCenterId()) ?
-                            Stream.of(VmwareAllowedAdditionalDetailsFromOva.valueIn(vmInstance.getDataCenterId()).split(","))
-                            .map(String::trim)
-                            .collect(Collectors.toList()) : List.of();
-                    for (String detailKey : details.keySet()) {
-                        if (vmwareAllowedDetailsFromOva.contains(detailKey)) {
-                            continue;
-                        }
-                        VMInstanceDetailVO detailVO = existingDetails.stream().filter(d -> Objects.equals(d.getName(), detailKey)).findFirst().orElse(null);
-                        if (detailVO != null && ObjectUtils.allNotNull(detailVO.getValue(), details.get(detailKey)) && detailVO.getValue().equals(details.get(detailKey))) {
-                            continue;
-                        }
-                        throw new InvalidParameterValueException("Detail settings are read from OVA, it cannot be changed by API call.");
-                    }
-                }
-
-                details.entrySet().removeIf(detail -> isExtraConfig(detail.getKey()));
-
-                if (caller != null && caller.getType() != Account.Type.ADMIN) {
-                    // Ensure denied or read-only detail is not passed by non-root-admin user
-                    for (final String detailName : details.keySet()) {
-                        if (userDenyListedSettings.contains(detailName)) {
-                            throw new InvalidParameterValueException("You're not allowed to add or edit the restricted setting: " + detailName);
-                        }
-                        if (userReadOnlySettings.contains(detailName)) {
-                            throw new InvalidParameterValueException("You're not allowed to add or edit the read-only setting: " + detailName);
-                        }
-                        if (existingDetails.stream().anyMatch(d -> Objects.equals(d.getName(), detailName) && !d.isDisplay())) {
-                            throw new InvalidParameterValueException("You're not allowed to add or edit the non-displayable setting: " + detailName);
-                        }
-                    }
-                    // Add any existing user denied or read-only details. We do it here because admins would already provide these (or can delete them).
-                    for (final VMInstanceDetailVO detail : existingDetails) {
-                        if (userDenyListedSettings.contains(detail.getName()) || userReadOnlySettings.contains(detail.getName())) {
-                            details.put(detail.getName(), detail.getValue());
-                        }
-                    }
-                }
-
-                // ensure details marked as non-displayable are maintained, regardless of admin or not
-                for (final VMInstanceDetailVO existingDetail : existingDetails) {
-                    if (!existingDetail.isDisplay() || isExtraConfig(existingDetail.getName())) {
-                        details.put(existingDetail.getName(), existingDetail.getValue());
-                    }
-                }
-
-                verifyVmLimits(vmInstance, details);
-                vmInstance.setDetails(details);
-                _vmDao.saveDetails(vmInstance);
-            }
-        }
-        updateVmExtraConfig(userVm, extraConfig, cleanupExtraConfig);
-
-        if (VMLeaseManager.InstanceLeaseEnabled.value() && cmd.getLeaseDuration() != null) {
-            applyLeaseOnUpdateInstance(vmInstance, cmd.getLeaseDuration(), cmd.getLeaseExpiryAction());
-        }
-
-        return updateVirtualMachine(id, displayName, group, ha, isDisplayVm,
-                cmd.getDeleteProtection(), osTypeId, userData,
-                userDataId, userDataDetails, isDynamicallyScalable, cmd.getHttpMethod(),
-                cmd.getCustomId(), hostName, cmd.getInstanceName(), securityGroupIdList,
-                cmd.getDhcpOptionsMap());
-    }
-
-    private boolean isExtraConfig(String detailName) {
-        return detailName != null && detailName.startsWith(ApiConstants.EXTRA_CONFIG);
+        return vmUpdateOrchestrationService.updateVirtualMachine(cmd);
     }
 
     protected void updateDisplayVmFlag(Boolean isDisplayVm, Long id, UserVmVO vmInstance) {
-        vmDisplayFlagService.applyDisplayFlag(isDisplayVm, id, vmInstance);
+        vmUpdateOrchestrationService.updateDisplayVmFlag(isDisplayVm, id, vmInstance);
     }
 
     protected void validateInputsAndPermissionForUpdateVirtualMachineCommand(UpdateVMCmd cmd) {
-        // Orchestration stays here so existing test spies can intercept the
-        // inner validateGuestOsIdForUpdateVirtualMachineCommand call. The leaf
-        // wrapper below delegates to VmUpdateValidator.
-        UserVmVO vmInstance = _vmDao.findById(cmd.getId());
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("unable to find virtual machine with id: " + cmd.getId());
-        }
-        validateGuestOsIdForUpdateVirtualMachineCommand(cmd);
-        Account caller = CallContext.current().getCallingAccount();
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
+        vmUpdateOrchestrationService.validateInputsAndPermissionForUpdateVirtualMachineCommand(cmd);
     }
 
     protected void validateGuestOsIdForUpdateVirtualMachineCommand(UpdateVMCmd cmd) {
@@ -1538,140 +1326,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                                        String instanceName, List<Long> securityGroupIdList,
                                        Map<String, Map<Integer, String>> extraDhcpOptionsMap
     ) throws ResourceUnavailableException, InsufficientCapacityException {
-        UserVmVO vm = _vmDao.findById(id);
-        if (vm == null) {
-            throw new CloudRuntimeException("Unable to find virtual machine with id " + id);
-        }
-
-        if (instanceName != null) {
-            VMInstanceVO vmInstance = _vmInstanceDao.findVMByInstanceName(instanceName);
-            if (vmInstance != null && vmInstance.getId() != id) {
-                throw new CloudRuntimeException("Instance name : " + instanceName + " is not unique");
-            }
-        }
-
-        if (vm.getState() == State.Error || vm.getState() == State.Expunging) {
-            logger.error("vm {} is not in the correct state. current state: {}", vm, vm.getState());
-            throw new InvalidParameterValueException(String.format("Vm %s is not in the right state", vm));
-        }
-
-        if (displayName == null) {
-            displayName = vm.getDisplayName();
-        }
-
-        if (ha == null) {
-            ha = vm.isHaEnabled();
-        }
-
-        ServiceOffering offering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-        if (!offering.isOfferHA() && ha) {
-            throw new InvalidParameterValueException("Can't enable ha for the vm as it's created from the Service offering having HA disabled");
-        }
-
-        if (isDisplayVmEnabled == null) {
-            isDisplayVmEnabled = vm.isDisplayVm();
-        }
-
-        if (deleteProtection == null) {
-            deleteProtection = vm.isDeleteProtection();
-        }
-
-        boolean updateUserdata = false;
-        if (userData != null) {
-            // check and replace newlines
-            userData = userData.replace("\\n", "");
-            userData = userDataManager.validateUserData(userData, httpMethod);
-            // update userData on domain router.
-            updateUserdata = true;
-        } else {
-            userData = vm.getUserData();
-        }
-
-        if (userDataId == null) {
-            userDataId = vm.getUserDataId();
-        }
-
-        if (userDataDetails == null) {
-            userDataDetails = vm.getUserDataDetails();
-        }
-
-        if (osTypeId == null) {
-            osTypeId = vm.getGuestOSId();
-        }
-
-        if (group != null) {
-            addInstanceToGroup(id, group);
-        }
-
-        if (isDynamicallyScalable == null) {
-            isDynamicallyScalable = vm.isDynamicallyScalable();
-        } else {
-            if (isDynamicallyScalable == true) {
-                VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-                if (!template.isDynamicallyScalable()) {
-                    throw new InvalidParameterValueException("Dynamic Scaling cannot be enabled for the Instance since its Template does not have dynamic scaling enabled");
-                }
-                if (!offering.isDynamicScalingEnabled()) {
-                    throw new InvalidParameterValueException("Dynamic Scaling cannot be enabled for the Instance since its service offering does not have dynamic scaling enabled");
-                }
-                if (!UserVmManager.EnableDynamicallyScaleVm.valueIn(vm.getDataCenterId())) {
-                    logger.debug("Dynamic Scaling cannot be enabled for the VM {} since the global setting enable.dynamic.scale.vm is set to false", vm);
-                    throw new InvalidParameterValueException("Dynamic Scaling cannot be enabled for the VM since corresponding global setting is set to false");
-                }
-            }
-        }
-
-        List<? extends Nic> nics = _nicDao.listByVmId(vm.getId());
-        if (hostName != null) {
-            // Check is hostName is RFC compliant
-            checkNameForRFCCompliance(hostName);
-
-            if (vm.getHostName().equals(hostName)) {
-                logger.debug("Vm " + vm + " is already set with the hostName specified: " + hostName);
-                hostName = null;
-            }
-
-            // Verify that vm's hostName is unique
-
-            List<NetworkVO> vmNtwks = new ArrayList<>(nics.size());
-            for (Nic nic : nics) {
-                vmNtwks.add(_networkDao.findById(nic.getNetworkId()));
-            }
-            checkIfHostNameUniqueInNtwkDomain(hostName, vmNtwks);
-        }
-
-        List<NetworkVO> networks = nics.stream()
-                .map(nic -> _networkDao.findById(nic.getNetworkId()))
-                .collect(Collectors.toList());
-
-        verifyExtraDhcpOptionsNetwork(extraDhcpOptionsMap, networks);
-        for (Nic nic : nics) {
-            _networkMgr.saveExtraDhcpOptions(networks.stream()
-                    .filter(network -> network.getId() == nic.getNetworkId())
-                    .findFirst()
-                    .get()
-                    .getUuid(), nic.getId(), extraDhcpOptionsMap);
-        }
-
-        checkAndUpdateSecurityGroupForVM(securityGroupIdList, vm, networks);
-
-        _vmDao.updateVM(id, displayName, ha, osTypeId, userData, userDataId,
-                userDataDetails, isDisplayVmEnabled, isDynamicallyScalable,
-                deleteProtection, customId, hostName, instanceName);
-
-        if (updateUserdata) {
-            updateUserData(vm);
-        }
-
-        if (State.Running == vm.getState()) {
-            updateDns(vm, hostName);
-        }
-
-        return _vmDao.findById(id);
-    }
-
-    private void checkAndUpdateSecurityGroupForVM(List<Long> securityGroupIdList, UserVmVO vm, List<NetworkVO> networks) {
-        vmSecurityGroupAssignmentService.checkAndUpdateSecurityGroupForVM(securityGroupIdList, vm, networks);
+        return vmUpdateOrchestrationService.updateVirtualMachine(id, displayName, group, ha, isDisplayVmEnabled,
+                deleteProtection, osTypeId, userData, userDataId, userDataDetails, isDynamicallyScalable,
+                httpMethod, customId, hostName, instanceName, securityGroupIdList, extraDhcpOptionsMap);
     }
 
     private void updateSecurityGroup(UserVmVO vm, List<Long> securityGroupIdList) {
@@ -1679,37 +1336,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void updateUserData(UserVm vm) throws ResourceUnavailableException, InsufficientCapacityException {
-        vmCredentialResetService.updateUserData(vm);
-    }
-
-    private void updateDns(UserVmVO vm, String hostName) throws ResourceUnavailableException, InsufficientCapacityException {
-        if (!StringUtils.isEmpty(hostName)) {
-            vm.setHostName(hostName);
-            try {
-                List<NicVO> nicVOs = _nicDao.listByVmId(vm.getId());
-                for (NicVO nic : nicVOs) {
-                    List<DomainRouterVO> routers = _routerDao.findByNetwork(nic.getNetworkId());
-                    for (DomainRouterVO router : routers) {
-                        if (router.getState() != State.Running) {
-                            logger.warn("Unable to update DNS for VM {}, as virtual router: {} is not in the right state: {} ", vm, router, router.getState());
-                            continue;
-                        }
-                        Commands commands = new Commands(Command.OnError.Stop);
-                        commandSetupHelper.createDhcpEntryCommand(router, vm, nic, false, commands);
-                        if (!nwHelper.sendCommandsToRouter(router, commands)) {
-                            throw new CloudRuntimeException(String.format("Unable to send commands to virtual router: %s", router.getHostId()));
-                        }
-                        Answer answer = commands.getAnswer("dhcp");
-                        if (answer == null || !answer.getResult()) {
-                            throw new CloudRuntimeException("Failed to update hostname");
-                        }
-                        updateUserData(vm);
-                    }
-                }
-            } catch (CloudRuntimeException e) {
-                throw new CloudRuntimeException(String.format("Failed to update hostname of VM %s to %s", vm.getInstanceName(), vm.getHostName()));
-            }
-        }
+        vmUpdateOrchestrationService.updateUserData(vm);
     }
 
     protected boolean applyUserData(HypervisorType hyperVisorType, UserVm vm, Nic nic) throws ResourceUnavailableException, InsufficientCapacityException {

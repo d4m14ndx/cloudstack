@@ -27,7 +27,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -524,6 +523,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmUnmanageService vmUnmanageService;
 
+    @Mock
+    VmUpdateOrchestrationService vmUpdateOrchestrationService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -788,9 +790,9 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmUnmanageService", vmUnmanageService);
 
-        Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
+        Mockito.lenient().when(updateVmCommand.getId()).thenReturn(vmId);
 
-        when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
+        lenient().when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
 
         Mockito.when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
 
@@ -949,7 +951,8 @@ public class UserVmManagerImplTest {
 
     @Test(expected = InvalidParameterValueException.class)
     public void validateInputsAndPermissionForUpdateVirtualMachineCommandTestVmNotFound() {
-        Mockito.when(userVmDao.findById(vmId)).thenReturn(null);
+        Mockito.doThrow(new InvalidParameterValueException("unable to find virtual machine with id: " + vmId))
+                .when(vmUpdateOrchestrationService).validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
 
         userVmManagerImpl.validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
     }
@@ -971,145 +974,68 @@ public class UserVmManagerImplTest {
 
     @Test
     public void validateInputsAndPermissionForUpdateVirtualMachineCommandTest() {
-        Mockito.doNothing().when(userVmManagerImpl).validateGuestOsIdForUpdateVirtualMachineCommand(updateVmCommand);
-
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
-        ServiceOffering offering = getSvcoffering(512);
-        Mockito.lenient().when(_serviceOfferingDao.findById(Mockito.anyLong(), Mockito.anyLong())).thenReturn((ServiceOfferingVO) offering);
-        Mockito.lenient().doNothing().when(accountManager).checkAccess(accountMock, null, true, userVmVoMock);
         userVmManagerImpl.validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
 
-        Mockito.verify(userVmManagerImpl).validateGuestOsIdForUpdateVirtualMachineCommand(updateVmCommand);
-        Mockito.verify(accountManager).checkAccess(callerAccount, null, true, userVmVoMock);
+        verify(vmUpdateOrchestrationService).validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
     }
 
     @Test
-    public void updateVirtualMachineTestDisplayChanged() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        configureDoNothingForMethodsThatWeDoNotWantToTest();
-        ServiceOffering offering = getSvcoffering(512);
-        Mockito.when(_serviceOfferingDao.findById(Mockito.anyLong(), Mockito.anyLong())).thenReturn((ServiceOfferingVO) offering);
-        Mockito.when(userVmVoMock.isDisplay()).thenReturn(true);
-        Mockito.doNothing().when(userVmManagerImpl).updateDisplayVmFlag(false, vmId, userVmVoMock);
-        Mockito.when(updateVmCommand.getUserdataId()).thenReturn(null);
-        userVmManagerImpl.updateVirtualMachine(updateVmCommand);
-        verifyMethodsThatAreAlwaysExecuted();
+    public void updateVirtualMachineCommandDelegatesToUpdateOrchestrationService() throws ResourceUnavailableException, InsufficientCapacityException {
+        UserVm expected = mock(UserVm.class);
+        when(vmUpdateOrchestrationService.updateVirtualMachine(updateVmCommand)).thenReturn(expected);
 
-        Mockito.verify(userVmManagerImpl).updateDisplayVmFlag(false, vmId, userVmVoMock);
-        Mockito.verify(vmInstanceDetailsDao, times(0)).removeDetail(anyLong(), anyString());
+        UserVm result = userVmManagerImpl.updateVirtualMachine(updateVmCommand);
+
+        assertSame(expected, result);
+        verify(vmUpdateOrchestrationService).updateVirtualMachine(updateVmCommand);
     }
 
     @Test
-    public void updateVirtualMachineTestCleanUpTrue() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        configureDoNothingForMethodsThatWeDoNotWantToTest();
-        ServiceOffering offering = getSvcoffering(512);
-        Mockito.when(_serviceOfferingDao.findById(Mockito.anyLong(), Mockito.anyLong())).thenReturn((ServiceOfferingVO) offering);
-        Mockito.when(updateVmCommand.isCleanupDetails()).thenReturn(true);
-        Mockito.lenient().doNothing().when(userVmManagerImpl).updateDisplayVmFlag(false, vmId, userVmVoMock);
+    public void updateVirtualMachineByIdDelegatesToUpdateOrchestrationService() throws ResourceUnavailableException, InsufficientCapacityException {
+        UserVm expected = mock(UserVm.class);
+        List<Long> securityGroupIds = List.of(1L, 2L);
+        Map<String, Map<Integer, String>> dhcpOptions = new HashMap<>();
+        when(vmUpdateOrchestrationService.updateVirtualMachine(vmId, "display", "group", true, false, true,
+                2L, "userdata", 3L, "userdata-details", true, HTTPMethod.POST, "custom", "host",
+                "instance", securityGroupIds, dhcpOptions)).thenReturn(expected);
 
-        Mockito.when(updateVmCommand.getUserdataId()).thenReturn(null);
+        UserVm result = userVmManagerImpl.updateVirtualMachine(vmId, "display", "group", true, false, true,
+                2L, "userdata", 3L, "userdata-details", true, HTTPMethod.POST, "custom", "host",
+                "instance", securityGroupIds, dhcpOptions);
 
-        prepareExistingDetails(vmId, "userdetail");
-
-        userVmManagerImpl.updateVirtualMachine(updateVmCommand);
-        verifyMethodsThatAreAlwaysExecuted();
-        Mockito.verify(vmInstanceDetailsDao).removeDetail(vmId, "userdetail");
-        Mockito.verify(vmInstanceDetailsDao, times(0)).removeDetail(vmId, "systemdetail");
-        Mockito.verify(userVmManagerImpl, times(0)).updateDisplayVmFlag(false, vmId, userVmVoMock);
+        assertSame(expected, result);
+        verify(vmUpdateOrchestrationService).updateVirtualMachine(vmId, "display", "group", true, false, true,
+                2L, "userdata", 3L, "userdata-details", true, HTTPMethod.POST, "custom", "host",
+                "instance", securityGroupIds, dhcpOptions);
     }
 
     @Test
-    public void updateVirtualMachineTestCleanUpTrueAndDetailEmpty() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        prepareAndExecuteMethodDealingWithDetails(true, true);
+    public void verifyVmLimitsDelegatesToUpdateOrchestrationService() {
+        Map<String, String> details = new HashMap<>();
+
+        userVmManagerImpl.verifyVmLimits(userVmVoMock, details);
+
+        verify(vmUpdateOrchestrationService).verifyVmLimits(userVmVoMock, details);
     }
 
     @Test
-    public void updateVirtualMachineTestCleanUpTrueAndDetailsNotEmpty() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        prepareAndExecuteMethodDealingWithDetails(true, false);
+    public void updateDisplayVmFlagDelegatesToUpdateOrchestrationService() {
+        userVmManagerImpl.updateDisplayVmFlag(false, vmId, userVmVoMock);
+
+        verify(vmUpdateOrchestrationService).updateDisplayVmFlag(false, vmId, userVmVoMock);
     }
 
     @Test
-    public void updateVirtualMachineTestCleanUpFalseAndDetailsNotEmpty() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        prepareAndExecuteMethodDealingWithDetails(false, true);
-    }
+    public void updateUserDataDelegatesToUpdateOrchestrationService() throws ResourceUnavailableException, InsufficientCapacityException {
+        userVmManagerImpl.updateUserData(userVmVoMock);
 
-    @Test
-    public void updateVirtualMachineTestCleanUpFalseAndDetailsEmpty() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        Mockito.doNothing().when(userVmManagerImpl).verifyVmLimits(Mockito.any(), Mockito.anyMap());
-        prepareAndExecuteMethodDealingWithDetails(false, false);
-    }
-
-    private List<VMInstanceDetailVO> prepareExistingDetails(Long vmId, String... existingDetailKeys) {
-        List<VMInstanceDetailVO> existingDetails = new ArrayList<>();
-        for (String detail : existingDetailKeys) {
-            existingDetails.add(new VMInstanceDetailVO(vmId, detail, "foo", true));
-        }
-        existingDetails.add(new VMInstanceDetailVO(vmId, "systemdetail", "bar", false));
-        Mockito.when(vmInstanceDetailsDao.listDetails(vmId)).thenReturn(existingDetails);
-        return existingDetails;
-    }
-
-    private void prepareAndExecuteMethodDealingWithDetails(boolean cleanUpDetails, boolean isDetailsEmpty) throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        configureDoNothingForMethodsThatWeDoNotWantToTest();
-
-        ServiceOffering offering = getSvcoffering(512);
-        Mockito.when(_serviceOfferingDao.findById(Mockito.anyLong(), Mockito.anyLong())).thenReturn((ServiceOfferingVO) offering);
-        ServiceOfferingVO currentServiceOffering = Mockito.mock(ServiceOfferingVO.class);
-        Mockito.lenient().when(currentServiceOffering.getCpu()).thenReturn(1);
-        Mockito.lenient().when(currentServiceOffering.getRamSize()).thenReturn(512);
-
-        List<NicVO> nics = new ArrayList<>();
-        NicVO nic1 = mock(NicVO.class);
-        NicVO nic2 = mock(NicVO.class);
-        nics.add(nic1);
-        nics.add(nic2);
-        when(this.nicDao.listByVmId(Mockito.anyLong())).thenReturn(nics);
-        when(_networkDao.findById(anyLong())).thenReturn(networkMock);
-        lenient().doNothing().when(_networkMgr).saveExtraDhcpOptions(anyString(), anyLong(), anyMap());
-        HashMap<String, String> details = new HashMap<>();
-        if(!isDetailsEmpty) {
-            details.put("newdetail", "foo");
-        }
-        prepareExistingDetails(vmId, "existingdetail");
-        Mockito.when(updateVmCommand.getUserdataId()).thenReturn(null);
-        Mockito.when(updateVmCommand.getDetails()).thenReturn(details);
-        Mockito.when(updateVmCommand.isCleanupDetails()).thenReturn(cleanUpDetails);
-        configureDoNothingForDetailsMethod();
-
-        userVmManagerImpl.updateVirtualMachine(updateVmCommand);
-        verifyMethodsThatAreAlwaysExecuted();
-
-        Mockito.verify(userVmVoMock, times(cleanUpDetails || isDetailsEmpty ? 0 : 1)).setDetails(details);
-        Mockito.verify(vmInstanceDetailsDao, times(cleanUpDetails ? 1 : 0)).removeDetail(vmId, "existingdetail");
-        Mockito.verify(vmInstanceDetailsDao, times(0)).removeDetail(vmId, "systemdetail");
-        Mockito.verify(userVmDao, times(cleanUpDetails || isDetailsEmpty ? 0 : 1)).saveDetails(userVmVoMock);
-        Mockito.verify(userVmManagerImpl, times(0)).updateDisplayVmFlag(false, vmId, userVmVoMock);
-    }
-
-    private void configureDoNothingForDetailsMethod() {
-        Mockito.lenient().doNothing().when(userVmManagerImpl).updateDisplayVmFlag(false, vmId, userVmVoMock);
-        Mockito.doNothing().when(vmInstanceDetailsDao).removeDetail(anyLong(), anyString());
-        Mockito.doNothing().when(userVmDao).saveDetails(userVmVoMock);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void verifyMethodsThatAreAlwaysExecuted() throws ResourceUnavailableException, InsufficientCapacityException {
-        Mockito.verify(userVmManagerImpl).validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
-        Mockito.verify(userVmManagerImpl).getSecurityGroupIdList(updateVmCommand);
-
-        Mockito.verify(userVmManagerImpl).updateVirtualMachine(nullable(Long.class), nullable(String.class), nullable(String.class), nullable(Boolean.class),
-                nullable(Boolean.class), nullable(Boolean.class), nullable(Long.class),
-                nullable(String.class), nullable(Long.class), nullable(String.class), nullable(Boolean.class), nullable(HTTPMethod.class), nullable(String.class), nullable(String.class), nullable(String.class), nullable(List.class),
-                nullable(Map.class));
-
+        verify(vmUpdateOrchestrationService).updateUserData(userVmVoMock);
     }
 
     @SuppressWarnings("unchecked")
     private void configureDoNothingForMethodsThatWeDoNotWantToTest() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        Mockito.doNothing().when(userVmManagerImpl).validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
-        Mockito.doReturn(new ArrayList<Long>()).when(userVmManagerImpl).getSecurityGroupIdList(updateVmCommand);
+        Mockito.lenient().doNothing().when(userVmManagerImpl).validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand);
+        Mockito.lenient().doReturn(new ArrayList<Long>()).when(userVmManagerImpl).getSecurityGroupIdList(updateVmCommand);
 
         Mockito.lenient().doReturn(Mockito.mock(UserVm.class)).when(userVmManagerImpl).updateVirtualMachine(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(), Mockito.anyBoolean(),
                 Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyLong(), Mockito.anyString(), Mockito.anyLong(), Mockito.anyString(), Mockito.anyBoolean(), Mockito.any(HTTPMethod.class), Mockito.anyString(), Mockito.anyString(),
@@ -3864,37 +3790,27 @@ public class UserVmManagerImplTest {
 
     @Test
     public void verifyVmLimits_fixedOffering_throwsException() {
-        when(userVmVoMock.getId()).thenReturn(1L);
-        when(userVmVoMock.getServiceOfferingId()).thenReturn(1L);
-        when(accountDao.findById(anyLong())).thenReturn(callerAccount);
-        ServiceOfferingVO serviceOffering = getMockedServiceOffering(false, false);
-        when(_serviceOfferingDao.findById(anyLong())).thenReturn(serviceOffering);
-        when(_serviceOfferingDao.findByIdIncludingRemoved(anyLong(), anyLong())).thenReturn(serviceOffering);
-
         Map<String, String> customParameters = new HashMap<>();
         customParameters.put(VmDetailConstants.CPU_SPEED, "2500");
+        InvalidParameterValueException expected = new InvalidParameterValueException("CPU number, Memory and CPU speed cannot be updated for a non-dynamic offering");
+        doThrow(expected).when(vmUpdateOrchestrationService).verifyVmLimits(userVmVoMock, customParameters);
 
         InvalidParameterValueException ex = Assert.assertThrows(InvalidParameterValueException.class, () ->
                 userVmManagerImpl.verifyVmLimits(userVmVoMock, customParameters));
-        assertEquals("CPU number, Memory and CPU speed cannot be updated for a non-dynamic offering", ex.getMessage());
+        assertSame(expected, ex);
     }
 
     @Test
     public void verifyVmLimits_constrainedOffering_throwsException() {
-        when(userVmVoMock.getId()).thenReturn(1L);
-        when(userVmVoMock.getServiceOfferingId()).thenReturn(1L);
-        when(accountDao.findById(anyLong())).thenReturn(callerAccount);
-        ServiceOfferingVO serviceOffering = getMockedServiceOffering(true, false);
-        when(_serviceOfferingDao.findById(anyLong())).thenReturn(serviceOffering);
-        when(_serviceOfferingDao.findByIdIncludingRemoved(anyLong(), anyLong())).thenReturn(serviceOffering);
-
         Map<String, String> customParameters = new HashMap<>();
         customParameters.put(VmDetailConstants.CPU_NUMBER, "1");
         customParameters.put(VmDetailConstants.CPU_SPEED, "2500");
+        InvalidParameterValueException expected = new InvalidParameterValueException("The CPU speed of this offering must be between 1 and 2");
+        doThrow(expected).when(vmUpdateOrchestrationService).verifyVmLimits(userVmVoMock, customParameters);
 
         InvalidParameterValueException ex = Assert.assertThrows(InvalidParameterValueException.class, () ->
                 userVmManagerImpl.verifyVmLimits(userVmVoMock, customParameters));
-        Assert.assertTrue(ex.getMessage().startsWith("The CPU speed of this offering"));
+        assertSame(expected, ex);
     }
 
     @Test
