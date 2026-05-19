@@ -41,6 +41,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import com.cloud.agent.api.StartupCommand;
+import com.cloud.agent.api.to.NicTO;
 import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.VlanDao;
@@ -57,6 +58,7 @@ import com.cloud.network.Network;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Service;
 import com.cloud.network.NetworkModel;
+import com.cloud.network.NetworkProfile;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
@@ -230,6 +232,12 @@ public class NetworkOrchestratorTest extends TestCase {
         List<NetworkGuru> networkGurus = new ArrayList<NetworkGuru>();
         networkGurus.add(guru);
         testOrchestrator.networkGurus = networkGurus;
+        NicProfileLifecycleMappingServiceImpl lifecycleMappingService = new NicProfileLifecycleMappingServiceImpl();
+        lifecycleMappingService.nicDao = testOrchestrator._nicDao;
+        lifecycleMappingService.networksDao = testOrchestrator._networksDao;
+        lifecycleMappingService.networkModel = testOrchestrator._networkModel;
+        lifecycleMappingService.setNetworkGurus(networkGurus);
+        testOrchestrator.nicProfileLifecycleMappingService = lifecycleMappingService;
 
         when(networkOffering.getGuestType()).thenReturn(GuestType.L2);
         when(networkOffering.getId()).thenReturn(networkOfferingId);
@@ -266,6 +274,117 @@ public class NetworkOrchestratorTest extends TestCase {
 
         Assert.assertSame(expected, result);
         verify(testOrchestrator.networkVlanRangeCleanupService).deleteVlansInNetwork(network, 42L, caller);
+    }
+
+    @Test
+    public void applyProfileToNicDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+        when(service.applyProfileToNic(nic, profile, 2)).thenReturn(3);
+
+        Integer result = testOrchestrator.applyProfileToNic(nic, profile, 2);
+
+        Assert.assertEquals(Integer.valueOf(3), result);
+        verify(service).applyProfileToNic(nic, profile, 2);
+    }
+
+    @Test
+    public void applyProfileToNicForReleaseDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+
+        testOrchestrator.applyProfileToNicForRelease(nic, profile);
+
+        verify(service).applyProfileToNicForRelease(nic, profile);
+    }
+
+    @Test
+    public void applyProfileToNetworkDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NetworkVO network = mock(NetworkVO.class);
+        NetworkProfile profile = mock(NetworkProfile.class);
+
+        testOrchestrator.applyProfileToNetwork(network, profile);
+
+        verify(service).applyProfileToNetwork(network, profile);
+    }
+
+    @Test
+    public void toNicTODelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+        NetworkVO network = mock(NetworkVO.class);
+        NicTO expected = new NicTO();
+        when(service.toNicTO(nic, profile, network)).thenReturn(expected);
+
+        NicTO result = testOrchestrator.toNicTO(nic, profile, network);
+
+        Assert.assertSame(expected, result);
+        verify(service).toNicTO(nic, profile, network);
+    }
+
+    @Test
+    public void getNicProfileForVmDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        Network network = mock(Network.class);
+        NicProfile requested = mock(NicProfile.class);
+        VirtualMachine vm = mock(VirtualMachine.class);
+        NicProfile expected = new NicProfile();
+        when(service.getNicProfileForVm(network, requested, vm)).thenReturn(expected);
+
+        NicProfile result = testOrchestrator.getNicProfileForVm(network, requested, vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfileForVm(network, requested, vm);
+    }
+
+    @Test
+    public void getNicProfilesByVmIdDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        List<NicProfile> expected = Collections.singletonList(new NicProfile());
+        when(service.getNicProfiles(42L, Hypervisor.HypervisorType.KVM)).thenReturn(expected);
+
+        List<NicProfile> result = testOrchestrator.getNicProfiles(42L, Hypervisor.HypervisorType.KVM);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfiles(42L, Hypervisor.HypervisorType.KVM);
+    }
+
+    @Test
+    public void getNicProfilesByVmDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        VirtualMachine vm = mock(VirtualMachine.class);
+        List<NicProfile> expected = Collections.singletonList(new NicProfile());
+        when(service.getNicProfiles(vm)).thenReturn(expected);
+
+        List<NicProfile> result = testOrchestrator.getNicProfiles(vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfiles(vm);
+    }
+
+    @Test
+    public void getSystemVMAccessDetailsDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        VirtualMachine vm = mock(VirtualMachine.class);
+        Map<String, String> expected = Collections.singletonMap("key", "value");
+        when(service.getSystemVMAccessDetails(vm)).thenReturn(expected);
+
+        Map<String, String> result = testOrchestrator.getSystemVMAccessDetails(vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getSystemVMAccessDetails(vm);
     }
 
     @Test
