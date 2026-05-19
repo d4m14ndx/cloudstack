@@ -89,7 +89,6 @@ import org.apache.cloudstack.config.ApiServiceConfiguration;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
-import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 import org.apache.cloudstack.engine.subsystem.api.storage.ZoneScope;
 import org.apache.cloudstack.framework.config.ConfigDepot;
 import org.apache.cloudstack.framework.config.ConfigKey;
@@ -111,7 +110,6 @@ import org.apache.cloudstack.region.PortableIpRangeDao;
 import org.apache.cloudstack.region.PortableIpRangeVO;
 import org.apache.cloudstack.region.dao.RegionDao;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
-import org.apache.cloudstack.resourcedetail.DiskOfferingDetailVO;
 import org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDao;
 import org.apache.cloudstack.storage.datastore.db.ImageStoreDetailsDao;
@@ -121,7 +119,6 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolDetailsDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.jsinterpreter.TagAsRuleHelper;
-import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;
 import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
@@ -225,12 +222,7 @@ import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.Storage;
-import com.cloud.storage.Storage.ProvisioningType;
 import com.cloud.storage.StorageManager;
-import com.cloud.storage.StoragePoolTagVO;
-import com.cloud.storage.Volume;
-import com.cloud.storage.VolumeApiServiceImpl;
-import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.StoragePoolTagsDao;
 import com.cloud.storage.dao.VMTemplateZoneDao;
@@ -253,8 +245,6 @@ import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 
-import com.cloud.utils.db.SearchBuilder;
-import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionLegacy;
@@ -2083,55 +2073,7 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_DISK_OFFERING_CLONE, eventDescription = "cloning disk offering")
     public DiskOffering cloneDiskOffering(final CloneDiskOfferingCmd cmd) {
-        final long userId = CallContext.current().getCallingUserId();
-        final DiskOfferingVO sourceOffering = offeringCloneParameterService.getAndValidateSourceDiskOffering(cmd.getSourceOfferingId());
-        final Map<String, String> requestParams = cmd.getFullUrlParams();
-
-        final String name = cmd.getOfferingName();
-        final String displayText = getOrDefault(cmd.getDisplayText(), sourceOffering.getDisplayText());
-        final String provisioningType = getOrDefault(cmd.getProvisioningType(), sourceOffering.getProvisioningType().toString());
-        final Long diskSize = getOrDefault(cmd.getDiskSize(), sourceOffering.getDiskSize());
-        final String tags = getOrDefault(cmd.getTags(), sourceOffering.getTags());
-
-        final Boolean isCustomized = resolveBooleanParam(requestParams, ApiConstants.CUSTOMIZED, cmd::isCustomized, sourceOffering.isCustomized());
-        final Boolean displayOffering = resolveBooleanParam(requestParams, ApiConstants.DISPLAY_OFFERING, cmd::getDisplayOffering, sourceOffering.getDisplayOffering());
-        final Boolean isCustomizedIops = getOrDefault(cmd.isCustomizedIops(), sourceOffering.isCustomizedIops());
-        final Boolean diskSizeStrictness = resolveBooleanParam(requestParams, ApiConstants.DISK_SIZE_STRICTNESS, cmd::getDiskSizeStrictness, sourceOffering.getDiskSizeStrictness());
-        final Boolean encrypt = resolveBooleanParam(requestParams, ApiConstants.ENCRYPT, cmd::getEncrypt, sourceOffering.getEncrypt());
-
-        final List<Long> domainIds = offeringCloneParameterService.resolveDomainIdsForDiskOffering(cmd, sourceOffering);
-        final List<Long> zoneIds = offeringCloneParameterService.resolveZoneIdsForDiskOffering(cmd, sourceOffering);
-
-        final boolean localStorageRequired = offeringCloneParameterService.resolveLocalStorageRequired(cmd, sourceOffering);
-
-        final OfferingCloneParameterServiceImpl.ClonedDiskIopsParams iopsParams = offeringCloneParameterService.resolveDiskIopsParams(cmd, sourceOffering);
-
-        final OfferingCloneParameterServiceImpl.ClonedDiskRateParams rateParams = offeringCloneParameterService.resolveDiskRateParams(cmd, sourceOffering);
-
-        final Integer hypervisorSnapshotReserve = getOrDefault(cmd.getHypervisorSnapshotReserve(), sourceOffering.getHypervisorSnapshotReserve());
-        final String cacheMode = offeringCloneParameterService.resolveCacheMode(cmd, sourceOffering);
-        final Long storagePolicy = offeringCloneParameterService.resolveStoragePolicyForDiskOffering(cmd, sourceOffering);
-
-        final Map<String, String> mergedDetails = offeringCloneParameterService.mergeDiskOfferingDetails(cmd, sourceOffering);
-
-        if (cmd.getCacheMode() != null) {
-            validateCacheMode(cmd.getCacheMode());
-        }
-
-        validateMaxRateEqualsOrGreater(iopsParams.iopsReadRate, iopsParams.iopsReadRateMax, IOPS_READ_RATE);
-        validateMaxRateEqualsOrGreater(iopsParams.iopsWriteRate, iopsParams.iopsWriteRateMax, IOPS_WRITE_RATE);
-        validateMaxRateEqualsOrGreater(rateParams.bytesReadRate, rateParams.bytesReadRateMax, BYTES_READ_RATE);
-        validateMaxRateEqualsOrGreater(rateParams.bytesWriteRate, rateParams.bytesWriteRateMax, BYTES_WRITE_RATE);
-        validateMaximumIopsAndBytesLength(iopsParams.iopsReadRateMaxLength, iopsParams.iopsWriteRateMaxLength,
-                                          rateParams.bytesReadRateMaxLength, rateParams.bytesWriteRateMaxLength);
-
-        return createDiskOffering(userId, domainIds, zoneIds, name, displayText, provisioningType, diskSize, tags,
-                isCustomized, localStorageRequired, displayOffering, isCustomizedIops, iopsParams.minIops, iopsParams.maxIops,
-                rateParams.bytesReadRate, rateParams.bytesReadRateMax, rateParams.bytesReadRateMaxLength,
-                rateParams.bytesWriteRate, rateParams.bytesWriteRateMax, rateParams.bytesWriteRateMaxLength,
-                iopsParams.iopsReadRate, iopsParams.iopsReadRateMax, iopsParams.iopsReadRateMaxLength,
-                iopsParams.iopsWriteRate, iopsParams.iopsWriteRateMax, iopsParams.iopsWriteRateMaxLength,
-                hypervisorSnapshotReserve, cacheMode, mergedDetails, storagePolicy, diskSizeStrictness, encrypt);
+        return diskOfferingService.cloneDiskOffering(cmd);
     }
 
     @Override
@@ -2149,354 +2091,14 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         return serviceOfferingService.getServiceOfferingZones(serviceOfferingId);
     }
 
-    protected DiskOfferingVO createDiskOffering(final Long userId, final List<Long> domainIds, final List<Long> zoneIds, final String name, final String description, final String provisioningType,
-                                                final Long numGibibytes, String tags, boolean isCustomized, final boolean localStorageRequired,
-                                                final boolean isDisplayOfferingEnabled, final Boolean isCustomizedIops, Long minIops, Long maxIops,
-                                                Long bytesReadRate, Long bytesReadRateMax, Long bytesReadRateMaxLength,
-                                                Long bytesWriteRate, Long bytesWriteRateMax, Long bytesWriteRateMaxLength,
-                                                Long iopsReadRate, Long iopsReadRateMax, Long iopsReadRateMaxLength,
-                                                Long iopsWriteRate, Long iopsWriteRateMax, Long iopsWriteRateMaxLength,
-                                                final Integer hypervisorSnapshotReserve, String cacheMode, final Map<String, String> details, final Long storagePolicyID,
-                                                final boolean diskSizeStrictness, final boolean encrypt) {
-        long diskSize = 0;// special case for custom disk offerings
-        long maxVolumeSizeInGb = VolumeOrchestrationService.MaxVolumeSize.value();
-        if (numGibibytes != null && numGibibytes <= 0) {
-            throw new InvalidParameterValueException("Please specify a disk size of at least 1 GB.");
-        } else if (numGibibytes != null && numGibibytes > maxVolumeSizeInGb) {
-            throw new InvalidParameterValueException(String.format("The maximum size for a disk is %d GB.", maxVolumeSizeInGb));
-        }
-        final ProvisioningType typedProvisioningType = ProvisioningType.getProvisioningType(provisioningType);
-
-        if (numGibibytes != null) {
-            diskSize = numGibibytes * 1024 * 1024 * 1024;
-        }
-
-        if (diskSize == 0) {
-            isCustomized = true;
-        }
-
-        if (Boolean.TRUE.equals(isCustomizedIops) || isCustomizedIops == null) {
-            minIops = null;
-            maxIops = null;
-        } else {
-            if (minIops == null && maxIops == null) {
-                minIops = 0L;
-                maxIops = 0L;
-            } else {
-                if (minIops == null || minIops <= 0) {
-                    throw new InvalidParameterValueException("The min IOPS must be greater than 0.");
-                }
-
-                if (maxIops == null) {
-                    maxIops = 0L;
-                }
-
-                if (minIops > maxIops) {
-                    throw new InvalidParameterValueException("The min IOPS must be less than or equal to the max IOPS.");
-                }
-            }
-        }
-
-        // Filter child domains when both parent and child domains are present
-        List<Long> filteredDomainIds = domainHelper.filterChildSubDomains(domainIds);
-
-        // Check if user exists in the system
-        final User user = _userDao.findById(userId);
-        if (user == null || user.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find active user by id " + userId);
-        }
-        final Account account = _accountDao.findById(user.getAccountId());
-        if (account.getType() == Account.Type.DOMAIN_ADMIN) {
-            if (filteredDomainIds.isEmpty()) {
-                throw new InvalidParameterValueException(String.format("Unable to create public disk offering by admin: %s because it is domain-admin", user));
-            }
-            if (StringUtils.isNotBlank(tags) && !ALLOW_DOMAIN_ADMINS_TO_CREATE_TAGGED_OFFERINGS.valueIn(account.getAccountId())) {
-                throw new InvalidParameterValueException(String.format("User [%s] is unable to create disk offerings with storage tags.", user));
-            }
-            for (Long domainId : filteredDomainIds) {
-                if (domainId == null || !_domainDao.isChildDomain(account.getDomainId(), domainId)) {
-                    throw new InvalidParameterValueException(String.format("Unable to create disk offering by another domain-admin: %s for domain: %s", user, _entityMgr.findById(Domain.class, domainId).getUuid()));
-                }
-            }
-        } else if (account.getType() != Account.Type.ADMIN) {
-            throw new InvalidParameterValueException(String.format("Unable to create disk offering by user: %s because it is not root-admin or domain-admin", user));
-        }
-
-        tags = com.cloud.utils.StringUtils.cleanupTags(tags);
-        final DiskOfferingVO newDiskOffering = new DiskOfferingVO(name, description, typedProvisioningType, diskSize, tags, isCustomized,
-                isCustomizedIops, minIops, maxIops);
-        newDiskOffering.setUseLocalStorage(localStorageRequired);
-        newDiskOffering.setDisplayOffering(isDisplayOfferingEnabled);
-
-        setBytesRate(newDiskOffering, bytesReadRate, bytesReadRateMax, bytesReadRateMaxLength, bytesWriteRate, bytesWriteRateMax, bytesWriteRateMaxLength);
-        setIopsRate(newDiskOffering, iopsReadRate, iopsReadRateMax, iopsReadRateMaxLength, iopsWriteRate, iopsWriteRateMax, iopsWriteRateMaxLength);
-
-        if (cacheMode != null) {
-            newDiskOffering.setCacheMode(DiskOffering.DiskCacheMode.valueOf(cacheMode.toUpperCase()));
-        }
-
-        if (hypervisorSnapshotReserve != null && hypervisorSnapshotReserve < 0) {
-            throw new InvalidParameterValueException("If provided, Hypervisor Snapshot Reserve must be greater than or equal to 0.");
-        }
-
-        newDiskOffering.setEncrypt(encrypt);
-        newDiskOffering.setHypervisorSnapshotReserve(hypervisorSnapshotReserve);
-        newDiskOffering.setDiskSizeStrictness(diskSizeStrictness);
-
-        CallContext.current().setEventDetails("Disk offering ID: " + newDiskOffering.getUuid());
-        final DiskOfferingVO offering = _diskOfferingDao.persist(newDiskOffering);
-        if (offering != null) {
-            List<DiskOfferingDetailVO> detailsVO = new ArrayList<>();
-            for (Long domainId : filteredDomainIds) {
-                detailsVO.add(new DiskOfferingDetailVO(offering.getId(), ApiConstants.DOMAIN_ID, String.valueOf(domainId), false));
-            }
-            if (CollectionUtils.isNotEmpty(zoneIds)) {
-                for (Long zoneId : zoneIds) {
-                    detailsVO.add(new DiskOfferingDetailVO(offering.getId(), ApiConstants.ZONE_ID, String.valueOf(zoneId), false));
-                }
-            }
-
-            if (MapUtils.isNotEmpty(details)) {
-                details.forEach((key, value) -> {
-                    boolean displayDetail = !StringUtils.equalsAny(key, Volume.BANDWIDTH_LIMIT_IN_MBPS, Volume.IOPS_LIMIT);
-                    detailsVO.add(new DiskOfferingDetailVO(offering.getId(), key, value, displayDetail));
-                });
-            }
-            if (storagePolicyID != null) {
-                detailsVO.add(new DiskOfferingDetailVO(offering.getId(), ApiConstants.STORAGE_POLICY, String.valueOf(storagePolicyID), false));
-            }
-            if (!detailsVO.isEmpty()) {
-                diskOfferingDetailsDao.saveDetails(detailsVO);
-            }
-            CallContext.current().setEventDetails("Disk offering ID: " + newDiskOffering.getUuid());
-            CallContext.current().putContextParameter(DiskOffering.class, newDiskOffering.getId());
-            return offering;
-        }
-        return null;
-    }
-
     @Override
     public DiskOffering createDiskOffering(final CreateDiskOfferingCmd cmd) {
         return diskOfferingService.createDiskOffering(cmd);
     }
 
-    /**
-     * Validates rate offerings, being flexible about which rate is being validated (e.g. read/write Bytes, read/write IOPS).</br>
-     * It throws InvalidParameterValueException if normal rate is greater than maximum rate
-     */
-    protected void validateMaxRateEqualsOrGreater(Long normalRate, Long maxRate, String rateType) {
-        if (normalRate != null && maxRate != null && maxRate < normalRate) {
-            throw new InvalidParameterValueException(
-                    String.format("%s rate (%d) cannot be greater than %s maximum rate (%d)", rateType, normalRate, rateType, maxRate));
-        }
-    }
-
-    /**
-     *  Throws InvalidParameterValueException if At least one of the VM disk Bytes/IOPS Read/Write length are smaller than the respective disk offering max length.</br>
-     *  It will ignore verification in case of default values (zero):
-     * <ul>
-     *  <li>vm.disk.bytes.maximum.read.length = 0</li>
-     *  <li>vm.disk.bytes.maximum.write.length = 0</li>
-     *  <li>vm.disk.iops.maximum.read.length = 0</li>
-     *  <li>vm.disk.iops.maximum.write.length = 0</li>
-     * </ul>
-     */
-    protected void validateMaximumIopsAndBytesLength(final Long iopsReadRateMaxLength, final Long iopsWriteRateMaxLength, Long bytesReadRateMaxLength, Long bytesWriteRateMaxLength) {
-        if (IOPS_MAX_READ_LENGTH.value() != null && IOPS_MAX_READ_LENGTH.value() != 0L) {
-            if (iopsReadRateMaxLength != null && iopsReadRateMaxLength > IOPS_MAX_READ_LENGTH.value()) {
-                throw new InvalidParameterValueException(String.format("IOPS read max length (%d seconds) cannot be greater than vm.disk.iops.maximum.read.length (%d seconds)",
-                        iopsReadRateMaxLength, IOPS_MAX_READ_LENGTH.value()));
-            }
-        }
-
-        if (IOPS_MAX_WRITE_LENGTH.value() != null && IOPS_MAX_WRITE_LENGTH.value() != 0L) {
-            if (iopsWriteRateMaxLength != null && iopsWriteRateMaxLength > IOPS_MAX_WRITE_LENGTH.value()) {
-                throw new InvalidParameterValueException(String.format("IOPS write max length (%d seconds) cannot be greater than vm.disk.iops.maximum.write.length (%d seconds)",
-                        iopsWriteRateMaxLength, IOPS_MAX_WRITE_LENGTH.value()));
-            }
-        }
-
-        if (BYTES_MAX_READ_LENGTH.value() != null && BYTES_MAX_READ_LENGTH.value() != 0L) {
-            if (bytesReadRateMaxLength != null && bytesReadRateMaxLength > BYTES_MAX_READ_LENGTH.value()) {
-                throw new InvalidParameterValueException(String.format("Bytes read max length (%d seconds) cannot be greater than vm.disk.bytes.maximum.read.length (%d seconds)",
-                        bytesReadRateMaxLength, BYTES_MAX_READ_LENGTH.value()));
-            }
-        }
-
-        if (BYTES_MAX_WRITE_LENGTH.value() != null && BYTES_MAX_WRITE_LENGTH.value() != 0L) {
-            if (bytesWriteRateMaxLength != null && bytesWriteRateMaxLength > BYTES_MAX_WRITE_LENGTH.value()) {
-                throw new InvalidParameterValueException(String.format("Bytes write max length (%d seconds) cannot be greater than vm.disk.bytes.maximum.write.length (%d seconds)",
-                        bytesWriteRateMaxLength, BYTES_MAX_WRITE_LENGTH.value()));
-            }
-        }
-    }
-
     @Override
     public DiskOffering updateDiskOffering(final UpdateDiskOfferingCmd cmd) {
         return diskOfferingService.updateDiskOffering(cmd);
-    }
-
-    protected void validateDomain(List<Long> domainIds) {
-        if (CollectionUtils.isEmpty(domainIds)) {
-            return;
-        }
-
-        for (final Long domainId: domainIds) {
-            if (_domainDao.findById(domainId) == null) {
-                throw new InvalidParameterValueException("Please specify a valid domain id.");
-            }
-        }
-    }
-
-    protected void validateZone(List<Long> zoneIds) {
-        if (CollectionUtils.isEmpty(zoneIds)) {
-            return;
-        }
-
-        for (Long zoneId : zoneIds) {
-            if (_zoneDao.findById(zoneId) == null) {
-                throw new InvalidParameterValueException("Please specify a valid zone id.");
-            }
-        }
-    }
-
-    protected void updateDiskOfferingIfCmdAttributeNotNull(DiskOfferingVO diskOffering, UpdateDiskOfferingCmd cmd) {
-        if (cmd.getDiskOfferingName() != null) {
-            diskOffering.setName(cmd.getDiskOfferingName());
-        }
-
-        if (cmd.getDisplayText() != null) {
-            diskOffering.setDisplayText(cmd.getDisplayText());
-        }
-
-        if (cmd.getSortKey() != null) {
-            diskOffering.setSortKey(cmd.getSortKey());
-        }
-
-        if (cmd.getDisplayOffering() != null) {
-            diskOffering.setDisplayOffering(cmd.getDisplayOffering());
-        }
-    }
-
-    protected void updateDiskOfferingDetails(List<DiskOfferingDetailVO> detailsVO, Long diskOfferingId, List<Long> filteredDomainIds,
-                                           List<Long> existingDomainIds, List<Long> filteredZoneIds, List<Long> existingZoneIds) {
-        SearchBuilder<DiskOfferingDetailVO> sb = diskOfferingDetailsDao.createSearchBuilder();
-        sb.and("offeringId", sb.entity().getResourceId(), SearchCriteria.Op.EQ);
-        sb.and("detailName", sb.entity().getName(), SearchCriteria.Op.EQ);
-        sb.done();
-        SearchCriteria<DiskOfferingDetailVO> sc = sb.create();
-        sc.setParameters("offeringId", String.valueOf(diskOfferingId));
-
-        updateDiskOfferingDetailsDomainIds(detailsVO, sc, diskOfferingId, filteredDomainIds, existingDomainIds);
-        updateDiskOfferingDetailsZoneIds(detailsVO, sc, diskOfferingId, filteredZoneIds, existingZoneIds);
-    }
-
-    protected void updateDiskOfferingDetailsDomainIds(List<DiskOfferingDetailVO> detailsVO, SearchCriteria<DiskOfferingDetailVO> sc, Long diskOfferingId, List<Long> filteredDomainIds, List<Long> existingDomainIds) {
-        if (filteredDomainIds.equals(existingDomainIds)) {
-            return;
-        }
-
-        sc.setParameters("detailName", ApiConstants.DOMAIN_ID);
-        diskOfferingDetailsDao.remove(sc);
-        for (Long domainId : filteredDomainIds) {
-            detailsVO.add(new DiskOfferingDetailVO(diskOfferingId, ApiConstants.DOMAIN_ID, String.valueOf(domainId), false));
-        }
-    }
-
-    protected void updateDiskOfferingDetailsZoneIds(List<DiskOfferingDetailVO> detailsVO, SearchCriteria<DiskOfferingDetailVO> sc, Long diskOfferingId, List<Long> filteredZoneIds, List<Long> existingZoneIds) {
-        if (filteredZoneIds.equals(existingZoneIds)) {
-            return;
-        }
-
-        sc.setParameters("detailName", ApiConstants.ZONE_ID);
-        diskOfferingDetailsDao.remove(sc);
-        for (Long zoneId : filteredZoneIds) {
-            detailsVO.add(new DiskOfferingDetailVO(diskOfferingId, ApiConstants.ZONE_ID, String.valueOf(zoneId), false));
-        }
-    }
-
-    protected void checkDomainAdminUpdateOfferingRestrictions(DiskOffering diskOffering, User user, List<Long> filteredZoneIds, List<Long> existingZoneIds,
-                                                            List<Long> existingDomainIds, List<Long> filteredDomainIds) {
-        if (!filteredZoneIds.equals(existingZoneIds)) {
-            throw new InvalidParameterValueException(String.format("Unable to update zone(s) for disk offering [%s] by admin [%s] as it is domain-admin.", diskOffering, user));
-        }
-        if (existingDomainIds.isEmpty()) {
-            throw new InvalidParameterValueException(String.format("Unable to update public disk offering [%s] by user [%s] because it is domain-admin.", diskOffering, user));
-        }
-        if (filteredDomainIds.isEmpty()) {
-            throw new InvalidParameterValueException(String.format("Unable to update disk offering [%s] to a public offering by user [%s] because it is domain-admin.", diskOffering, user));
-        }
-    }
-
-    protected List<Long> getAccountNonChildDomains(DiskOffering diskOffering, Account account, User user,
-                                                 UpdateDiskOfferingCmd cmd, List<Long> existingDomainIds) {
-        List<Long> nonChildDomains = new ArrayList<>();
-        String name = cmd.getDiskOfferingName();
-        String displayText = cmd.getDisplayText();
-        Integer sortKey = cmd.getSortKey();
-        for (Long domainId : existingDomainIds) {
-            if (_domainDao.isChildDomain(account.getDomainId(), domainId)) {
-                continue;
-            }
-
-            if (ObjectUtils.anyNotNull(name, displayText, sortKey)) {
-                throw new InvalidParameterValueException(String.format("Unable to update disk offering [%s] as it has linked domain(s) which are not child domain for domain-admin [%s].", diskOffering.getUuid(), user.getUuid()));
-            }
-            nonChildDomains.add(domainId);
-        }
-        return nonChildDomains;
-    }
-
-    protected void checkIfDomainIsChildDomain(DiskOffering diskOffering, Account account, User user, List<Long> filteredDomainIds) {
-        for (Long domainId : filteredDomainIds) {
-            if (_domainDao.isChildDomain(account.getDomainId(), domainId)) {
-                continue;
-            }
-
-            Domain domain = _entityMgr.findById(Domain.class, domainId);
-            throw new InvalidParameterValueException(String.format("Unable to update disk offering [%s] by domain-admin [%s] with domain [%3$s] which is not a child domain.", diskOffering.getUuid(), user.getUuid(), domain.getUuid()));
-        }
-    }
-
-    /**
-     * Check the tags parameters to the disk/service offering
-     * <ul>
-     *     <li>If tags is null, do nothing and return.</li>
-     *     <li>If tags is not null, will set tag to the disk/service offering if the pools with active volumes have the new tags.</li>
-     *     <li>If tags is an blank string, set null on disk/service offering tag.</li>
-     * </ul>
-     */
-    protected void updateOfferingTagsIfIsNotNull(String tags, DiskOfferingVO diskOffering) {
-        if (tags == null) { return; }
-        if (StringUtils.isNotBlank(tags)) {
-            tags = com.cloud.utils.StringUtils.cleanupTags(tags);
-            List<StoragePoolVO> pools = _storagePoolDao.listStoragePoolsWithActiveVolumesByOfferingId(diskOffering.getId());
-            if (CollectionUtils.isNotEmpty(pools)) {
-                List<String> listOfTags = Arrays.asList(tags.split(","));
-                for (StoragePoolVO storagePoolVO : pools) {
-                    List<StoragePoolTagVO> tagsOnPool = storagePoolTagDao.findStoragePoolTags(storagePoolVO.getId());
-                    List<String> tagsAsString = tagsOnPool.stream().map(StoragePoolTagVO::getTag).collect(Collectors.toList());
-
-                    if ((CollectionUtils.isNotEmpty(tagsAsString) && tagsAsString.containsAll(listOfTags)) ||
-                        (tagsOnPool.size() == 1 && tagsOnPool.get(0).isTagARule() &&
-                        TagAsRuleHelper.interpretTagAsRule(tagsOnPool.get(0).getTag(), tags, VolumeApiServiceImpl.storageTagRuleExecutionTimeout.value()))) {
-                        continue;
-                    }
-
-                    DiskOfferingVO offeringToRetrieveInfo = _diskOfferingDao.findById(diskOffering.getId());
-                    List<VolumeVO> volumes = _volumeDao.findByDiskOfferingId(diskOffering.getId());
-                    String listOfVolumesNamesAndUuid = ReflectionToStringBuilderUtils.reflectOnlySelectedFields(volumes, "name", "uuid");
-                    String diskOfferingInfo = ReflectionToStringBuilderUtils.reflectOnlySelectedFields(offeringToRetrieveInfo, "name", "uuid");
-                    String poolInfo = ReflectionToStringBuilderUtils.reflectOnlySelectedFields(storagePoolVO, "name", "uuid");
-                    throw new InvalidParameterValueException(String.format("There are active volumes using the disk offering %s, and the pool %s doesn't have the new tags. " +
-                            "The following volumes are using the mentioned disk offering %s. Please first add the new tags to the mentioned storage pools before adding them" +
-                            " to the disk offering.", diskOfferingInfo, poolInfo, listOfVolumesNamesAndUuid));
-                }
-            }
-            diskOffering.setTags(tags);
-        } else {
-            diskOffering.setTags(null);
-        }
     }
 
     /**
@@ -2536,23 +2138,6 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
         }
     }
 
-    /**
-     * Check if it needs to update any parameter when updateDiskoffering is called
-     * Verify if name or displayText are not blank, tags is not null, sortkey and displayDiskOffering is not null
-     */
-    protected boolean shouldUpdateDiskOffering(String name, String displayText, Integer sortKey, Boolean displayDiskOffering, String tags, String cacheMode, DiskOffering.State state) {
-        return !StringUtils.isAllBlank(name, displayText, cacheMode) || tags != null || sortKey != null || displayDiskOffering != null || state != null;
-    }
-
-    protected boolean shouldUpdateBytesRateParameters(Long bytesReadRate, Long bytesReadRateMax, Long bytesReadRateMaxLength, Long bytesWriteRate, Long bytesWriteRateMax, Long bytesWriteRateMaxLength) {
-        return bytesReadRate != null || bytesReadRateMax != null || bytesReadRateMaxLength != null || bytesWriteRate != null ||
-                bytesWriteRateMax != null || bytesWriteRateMaxLength != null;
-    }
-
-    protected boolean shouldUpdateIopsRateParameters(Long iopsReadRate, Long iopsReadRateMax, Long iopsReadRateMaxLength, Long iopsWriteRate, Long iopsWriteRateMax, Long iopsWriteRateMaxLength) {
-        return iopsReadRate != null || iopsReadRateMax != null || iopsReadRateMaxLength != null || iopsWriteRate != null || iopsWriteRateMax != null || iopsWriteRateMaxLength != null;
-    }
-
     @Override
     public boolean deleteDiskOffering(final DeleteDiskOfferingCmd cmd) {
         return diskOfferingService.deleteDiskOffering(cmd);
@@ -2560,20 +2145,12 @@ public class ConfigurationManagerImpl extends ManagerBase implements Configurati
 
     @Override
     public List<Long> getDiskOfferingDomains(Long diskOfferingId) {
-        final DiskOffering offeringHandle = _entityMgr.findById(DiskOffering.class, diskOfferingId);
-        if (offeringHandle == null) {
-            throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
-        }
-        return diskOfferingDetailsDao.findDomainIds(diskOfferingId);
+        return diskOfferingService.getDiskOfferingDomains(diskOfferingId);
     }
 
     @Override
     public List<Long> getDiskOfferingZones(Long diskOfferingId) {
-        final DiskOffering offeringHandle = _entityMgr.findById(DiskOffering.class, diskOfferingId);
-        if (offeringHandle == null) {
-            throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
-        }
-        return diskOfferingDetailsDao.findZoneIds(diskOfferingId);
+        return diskOfferingService.getDiskOfferingZones(diskOfferingId);
     }
 
     @Override

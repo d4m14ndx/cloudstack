@@ -64,17 +64,14 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -132,6 +129,9 @@ public class ConfigurationManagerCloneIntegrationTest {
     @Mock
     private DomainHelper domainHelper;
 
+    @Mock
+    private DiskOfferingService diskOfferingService;
+
     private MockedStatic<CallContext> callContextMock;
 
     // Phase 4: spy on the real NetworkOfferingServiceImpl so tests can stub
@@ -156,18 +156,6 @@ public class ConfigurationManagerCloneIntegrationTest {
         Mockito.lenient().when(account.getId()).thenReturn(1L);
         Mockito.lenient().when(user.getId()).thenReturn(1L);
         Mockito.lenient().when(entityManager.findById(eq(Domain.class), anyLong())).thenReturn(domain);
-
-        Mockito.doAnswer(invocation -> {
-            DiskOfferingVO d = mock(DiskOfferingVO.class);
-            when(d.getId()).thenReturn(999L);
-            return d;
-        }).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), anyString(), anyString(), anyString(),
-            anyLong(), anyString(), anyBoolean(), anyBoolean(), anyBoolean(), any(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyInt(), anyString(), any(), anyLong(), anyBoolean(), anyBoolean());
-
 
         // User/Account DAO stubs used by createDiskOffering
         Mockito.lenient().when(userDao.findById(anyLong())).thenReturn(userVO);
@@ -206,6 +194,7 @@ public class ConfigurationManagerCloneIntegrationTest {
         org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "_diskOfferingDao", diskOfferingDao);
         org.springframework.test.util.ReflectionTestUtils.setField(offeringCloneParameterServiceImpl, "diskOfferingDetailsDao", diskOfferingDetailsDao);
         org.springframework.test.util.ReflectionTestUtils.setField(configurationManager, "offeringCloneParameterService", offeringCloneParameterServiceImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(configurationManager, "diskOfferingService", diskOfferingService);
     }
 
     @After
@@ -374,177 +363,16 @@ public class ConfigurationManagerCloneIntegrationTest {
         Assert.assertEquals("Cloned offering should override HA", Boolean.FALSE, result.isOfferHA());
     }
 
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCloneDiskOfferingFailsWhenSourceNotFound() {
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(999L);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(diskOfferingDao.findById(999L)).thenReturn(null);
-
-        configurationManager.cloneDiskOffering(cmd);
-    }
-
     @Test
-    public void testCloneDiskOfferingInheritsAllPropertiesFromSource() {
-        Long sourceId = 1L;
-
-        DiskOfferingVO sourceOffering = mock(DiskOfferingVO.class);
-        when(sourceOffering.getId()).thenReturn(sourceId);
-        when(sourceOffering.getName()).thenReturn("source-disk");
-        when(sourceOffering.getDisplayText()).thenReturn("Source Disk Display");
-        when(sourceOffering.getDiskSize()).thenReturn(10L);
-        when(sourceOffering.getTags()).thenReturn("tag1");
-        when(sourceOffering.isCustomized()).thenReturn(false);
-        when(sourceOffering.getDisplayOffering()).thenReturn(true);
-        when(sourceOffering.isCustomizedIops()).thenReturn(false);
-        when(sourceOffering.getDiskSizeStrictness()).thenReturn(false);
-        when(sourceOffering.getEncrypt()).thenReturn(false);
-        when(sourceOffering.isUseLocalStorage()).thenReturn(false);
-        when(sourceOffering.getProvisioningType()).thenReturn(Storage.ProvisioningType.THIN);
-        when(sourceOffering.getMinIops()).thenReturn(1000L);
-        when(sourceOffering.getMaxIops()).thenReturn(2000L);
-
+    public void testCloneDiskOfferingDelegatesToDiskOfferingService() {
         CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(cmd.getDiskSize()).thenReturn(null);
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-        when(cmd.getMinIops()).thenReturn(null);
-        when(cmd.getMaxIops()).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = mock(DiskOfferingVO.class);
-        when(clonedOffering.getId()).thenReturn(2L);
-        when(clonedOffering.getName()).thenReturn("cloned-disk-offering");
-        when(clonedOffering.getDisplayText()).thenReturn("Source Disk Display");
-        when(clonedOffering.getDiskSize()).thenReturn(10L);
-        when(clonedOffering.getTags()).thenReturn("tag1");
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), anyString(), anyString(), anyString(),
-            anyLong(), anyString(), anyBoolean(), anyBoolean(), anyBoolean(), any(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyInt(), anyString(), any(), anyLong(), anyBoolean(), anyBoolean());
+        DiskOffering expected = mock(DiskOffering.class);
+        when(diskOfferingService.cloneDiskOffering(cmd)).thenReturn(expected);
 
         DiskOffering result = configurationManager.cloneDiskOffering(cmd);
 
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        verify(diskOfferingDao).findById(sourceId);
-        Assert.assertEquals("Cloned offering should have correct name", "cloned-disk-offering", result.getName());
-        Assert.assertEquals("Cloned offering should inherit display text", "Source Disk Display", result.getDisplayText());
-        Assert.assertEquals("Cloned offering should inherit disk size", 10L, result.getDiskSize());
-        Assert.assertEquals("Cloned offering should inherit tags", "tag1", result.getTags());
-    }
-
-    @Test
-    public void testCloneDiskOfferingOverridesProvidedParameters() {
-        Long sourceId = 1L;
-
-        DiskOfferingVO sourceOffering = mock(DiskOfferingVO.class);
-        when(sourceOffering.getId()).thenReturn(sourceId);
-        when(sourceOffering.getName()).thenReturn("source-disk");
-        when(sourceOffering.getDisplayText()).thenReturn("Source Disk Display");
-        when(sourceOffering.getDiskSize()).thenReturn(100L);
-        when(sourceOffering.getTags()).thenReturn("tag1");
-        when(sourceOffering.isCustomized()).thenReturn(false);
-        when(sourceOffering.getProvisioningType()).thenReturn(Storage.ProvisioningType.THIN);
-        when(sourceOffering.isUseLocalStorage()).thenReturn(false);
-
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(cmd.getDisplayText()).thenReturn("New Disk Display");
-        when(cmd.getDiskSize()).thenReturn(20L);
-        when(cmd.getTags()).thenReturn("tag1,tag2");
-        when(cmd.getFullUrlParams()).thenReturn(new HashMap<>());
-        when(cmd.getMinIops()).thenReturn(100L);
-        when(cmd.getMaxIops()).thenReturn(200L);
-
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = mock(DiskOfferingVO.class);
-        when(clonedOffering.getId()).thenReturn(2L);
-        when(clonedOffering.getName()).thenReturn("cloned-disk-offering");
-        when(clonedOffering.getDisplayText()).thenReturn("New Disk Display");
-        when(clonedOffering.getDiskSize()).thenReturn(21L);
-        when(clonedOffering.getTags()).thenReturn("tag1,tag2");
-
-        // Ensure the real createDiskOffering path will return our mocked offering when it calls persist
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), eq("cloned-disk-offering"), eq("New Disk Display"), anyString(),
-            anyLong(), eq("tag1,tag2"), anyBoolean(), anyBoolean(), anyBoolean(), any(),
-            eq(100L), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyInt(), anyString(), any(), anyLong(), anyBoolean(), anyBoolean());
-
-        DiskOffering result = configurationManager.cloneDiskOffering(cmd);
-
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        verify(diskOfferingDao).findById(sourceId);
-    }
-
-    @Test
-    public void testCloneDiskOfferingInheritsDomainAndZoneRestrictions() {
-        Long sourceId = 1L;
-
-        List<Long> domainIds = new ArrayList<>();
-        domainIds.add(1L);
-        domainIds.add(2L);
-
-        List<Long> zoneIds = new ArrayList<>();
-        zoneIds.add(1L);
-
-        DiskOfferingVO sourceOffering = mock(DiskOfferingVO.class);
-        when(sourceOffering.getId()).thenReturn(sourceId);
-        when(sourceOffering.getName()).thenReturn("source-disk");
-        when(sourceOffering.getProvisioningType()).thenReturn(Storage.ProvisioningType.THIN);
-        when(sourceOffering.isUseLocalStorage()).thenReturn(false);
-        when(sourceOffering.getDiskSize()).thenReturn(10L);
-        when(sourceOffering.getMinIops()).thenReturn(1000L);
-        when(sourceOffering.getMaxIops()).thenReturn(2000L);
-
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(cmd.getFullUrlParams()).thenReturn(new HashMap<>());
-        when(cmd.getDomainIds()).thenReturn(null);
-        when(cmd.getZoneIds()).thenReturn(null);
-        when(cmd.getDiskSize()).thenReturn(null);
-        when(cmd.getMinIops()).thenReturn(null);
-        when(cmd.getMaxIops()).thenReturn(null);
-
-
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(domainIds);
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(zoneIds);
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = mock(DiskOfferingVO.class);
-        when(clonedOffering.getId()).thenReturn(2L);
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), eq(domainIds), eq(zoneIds), anyString(), anyString(), anyString(),
-            anyLong(), anyString(), anyBoolean(), anyBoolean(), anyBoolean(), any(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyInt(), anyString(), any(), anyLong(), anyBoolean(), anyBoolean());
-
-        DiskOffering result = configurationManager.cloneDiskOffering(cmd);
-
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        verify(diskOfferingDao).findById(sourceId);
-        verify(diskOfferingDetailsDao).findDomainIds(sourceId);
-        verify(diskOfferingDetailsDao).findZoneIds(sourceId);
+        Assert.assertSame(expected, result);
+        verify(diskOfferingService).cloneDiskOffering(cmd);
     }
 
     @Test
@@ -592,165 +420,6 @@ public class ConfigurationManagerCloneIntegrationTest {
 
         Assert.assertNotNull("Cloned offering should not be null", result);
         verify(serviceOfferingDao).findById(sourceId);
-    }
-
-    @Test
-    public void testCloneDiskOfferingVerifiesInheritedValues() {
-        Long sourceId = 1L;
-
-        DiskOfferingVO sourceOffering = new DiskOfferingVO("source-disk", "Source Disk Offering",
-            Storage.ProvisioningType.THIN, 50L, "production,ssd", false, false, 1000L, 5000L);
-        sourceOffering.setDisplayOffering(true);
-        sourceOffering.setDiskSizeStrictness(false);
-        sourceOffering.setEncrypt(true);
-        sourceOffering.setUseLocalStorage(false);
-        sourceOffering.setHypervisorSnapshotReserve(20);
-
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(cmd.getFullUrlParams()).thenReturn(new HashMap<>());
-        when(cmd.getDiskSize()).thenReturn(null);
-        when(cmd.getMinIops()).thenReturn(null);
-        when(cmd.getMaxIops()).thenReturn(null);
-
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = new DiskOfferingVO("cloned-disk-offering", "Source Disk Offering",
-            Storage.ProvisioningType.THIN, 50L, "production,ssd", false, false, 1000L, 5000L);
-        clonedOffering.setEncrypt(true);
-        clonedOffering.setHypervisorSnapshotReserve(20);
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), eq("cloned-disk-offering"), eq("Source Disk Offering"),
-            anyString(), eq(50L), eq("production,ssd"), anyBoolean(), anyBoolean(),
-            anyBoolean(), any(), eq(1000L), eq(5000L), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), eq(20), anyString(), any(), anyLong(), anyBoolean(),
-            eq(true));
-
-        DiskOffering result = configurationManager.cloneDiskOffering(cmd);
-
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        Assert.assertEquals("Should inherit display text", "Source Disk Offering", result.getDisplayText());
-        Assert.assertEquals("Should inherit disk size", 50L, result.getDiskSize());
-        Assert.assertEquals("Should inherit tags", "production,ssd", result.getTags());
-        Assert.assertEquals("Should inherit min IOPS", Long.valueOf(1000L), result.getMinIops());
-        Assert.assertEquals("Should inherit max IOPS", Long.valueOf(5000L), result.getMaxIops());
-        Assert.assertEquals("Should inherit hypervisor snapshot reserve", Integer.valueOf(20), result.getHypervisorSnapshotReserve());
-        verify(diskOfferingDao).findById(sourceId);
-    }
-
-    @Test
-    public void testCloneDiskOfferingVerifiesOverriddenValues() {
-        Long sourceId = 1L;
-
-        DiskOfferingVO sourceOffering = new DiskOfferingVO("source-disk", "Source Disk Offering",
-            Storage.ProvisioningType.THIN, 5L, "production", false, false, 1000L, 5000L);
-        sourceOffering.setEncrypt(false);
-
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk-offering");
-        when(cmd.getDisplayText()).thenReturn("Cloned Disk Offering - Updated");
-        when(cmd.getDiskSize()).thenReturn(10L);
-        when(cmd.getTags()).thenReturn("production,high-performance");
-        when(cmd.getMinIops()).thenReturn(2000L);
-        when(cmd.getMaxIops()).thenReturn(10000L);
-
-        Map<String, String> params = new HashMap<>();
-        params.put(ApiConstants.ENCRYPT, "true");
-        when(cmd.getFullUrlParams()).thenReturn(params);
-        when(cmd.getEncrypt()).thenReturn(true);
-
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = new DiskOfferingVO("cloned-disk-offering", "Cloned Disk Offering - Updated",
-            Storage.ProvisioningType.THIN, 10L, "production,high-performance", false, false, 2000L, 10000L);
-        clonedOffering.setEncrypt(true);
-
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), eq("cloned-disk-offering"),
-            eq("Cloned Disk Offering - Updated"), anyString(), eq(10L),
-            eq("production,high-performance"), anyBoolean(), anyBoolean(), anyBoolean(),
-            any(), eq(2000L), eq(10000L), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyInt(), anyString(), any(), anyLong(), anyBoolean(), eq(true));
-
-        DiskOffering result = configurationManager.cloneDiskOffering(cmd);
-
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        Assert.assertEquals("Should override display text", "Cloned Disk Offering - Updated", result.getDisplayText());
-        Assert.assertEquals("Should override disk size", 10L, result.getDiskSize());
-        Assert.assertEquals("Should override tags", "production,high-performance", result.getTags());
-        Assert.assertEquals("Should override min IOPS", Long.valueOf(2000L), result.getMinIops());
-        Assert.assertEquals("Should override max IOPS", Long.valueOf(10000L), result.getMaxIops());
-        Assert.assertTrue("Should override encrypt flag", result.getEncrypt());
-        verify(diskOfferingDao).findById(sourceId);
-    }
-
-    @Test
-    public void testCloneDiskOfferingInheritsBytesReadWriteRates() {
-        Long sourceId = 1L;
-
-        DiskOfferingVO sourceOffering = new DiskOfferingVO("source-disk", "Source Disk",
-            Storage.ProvisioningType.THIN, 53L, "tag1", false, false, null, null);
-        sourceOffering.setBytesReadRate(10485760L);
-        sourceOffering.setBytesReadRateMax(20971520L);
-        sourceOffering.setBytesReadRateMaxLength(60L);
-        sourceOffering.setBytesWriteRate(10485760L);
-        sourceOffering.setBytesWriteRateMax(20971520L);
-        sourceOffering.setBytesWriteRateMaxLength(60L);
-
-        CloneDiskOfferingCmd cmd = mock(CloneDiskOfferingCmd.class);
-        when(cmd.getSourceOfferingId()).thenReturn(sourceId);
-        when(cmd.getOfferingName()).thenReturn("cloned-disk");
-        when(cmd.getFullUrlParams()).thenReturn(new HashMap<>());
-        when(cmd.getDiskSize()).thenReturn(null);
-        when(cmd.getMinIops()).thenReturn(null);
-        when(cmd.getMaxIops()).thenReturn(null);
-
-        when(diskOfferingDao.findById(sourceId)).thenReturn(sourceOffering);
-        when(diskOfferingDetailsDao.findDomainIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.findZoneIds(sourceId)).thenReturn(Collections.emptyList());
-        when(diskOfferingDetailsDao.getDetail(eq(sourceId), anyString())).thenReturn(null);
-
-        DiskOfferingVO clonedOffering = new DiskOfferingVO("cloned-disk", "Source Disk",
-            Storage.ProvisioningType.THIN, 53L, "tag1", false, false, null, null);
-        clonedOffering.setBytesReadRate(10485760L);
-        clonedOffering.setBytesReadRateMax(20971520L);
-        clonedOffering.setBytesReadRateMaxLength(60L);
-        clonedOffering.setBytesWriteRate(10485760L);
-        clonedOffering.setBytesWriteRateMax(20971520L);
-        clonedOffering.setBytesWriteRateMaxLength(60L);
-        when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(clonedOffering);
-
-        Mockito.doReturn(clonedOffering).when(configurationManager).createDiskOffering(
-            anyLong(), anyList(), anyList(), anyString(), anyString(), anyString(),
-            anyLong(), anyString(), anyBoolean(), anyBoolean(), anyBoolean(), any(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyLong(),
-            anyInt(), anyString(), any(), anyLong(), anyBoolean(), anyBoolean());
-
-        DiskOffering result = configurationManager.cloneDiskOffering(cmd);
-
-        Assert.assertNotNull("Cloned disk offering should not be null", result);
-        Assert.assertEquals("Should inherit bytes read rate", Long.valueOf(10485760L), result.getBytesReadRate());
-        Assert.assertEquals("Should inherit bytes read rate max", Long.valueOf(20971520L), result.getBytesReadRateMax());
-        Assert.assertEquals("Should inherit bytes read rate max length", Long.valueOf(60L), result.getBytesReadRateMaxLength());
-        Assert.assertEquals("Should inherit bytes write rate", Long.valueOf(10485760L), result.getBytesWriteRate());
-        Assert.assertEquals("Should inherit bytes write rate max", Long.valueOf(20971520L), result.getBytesWriteRateMax());
-        Assert.assertEquals("Should inherit bytes write rate max length", Long.valueOf(60L), result.getBytesWriteRateMaxLength());
-        verify(diskOfferingDao).findById(sourceId);
     }
 
     @Test(expected = InvalidParameterValueException.class)

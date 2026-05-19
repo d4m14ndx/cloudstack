@@ -34,6 +34,7 @@ import jakarta.inject.Inject;
 import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
+import org.apache.cloudstack.api.command.admin.offering.CloneDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.CreateDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.DeleteDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
@@ -80,14 +81,13 @@ import com.cloud.utils.db.SearchCriteria;
 import com.google.common.base.Enums;
 
 /**
- * Disk-offering CRUD — extracted from {@link ConfigurationManagerImpl}.
+ * Disk-offering create/clone/read/update/delete — extracted from
+ * {@link ConfigurationManagerImpl}.
  *
  * <p>Holds local copies of the shared bytes/IOPS-rate validators and
- * cache-mode / domain / zone helpers so this slice has no back-reference into
- * the manager. {@link ConfigurationManagerImpl} retains its own equivalent
- * helpers because existing Mockito-spy unit tests (and the protected
- * {@code createDiskOffering(userId, ...)} overload used by service-offering
- * creation) still call them directly.
+ * cache-mode / domain / zone helpers so this service owns the disk-offering
+ * write and read paths. Service-offering root-disk creation remains owned by
+ * service-offering code.
  *
  * @see DiskOfferingService
  */
@@ -125,6 +125,8 @@ public class DiskOfferingServiceImpl implements DiskOfferingService {
     private AnnotationDao annotationDao;
     @Inject
     private DomainHelper domainHelper;
+    @Inject
+    private OfferingCloneParameterService offeringCloneParameterService;
 
     // ------------------------------------------------------------------
     // DiskOfferingService contract
@@ -220,6 +222,54 @@ public class DiskOfferingServiceImpl implements DiskOfferingService {
                 maxIops, bytesReadRate, bytesReadRateMax, bytesReadRateMaxLength, bytesWriteRate, bytesWriteRateMax, bytesWriteRateMaxLength,
                 iopsReadRate, iopsReadRateMax, iopsReadRateMaxLength, iopsWriteRate, iopsWriteRateMax, iopsWriteRateMaxLength,
                 hypervisorSnapshotReserve, cacheMode, details, storagePolicyId, diskSizeStrictness, encrypt);
+    }
+
+    @Override
+    public DiskOffering cloneDiskOffering(final CloneDiskOfferingCmd cmd) {
+        final long userId = CallContext.current().getCallingUserId();
+        final DiskOfferingVO sourceOffering = offeringCloneParameterService.getAndValidateSourceDiskOffering(cmd.getSourceOfferingId());
+        final Map<String, String> requestParams = cmd.getFullUrlParams();
+
+        final String name = cmd.getOfferingName();
+        final String displayText = offeringCloneParameterService.getOrDefault(cmd.getDisplayText(), sourceOffering.getDisplayText());
+        final String provisioningType = offeringCloneParameterService.getOrDefault(cmd.getProvisioningType(), sourceOffering.getProvisioningType().toString());
+        final Long diskSize = offeringCloneParameterService.getOrDefault(cmd.getDiskSize(), sourceOffering.getDiskSize());
+        final String tags = offeringCloneParameterService.getOrDefault(cmd.getTags(), sourceOffering.getTags());
+
+        final Boolean isCustomized = offeringCloneParameterService.resolveBooleanParam(requestParams, ApiConstants.CUSTOMIZED, cmd::isCustomized, sourceOffering.isCustomized());
+        final Boolean displayOffering = offeringCloneParameterService.resolveBooleanParam(requestParams, ApiConstants.DISPLAY_OFFERING, cmd::getDisplayOffering, sourceOffering.getDisplayOffering());
+        final Boolean isCustomizedIops = offeringCloneParameterService.getOrDefault(cmd.isCustomizedIops(), sourceOffering.isCustomizedIops());
+        final Boolean diskSizeStrictness = offeringCloneParameterService.resolveBooleanParam(requestParams, ApiConstants.DISK_SIZE_STRICTNESS, cmd::getDiskSizeStrictness, sourceOffering.getDiskSizeStrictness());
+        final Boolean encrypt = offeringCloneParameterService.resolveBooleanParam(requestParams, ApiConstants.ENCRYPT, cmd::getEncrypt, sourceOffering.getEncrypt());
+
+        final List<Long> domainIds = offeringCloneParameterService.resolveDomainIdsForDiskOffering(cmd, sourceOffering);
+        final List<Long> zoneIds = offeringCloneParameterService.resolveZoneIdsForDiskOffering(cmd, sourceOffering);
+        final boolean localStorageRequired = offeringCloneParameterService.resolveLocalStorageRequired(cmd, sourceOffering);
+        final OfferingCloneParameterServiceImpl.ClonedDiskIopsParams iopsParams = offeringCloneParameterService.resolveDiskIopsParams(cmd, sourceOffering);
+        final OfferingCloneParameterServiceImpl.ClonedDiskRateParams rateParams = offeringCloneParameterService.resolveDiskRateParams(cmd, sourceOffering);
+        final Integer hypervisorSnapshotReserve = offeringCloneParameterService.getOrDefault(cmd.getHypervisorSnapshotReserve(), sourceOffering.getHypervisorSnapshotReserve());
+        final String cacheMode = offeringCloneParameterService.resolveCacheMode(cmd, sourceOffering);
+        final Long storagePolicy = offeringCloneParameterService.resolveStoragePolicyForDiskOffering(cmd, sourceOffering);
+        final Map<String, String> mergedDetails = offeringCloneParameterService.mergeDiskOfferingDetails(cmd, sourceOffering);
+
+        if (cmd.getCacheMode() != null) {
+            validateCacheMode(cmd.getCacheMode());
+        }
+
+        validateMaxRateEqualsOrGreater(iopsParams.iopsReadRate, iopsParams.iopsReadRateMax, IOPS_READ_RATE);
+        validateMaxRateEqualsOrGreater(iopsParams.iopsWriteRate, iopsParams.iopsWriteRateMax, IOPS_WRITE_RATE);
+        validateMaxRateEqualsOrGreater(rateParams.bytesReadRate, rateParams.bytesReadRateMax, BYTES_READ_RATE);
+        validateMaxRateEqualsOrGreater(rateParams.bytesWriteRate, rateParams.bytesWriteRateMax, BYTES_WRITE_RATE);
+        validateMaximumIopsAndBytesLength(iopsParams.iopsReadRateMaxLength, iopsParams.iopsWriteRateMaxLength,
+                rateParams.bytesReadRateMaxLength, rateParams.bytesWriteRateMaxLength);
+
+        return persistDiskOffering(userId, domainIds, zoneIds, name, displayText, provisioningType, diskSize, tags,
+                isCustomized, localStorageRequired, displayOffering, isCustomizedIops, iopsParams.minIops, iopsParams.maxIops,
+                rateParams.bytesReadRate, rateParams.bytesReadRateMax, rateParams.bytesReadRateMaxLength,
+                rateParams.bytesWriteRate, rateParams.bytesWriteRateMax, rateParams.bytesWriteRateMaxLength,
+                iopsParams.iopsReadRate, iopsParams.iopsReadRateMax, iopsParams.iopsReadRateMaxLength,
+                iopsParams.iopsWriteRate, iopsParams.iopsWriteRateMax, iopsParams.iopsWriteRateMaxLength,
+                hypervisorSnapshotReserve, cacheMode, mergedDetails, storagePolicy, diskSizeStrictness, encrypt);
     }
 
     @Override
@@ -391,16 +441,31 @@ public class DiskOfferingServiceImpl implements DiskOfferingService {
         }
     }
 
+    @Override
+    public List<Long> getDiskOfferingDomains(Long diskOfferingId) {
+        final DiskOffering offeringHandle = _entityMgr.findById(DiskOffering.class, diskOfferingId);
+        if (offeringHandle == null) {
+            throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
+        }
+        return diskOfferingDetailsDao.findDomainIds(diskOfferingId);
+    }
+
+    @Override
+    public List<Long> getDiskOfferingZones(Long diskOfferingId) {
+        final DiskOffering offeringHandle = _entityMgr.findById(DiskOffering.class, diskOfferingId);
+        if (offeringHandle == null) {
+            throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
+        }
+        return diskOfferingDetailsDao.findZoneIds(diskOfferingId);
+    }
+
     // ------------------------------------------------------------------
-    // Internal helpers — local copies of the manager helpers so this slice
-    // has no back-reference into ConfigurationManagerImpl.
+    // Internal helpers for the disk-offering write path.
     // ------------------------------------------------------------------
 
     /**
-     * Inner persistence path for {@code createDiskOffering(cmd)}. Mirrors the
-     * protected {@code createDiskOffering(userId, ...)} on the manager (which
-     * is still called from service-offering creation) and was lifted here so
-     * the slice owns its own write path.
+     * Inner persistence path for disk-offering create and clone. Service-offering
+     * root-disk creation owns a separate path in service-offering code.
      */
     protected DiskOfferingVO persistDiskOffering(final Long userId, final List<Long> domainIds, final List<Long> zoneIds, final String name, final String description, final String provisioningType,
                                                  final Long numGibibytes, String tags, boolean isCustomized, final boolean localStorageRequired,

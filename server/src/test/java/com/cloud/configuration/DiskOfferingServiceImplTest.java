@@ -21,13 +21,18 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.cloudstack.api.ApiConstants;
+import org.apache.cloudstack.api.command.admin.offering.CloneDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.CreateDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.DeleteDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
@@ -51,6 +56,7 @@ import com.cloud.domain.dao.DomainDao;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.offering.DiskOffering;
 import com.cloud.storage.DiskOfferingVO;
+import com.cloud.storage.Storage;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.StoragePoolTagsDao;
 import com.cloud.storage.dao.VolumeDao;
@@ -89,6 +95,7 @@ public class DiskOfferingServiceImplTest {
     @Mock private VolumeDao volumeDao;
     @Mock private AnnotationDao annotationDao;
     @Mock private DomainHelper domainHelper;
+    @Mock private OfferingCloneParameterService offeringCloneParameterService;
 
     @InjectMocks
     private DiskOfferingServiceImpl service;
@@ -121,6 +128,7 @@ public class DiskOfferingServiceImplTest {
         ReflectionTestUtils.setField(service, "_volumeDao", volumeDao);
         ReflectionTestUtils.setField(service, "annotationDao", annotationDao);
         ReflectionTestUtils.setField(service, "domainHelper", domainHelper);
+        ReflectionTestUtils.setField(service, "offeringCloneParameterService", offeringCloneParameterService);
 
         adminAccount = new AccountVO("admin", 1L, "domain", Account.Type.ADMIN, UUID.randomUUID().toString());
         domainAdminAccount = new AccountVO("da", 1L, "domain", Account.Type.DOMAIN_ADMIN, UUID.randomUUID().toString());
@@ -237,6 +245,106 @@ public class DiskOfferingServiceImplTest {
                 () -> service.createDiskOffering(cmd));
         assertTrue("unexpected message: " + ex.getMessage(),
                 ex.getMessage().contains("IOPS Read"));
+    }
+
+    @Test
+    public void cloneDiskOfferingPersistsInheritedValuesThroughService() {
+        CallContext.register(userVO, adminAccount);
+        CloneDiskOfferingCmd cmd = Mockito.mock(CloneDiskOfferingCmd.class);
+        DiskOfferingVO source = new DiskOfferingVO("source", "Source Display",
+                Storage.ProvisioningType.THIN, 50L, "production,ssd", false, false, 1000L, 5000L);
+        source.setDisplayOffering(true);
+        source.setDiskSizeStrictness(false);
+        source.setEncrypt(true);
+        source.setUseLocalStorage(false);
+        source.setHypervisorSnapshotReserve(20);
+
+        Mockito.when(cmd.getSourceOfferingId()).thenReturn(DO_ID);
+        Mockito.when(cmd.getOfferingName()).thenReturn("clone");
+        Mockito.when(cmd.getFullUrlParams()).thenReturn(new HashMap<>());
+        Mockito.when(offeringCloneParameterService.getAndValidateSourceDiskOffering(DO_ID)).thenReturn(source);
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, "Source Display")).thenReturn("Source Display");
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, Storage.ProvisioningType.THIN.toString())).thenReturn(Storage.ProvisioningType.THIN.toString());
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, 50L)).thenReturn(50L);
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, "production,ssd")).thenReturn("production,ssd");
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, false)).thenReturn(false);
+        Mockito.when(offeringCloneParameterService.getOrDefault(null, 20)).thenReturn(20);
+        Mockito.when(offeringCloneParameterService.resolveBooleanParam(any(), eq(ApiConstants.CUSTOMIZED),
+                Mockito.<java.util.function.Supplier<Boolean>>any(), eq(false))).thenReturn(false);
+        Mockito.when(offeringCloneParameterService.resolveBooleanParam(any(), eq(ApiConstants.DISPLAY_OFFERING),
+                Mockito.<java.util.function.Supplier<Boolean>>any(), eq(true))).thenReturn(true);
+        Mockito.when(offeringCloneParameterService.resolveBooleanParam(any(), eq(ApiConstants.DISK_SIZE_STRICTNESS),
+                Mockito.<java.util.function.Supplier<Boolean>>any(), eq(false))).thenReturn(false);
+        Mockito.when(offeringCloneParameterService.resolveBooleanParam(any(), eq(ApiConstants.ENCRYPT),
+                Mockito.<java.util.function.Supplier<Boolean>>any(), eq(true))).thenReturn(true);
+        Mockito.when(offeringCloneParameterService.resolveDomainIdsForDiskOffering(cmd, source)).thenReturn(Collections.emptyList());
+        Mockito.when(offeringCloneParameterService.resolveZoneIdsForDiskOffering(cmd, source)).thenReturn(Collections.emptyList());
+        Mockito.when(offeringCloneParameterService.resolveLocalStorageRequired(cmd, source)).thenReturn(false);
+        OfferingCloneParameterServiceImpl.ClonedDiskIopsParams iopsParams = new OfferingCloneParameterServiceImpl.ClonedDiskIopsParams();
+        iopsParams.minIops = 1000L;
+        iopsParams.maxIops = 5000L;
+        Mockito.when(offeringCloneParameterService.resolveDiskIopsParams(cmd, source)).thenReturn(iopsParams);
+        OfferingCloneParameterServiceImpl.ClonedDiskRateParams rateParams = new OfferingCloneParameterServiceImpl.ClonedDiskRateParams();
+        Mockito.when(offeringCloneParameterService.resolveDiskRateParams(cmd, source)).thenReturn(rateParams);
+        Mockito.when(offeringCloneParameterService.resolveCacheMode(cmd, source)).thenReturn(null);
+        Mockito.when(offeringCloneParameterService.resolveStoragePolicyForDiskOffering(cmd, source)).thenReturn(null);
+        Mockito.when(offeringCloneParameterService.mergeDiskOfferingDetails(cmd, source)).thenReturn(Collections.emptyMap());
+        Mockito.when(domainHelper.filterChildSubDomains(Collections.emptyList())).thenReturn(Collections.emptyList());
+        Mockito.when(userDao.findById(Mockito.anyLong())).thenReturn(userVO);
+        Mockito.when(accountDao.findById(Mockito.anyLong())).thenReturn(adminAccount);
+        DiskOfferingVO persisted = new DiskOfferingVO("clone", "Source Display",
+                Storage.ProvisioningType.THIN, 50L * 1024L * 1024L * 1024L, "production,ssd", false, false, 1000L, 5000L);
+        persisted.setEncrypt(true);
+        persisted.setHypervisorSnapshotReserve(20);
+        Mockito.when(diskOfferingDao.persist(any(DiskOfferingVO.class))).thenReturn(persisted);
+
+        DiskOffering result = service.cloneDiskOffering(cmd);
+
+        assertNotNull(result);
+        assertEquals("clone", result.getName());
+        assertEquals("Source Display", result.getDisplayText());
+        assertEquals(Long.valueOf(1000L), result.getMinIops());
+        assertEquals(Long.valueOf(5000L), result.getMaxIops());
+        assertTrue(result.getEncrypt());
+        Mockito.verify(diskOfferingDao).persist(any(DiskOfferingVO.class));
+    }
+
+    @Test
+    public void getDiskOfferingDomainsReturnsDaoValuesWhenOfferingExists() {
+        DiskOffering offering = Mockito.mock(DiskOffering.class);
+        Mockito.when(entityMgr.findById(DiskOffering.class, DO_ID)).thenReturn(offering);
+        Mockito.when(diskOfferingDetailsDao.findDomainIds(DO_ID)).thenReturn(Arrays.asList(1L, 2L));
+
+        assertEquals(Arrays.asList(1L, 2L), service.getDiskOfferingDomains(DO_ID));
+    }
+
+    @Test
+    public void getDiskOfferingDomainsThrowsWhenOfferingMissing() {
+        Mockito.when(entityMgr.findById(DiskOffering.class, DO_ID)).thenReturn(null);
+
+        InvalidParameterValueException ex = assertThrows(InvalidParameterValueException.class,
+                () -> service.getDiskOfferingDomains(DO_ID));
+        assertTrue(ex.getMessage().contains("Unable to find disk offering " + DO_ID));
+        Mockito.verifyNoInteractions(diskOfferingDetailsDao);
+    }
+
+    @Test
+    public void getDiskOfferingZonesReturnsDaoValuesWhenOfferingExists() {
+        DiskOffering offering = Mockito.mock(DiskOffering.class);
+        Mockito.when(entityMgr.findById(DiskOffering.class, DO_ID)).thenReturn(offering);
+        Mockito.when(diskOfferingDetailsDao.findZoneIds(DO_ID)).thenReturn(Arrays.asList(10L, 20L));
+
+        assertEquals(Arrays.asList(10L, 20L), service.getDiskOfferingZones(DO_ID));
+    }
+
+    @Test
+    public void getDiskOfferingZonesThrowsWhenOfferingMissing() {
+        Mockito.when(entityMgr.findById(DiskOffering.class, DO_ID)).thenReturn(null);
+
+        InvalidParameterValueException ex = assertThrows(InvalidParameterValueException.class,
+                () -> service.getDiskOfferingZones(DO_ID));
+        assertTrue(ex.getMessage().contains("Unable to find disk offering " + DO_ID));
+        Mockito.verifyNoInteractions(diskOfferingDetailsDao);
     }
 
     // ---------------------------------------------------------------------
@@ -698,5 +806,42 @@ public class DiskOfferingServiceImplTest {
         DiskOfferingVO target = Mockito.mock(DiskOfferingVO.class);
         service.updateOfferingTagsIfIsNotNull("", target);
         Mockito.verify(target).setTags(null);
+    }
+
+    @Test
+    public void updateOfferingTagsIfIsNotNullThrowsWhenActivePoolMissingTags() {
+        DiskOfferingVO target = Mockito.mock(DiskOfferingVO.class);
+        Mockito.when(target.getId()).thenReturn(DO_ID);
+        org.apache.cloudstack.storage.datastore.db.StoragePoolVO pool =
+                Mockito.mock(org.apache.cloudstack.storage.datastore.db.StoragePoolVO.class);
+        Mockito.when(pool.getId()).thenReturn(11L);
+        Mockito.when(storagePoolDao.listStoragePoolsWithActiveVolumesByOfferingId(DO_ID))
+                .thenReturn(Collections.singletonList(pool));
+        Mockito.when(storagePoolTagDao.findStoragePoolTags(11L)).thenReturn(Collections.emptyList());
+        Mockito.when(diskOfferingDao.findById(DO_ID)).thenReturn(target);
+        Mockito.when(volumeDao.findByDiskOfferingId(DO_ID)).thenReturn(Collections.emptyList());
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.updateOfferingTagsIfIsNotNull("tag1,tag2", target));
+    }
+
+    @Test
+    public void updateOfferingTagsIfIsNotNullSetsTagsWhenPoolsHaveTags() {
+        DiskOfferingVO target = Mockito.mock(DiskOfferingVO.class);
+        Mockito.when(target.getId()).thenReturn(DO_ID);
+        org.apache.cloudstack.storage.datastore.db.StoragePoolVO pool =
+                Mockito.mock(org.apache.cloudstack.storage.datastore.db.StoragePoolVO.class);
+        Mockito.when(pool.getId()).thenReturn(11L);
+        com.cloud.storage.StoragePoolTagVO tag1 = Mockito.mock(com.cloud.storage.StoragePoolTagVO.class);
+        com.cloud.storage.StoragePoolTagVO tag2 = Mockito.mock(com.cloud.storage.StoragePoolTagVO.class);
+        Mockito.when(tag1.getTag()).thenReturn("tag1");
+        Mockito.when(tag2.getTag()).thenReturn("tag2");
+        Mockito.when(storagePoolDao.listStoragePoolsWithActiveVolumesByOfferingId(DO_ID))
+                .thenReturn(Collections.singletonList(pool));
+        Mockito.when(storagePoolTagDao.findStoragePoolTags(11L)).thenReturn(Arrays.asList(tag1, tag2));
+
+        service.updateOfferingTagsIfIsNotNull("tag1,tag2", target);
+
+        Mockito.verify(target).setTags("tag1,tag2");
     }
 }
