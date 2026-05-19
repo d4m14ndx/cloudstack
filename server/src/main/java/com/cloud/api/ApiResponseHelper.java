@@ -222,9 +222,7 @@ import com.cloud.api.query.ViewResponseHelper;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.AsyncJobJoinVO;
 import com.cloud.api.query.vo.ControlledViewEntity;
-import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
-import com.cloud.api.query.vo.InstanceGroupJoinVO;
 import com.cloud.api.query.vo.NetworkOfferingJoinVO;
 import com.cloud.api.query.vo.ProjectAccountJoinVO;
 import com.cloud.api.query.vo.ProjectInvitationJoinVO;
@@ -259,7 +257,6 @@ import com.cloud.domain.DomainVO;
 import com.cloud.event.Event;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
-import com.cloud.host.ControlState;
 import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.HypervisorCapabilities;
@@ -276,7 +273,6 @@ import com.cloud.network.NetworkPermission;
 import com.cloud.network.NetworkProfile;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.IsolationType;
-import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.OvsProvider;
 import com.cloud.network.PhysicalNetwork;
 import com.cloud.network.PhysicalNetworkServiceProvider;
@@ -347,7 +343,6 @@ import com.cloud.storage.GuestOsCategory;
 import com.cloud.storage.ImageStore;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.StoragePool;
-import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.GuestOSCategoryDao;
@@ -375,16 +370,13 @@ import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.net.Dhcp;
 import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.vm.ConsoleProxyVO;
 import com.cloud.vm.InstanceGroup;
 import com.cloud.vm.Nic;
 import com.cloud.vm.NicExtraDhcpOptionVO;
-import com.cloud.vm.NicProfile;
 import com.cloud.vm.NicSecondaryIp;
 import com.cloud.vm.NicVO;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
-import com.cloud.vm.VirtualMachine.Type;
 import com.cloud.vm.dao.NicExtraDhcpOptionDao;
 import com.cloud.vm.dao.NicSecondaryIpVO;
 import com.cloud.vm.snapshot.VMSnapshot;
@@ -455,6 +447,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiVpcVpnResponseService apiVpcVpnResponseService;
     @Inject
     private ApiTemplateIsoResponseService apiTemplateIsoResponseService;
+    @Inject
+    private ApiVmSystemResponseService apiVmSystemResponseService;
     @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
@@ -686,9 +680,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public InstanceGroupResponse createInstanceGroupResponse(InstanceGroup group) {
-        InstanceGroupJoinVO vgroup = ApiDBUtils.newInstanceGroupView(group);
-        return ApiDBUtils.newInstanceGroupResponse(vgroup);
-
+        return apiVmSystemResponseService.createInstanceGroupResponse(group);
     }
 
     @Override
@@ -740,145 +732,23 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public List<UserVmResponse> createUserVmResponse(ResponseView view, String objectName, EnumSet<VMDetails> details, UserVm... userVms) {
-        List<UserVmJoinVO> viewVms = ApiDBUtils.newUserVmView(userVms);
-        return ViewResponseHelper.createUserVmResponse(view, objectName, details, viewVms.toArray(new UserVmJoinVO[viewVms.size()]));
-
+        return apiVmSystemResponseService.createUserVmResponse(view, objectName, details, userVms);
     }
 
     @Override
     public List<UserVmResponse> createUserVmResponse(ResponseView view, String objectName, UserVm... userVms) {
-        List<UserVmJoinVO> viewVms = ApiDBUtils.newUserVmView(userVms);
-        return ViewResponseHelper.createUserVmResponse(view, objectName, viewVms.toArray(new UserVmJoinVO[viewVms.size()]));
+        return apiVmSystemResponseService.createUserVmResponse(view, objectName, userVms);
     }
 
     @Override
     public DomainRouterResponse createDomainRouterResponse(VirtualRouter router) {
-        List<DomainRouterJoinVO> viewVrs = ApiDBUtils.newDomainRouterView(router);
-        List<DomainRouterResponse> listVrs = ViewResponseHelper.createDomainRouterResponse(viewVrs.toArray(new DomainRouterJoinVO[viewVrs.size()]));
-        assert listVrs != null && listVrs.size() == 1 : "There should be one virtual router returned";
-        return listVrs.get(0);
+        return apiVmSystemResponseService.createDomainRouterResponse(router);
     }
 
 
     @Override
     public SystemVmResponse createSystemVmResponse(VirtualMachine vm) {
-        SystemVmResponse vmResponse = new SystemVmResponse();
-        if (vm.getType() == Type.SecondaryStorageVm || vm.getType() == Type.ConsoleProxy || vm.getType() == Type.DomainRouter || vm.getType() == Type.NetScalerVm) {
-            vmResponse.setId(vm.getUuid());
-            vmResponse.setSystemVmType(vm.getType().toString().toLowerCase());
-            vmResponse.setName(vm.getHostName());
-
-            if (vm.getPodIdToDeployIn() != null) {
-                HostPodVO pod = ApiDBUtils.findPodById(vm.getPodIdToDeployIn());
-                if (pod != null) {
-                    vmResponse.setPodId(pod.getUuid());
-                    vmResponse.setPodName(pod.getName());
-                }
-            }
-            VMTemplateVO template = ApiDBUtils.findTemplateById(vm.getTemplateId());
-            if (template != null) {
-                vmResponse.setTemplateId(template.getUuid());
-                vmResponse.setTemplateName(template.getName());
-                vmResponse.setArch(template.getArch().getType());
-            }
-            vmResponse.setCreated(vm.getCreated());
-            vmResponse.setHypervisor(vm.getHypervisorType().getHypervisorDisplayName());
-
-            ServiceOffering serviceOffering = ApiDBUtils.findServiceOfferingById(vm.getServiceOfferingId());
-            if (serviceOffering != null) {
-                vmResponse.setServiceOfferingId(serviceOffering.getUuid());
-                vmResponse.setServiceOfferingName(serviceOffering.getName());
-            }
-
-            if (vm.getHostId() != null) {
-                Host host = ApiDBUtils.findHostById(vm.getHostId());
-                if (host != null) {
-                    vmResponse.setHostId(host.getUuid());
-                    vmResponse.setHostName(host.getName());
-                    vmResponse.setHostControlState(ControlState.getControlState(host.getStatus(), host.getResourceState()).toString());
-                }
-            }
-
-            if (VirtualMachine.systemVMs.contains(vm.getType())) {
-                Host systemVmHost = ApiDBUtils.findHostByTypeNameAndZoneId(vm.getDataCenterId(), vm.getHostName(),
-                        Type.SecondaryStorageVm.equals(vm.getType()) ? Host.Type.SecondaryStorageVM : Host.Type.ConsoleProxy);
-                if (systemVmHost != null) {
-                    vmResponse.setAgentState(systemVmHost.getStatus());
-                    vmResponse.setDisconnectedOn(systemVmHost.getDisconnectedOn());
-                    vmResponse.setVersion(systemVmHost.getVersion());
-                }
-            }
-
-            if (vm.getState() != null) {
-                vmResponse.setState(vm.getState().toString());
-            }
-
-            vmResponse.setDynamicallyScalable(vm.isDynamicallyScalable());
-            // for console proxies, add the active sessions
-            if (vm.getType() == Type.ConsoleProxy) {
-                ConsoleProxyVO proxy = ApiDBUtils.findConsoleProxy(vm.getId());
-                // proxy can be already destroyed
-                if (proxy != null) {
-                    vmResponse.setActiveViewerSessions(proxy.getActiveSession());
-                }
-            }
-
-            DataCenter zone = ApiDBUtils.findZoneById(vm.getDataCenterId());
-            if (zone != null) {
-                vmResponse.setZoneId(zone.getUuid());
-                vmResponse.setZoneName(zone.getName());
-                vmResponse.setDns1(zone.getDns1());
-                vmResponse.setDns2(zone.getDns2());
-            }
-
-            vmResponse.setHasAnnotation(annotationDao.hasAnnotations(vm.getUuid(), AnnotationService.EntityType.SYSTEM_VM.name(),
-                    _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-            List<NicProfile> nicProfiles = ApiDBUtils.getNics(vm);
-            for (NicProfile singleNicProfile : nicProfiles) {
-                Network network = ApiDBUtils.findNetworkById(singleNicProfile.getNetworkId());
-                if (network != null) {
-                    if (network.getTrafficType() == TrafficType.Management) {
-                        vmResponse.setPrivateIp(singleNicProfile.getIPv4Address());
-                        vmResponse.setPrivateMacAddress(singleNicProfile.getMacAddress());
-                        vmResponse.setPrivateNetmask(singleNicProfile.getIPv4Netmask());
-                    } else if (network.getTrafficType() == TrafficType.Control) {
-                        vmResponse.setLinkLocalIp(singleNicProfile.getIPv4Address());
-                        vmResponse.setLinkLocalMacAddress(singleNicProfile.getMacAddress());
-                        vmResponse.setLinkLocalNetmask(singleNicProfile.getIPv4Netmask());
-                    } else if (network.getTrafficType() == TrafficType.Public) {
-                        vmResponse.setPublicIp(singleNicProfile.getIPv4Address());
-                        vmResponse.setPublicMacAddress(singleNicProfile.getMacAddress());
-                        vmResponse.setPublicNetmask(singleNicProfile.getIPv4Netmask());
-                        vmResponse.setGateway(singleNicProfile.getIPv4Gateway());
-                    } else if (network.getTrafficType() == TrafficType.Guest) {
-                        /*
-                          * In basic zone, public ip has TrafficType.Guest in case EIP service is not enabled.
-                          * When EIP service is enabled in the basic zone, system VM by default get the public
-                          * IP allocated for EIP. So return the guest/public IP accordingly.
-                          * */
-                        NetworkOffering networkOffering = ApiDBUtils.findNetworkOfferingById(network.getNetworkOfferingId());
-                        if (networkOffering.isElasticIp()) {
-                            IpAddress ip = ApiDBUtils.findIpByAssociatedVmId(vm.getId());
-                            if (ip != null) {
-                                Vlan vlan = ApiDBUtils.findVlanById(ip.getVlanId());
-                                vmResponse.setPublicIp(ip.getAddress().addr());
-                                vmResponse.setPublicNetmask(vlan.getVlanNetmask());
-                                vmResponse.setGateway(vlan.getVlanGateway());
-                            }
-                        } else {
-                            vmResponse.setPublicIp(singleNicProfile.getIPv4Address());
-                            vmResponse.setPublicMacAddress(singleNicProfile.getMacAddress());
-                            vmResponse.setPublicNetmask(singleNicProfile.getIPv4Netmask());
-                            vmResponse.setGateway(singleNicProfile.getIPv4Gateway());
-                        }
-                    } else if (network.getTrafficType() == TrafficType.Storage) {
-                        vmResponse.setStorageIp(singleNicProfile.getIPv4Address());
-                    }
-                }
-            }
-        }
-        vmResponse.setObjectName("systemvm");
-        return vmResponse;
+        return apiVmSystemResponseService.createSystemVmResponse(vm);
     }
 
     @Override
@@ -1796,27 +1666,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public SystemVmInstanceResponse createSystemVmInstanceResponse(VirtualMachine vm) {
-        SystemVmInstanceResponse vmResponse = new SystemVmInstanceResponse();
-        vmResponse.setId(vm.getUuid());
-        vmResponse.setSystemVmType(vm.getType().toString().toLowerCase());
-        vmResponse.setName(vm.getHostName());
-        if (vm.getHostId() != null) {
-            Host host = ApiDBUtils.findHostById(vm.getHostId());
-            if (host != null) {
-                vmResponse.setHostId(host.getUuid());
-            }
-        }
-        if (vm.getState() != null) {
-            vmResponse.setState(vm.getState().toString());
-        }
-        if (vm.getType() == Type.DomainRouter) {
-            VirtualRouter router = (VirtualRouter)vm;
-            if (router.getRole() != null) {
-                vmResponse.setRole(router.getRole().toString());
-            }
-        }
-        vmResponse.setObjectName("systemvminstance");
-        return vmResponse;
+        return apiVmSystemResponseService.createSystemVmInstanceResponse(vm);
     }
 
     @Override
@@ -2481,17 +2331,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public ListResponse<UpgradeRouterTemplateResponse> createUpgradeRouterTemplateResponse(List<Long> jobIds) {
-        ListResponse<UpgradeRouterTemplateResponse> response = new ListResponse<UpgradeRouterTemplateResponse>();
-        List<UpgradeRouterTemplateResponse> responses = new ArrayList<UpgradeRouterTemplateResponse>();
-        for (Long jobId : jobIds) {
-            UpgradeRouterTemplateResponse routerResponse = new UpgradeRouterTemplateResponse();
-            AsyncJob job = _entityMgr.findById(AsyncJob.class, jobId);
-            routerResponse.setJobId((job.getUuid()));
-            routerResponse.setObjectName("asyncjobs");
-            responses.add(routerResponse);
-        }
-        response.setResponses(responses);
-        return response;
+        return apiVmSystemResponseService.createUpgradeRouterTemplateResponse(jobIds);
     }
 
     @Override
@@ -2565,28 +2405,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public List<RouterHealthCheckResultResponse> createHealthCheckResponse(VirtualMachine router, List<RouterHealthCheckResult> healthCheckResults) {
-        List<RouterHealthCheckResultResponse> responses = new ArrayList<>(healthCheckResults.size());
-        for (RouterHealthCheckResult hcResult : healthCheckResults) {
-            RouterHealthCheckResultResponse healthCheckResponse = new RouterHealthCheckResultResponse();
-            healthCheckResponse.setObjectName("routerhealthchecks");
-            healthCheckResponse.setCheckName(hcResult.getCheckName());
-            healthCheckResponse.setCheckType(hcResult.getCheckType());
-            switch (hcResult.getCheckResult()) {
-                case SUCCESS:
-                    healthCheckResponse.setResult(true);
-                    break;
-                case FAILED:
-                    healthCheckResponse.setResult(false);
-                    break;
-                default:
-                    // no result if not definite
-            }
-            healthCheckResponse.setState(hcResult.getCheckResult());
-            healthCheckResponse.setLastUpdated(hcResult.getLastUpdateTime());
-            healthCheckResponse.setDetails(hcResult.getParsedCheckDetails());
-            responses.add(healthCheckResponse);
-        }
-        return responses;
+        return apiVmSystemResponseService.createHealthCheckResponse(router, healthCheckResults);
     }
 
     @Override

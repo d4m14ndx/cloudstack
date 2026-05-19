@@ -46,6 +46,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants.HostDetails;
+import org.apache.cloudstack.api.ApiConstants.VMDetails;
 import org.apache.cloudstack.api.ResponseObject;
 import org.apache.cloudstack.api.ResponseObject.ResponseView;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
@@ -68,6 +69,7 @@ import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DomainResponse;
+import org.apache.cloudstack.api.response.DomainRouterResponse;
 import org.apache.cloudstack.api.response.ExtractResponse;
 import org.apache.cloudstack.api.response.FirewallResponse;
 import org.apache.cloudstack.api.response.FirewallRuleResponse;
@@ -78,6 +80,7 @@ import org.apache.cloudstack.api.response.HostResponse;
 import org.apache.cloudstack.api.response.IPAddressResponse;
 import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
 import org.apache.cloudstack.api.response.ImageStoreResponse;
+import org.apache.cloudstack.api.response.InstanceGroupResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
 import org.apache.cloudstack.api.response.LBHealthCheckResponse;
 import org.apache.cloudstack.api.response.LBStickinessResponse;
@@ -90,6 +93,7 @@ import org.apache.cloudstack.api.response.PodResponse;
 import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.ResourceLimitResponse;
+import org.apache.cloudstack.api.response.RouterHealthCheckResultResponse;
 import org.apache.cloudstack.api.response.SecondaryStorageHeuristicsResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
@@ -103,9 +107,13 @@ import org.apache.cloudstack.api.response.Site2SiteVpnGatewayResponse;
 import org.apache.cloudstack.api.response.StaticRouteResponse;
 import org.apache.cloudstack.api.response.StorageNetworkIpRangeResponse;
 import org.apache.cloudstack.api.response.StoragePoolResponse;
+import org.apache.cloudstack.api.response.SystemVmInstanceResponse;
+import org.apache.cloudstack.api.response.SystemVmResponse;
 import org.apache.cloudstack.api.response.TemplatePermissionsResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
+import org.apache.cloudstack.api.response.UpgradeRouterTemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
+import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
 import org.apache.cloudstack.api.response.UserResponse;
@@ -143,6 +151,7 @@ import com.cloud.network.IpAddress;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
+import com.cloud.network.RouterHealthCheckResult;
 import com.cloud.network.as.AutoScalePolicy;
 import com.cloud.network.as.AutoScaleVmGroup;
 import com.cloud.network.as.AutoScaleVmProfile;
@@ -167,6 +176,7 @@ import com.cloud.network.vpc.NetworkACLItem;
 import com.cloud.network.vpc.StaticRoute;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.network.vpc.VpcOffering;
+import com.cloud.network.router.VirtualRouter;
 import com.cloud.org.Cluster;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
@@ -196,8 +206,10 @@ import com.cloud.uservm.UserVm;
 import com.cloud.utils.net.Ip;
 import com.cloud.utils.Pair;
 import com.cloud.vm.ConsoleSessionVO;
+import com.cloud.vm.InstanceGroup;
 import com.cloud.vm.NicSecondaryIp;
 import com.cloud.vm.snapshot.VMSnapshot;
+import com.cloud.vm.VirtualMachine;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -258,6 +270,8 @@ public class ApiResponseHelperTest {
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
     @Mock
     private ApiTemplateIsoResponseService apiTemplateIsoResponseService;
+    @Mock
+    private ApiVmSystemResponseService apiVmSystemResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -309,6 +323,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
         ReflectionTestUtils.setField(apiResponseHelper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
         ReflectionTestUtils.setField(helper, "apiTemplateIsoResponseService", apiTemplateIsoResponseService);
+        ReflectionTestUtils.setField(helper, "apiVmSystemResponseService", apiVmSystemResponseService);
     }
 
     @Before
@@ -680,6 +695,55 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expectedResponse, response);
         verify(apiUnmanagedInstanceResponseService).createUnmanagedInstanceResponse(instance, cluster, host);
+    }
+
+    @Test
+    public void vmSystemResponsesDelegateToService() {
+        UserVm userVm = Mockito.mock(UserVm.class);
+        List<UserVmResponse> userVmResponses = Collections.singletonList(new UserVmResponse());
+        EnumSet<VMDetails> details = EnumSet.of(VMDetails.nics);
+        Mockito.when(apiVmSystemResponseService.createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm)).thenReturn(userVmResponses);
+        Mockito.when(apiVmSystemResponseService.createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm)).thenReturn(userVmResponses);
+
+        VirtualRouter router = Mockito.mock(VirtualRouter.class);
+        DomainRouterResponse routerResponse = new DomainRouterResponse();
+        Mockito.when(apiVmSystemResponseService.createDomainRouterResponse(router)).thenReturn(routerResponse);
+
+        VirtualMachine systemVm = Mockito.mock(VirtualMachine.class);
+        SystemVmResponse systemVmResponse = new SystemVmResponse();
+        SystemVmInstanceResponse systemVmInstanceResponse = new SystemVmInstanceResponse();
+        Mockito.when(apiVmSystemResponseService.createSystemVmResponse(systemVm)).thenReturn(systemVmResponse);
+        Mockito.when(apiVmSystemResponseService.createSystemVmInstanceResponse(systemVm)).thenReturn(systemVmInstanceResponse);
+
+        InstanceGroup group = Mockito.mock(InstanceGroup.class);
+        InstanceGroupResponse groupResponse = new InstanceGroupResponse();
+        Mockito.when(apiVmSystemResponseService.createInstanceGroupResponse(group)).thenReturn(groupResponse);
+
+        List<Long> jobIds = Collections.singletonList(1L);
+        ListResponse<UpgradeRouterTemplateResponse> upgradeResponse = new ListResponse<>();
+        Mockito.when(apiVmSystemResponseService.createUpgradeRouterTemplateResponse(jobIds)).thenReturn(upgradeResponse);
+
+        List<RouterHealthCheckResult> healthCheckResults = Collections.singletonList(Mockito.mock(RouterHealthCheckResult.class));
+        List<RouterHealthCheckResultResponse> healthCheckResponses = Collections.singletonList(new RouterHealthCheckResultResponse());
+        Mockito.when(apiVmSystemResponseService.createHealthCheckResponse(systemVm, healthCheckResults)).thenReturn(healthCheckResponses);
+
+        Assert.assertSame(userVmResponses, helper.createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm));
+        Assert.assertSame(userVmResponses, helper.createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm));
+        Assert.assertSame(routerResponse, helper.createDomainRouterResponse(router));
+        Assert.assertSame(systemVmResponse, helper.createSystemVmResponse(systemVm));
+        Assert.assertSame(groupResponse, helper.createInstanceGroupResponse(group));
+        Assert.assertSame(systemVmInstanceResponse, helper.createSystemVmInstanceResponse(systemVm));
+        Assert.assertSame(upgradeResponse, helper.createUpgradeRouterTemplateResponse(jobIds));
+        Assert.assertSame(healthCheckResponses, helper.createHealthCheckResponse(systemVm, healthCheckResults));
+
+        verify(apiVmSystemResponseService).createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm);
+        verify(apiVmSystemResponseService).createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm);
+        verify(apiVmSystemResponseService).createDomainRouterResponse(router);
+        verify(apiVmSystemResponseService).createSystemVmResponse(systemVm);
+        verify(apiVmSystemResponseService).createInstanceGroupResponse(group);
+        verify(apiVmSystemResponseService).createSystemVmInstanceResponse(systemVm);
+        verify(apiVmSystemResponseService).createUpgradeRouterTemplateResponse(jobIds);
+        verify(apiVmSystemResponseService).createHealthCheckResponse(systemVm, healthCheckResults);
     }
 
     @Test
