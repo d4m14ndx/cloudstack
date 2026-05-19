@@ -16,8 +16,6 @@
 // under the License.
 package org.apache.cloudstack.engine.orchestration;
 
-import static com.cloud.configuration.ConfigurationManager.MESSAGE_DELETE_VLAN_IP_RANGE_EVENT;
-
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -168,7 +166,6 @@ import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.VpcVO;
-import com.cloud.network.vpc.dao.PrivateIpDao;
 import com.cloud.network.vpn.RemoteAccessVpnService;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.NetworkOffering.Availability;
@@ -384,8 +381,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     @Inject
     VpcManager _vpcMgr;
     @Inject
-    PrivateIpDao _privateIpDao;
-    @Inject
     NetworkModel _networkModel;
     @Inject
     RequestedNicIpReservationService requestedNicIpReservationService;
@@ -417,6 +412,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     PersistentNetworkSetupService persistentNetworkSetupService;
     @Inject
     NetworkOfferingVlanValidationService networkOfferingVlanValidationService;
+    @Inject
+    NetworkVlanRangeCleanupService networkVlanRangeCleanupService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -2780,11 +2777,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     private void publishDeletedVlanRanges(List<VlanVO> deletedVlanRangeToPublish) {
-        if (CollectionUtils.isNotEmpty(deletedVlanRangeToPublish)) {
-            for (VlanVO vlan : deletedVlanRangeToPublish) {
-                _messageBus.publish(_name, MESSAGE_DELETE_VLAN_IP_RANGE_EVENT, PublishScope.LOCAL, vlan);
-            }
-        }
+        networkVlanRangeCleanupService.publishDeletedVlanRanges(_name, deletedVlanRangeToPublish);
     }
 
     @Override
@@ -2793,38 +2786,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     protected Pair<Boolean, List<VlanVO>> deleteVlansInNetwork(final NetworkVO network, final long userId, final Account callerAccount) {
-        final long networkId = network.getId();
-        //cleanup Public vlans
-        final List<VlanVO> publicVlans = _vlanDao.listVlansByNetworkId(networkId);
-        List<VlanVO> deletedPublicVlanRange = new ArrayList<>();
-        boolean result = true;
-        for (final VlanVO vlan : publicVlans) {
-            VlanVO vlanRange = _configMgr.deleteVlanAndPublicIpRange(userId, vlan.getId(), callerAccount);
-            if (vlanRange == null) {
-                logger.warn("Failed to delete vlan [id: {}, uuid: {}];", vlan.getId(), vlan.getUuid());
-                result = false;
-            } else {
-                deletedPublicVlanRange.add(vlanRange);
-            }
-        }
-
-        //cleanup private vlans
-        final int privateIpAllocCount = _privateIpDao.countAllocatedByNetworkId(networkId);
-        if (privateIpAllocCount > 0) {
-            logger.warn("Can't delete Private IP range for Network {} as it has allocated IP addresses", network);
-            result = false;
-        } else {
-            _privateIpDao.deleteByNetworkId(networkId);
-            logger.debug("Deleted ip range for private network {}", network);
-        }
-
-        // release vlans of user-shared networks without specifyvlan
-        if (isSharedNetworkWithoutSpecifyVlan(_networkOfferingDao.findById(network.getNetworkOfferingId()))) {
-            logger.debug("Releasing vnet for the network {}", network);
-            _dcDao.releaseVnet(BroadcastDomainType.getValue(network.getBroadcastUri()), network.getDataCenterId(),
-                    network.getPhysicalNetworkId(), network.getAccountId(), network.getReservationId());
-        }
-        return new Pair<>(result, deletedPublicVlanRange);
+        return networkVlanRangeCleanupService.deleteVlansInNetwork(network, userId, callerAccount);
     }
 
     public class NetworkGarbageCollector extends ManagedContextRunnable {

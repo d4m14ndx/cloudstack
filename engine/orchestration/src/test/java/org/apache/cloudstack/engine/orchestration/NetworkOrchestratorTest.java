@@ -74,6 +74,7 @@ import com.cloud.network.vpc.VpcVO;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;
 import com.cloud.user.Account;
+import com.cloud.utils.Pair;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.Ip;
@@ -206,6 +207,7 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.networkRuleReprogrammingService = mock(NetworkRuleReprogrammingService.class);
         testOrchestrator.networkResourceCleanupService = mock(NetworkResourceCleanupService.class);
         testOrchestrator.persistentNetworkSetupService = mock(PersistentNetworkSetupService.class);
+        testOrchestrator.networkVlanRangeCleanupService = mock(NetworkVlanRangeCleanupService.class);
         RouterDefaultDnsUpdateServiceImpl dnsUpdateService = new RouterDefaultDnsUpdateServiceImpl();
         dnsUpdateService.routerDao = testOrchestrator.routerDao;
         dnsUpdateService.routerNetworkDao = testOrchestrator.routerNetworkDao;
@@ -251,6 +253,19 @@ public class NetworkOrchestratorTest extends TestCase {
         Assert.assertTrue(testOrchestrator.canUpdateInSequence(network, true));
 
         verify(testOrchestrator.networkUpdateSequenceService).canUpdateInSequence(network, true);
+    }
+
+    @Test
+    public void deleteVlansInNetworkDelegatesToNetworkVlanRangeCleanupService() {
+        NetworkVO network = mock(NetworkVO.class);
+        Account caller = mock(Account.class);
+        Pair<Boolean, List<VlanVO>> expected = new Pair<>(true, Collections.emptyList());
+        when(testOrchestrator.networkVlanRangeCleanupService.deleteVlansInNetwork(network, 42L, caller)).thenReturn(expected);
+
+        Pair<Boolean, List<VlanVO>> result = testOrchestrator.deleteVlansInNetwork(network, 42L, caller);
+
+        Assert.assertSame(expected, result);
+        verify(testOrchestrator.networkVlanRangeCleanupService).deleteVlansInNetwork(network, 42L, caller);
     }
 
     @Test
