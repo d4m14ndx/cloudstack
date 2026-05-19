@@ -71,6 +71,7 @@ import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.VpcVO;
 import com.cloud.offerings.NetworkOfferingVO;
+import com.cloud.user.Account;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.Ip;
@@ -170,6 +171,7 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.networkHostSetupService = mock(NetworkHostSetupService.class);
         testOrchestrator.networkUpdateSequenceService = mock(NetworkUpdateSequenceService.class);
         testOrchestrator.networkServiceChangeCleanupService = mock(NetworkServiceChangeCleanupService.class);
+        testOrchestrator.networkRuleReprogrammingService = mock(NetworkRuleReprogrammingService.class);
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
@@ -258,6 +260,18 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.cleanupConfigForServicesInNetwork(services, network);
 
         verify(testOrchestrator.networkServiceChangeCleanupService).cleanupConfigForServicesInNetwork(services, network);
+    }
+
+    @Test
+    public void reprogramNetworkRulesDelegatesToService() throws ResourceUnavailableException {
+        Network network = mock(Network.class);
+        Account caller = mock(Account.class);
+        long networkId = 123L;
+        when(testOrchestrator.networkRuleReprogrammingService.reprogramNetworkRules(networkId, caller, network)).thenReturn(true);
+
+        Assert.assertTrue(testOrchestrator.reprogramNetworkRules(networkId, caller, network));
+
+        verify(testOrchestrator.networkRuleReprogrammingService).reprogramNetworkRules(networkId, caller, network);
     }
 
     @Test
