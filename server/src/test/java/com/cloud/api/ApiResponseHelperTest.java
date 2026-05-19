@@ -53,6 +53,7 @@ import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
 import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
 import org.apache.cloudstack.api.response.ApiKeyPairResponse;
 import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
+import org.apache.cloudstack.api.response.BucketResponse;
 import org.apache.cloudstack.api.response.ConditionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
 import org.apache.cloudstack.api.response.CounterResponse;
@@ -67,6 +68,7 @@ import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
 import org.apache.cloudstack.api.response.IPAddressResponse;
 import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
+import org.apache.cloudstack.api.response.ImageStoreResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
 import org.apache.cloudstack.api.response.LBHealthCheckResponse;
 import org.apache.cloudstack.api.response.LBStickinessResponse;
@@ -74,23 +76,31 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.LoadBalancerResponse;
 import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
+import org.apache.cloudstack.api.response.ObjectStoreResponse;
 import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.ResourceLimitResponse;
+import org.apache.cloudstack.api.response.SecondaryStorageHeuristicsResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
 import org.apache.cloudstack.api.response.SnapshotResponse;
 import org.apache.cloudstack.api.response.SnapshotScheduleResponse;
+import org.apache.cloudstack.api.response.StorageNetworkIpRangeResponse;
+import org.apache.cloudstack.api.response.StoragePoolResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
 import org.apache.cloudstack.api.response.VMSnapshotResponse;
 import org.apache.cloudstack.api.response.VlanIpRangeResponse;
+import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.network.lb.ApplicationLoadBalancerRule;
+import org.apache.cloudstack.secstorage.heuristics.Heuristic;
+import org.apache.cloudstack.storage.object.Bucket;
+import org.apache.cloudstack.storage.object.ObjectStore;
 import org.apache.cloudstack.usage.UsageService;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
@@ -101,6 +111,7 @@ import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
+import com.cloud.dc.StorageNetworkIpRange;
 import com.cloud.dc.Vlan;
 import com.cloud.domain.DomainVO;
 import com.cloud.host.Host;
@@ -131,7 +142,10 @@ import com.cloud.resource.icon.ResourceIconVO;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
+import com.cloud.storage.ImageStore;
 import com.cloud.storage.Snapshot;
+import com.cloud.storage.StoragePool;
+import com.cloud.storage.Volume;
 import com.cloud.storage.snapshot.SnapshotPolicy;
 import com.cloud.storage.snapshot.SnapshotSchedule;
 import com.cloud.storage.GuestOsCategory;
@@ -194,6 +208,8 @@ public class ApiResponseHelperTest {
     @Mock
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
     @Mock
+    private ApiStorageResponseService apiStorageResponseService;
+    @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -236,6 +252,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
         ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
         ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
+        ReflectionTestUtils.setField(helper, "apiStorageResponseService", apiStorageResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
@@ -608,6 +625,102 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expected, response);
         verify(apiAddressVlanResponseService).createQuarantinedIpsResponse(quarantinedIp);
+    }
+
+    @Test
+    public void createVolumeResponseDelegatesToStorageResponseService() {
+        Volume volume = Mockito.mock(Volume.class);
+        VolumeResponse expected = new VolumeResponse();
+        when(apiStorageResponseService.createVolumeResponse(ResponseObject.ResponseView.Full, volume)).thenReturn(expected);
+
+        VolumeResponse response = helper.createVolumeResponse(ResponseObject.ResponseView.Full, volume);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createVolumeResponse(ResponseObject.ResponseView.Full, volume);
+    }
+
+    @Test
+    public void createStoragePoolResponseDelegatesToStorageResponseService() {
+        StoragePool pool = Mockito.mock(StoragePool.class);
+        StoragePoolResponse expected = new StoragePoolResponse();
+        when(apiStorageResponseService.createStoragePoolResponse(pool)).thenReturn(expected);
+
+        StoragePoolResponse response = helper.createStoragePoolResponse(pool);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStoragePoolResponse(pool);
+    }
+
+    @Test
+    public void createImageStoreResponseDelegatesToStorageResponseService() {
+        ImageStore imageStore = Mockito.mock(ImageStore.class);
+        ImageStoreResponse expected = new ImageStoreResponse();
+        when(apiStorageResponseService.createImageStoreResponse(imageStore)).thenReturn(expected);
+
+        ImageStoreResponse response = helper.createImageStoreResponse(imageStore);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createImageStoreResponse(imageStore);
+    }
+
+    @Test
+    public void createStoragePoolForMigrationResponseDelegatesToStorageResponseService() {
+        StoragePool pool = Mockito.mock(StoragePool.class);
+        StoragePoolResponse expected = new StoragePoolResponse();
+        when(apiStorageResponseService.createStoragePoolForMigrationResponse(pool)).thenReturn(expected);
+
+        StoragePoolResponse response = helper.createStoragePoolForMigrationResponse(pool);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStoragePoolForMigrationResponse(pool);
+    }
+
+    @Test
+    public void createStorageNetworkIpRangeResponseDelegatesToStorageResponseService() {
+        StorageNetworkIpRange range = Mockito.mock(StorageNetworkIpRange.class);
+        StorageNetworkIpRangeResponse expected = new StorageNetworkIpRangeResponse();
+        when(apiStorageResponseService.createStorageNetworkIpRangeResponse(range)).thenReturn(expected);
+
+        StorageNetworkIpRangeResponse response = helper.createStorageNetworkIpRangeResponse(range);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStorageNetworkIpRangeResponse(range);
+    }
+
+    @Test
+    public void createSecondaryStorageSelectorResponseDelegatesToStorageResponseService() {
+        Heuristic heuristic = Mockito.mock(Heuristic.class);
+        SecondaryStorageHeuristicsResponse expected = new SecondaryStorageHeuristicsResponse("id", "name", "description", "zone-id", "type", "rule", null, null);
+        when(apiStorageResponseService.createSecondaryStorageSelectorResponse(heuristic)).thenReturn(expected);
+
+        SecondaryStorageHeuristicsResponse response = helper.createSecondaryStorageSelectorResponse(heuristic);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createSecondaryStorageSelectorResponse(heuristic);
+    }
+
+    @Test
+    public void createObjectStoreResponseDelegatesToStorageResponseService() {
+        ObjectStore objectStore = Mockito.mock(ObjectStore.class);
+        ObjectStoreResponse expected = new ObjectStoreResponse();
+        when(apiStorageResponseService.createObjectStoreResponse(objectStore)).thenReturn(expected);
+
+        ObjectStoreResponse response = helper.createObjectStoreResponse(objectStore);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createObjectStoreResponse(objectStore);
+    }
+
+    @Test
+    public void createBucketResponseDelegatesToStorageResponseService() {
+        Bucket bucket = Mockito.mock(Bucket.class);
+        BucketResponse expected = new BucketResponse();
+        when(apiStorageResponseService.createBucketResponse(bucket)).thenReturn(expected);
+
+        BucketResponse response = helper.createBucketResponse(bucket);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createBucketResponse(bucket);
     }
 
     @Test

@@ -206,8 +206,6 @@ import org.apache.cloudstack.region.PortableIp;
 import org.apache.cloudstack.region.PortableIpRange;
 import org.apache.cloudstack.region.Region;
 import org.apache.cloudstack.secstorage.heuristics.Heuristic;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreDao;
-import org.apache.cloudstack.storage.datastore.db.ObjectStoreVO;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreVO;
@@ -233,7 +231,6 @@ import com.cloud.api.query.vo.DataCenterJoinVO;
 import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
 import com.cloud.api.query.vo.HostJoinVO;
-import com.cloud.api.query.vo.ImageStoreJoinVO;
 import com.cloud.api.query.vo.InstanceGroupJoinVO;
 import com.cloud.api.query.vo.NetworkOfferingJoinVO;
 import com.cloud.api.query.vo.ProjectAccountJoinVO;
@@ -242,11 +239,9 @@ import com.cloud.api.query.vo.ProjectJoinVO;
 import com.cloud.api.query.ResourceIdSupport;
 import com.cloud.api.query.vo.ResourceTagJoinVO;
 import com.cloud.api.query.vo.SecurityGroupJoinVO;
-import com.cloud.api.query.vo.StoragePoolJoinVO;
 import com.cloud.api.query.vo.TemplateJoinVO;
 import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
-import com.cloud.api.query.vo.VolumeJoinVO;
 import com.cloud.api.query.vo.VpcOfferingJoinVO;
 import com.cloud.api.response.ApiResponseSerializer;
 import com.cloud.bgp.ASNumber;
@@ -469,6 +464,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
     @Inject
+    private ApiStorageResponseService apiStorageResponseService;
+    @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -499,9 +496,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ASNumberDao asNumberDao;
 
-    @Inject
-    ObjectStoreDao _objectStoreDao;
-    @Inject
     VpcOfferingDao vpcOfferingDao;
     @Inject
     BgpPeerDao bgpPeerDao;
@@ -867,10 +861,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public VolumeResponse createVolumeResponse(ResponseView view, Volume volume) {
-        List<VolumeJoinVO> viewVrs = ApiDBUtils.newVolumeView(volume);
-        List<VolumeResponse> listVrs = ViewResponseHelper.createVolumeResponse(view, viewVrs.toArray(new VolumeJoinVO[viewVrs.size()]));
-        assert listVrs != null && listVrs.size() == 1 : "There should be one volume returned";
-        return listVrs.get(0);
+        return apiStorageResponseService.createVolumeResponse(view, volume);
     }
 
     @Override
@@ -882,26 +873,17 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public StoragePoolResponse createStoragePoolResponse(StoragePool pool) {
-        List<StoragePoolJoinVO> viewPools = ApiDBUtils.newStoragePoolView(pool);
-        List<StoragePoolResponse> listPools = ViewResponseHelper.createStoragePoolResponse(false, viewPools.toArray(new StoragePoolJoinVO[viewPools.size()]));
-        assert listPools != null && listPools.size() == 1 : "There should be one storage pool returned";
-        return listPools.get(0);
+        return apiStorageResponseService.createStoragePoolResponse(pool);
     }
 
     @Override
     public ImageStoreResponse createImageStoreResponse(ImageStore os) {
-        List<ImageStoreJoinVO> viewStores = ApiDBUtils.newImageStoreView(os);
-        List<ImageStoreResponse> listStores = ViewResponseHelper.createImageStoreResponse(viewStores.toArray(new ImageStoreJoinVO[viewStores.size()]));
-        assert listStores != null && listStores.size() == 1 : "There should be one image data store returned";
-        return listStores.get(0);
+        return apiStorageResponseService.createImageStoreResponse(os);
     }
 
     @Override
     public StoragePoolResponse createStoragePoolForMigrationResponse(StoragePool pool) {
-        List<StoragePoolJoinVO> viewPools = ApiDBUtils.newStoragePoolView(pool);
-        List<StoragePoolResponse> listPools = ViewResponseHelper.createStoragePoolForMigrationResponse(viewPools.toArray(new StoragePoolJoinVO[viewPools.size()]));
-        assert listPools != null && listPools.size() == 1 : "There should be one storage pool returned";
-        return listPools.get(0);
+        return apiStorageResponseService.createStoragePoolForMigrationResponse(pool);
     }
 
     @Override
@@ -2461,18 +2443,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public StorageNetworkIpRangeResponse createStorageNetworkIpRangeResponse(StorageNetworkIpRange result) {
-        StorageNetworkIpRangeResponse response = new StorageNetworkIpRangeResponse();
-        response.setUuid(result.getUuid());
-        response.setVlan(result.getVlan());
-        response.setEndIp(result.getEndIp());
-        response.setStartIp(result.getStartIp());
-        response.setPodUuid(result.getPodUuid());
-        response.setZoneUuid(result.getZoneUuid());
-        response.setNetworkUuid(result.getNetworkUuid());
-        response.setNetmask(result.getNetmask());
-        response.setGateway(result.getGateway());
-        response.setObjectName("storagenetworkiprange");
-        return response;
+        return apiStorageResponseService.createStorageNetworkIpRangeResponse(result);
     }
 
     @Override
@@ -3497,12 +3468,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public SecondaryStorageHeuristicsResponse createSecondaryStorageSelectorResponse(Heuristic heuristic) {
-        String zoneUuid = ApiDBUtils.findZoneById(heuristic.getZoneId()).getUuid();
-        SecondaryStorageHeuristicsResponse secondaryStorageHeuristicsResponse = new SecondaryStorageHeuristicsResponse(heuristic.getUuid(), heuristic.getName(),
-                heuristic.getDescription(), zoneUuid, heuristic.getType(), heuristic.getHeuristicRule(), heuristic.getCreated(), heuristic.getRemoved());
-        secondaryStorageHeuristicsResponse.setResponseName("secondarystorageheuristics");
-
-        return secondaryStorageHeuristicsResponse;
+        return apiStorageResponseService.createSecondaryStorageSelectorResponse(heuristic);
     }
 
     @Override
@@ -3511,39 +3477,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     }
 
     public ObjectStoreResponse createObjectStoreResponse(ObjectStore os) {
-        ObjectStoreResponse objectStoreResponse = new ObjectStoreResponse();
-        objectStoreResponse.setId(os.getUuid());
-        objectStoreResponse.setName(os.getName());
-        objectStoreResponse.setProviderName(os.getProviderName());
-        objectStoreResponse.setObjectName("objectstore");
-        return objectStoreResponse;
+        return apiStorageResponseService.createObjectStoreResponse(os);
     }
 
     @Override
     public BucketResponse createBucketResponse(Bucket bucket) {
-        BucketResponse bucketResponse = new BucketResponse();
-        bucketResponse.setName(bucket.getName());
-        bucketResponse.setId(bucket.getUuid());
-        bucketResponse.setCreated(bucket.getCreated());
-        bucketResponse.setState(bucket.getState());
-        bucketResponse.setSize(bucket.getSize());
-        if(bucket.getQuota() != null) {
-            bucketResponse.setQuota(bucket.getQuota());
-        }
-        bucketResponse.setVersioning(bucket.isVersioning());
-        bucketResponse.setEncryption(bucket.isEncryption());
-        bucketResponse.setObjectLock(bucket.isObjectLock());
-        bucketResponse.setPolicy(bucket.getPolicy());
-        bucketResponse.setBucketURL(bucket.getBucketURL());
-        bucketResponse.setAccessKey(bucket.getAccessKey());
-        bucketResponse.setSecretKey(bucket.getSecretKey());
-        ObjectStoreVO objectStoreVO = _objectStoreDao.findById(bucket.getObjectStoreId());
-        bucketResponse.setObjectStoragePoolId(objectStoreVO.getUuid());
-        bucketResponse.setObjectStoragePool(objectStoreVO.getName());
-        bucketResponse.setObjectName("bucket");
-        bucketResponse.setProvider(objectStoreVO.getProviderName());
-        populateAccount(bucketResponse, bucket.getAccountId());
-        return bucketResponse;
+        return apiStorageResponseService.createBucketResponse(bucket);
     }
 
     @Override
