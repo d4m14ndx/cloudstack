@@ -713,6 +713,17 @@ public class UserVmManagerImplTest {
                 "vmStorageMigrationService", vmStorageMigrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmBackupInstanceLifecycleService", vmBackupInstanceLifecycleService);
+        // Slice 38: wire VmAssignmentOwnershipServiceImpl so AssignVM owner
+        // mutation wrappers stay spy-compatible while the leaf behavior lives in
+        // VmAssignmentOwnershipServiceImplTest.
+        VmAssignmentOwnershipServiceImpl assignmentOwnershipService = new VmAssignmentOwnershipServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "vmDao", userVmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "volumeDao", volumeDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "diskOfferingDao", diskOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "resourceLimitService", resourceLimitMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "snapshotPolicyDao", snapshotPolicyDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(assignmentOwnershipService, "backupScheduleDao", backupScheduleDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmAssignmentOwnershipService", assignmentOwnershipService);
         // Slice 30: wire deploy-as-is OVF network mapping service so deploy paths
         // keep flowing through the manager wrapper. Branch behavior is covered in
         // VmDeployAsIsNetworkMappingServiceImplTest.

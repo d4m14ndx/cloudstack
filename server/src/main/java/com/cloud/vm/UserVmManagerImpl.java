@@ -80,7 +80,6 @@ import org.apache.cloudstack.api.command.user.vmgroup.CreateVMGroupCmd;
 import org.apache.cloudstack.api.command.user.vmgroup.DeleteVMGroupCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.backup.BackupManager;
-import org.apache.cloudstack.backup.BackupScheduleVO;
 import org.apache.cloudstack.backup.dao.BackupScheduleDao;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.cloud.entity.api.VirtualMachineEntity;
@@ -254,7 +253,6 @@ import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
-import com.cloud.storage.SnapshotPolicyVO;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.ImageFormat;
@@ -582,6 +580,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     protected VmServiceOfferingScaleService vmServiceOfferingScaleService;
     @Inject
     protected VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
+    @Inject
+    protected VmAssignmentOwnershipService vmAssignmentOwnershipService;
     @Inject
     private VmUnmanageService vmUnmanageService;
     @Inject
@@ -4997,39 +4997,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void updateVmOwner(Account newAccount, UserVmVO vm, Long domainId, Long newAccountId) {
-        logger.debug("Updating VM [{}] owner to [{}].", vm, newAccount);
-
-        vm.setAccountId(newAccountId);
-        vm.setDomainId(domainId);
-
-        _vmDao.persist(vm);
+        vmAssignmentOwnershipService.updateVmOwner(newAccount, vm, domainId, newAccountId);
     }
 
     protected void updateVolumesOwner(final List<VolumeVO> volumes, Account oldAccount, Account newAccount, Long newAccountId) {
-        logger.debug("Updating volumes owner from old account [{}] to new account [{}].", oldAccount, newAccount);
-
-        for (VolumeVO volume : volumes) {
-            logger.trace("Generating a delete volume event for volume [{}].", volume);
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_DELETE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                    Volume.class.getName(), volume.getUuid(), volume.isDisplayVolume());
-
-            logger.trace("Decrementing volume [{}] and primary storage resource count for the old account [{}].", volume, oldAccount);
-            DiskOfferingVO diskOfferingVO = _diskOfferingDao.findById(volume.getDiskOfferingId());
-            _resourceLimitMgr.decrementVolumeResourceCount(oldAccount.getAccountId(), volume.isDisplay(), volume.getSize(), diskOfferingVO);
-
-            logger.trace("Setting the new account [{}] and domain [{}] for volume [{}].", newAccount, newAccount.getDomainId(), volume);
-            volume.setAccountId(newAccountId);
-            volume.setDomainId(newAccount.getDomainId());
-
-            _volsDao.persist(volume);
-
-            logger.trace("Incrementing volume [{}] and primary storage resource count for the new account [{}].", volume, newAccount);
-            _resourceLimitMgr.incrementVolumeResourceCount(newAccount.getAccountId(), volume.isDisplay(), volume.getSize(), diskOfferingVO);
-
-            logger.trace("Generating a create volume event for volume [{}].", volume);
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_CREATE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                    volume.getDiskOfferingId(), volume.getTemplateId(), volume.getSize(), Volume.class.getName(), volume.getUuid(), volume.getInstanceId(), volume.isDisplayVolume());
-        }
+        vmAssignmentOwnershipService.updateVolumesOwner(volumes, oldAccount, newAccount, newAccountId);
     }
 
     /**
@@ -5434,33 +5406,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void updateSnapshotPolicyOwnership(List<VolumeVO> volumes, Account newAccount) {
-        logger.debug("Updating snapshot policy ownership for volumes of VM being assigned to account [{}]", newAccount);
-
-        for (VolumeVO volume : volumes) {
-            List<SnapshotPolicyVO> snapshotPolicies = snapshotPolicyDao.listByVolumeId(volume.getId());
-            for (SnapshotPolicyVO policy : snapshotPolicies) {
-                logger.trace("Updating snapshot policy [{}] ownership from account [{}] to account [{}]",
-                        policy.getId(), policy.getAccountId(), newAccount.getAccountId());
-
-                policy.setAccountId(newAccount.getAccountId());
-                policy.setDomainId(newAccount.getDomainId());
-                snapshotPolicyDao.update(policy.getId(), policy);
-            }
-        }
+        vmAssignmentOwnershipService.updateSnapshotPolicyOwnership(volumes, newAccount);
     }
 
     protected void updateBackupScheduleOwnership(UserVmVO vm, Account newAccount) {
-        logger.debug("Updating backup schedule ownership for VM [{}] being assigned to account [{}]", vm, newAccount);
-
-        List<BackupScheduleVO> backupSchedules = backupScheduleDao.listByVM(vm.getId());
-        for (BackupScheduleVO schedule : backupSchedules) {
-            logger.trace("Updating backup schedule [{}] ownership from account [{}] to account [{}]",
-                    schedule.getId(), schedule.getAccountId(), newAccount.getAccountId());
-
-            schedule.setAccountId(newAccount.getAccountId());
-            schedule.setDomainId(newAccount.getDomainId());
-            backupScheduleDao.update(schedule.getId(), schedule);
-        }
+        vmAssignmentOwnershipService.updateBackupScheduleOwnership(vm, newAccount);
     }
 
     /**
