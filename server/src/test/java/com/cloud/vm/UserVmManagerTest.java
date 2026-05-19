@@ -271,6 +271,9 @@ public class UserVmManagerTest {
         org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkDao", _networkDao);
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmCredentialResetService", credentialResetService);
         org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmServiceOfferingScaleService", vmServiceOfferingScaleService);
+        VmDeviceBusInfoServiceImpl deviceBusInfoService = new VmDeviceBusInfoServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(deviceBusInfoService, "userVmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmDeviceBusInfoService", deviceBusInfoService);
     }
 
     @Test
