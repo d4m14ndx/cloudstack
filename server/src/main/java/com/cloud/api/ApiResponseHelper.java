@@ -54,9 +54,7 @@ import org.apache.cloudstack.api.command.user.job.QueryAsyncJobResultCmd;
 import org.apache.cloudstack.api.response.ASNRangeResponse;
 import org.apache.cloudstack.api.response.ASNumberResponse;
 import org.apache.cloudstack.api.response.AccountResponse;
-import org.apache.cloudstack.api.response.ApplicationLoadBalancerInstanceResponse;
 import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
-import org.apache.cloudstack.api.response.ApplicationLoadBalancerRuleResponse;
 import org.apache.cloudstack.api.response.AsyncJobResponse;
 import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
@@ -112,9 +110,7 @@ import org.apache.cloudstack.api.response.Ipv4RouteResponse;
 import org.apache.cloudstack.api.response.Ipv6RouteResponse;
 import org.apache.cloudstack.api.response.IsolationMethodResponse;
 import org.apache.cloudstack.api.response.ApiKeyPairResponse;
-import org.apache.cloudstack.api.response.LBHealthCheckPolicyResponse;
 import org.apache.cloudstack.api.response.LBHealthCheckResponse;
-import org.apache.cloudstack.api.response.LBStickinessPolicyResponse;
 import org.apache.cloudstack.api.response.LBStickinessResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.LoadBalancerResponse;
@@ -328,7 +324,6 @@ import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.HealthCheckPolicy;
 import com.cloud.network.rules.LoadBalancer;
-import com.cloud.network.rules.LoadBalancerContainer.Scheme;
 import com.cloud.network.rules.PortForwardingRule;
 import com.cloud.network.rules.StaticNatRule;
 import com.cloud.network.rules.StickinessPolicy;
@@ -475,6 +470,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
     @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
+    @Inject
+    private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
     @Inject
     private AnnotationDao annotationDao;
     @Inject
@@ -682,74 +679,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public LoadBalancerResponse createLoadBalancerResponse(LoadBalancer loadBalancer) {
-        LoadBalancerResponse lbResponse = new LoadBalancerResponse();
-        lbResponse.setId(loadBalancer.getUuid());
-        lbResponse.setName(loadBalancer.getName());
-        lbResponse.setDescription(loadBalancer.getDescription());
-        List<String> cidrs = ApiDBUtils.findFirewallSourceCidrs(loadBalancer.getId());
-        lbResponse.setCidrList(StringUtils.join(cidrs, ","));
-
-        IPAddressVO publicIp = ApiDBUtils.findIpAddressById(loadBalancer.getSourceIpAddressId());
-        lbResponse.setPublicIpId(publicIp.getUuid());
-        lbResponse.setPublicIp(publicIp.getAddress().addr());
-        lbResponse.setPublicPort(Integer.toString(loadBalancer.getSourcePortStart()));
-        lbResponse.setPrivatePort(Integer.toString(loadBalancer.getDefaultPortStart()));
-        lbResponse.setAlgorithm(loadBalancer.getAlgorithm());
-        lbResponse.setLbProtocol(loadBalancer.getLbProtocol());
-        lbResponse.setForDisplay(loadBalancer.isDisplay());
-        FirewallRule.State state = loadBalancer.getState();
-        String stateToSet = state.toString();
-        if (state.equals(FirewallRule.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-        lbResponse.setState(stateToSet);
-        populateOwner(lbResponse, loadBalancer);
-        DataCenter zone = ApiDBUtils.findZoneById(publicIp.getDataCenterId());
-        if (zone != null) {
-            lbResponse.setZoneId(zone.getUuid());
-            lbResponse.setZoneName(zone.getName());
-        }
-
-        //set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.LoadBalancer, loadBalancer.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        lbResponse.setTags(tagResponses);
-
-        Network ntwk = ApiDBUtils.findNetworkById(loadBalancer.getNetworkId());
-        lbResponse.setNetworkId(ntwk.getUuid());
-
-        lbResponse.setCidrList(loadBalancer.getCidrList());
-
-        lbResponse.setObjectName("loadbalancer");
-        return lbResponse;
+        return apiLoadBalancerFirewallResponseService.createLoadBalancerResponse(loadBalancer);
     }
 
     @Override
     public GlobalLoadBalancerResponse createGlobalLoadBalancerResponse(GlobalLoadBalancerRule globalLoadBalancerRule) {
-        GlobalLoadBalancerResponse response = new GlobalLoadBalancerResponse();
-        response.setAlgorithm(globalLoadBalancerRule.getAlgorithm());
-        response.setStickyMethod(globalLoadBalancerRule.getPersistence());
-        response.setServiceType(globalLoadBalancerRule.getServiceType());
-        response.setServiceDomainName(globalLoadBalancerRule.getGslbDomain() + "." + ApiDBUtils.getDnsNameConfiguredForGslb());
-        response.setName(globalLoadBalancerRule.getName());
-        response.setDescription(globalLoadBalancerRule.getDescription());
-        response.setRegionIdId(globalLoadBalancerRule.getRegion());
-        response.setId(globalLoadBalancerRule.getUuid());
-        populateOwner(response, globalLoadBalancerRule);
-        response.setObjectName("globalloadbalancer");
-
-        List<LoadBalancerResponse> siteLbResponses = new ArrayList<LoadBalancerResponse>();
-        List<? extends LoadBalancer> siteLoadBalaners = ApiDBUtils.listSiteLoadBalancers(globalLoadBalancerRule.getId());
-        for (LoadBalancer siteLb : siteLoadBalaners) {
-            LoadBalancerResponse siteLbResponse = createLoadBalancerResponse(siteLb);
-            siteLbResponses.add(siteLbResponse);
-        }
-        response.setSiteLoadBalancers(siteLbResponses);
-        return response;
+        return apiLoadBalancerFirewallResponseService.createGlobalLoadBalancerResponse(globalLoadBalancerRule);
     }
 
     @Override
@@ -1047,99 +982,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public FirewallRuleResponse createPortForwardingRuleResponse(PortForwardingRule fwRule) {
-        FirewallRuleResponse response = new FirewallRuleResponse();
-        response.setId(fwRule.getUuid());
-        response.setPrivateStartPort(Integer.toString(fwRule.getDestinationPortStart()));
-        response.setPrivateEndPort(Integer.toString(fwRule.getDestinationPortEnd()));
-        response.setProtocol(fwRule.getProtocol());
-        response.setPublicStartPort(Integer.toString(fwRule.getSourcePortStart()));
-        response.setPublicEndPort(Integer.toString(fwRule.getSourcePortEnd()));
-        List<String> cidrs = ApiDBUtils.findFirewallSourceCidrs(fwRule.getId());
-        response.setCidrList(StringUtils.join(cidrs, ","));
-
-        Network guestNtwk = ApiDBUtils.findNetworkById(fwRule.getNetworkId());
-        response.setNetworkId(guestNtwk.getUuid());
-        response.setNetworkName(guestNtwk.getName());
-
-        IpAddress ip = ApiDBUtils.findIpAddressById(fwRule.getSourceIpAddressId());
-
-        if (ip != null)
-        {
-            response.setPublicIpAddressId(ip.getUuid());
-            response.setPublicIpAddress(ip.getAddress().addr());
-            if (fwRule.getDestinationIpAddress() != null)
-            {
-                response.setDestNatVmIp(fwRule.getDestinationIpAddress().toString());
-                UserVm vm = ApiDBUtils.findUserVmById(fwRule.getVirtualMachineId());
-                if (vm != null) {
-                    response.setVirtualMachineId(vm.getUuid());
-                    response.setVirtualMachineName(vm.getHostName());
-
-                    if (vm.getDisplayName() != null) {
-                        response.setVirtualMachineDisplayName(vm.getDisplayName());
-                    } else {
-                        response.setVirtualMachineDisplayName(vm.getHostName());
-                    }
-                }
-            }
-        }
-        FirewallRule.State state = fwRule.getState();
-        String stateToSet = state.toString();
-        if (state.equals(FirewallRule.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.PortForwardingRule, fwRule.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        response.setTags(tagResponses);
-
-        response.setState(stateToSet);
-        response.setForDisplay(fwRule.isDisplay());
-        response.setObjectName("portforwardingrule");
-        return response;
+        return apiLoadBalancerFirewallResponseService.createPortForwardingRuleResponse(fwRule);
     }
 
     @Override
     public IpForwardingRuleResponse createIpForwardingRuleResponse(StaticNatRule fwRule) {
-        IpForwardingRuleResponse response = new IpForwardingRuleResponse();
-        response.setId(fwRule.getUuid());
-        response.setProtocol(fwRule.getProtocol());
-
-        IpAddress ip = ApiDBUtils.findIpAddressById(fwRule.getSourceIpAddressId());
-
-        if (ip != null) {
-            response.setPublicIpAddressId(ip.getId());
-            response.setPublicIpAddress(ip.getAddress().addr());
-            if (fwRule.getDestIpAddress() != null) {
-                UserVm vm = ApiDBUtils.findUserVmById(ip.getAssociatedWithVmId());
-                if (vm != null) {// vm might be destroyed
-                    response.setVirtualMachineId(vm.getUuid());
-                    response.setVirtualMachineName(vm.getHostName());
-                    if (vm.getDisplayName() != null) {
-                        response.setVirtualMachineDisplayName(vm.getDisplayName());
-                    } else {
-                        response.setVirtualMachineDisplayName(vm.getHostName());
-                    }
-                }
-            }
-        }
-        FirewallRule.State state = fwRule.getState();
-        String stateToSet = state.toString();
-        if (state.equals(FirewallRule.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-
-        response.setStartPort(fwRule.getSourcePortStart());
-        response.setEndPort(fwRule.getSourcePortEnd());
-        response.setProtocol(fwRule.getProtocol());
-        response.setState(stateToSet);
-        response.setObjectName("ipforwardingrule");
-        return response;
+        return apiLoadBalancerFirewallResponseService.createIpForwardingRuleResponse(fwRule);
     }
 
     /*
@@ -2309,109 +2157,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public FirewallResponse createFirewallResponse(FirewallRule fwRule) {
-        FirewallResponse response = new FirewallResponse();
-
-        response.setId(fwRule.getUuid());
-        response.setProtocol(fwRule.getProtocol());
-        if (fwRule.getSourcePortStart() != null) {
-            response.setStartPort(fwRule.getSourcePortStart());
-        }
-
-        if (fwRule.getSourcePortEnd() != null) {
-            response.setEndPort(fwRule.getSourcePortEnd());
-        }
-
-        List<String> cidrs = ApiDBUtils.findFirewallSourceCidrs(fwRule.getId());
-        response.setCidrList(StringUtils.join(cidrs, ","));
-
-        List<String> destCidrs = ApiDBUtils.findFirewallDestCidrs(fwRule.getId());
-        response.setDestCidr(StringUtils.join(destCidrs,","));
-
-        if (fwRule.getTrafficType() == FirewallRule.TrafficType.Ingress) {
-            if (fwRule.getSourceIpAddressId() != null) {
-                IpAddress ip = ApiDBUtils.findIpAddressById(fwRule.getSourceIpAddressId());
-                response.setPublicIpAddressId(ip.getUuid());
-                response.setPublicIpAddress(ip.getAddress().addr());
-            }
-        }
-
-        Network network = ApiDBUtils.findNetworkById(fwRule.getNetworkId());
-        response.setNetworkId(network.getUuid());
-
-        FirewallRule.State state = fwRule.getState();
-        String stateToSet = state.toString();
-        if (state.equals(FirewallRule.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-
-        response.setIcmpCode(fwRule.getIcmpCode());
-        response.setIcmpType(fwRule.getIcmpType());
-        response.setForDisplay(fwRule.isDisplay());
-        response.setTrafficType(fwRule.getTrafficType().toString());
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.FirewallRule, fwRule.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        response.setTags(tagResponses);
-
-        response.setState(stateToSet);
-        response.setObjectName("firewallrule");
-        return response;
+        return apiLoadBalancerFirewallResponseService.createFirewallResponse(fwRule);
     }
 
     @Override
     public NetworkACLItemResponse createNetworkACLItemResponse(NetworkACLItem aclItem) {
-        NetworkACLItemResponse response = new NetworkACLItemResponse();
-
-        response.setId(aclItem.getUuid());
-        response.setProtocol(aclItem.getProtocol());
-        if (aclItem.getSourcePortStart() != null) {
-            response.setStartPort(Integer.toString(aclItem.getSourcePortStart()));
-        }
-
-        if (aclItem.getSourcePortEnd() != null) {
-            response.setEndPort(Integer.toString(aclItem.getSourcePortEnd()));
-        }
-
-        response.setCidrList(StringUtils.join(aclItem.getSourceCidrList(), ","));
-
-        response.setTrafficType(aclItem.getTrafficType().toString());
-
-        NetworkACLItem.State state = aclItem.getState();
-        String stateToSet = state.toString();
-        if (state.equals(NetworkACLItem.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-
-        response.setIcmpCode(aclItem.getIcmpCode());
-        response.setIcmpType(aclItem.getIcmpType());
-
-        response.setState(stateToSet);
-        response.setNumber(aclItem.getNumber());
-        response.setAction(aclItem.getAction().toString());
-        response.setForDisplay(aclItem.isDisplay());
-
-        NetworkACL acl = ApiDBUtils.findByNetworkACLId(aclItem.getAclId());
-        if (acl != null) {
-            response.setAclId(acl.getUuid());
-            response.setAclName(acl.getName());
-        }
-
-        //set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.NetworkACL, aclItem.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        response.setTags(tagResponses);
-        response.setReason(aclItem.getReason());
-        response.setObjectName("networkacl");
-        return response;
+        return apiLoadBalancerFirewallResponseService.createNetworkACLItemResponse(aclItem);
     }
 
     @Override
@@ -2690,108 +2441,22 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public LBStickinessResponse createLBStickinessPolicyResponse(StickinessPolicy stickinessPolicy, LoadBalancer lb) {
-        LBStickinessResponse spResponse = new LBStickinessResponse();
-
-        spResponse.setlbRuleId(lb.getUuid());
-        Account accountTemp = ApiDBUtils.findAccountById(lb.getAccountId());
-        if (accountTemp != null) {
-            spResponse.setAccountName(accountTemp.getAccountName());
-            Domain domain = ApiDBUtils.findDomainById(accountTemp.getDomainId());
-            if (domain != null) {
-                spResponse.setDomainId(domain.getUuid());
-                spResponse.setDomainName(domain.getName());
-            }
-        }
-
-        List<LBStickinessPolicyResponse> responses = new ArrayList<LBStickinessPolicyResponse>();
-        LBStickinessPolicyResponse ruleResponse = new LBStickinessPolicyResponse(stickinessPolicy);
-        responses.add(ruleResponse);
-
-        spResponse.setRules(responses);
-
-        spResponse.setObjectName("stickinesspolicies");
-        return spResponse;
+        return apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(stickinessPolicy, lb);
     }
 
     @Override
     public LBStickinessResponse createLBStickinessPolicyResponse(List<? extends StickinessPolicy> stickinessPolicies, LoadBalancer lb) {
-        LBStickinessResponse spResponse = new LBStickinessResponse();
-
-        if (lb == null) {
-            return spResponse;
-        }
-        spResponse.setlbRuleId(lb.getUuid());
-        Account account = ApiDBUtils.findAccountById(lb.getAccountId());
-        if (account != null) {
-            spResponse.setAccountName(account.getAccountName());
-            Domain domain = ApiDBUtils.findDomainById(account.getDomainId());
-            if (domain != null) {
-                spResponse.setDomainId(domain.getUuid());
-                spResponse.setDomainName(domain.getName());
-            }
-        }
-
-        List<LBStickinessPolicyResponse> responses = new ArrayList<LBStickinessPolicyResponse>();
-        for (StickinessPolicy stickinessPolicy : stickinessPolicies) {
-            LBStickinessPolicyResponse ruleResponse = new LBStickinessPolicyResponse(stickinessPolicy);
-            responses.add(ruleResponse);
-        }
-        spResponse.setRules(responses);
-
-        spResponse.setObjectName("stickinesspolicies");
-        return spResponse;
+        return apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(stickinessPolicies, lb);
     }
 
     @Override
     public LBHealthCheckResponse createLBHealthCheckPolicyResponse(List<? extends HealthCheckPolicy> healthcheckPolicies, LoadBalancer lb) {
-        LBHealthCheckResponse hcResponse = new LBHealthCheckResponse();
-
-        if (lb == null) {
-            return hcResponse;
-        }
-        hcResponse.setlbRuleId(lb.getUuid());
-        Account account = ApiDBUtils.findAccountById(lb.getAccountId());
-        if (account != null) {
-            hcResponse.setAccountName(account.getAccountName());
-            Domain domain = ApiDBUtils.findDomainById(account.getDomainId());
-            if (domain != null) {
-                hcResponse.setDomainId(domain.getUuid());
-                hcResponse.setDomainName(domain.getName());
-            }
-        }
-
-        List<LBHealthCheckPolicyResponse> responses = new ArrayList<LBHealthCheckPolicyResponse>();
-        for (HealthCheckPolicy healthcheckPolicy : healthcheckPolicies) {
-            LBHealthCheckPolicyResponse ruleResponse = new LBHealthCheckPolicyResponse(healthcheckPolicy);
-            responses.add(ruleResponse);
-        }
-        hcResponse.setRules(responses);
-
-        hcResponse.setObjectName("healthcheckpolicies");
-        return hcResponse;
+        return apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(healthcheckPolicies, lb);
     }
 
     @Override
     public LBHealthCheckResponse createLBHealthCheckPolicyResponse(HealthCheckPolicy healthcheckPolicy, LoadBalancer lb) {
-        LBHealthCheckResponse hcResponse = new LBHealthCheckResponse();
-
-        hcResponse.setlbRuleId(lb.getUuid());
-        Account accountTemp = ApiDBUtils.findAccountById(lb.getAccountId());
-        if (accountTemp != null) {
-            hcResponse.setAccountName(accountTemp.getAccountName());
-            Domain domain = ApiDBUtils.findDomainById(accountTemp.getDomainId());
-            if (domain != null) {
-                hcResponse.setDomainId(domain.getUuid());
-                hcResponse.setDomainName(domain.getName());
-            }
-        }
-
-        List<LBHealthCheckPolicyResponse> responses = new ArrayList<LBHealthCheckPolicyResponse>();
-        LBHealthCheckPolicyResponse ruleResponse = new LBHealthCheckPolicyResponse(healthcheckPolicy);
-        responses.add(ruleResponse);
-        hcResponse.setRules(responses);
-        hcResponse.setObjectName("healthcheckpolicies");
-        return hcResponse;
+        return apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(healthcheckPolicy, lb);
     }
 
     @Override
@@ -3430,70 +3095,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public ApplicationLoadBalancerResponse createLoadBalancerContainerReponse(ApplicationLoadBalancerRule lb, Map<Ip, UserVm> lbInstances) {
-
-        ApplicationLoadBalancerResponse lbResponse = new ApplicationLoadBalancerResponse();
-        lbResponse.setId(lb.getUuid());
-        lbResponse.setName(lb.getName());
-        lbResponse.setDescription(lb.getDescription());
-        lbResponse.setAlgorithm(lb.getAlgorithm());
-        lbResponse.setForDisplay(lb.isDisplay());
-        Network nw = ApiDBUtils.findNetworkById(lb.getNetworkId());
-        lbResponse.setNetworkId(nw.getUuid());
-        populateOwner(lbResponse, lb);
-
-        if (lb.getScheme() == Scheme.Internal) {
-            lbResponse.setSourceIp(lb.getSourceIp().addr());
-            //TODO - create the view for the load balancer rule to reflect the network uuid
-            Network network = ApiDBUtils.findNetworkById(lb.getNetworkId());
-            lbResponse.setSourceIpNetworkId(network.getUuid());
-        } else {
-            //for public, populate the ip information from the ip address
-            IpAddress publicIp = ApiDBUtils.findIpAddressById(lb.getSourceIpAddressId());
-            lbResponse.setSourceIp(publicIp.getAddress().addr());
-            Network ntwk = ApiDBUtils.findNetworkById(publicIp.getNetworkId());
-            lbResponse.setSourceIpNetworkId(ntwk.getUuid());
-        }
-
-        //set load balancer rules information (only one rule per load balancer in this release)
-        List<ApplicationLoadBalancerRuleResponse> ruleResponses = new ArrayList<ApplicationLoadBalancerRuleResponse>();
-        ApplicationLoadBalancerRuleResponse ruleResponse = new ApplicationLoadBalancerRuleResponse();
-        ruleResponse.setInstancePort(lb.getDefaultPortStart());
-        ruleResponse.setSourcePort(lb.getSourcePortStart());
-        FirewallRule.State stateToSet = lb.getState();
-        if (stateToSet.equals(FirewallRule.State.Revoke)) {
-            stateToSet = FirewallRule.State.Deleting;
-        }
-        ruleResponse.setState(stateToSet.toString());
-        ruleResponse.setObjectName("loadbalancerrule");
-        ruleResponses.add(ruleResponse);
-        lbResponse.setLbRules(ruleResponses);
-
-        //set Lb instances information
-        List<ApplicationLoadBalancerInstanceResponse> instanceResponses = new ArrayList<ApplicationLoadBalancerInstanceResponse>();
-        for (Map.Entry<Ip,UserVm> entry : lbInstances.entrySet()) {
-            Ip ip = entry.getKey();
-            UserVm vm = entry.getValue();
-            ApplicationLoadBalancerInstanceResponse instanceResponse = new ApplicationLoadBalancerInstanceResponse();
-            instanceResponse.setIpAddress(ip.addr());
-            instanceResponse.setId(vm.getUuid());
-            instanceResponse.setName(vm.getInstanceName());
-            instanceResponse.setObjectName("loadbalancerinstance");
-            instanceResponses.add(instanceResponse);
-        }
-
-        lbResponse.setLbInstances(instanceResponses);
-
-        //set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.LoadBalancer, lb.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses,tagResponse);
-        }
-        lbResponse.setTags(tagResponses);
-
-        lbResponse.setObjectName("loadbalancer");
-        return lbResponse;
+        return apiLoadBalancerFirewallResponseService.createLoadBalancerContainerReponse(lb, lbInstances);
     }
 
     @Override
@@ -3885,44 +3487,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public FirewallResponse createIpv6FirewallRuleResponse(FirewallRule fwRule) {
-        FirewallResponse response = new FirewallResponse();
-
-        response.setId(fwRule.getUuid());
-        response.setProtocol(fwRule.getProtocol());
-        List<String> cidrs = ApiDBUtils.findFirewallSourceCidrs(fwRule.getId());
-        response.setCidrList(StringUtils.join(cidrs, ","));
-        List<String> destinationCidrs = ApiDBUtils.findFirewallDestCidrs(fwRule.getId());
-        response.setDestCidr(StringUtils.join(destinationCidrs, ","));
-        response.setTrafficType(fwRule.getTrafficType().toString());
-        response.setProtocol(fwRule.getProtocol());
-        response.setStartPort(fwRule.getSourcePortStart());
-        response.setEndPort(fwRule.getSourcePortEnd());
-        response.setIcmpCode(fwRule.getIcmpCode());
-        response.setIcmpType(fwRule.getIcmpType());
-
-        Network network = ApiDBUtils.findNetworkById(fwRule.getNetworkId());
-        response.setNetworkId(network.getUuid());
-
-        FirewallRule.State state = fwRule.getState();
-        String stateToSet = state.toString();
-        if (state.equals(FirewallRule.State.Revoke)) {
-            stateToSet = "Deleting";
-        }
-
-        response.setForDisplay(fwRule.isDisplay());
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.FirewallRule, fwRule.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        response.setTags(tagResponses);
-
-        response.setState(stateToSet);
-        response.setObjectName("firewallrule");
-        return response;
+        return apiLoadBalancerFirewallResponseService.createIpv6FirewallRuleResponse(fwRule);
     }
 
     @Override

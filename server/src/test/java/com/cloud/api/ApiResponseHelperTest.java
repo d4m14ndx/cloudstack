@@ -50,6 +50,7 @@ import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
 import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
+import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
 import org.apache.cloudstack.api.response.ApiKeyPairResponse;
 import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
 import org.apache.cloudstack.api.response.ConditionResponse;
@@ -60,10 +61,18 @@ import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
 import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
+import org.apache.cloudstack.api.response.FirewallResponse;
+import org.apache.cloudstack.api.response.FirewallRuleResponse;
+import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
 import org.apache.cloudstack.api.response.IPAddressResponse;
+import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
+import org.apache.cloudstack.api.response.LBHealthCheckResponse;
+import org.apache.cloudstack.api.response.LBStickinessResponse;
 import org.apache.cloudstack.api.response.ListResponse;
+import org.apache.cloudstack.api.response.LoadBalancerResponse;
+import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
 import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
@@ -81,6 +90,7 @@ import org.apache.cloudstack.api.response.VlanIpRangeResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
+import org.apache.cloudstack.network.lb.ApplicationLoadBalancerRule;
 import org.apache.cloudstack.usage.UsageService;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
@@ -106,9 +116,17 @@ import com.cloud.network.as.Counter;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
+import com.cloud.network.rules.FirewallRule;
+import com.cloud.network.rules.HealthCheckPolicy;
+import com.cloud.network.rules.LoadBalancer;
+import com.cloud.network.rules.PortForwardingRule;
+import com.cloud.network.rules.StaticNatRule;
+import com.cloud.network.rules.StickinessPolicy;
+import com.cloud.network.vpc.NetworkACLItem;
 import com.cloud.org.Cluster;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
+import com.cloud.region.ha.GlobalLoadBalancerRule;
 import com.cloud.resource.icon.ResourceIconVO;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
@@ -123,6 +141,8 @@ import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
 import com.cloud.user.UserVO;
+import com.cloud.uservm.UserVm;
+import com.cloud.utils.net.Ip;
 import com.cloud.utils.Pair;
 import com.cloud.vm.ConsoleSessionVO;
 import com.cloud.vm.NicSecondaryIp;
@@ -175,6 +195,8 @@ public class ApiResponseHelperTest {
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
     @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
+    @Mock
+    private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -216,6 +238,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
+        ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
     }
 
     @Before
@@ -836,5 +859,154 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expected, response);
         verify(apiDirectDownloadCertificateResponseService).createDirectDownloadCertificateProvisionResponse(1L, 2L, result);
+    }
+
+    @Test
+    public void createLoadBalancerResponseDelegatesToService() {
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LoadBalancerResponse expected = new LoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createLoadBalancerResponse(loadBalancer)).thenReturn(expected);
+
+        LoadBalancerResponse response = helper.createLoadBalancerResponse(loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLoadBalancerResponse(loadBalancer);
+    }
+
+    @Test
+    public void createGlobalLoadBalancerResponseDelegatesToService() {
+        GlobalLoadBalancerRule globalLoadBalancerRule = Mockito.mock(GlobalLoadBalancerRule.class);
+        GlobalLoadBalancerResponse expected = new GlobalLoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createGlobalLoadBalancerResponse(globalLoadBalancerRule)).thenReturn(expected);
+
+        GlobalLoadBalancerResponse response = helper.createGlobalLoadBalancerResponse(globalLoadBalancerRule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createGlobalLoadBalancerResponse(globalLoadBalancerRule);
+    }
+
+    @Test
+    public void createPortForwardingRuleResponseDelegatesToService() {
+        PortForwardingRule rule = Mockito.mock(PortForwardingRule.class);
+        FirewallRuleResponse expected = new FirewallRuleResponse();
+        when(apiLoadBalancerFirewallResponseService.createPortForwardingRuleResponse(rule)).thenReturn(expected);
+
+        FirewallRuleResponse response = helper.createPortForwardingRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createPortForwardingRuleResponse(rule);
+    }
+
+    @Test
+    public void createIpForwardingRuleResponseDelegatesToService() {
+        StaticNatRule rule = Mockito.mock(StaticNatRule.class);
+        IpForwardingRuleResponse expected = new IpForwardingRuleResponse();
+        when(apiLoadBalancerFirewallResponseService.createIpForwardingRuleResponse(rule)).thenReturn(expected);
+
+        IpForwardingRuleResponse response = helper.createIpForwardingRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createIpForwardingRuleResponse(rule);
+    }
+
+    @Test
+    public void createFirewallResponseDelegatesToService() {
+        FirewallRule rule = Mockito.mock(FirewallRule.class);
+        FirewallResponse expected = new FirewallResponse();
+        when(apiLoadBalancerFirewallResponseService.createFirewallResponse(rule)).thenReturn(expected);
+
+        FirewallResponse response = helper.createFirewallResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createFirewallResponse(rule);
+    }
+
+    @Test
+    public void createNetworkACLItemResponseDelegatesToService() {
+        NetworkACLItem aclItem = Mockito.mock(NetworkACLItem.class);
+        NetworkACLItemResponse expected = new NetworkACLItemResponse();
+        when(apiLoadBalancerFirewallResponseService.createNetworkACLItemResponse(aclItem)).thenReturn(expected);
+
+        NetworkACLItemResponse response = helper.createNetworkACLItemResponse(aclItem);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createNetworkACLItemResponse(aclItem);
+    }
+
+    @Test
+    public void createSingleLBStickinessPolicyResponseDelegatesToService() {
+        StickinessPolicy stickinessPolicy = Mockito.mock(StickinessPolicy.class);
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBStickinessResponse expected = new LBStickinessResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer)).thenReturn(expected);
+
+        LBStickinessResponse response = helper.createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer);
+    }
+
+    @Test
+    public void createLBStickinessPolicyListResponseDelegatesToService() {
+        List<StickinessPolicy> policies = Collections.singletonList(Mockito.mock(StickinessPolicy.class));
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBStickinessResponse expected = new LBStickinessResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(policies, loadBalancer)).thenReturn(expected);
+
+        LBStickinessResponse response = helper.createLBStickinessPolicyResponse(policies, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBStickinessPolicyResponse(policies, loadBalancer);
+    }
+
+    @Test
+    public void createLBHealthCheckPolicyListResponseDelegatesToService() {
+        List<HealthCheckPolicy> policies = Collections.singletonList(Mockito.mock(HealthCheckPolicy.class));
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBHealthCheckResponse expected = new LBHealthCheckResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(policies, loadBalancer)).thenReturn(expected);
+
+        LBHealthCheckResponse response = helper.createLBHealthCheckPolicyResponse(policies, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBHealthCheckPolicyResponse(policies, loadBalancer);
+    }
+
+    @Test
+    public void createSingleLBHealthCheckPolicyResponseDelegatesToService() {
+        HealthCheckPolicy healthCheckPolicy = Mockito.mock(HealthCheckPolicy.class);
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBHealthCheckResponse expected = new LBHealthCheckResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer)).thenReturn(expected);
+
+        LBHealthCheckResponse response = helper.createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer);
+    }
+
+    @Test
+    public void createLoadBalancerContainerReponseDelegatesToService() {
+        ApplicationLoadBalancerRule rule = Mockito.mock(ApplicationLoadBalancerRule.class);
+        Map<Ip, UserVm> instances = Collections.singletonMap(new Ip("10.1.1.10"), Mockito.mock(UserVm.class));
+        ApplicationLoadBalancerResponse expected = new ApplicationLoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createLoadBalancerContainerReponse(rule, instances)).thenReturn(expected);
+
+        ApplicationLoadBalancerResponse response = helper.createLoadBalancerContainerReponse(rule, instances);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLoadBalancerContainerReponse(rule, instances);
+    }
+
+    @Test
+    public void createIpv6FirewallRuleResponseDelegatesToService() {
+        FirewallRule rule = Mockito.mock(FirewallRule.class);
+        FirewallResponse expected = new FirewallResponse();
+        when(apiLoadBalancerFirewallResponseService.createIpv6FirewallRuleResponse(rule)).thenReturn(expected);
+
+        FirewallResponse response = helper.createIpv6FirewallRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createIpv6FirewallRuleResponse(rule);
     }
 }
