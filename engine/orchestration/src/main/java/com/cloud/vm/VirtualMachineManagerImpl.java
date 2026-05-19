@@ -141,8 +141,6 @@ import com.cloud.alert.AlertManager;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.configuration.Resource;
-import com.cloud.dc.ClusterDetailsDao;
-import com.cloud.dc.ClusterDetailsVO;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
@@ -349,8 +347,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     private VMSnapshotManager _vmSnapshotMgr;
     @Inject
-    private ClusterDetailsDao _clusterDetailsDao;
-    @Inject
     private VMInstanceDetailsDao vmInstanceDetailsDao;
     @Inject
     private VolumeOrchestrationService volumeMgr;
@@ -429,6 +425,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmMetadataSyncService vmMetadataSyncService;
     @Inject
     protected VmNetworkNameMappingService vmNetworkNameMappingService;
+    @Inject
+    protected VmStartProfilePreparationService vmStartProfilePreparationService;
     @Inject
     protected VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
     @Inject
@@ -1487,95 +1485,24 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         vmNetworkNameMappingService.setVmNetworkDetails(vm, vmTO);
     }
 
-    private void updateOverCommitRatioForVmProfile(VirtualMachineProfile vmProfile, long clusterId) {
-        final ClusterDetailsVO clusterDetailCpu = _clusterDetailsDao.findDetail(clusterId, VmDetailConstants.CPU_OVER_COMMIT_RATIO);
-        final ClusterDetailsVO clusterDetailRam = _clusterDetailsDao.findDetail(clusterId, VmDetailConstants.MEMORY_OVER_COMMIT_RATIO);
-        final float parsedClusterCpuDetailCpu = Float.parseFloat(clusterDetailCpu.getValue());
-        final float parsedClusterDetailRam = Float.parseFloat(clusterDetailRam.getValue());
-        VMInstanceDetailVO vmDetailCpu = vmInstanceDetailsDao.findDetail(vmProfile.getId(), VmDetailConstants.CPU_OVER_COMMIT_RATIO);
-        VMInstanceDetailVO vmDetailRam = vmInstanceDetailsDao.findDetail(vmProfile.getId(), VmDetailConstants.MEMORY_OVER_COMMIT_RATIO);
-
-        if ((vmDetailCpu == null && parsedClusterCpuDetailCpu > 1f) ||
-                (vmDetailCpu != null && Float.parseFloat(vmDetailCpu.getValue()) != parsedClusterCpuDetailCpu)) {
-            vmInstanceDetailsDao.addDetail(vmProfile.getId(), VmDetailConstants.CPU_OVER_COMMIT_RATIO, clusterDetailCpu.getValue(), true);
-        }
-        if ((vmDetailRam == null && parsedClusterDetailRam > 1f) ||
-                (vmDetailRam != null && Float.parseFloat(vmDetailRam.getValue()) != parsedClusterDetailRam)) {
-            vmInstanceDetailsDao.addDetail(vmProfile.getId(), VmDetailConstants.MEMORY_OVER_COMMIT_RATIO, clusterDetailRam.getValue(), true);
-        }
-
-        vmProfile.setCpuOvercommitRatio(Float.parseFloat(clusterDetailCpu.getValue()));
-        vmProfile.setMemoryOvercommitRatio(Float.parseFloat(clusterDetailRam.getValue()));
+    protected void updateOverCommitRatioForVmProfile(VirtualMachineProfile vmProfile, long clusterId) {
+        vmStartProfilePreparationService.updateOverCommitRatioForVmProfile(vmProfile, clusterId);
     }
 
-    /**
-     * Setting pod id to null can result in migration of Volumes across pods. This is not desirable for VMs which
-     * have a volume in Ready state (happens when a VM is shutdown and started again).
-     * So, we set it to null only when
-     * migration of VM across cluster is enabled
-     * Or, volumes are still in allocated state for that VM (happens when VM is Starting/deployed for the first time)
-     */
-    private void conditionallySetPodToDeployIn(VMInstanceVO vm) {
-        if (MIGRATE_VM_ACROSS_CLUSTERS.valueIn(vm.getDataCenterId()) || areAllVolumesAllocated(vm.getId())) {
-            vm.setPodIdToDeployIn(null);
-        }
+    protected void conditionallySetPodToDeployIn(VMInstanceVO vm) {
+        vmStartProfilePreparationService.conditionallySetPodToDeployIn(vm);
     }
 
     boolean areAllVolumesAllocated(long vmId) {
-        final List<VolumeVO> vols = _volsDao.findByInstance(vmId);
-        return CollectionUtils.isEmpty(vols) || vols.stream().allMatch(v -> Volume.State.Allocated.equals(v.getState()));
+        return vmStartProfilePreparationService.areAllVolumesAllocated(vmId);
     }
 
-    private void logBootModeParameters(Map<VirtualMachineProfile.Param, Object> params) {
-        if (params == null) {
-          return;
-        }
-
-        StringBuilder msgBuf = new StringBuilder("Uefi params ");
-        boolean log = false;
-        if (params.get(VirtualMachineProfile.Param.UefiFlag) != null) {
-            msgBuf.append(String.format("UefiFlag: %s ", params.get(VirtualMachineProfile.Param.UefiFlag)));
-            log = true;
-        }
-        if (params.get(VirtualMachineProfile.Param.BootType) != null) {
-            msgBuf.append(String.format("Boot Type: %s ", params.get(VirtualMachineProfile.Param.BootType)));
-            log = true;
-        }
-        if (params.get(VirtualMachineProfile.Param.BootMode) != null) {
-            msgBuf.append(String.format("Boot Mode: %s ", params.get(VirtualMachineProfile.Param.BootMode)));
-            log = true;
-        }
-        if (params.get(VirtualMachineProfile.Param.BootIntoSetup) != null) {
-            msgBuf.append(String.format("Boot into Setup: %s ", params.get(VirtualMachineProfile.Param.BootIntoSetup)));
-            log = true;
-        }
-        if (params.get(VirtualMachineProfile.Param.ConsiderLastHost) != null) {
-            msgBuf.append(String.format("Consider last host: %s ", params.get(VirtualMachineProfile.Param.ConsiderLastHost)));
-            log = true;
-        }
-        if (log) {
-            logger.info(msgBuf.toString());
-        }
+    protected void logBootModeParameters(Map<VirtualMachineProfile.Param, Object> params) {
+        vmStartProfilePreparationService.logBootModeParameters(params);
     }
 
-    private void resetVmNicsDeviceId(Long vmId) {
-        final List<NicVO> nics = _nicsDao.listByVmId(vmId);
-        Collections.sort(nics, new Comparator<NicVO>() {
-            @Override
-            public int compare(NicVO nic1, NicVO nic2) {
-                Long nicDevId1 = Long.valueOf(nic1.getDeviceId());
-                Long nicDevId2 = Long.valueOf(nic2.getDeviceId());
-                return nicDevId1.compareTo(nicDevId2);
-            }
-        });
-        int deviceId = 0;
-        for (final NicVO nic : nics) {
-            if (nic.getDeviceId() != deviceId) {
-                nic.setDeviceId(deviceId);
-                _nicsDao.update(nic.getId(),nic);
-            }
-            deviceId ++;
-        }
+    protected void resetVmNicsDeviceId(Long vmId) {
+        vmStartProfilePreparationService.resetVmNicsDeviceId(vmId);
     }
 
     @Override
