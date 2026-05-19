@@ -98,6 +98,7 @@ import junit.framework.TestCase;
 public class NetworkOrchestratorTest extends TestCase {
 
     NetworkOrchestrator testOrchestrator = Mockito.spy(new NetworkOrchestrator());
+    RequestedNicIpReservationServiceImpl requestedNicIpReservationService;
 
     private String guruName = "GuestNetworkGuru";
     private String dhcpProvider = "VirtualRouter";
@@ -131,6 +132,12 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator._vpcMgr = mock(VpcManager.class);
         testOrchestrator._ipAddrMgr = mock(IpAddressManager.class);
         testOrchestrator._entityMgr = mock(EntityManager.class);
+
+        requestedNicIpReservationService = Mockito.spy(new RequestedNicIpReservationServiceImpl());
+        requestedNicIpReservationService.vlanDao = testOrchestrator._vlanDao;
+        requestedNicIpReservationService.ipAddressDao = testOrchestrator._ipAddressDao;
+        requestedNicIpReservationService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.requestedNicIpReservationService = requestedNicIpReservationService;
 
         // Wire a real NetworkProviderResolutionServiceImpl that shares the
         // same dao/network-model mocks as the orchestrator under test, so
@@ -532,7 +539,7 @@ public class NetworkOrchestratorTest extends TestCase {
 
     private void verifyAndAssert(String requestedIpv4Address, String ipv4Gateway, String ipv4Netmask, NicProfile nicProfile, int acquireLockAndCheckIfIpv4IsFreeTimes,
             int nextMacAddressTimes) {
-        verify(testOrchestrator, times(acquireLockAndCheckIfIpv4IsFreeTimes)).acquireLockAndCheckIfIpv4IsFree(Mockito.any(Network.class), Mockito.anyString());
+        verify(requestedNicIpReservationService, times(acquireLockAndCheckIfIpv4IsFreeTimes)).acquireLockAndCheckIfIpv4IsFree(Mockito.any(Network.class), Mockito.anyString());
         try {
             verify(testOrchestrator._networkModel, times(nextMacAddressTimes)).getNextAvailableMacAddressInNetwork(Mockito.anyLong());
         } catch (InsufficientAddressCapacityException e) {
@@ -590,7 +597,7 @@ public class NetworkOrchestratorTest extends TestCase {
         verify(testOrchestrator._ipAddressDao, Mockito.times(acquireLockTimes)).acquireInLockTable(Mockito.anyLong());
         verify(testOrchestrator._ipAddressDao, Mockito.times(releaseFromLockTimes)).releaseFromLockTable(Mockito.anyLong());
         verify(testOrchestrator._ipAddressDao, Mockito.times(updateTimes)).update(Mockito.anyLong(), Mockito.any(IPAddressVO.class));
-        verify(testOrchestrator, Mockito.times(validateTimes)).validateLockedRequestedIp(Mockito.any(IPAddressVO.class), Mockito.any(IPAddressVO.class));
+        verify(requestedNicIpReservationService, Mockito.times(validateTimes)).validateLockedRequestedIp(Mockito.any(IPAddressVO.class), Mockito.any(IPAddressVO.class));
     }
 
     @Test(expected = InvalidParameterValueException.class)
