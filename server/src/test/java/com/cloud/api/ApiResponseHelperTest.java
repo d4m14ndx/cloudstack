@@ -16,7 +16,6 @@
 // under the License.
 package com.cloud.api;
 
-import java.lang.reflect.Field;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
@@ -171,11 +170,11 @@ public class ApiResponseHelperTest {
     @Before
     public void injectMocks() throws SecurityException, NoSuchFieldException,
             IllegalArgumentException, IllegalAccessException {
-        Field usageSvcField = ApiResponseHelper.class
-                .getDeclaredField("_usageSvc");
-        usageSvcField.setAccessible(true);
+        ApiUsageResponseService apiUsageResponseService = new ApiUsageResponseService();
+        ReflectionTestUtils.setField(apiUsageResponseService, "_usageSvc", usageService);
+
         helper = new ApiResponseHelper();
-        usageSvcField.set(helper, usageService);
+        ReflectionTestUtils.setField(helper, "apiUsageResponseService", apiUsageResponseService);
     }
 
     @Before
