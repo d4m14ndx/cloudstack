@@ -111,7 +111,6 @@ import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
 import com.cloud.agent.api.RebootAnswer;
 import com.cloud.agent.api.RebootCommand;
-import com.cloud.agent.api.RecreateCheckpointsCommand;
 import com.cloud.agent.api.ReplugNicAnswer;
 import com.cloud.agent.api.ReplugNicCommand;
 import com.cloud.agent.api.RestoreVMSnapshotAnswer;
@@ -429,6 +428,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmStartProfilePreparationService vmStartProfilePreparationService;
     @Inject
     protected VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
+    @Inject
+    protected VmMigrationCheckpointService vmMigrationCheckpointService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
@@ -2763,64 +2764,16 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     protected void endSnapshotChainForVolumes(Map<Volume, StoragePool> volumeToPoolMap, HypervisorType hypervisorType) {
-        Set<Volume> volumes = volumeToPoolMap.keySet();
-        volumes.forEach(volume -> {
-            Volume volumeOnDestination = _volsDao.findByPoolIdName(volumeToPoolMap.get(volume).getId(), volume.getName());
-            snapshotManager.endSnapshotChainForVolume(volumeOnDestination.getId(), hypervisorType);
-        });
+        vmMigrationCheckpointService.endSnapshotChainForVolumes(volumeToPoolMap, hypervisorType);
     }
 
     protected void recreateCheckpointsKvmOnVmAfterMigration(VMInstanceVO vm, long hostId) {
-        if (!HypervisorType.KVM.equals(vm.getHypervisorType())) {
-            logger.debug("Will not recreate checkpoint on VM as it is not running on KVM, thus it is not needed.");
-            return;
-        }
-
-        List<VolumeObjectTO> volumes = getVmVolumesWithCheckpointsToRecreate(vm);
-
-        if (volumes.isEmpty()) {
-            logger.debug("Will not recreate checkpoints on VM as its volumes do not have any checkpoints associated with them.");
-            return;
-        }
-
-        RecreateCheckpointsCommand recreateCheckpointsCommand = new RecreateCheckpointsCommand(volumes, vm.getInstanceName());
-        Answer answer = null;
-        try {
-            logger.debug(String.format("Recreating the volume checkpoints with URLs [%s] of volumes [%s] on %s as part of the migration process.", volumes.stream().map(VolumeObjectTO::getCheckpointPaths).collect(Collectors.toList()), volumes, vm));
-            answer = _agentMgr.send(hostId, recreateCheckpointsCommand);
-        } catch (AgentUnavailableException | OperationTimedoutException e) {
-            logger.error(String.format("Exception while sending command to host [%s] to recreate checkpoints with URLs [%s] of volumes [%s] on %s due to: [%s].", hostId, volumes.stream().map(VolumeObjectTO::getCheckpointPaths).collect(Collectors.toList()), volumes, vm, e.getMessage()), e);
-            throw new CloudRuntimeException(e);
-        } finally {
-            if (answer != null && answer.getResult()) {
-                logger.debug(String.format("Successfully recreated checkpoints on VM [%s].", vm));
-                return;
-            }
-
-            logger.debug(String.format("Migration on VM [%s] was successful; however, we weren't able to recreate the checkpoints on it. Marking the snapshot chain as ended." +
-                    " Next snapshot will create a new snapshot chain.", vm));
-
-            volumes.forEach(volumeObjectTO -> snapshotManager.endSnapshotChainForVolume(volumeObjectTO.getId(), HypervisorType.KVM));
-        }
+        vmMigrationCheckpointService.recreateCheckpointsKvmOnVmAfterMigration(vm, hostId);
     }
 
 
     protected List<VolumeObjectTO> getVmVolumesWithCheckpointsToRecreate(VMInstanceVO vm) {
-        List<VolumeVO> vmVolumes = _volsDao.findByInstance(vm.getId());
-        List<VolumeObjectTO> volumes = new ArrayList<>();
-
-        for (VolumeVO volume : vmVolumes) {
-            Pair<List<String>, Set<String>> volumeCheckpointPathsAndImageStoreUrls = volumeMgr.getVolumeCheckpointPathsAndImageStoreUrls(volume.getId(), HypervisorType.KVM);
-            if (volumeCheckpointPathsAndImageStoreUrls.first().isEmpty()) {
-                continue;
-            }
-            VolumeObjectTO volumeTo = new VolumeObjectTO();
-            volumeTo.setCheckpointPaths(volumeCheckpointPathsAndImageStoreUrls.first());
-            volumeTo.setCheckpointImageStoreUrls(volumeCheckpointPathsAndImageStoreUrls.second());
-            volumeTo.setPath(volume.getPath());
-            volumes.add(volumeTo);
-        }
-        return volumes;
+        return vmMigrationCheckpointService.getVmVolumesWithCheckpointsToRecreate(vm);
     }
 
 
