@@ -96,7 +96,6 @@ import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
-import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.junit.After;
 import org.junit.Assert;
@@ -459,8 +458,6 @@ public class UserVmManagerImplTest {
     @Mock
     private BackupScheduleDao backupScheduleDao;
 
-    MockedStatic<UnmanagedVMsManager> unmanagedVMsManagerMockedStatic;
-
     @Mock
     ServiceOfferingDetailsDao serviceOfferingDetailsDao;
 
@@ -481,6 +478,9 @@ public class UserVmManagerImplTest {
 
     @Mock
     VmMigrationDedicationService vmMigrationDedicationService;
+
+    @Mock
+    VmUnmanageService vmUnmanageService;
 
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
@@ -677,6 +677,8 @@ public class UserVmManagerImplTest {
                 "vmBackupInstanceLifecycleService", vmBackupInstanceLifecycleService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmMigrationDedicationService", vmMigrationDedicationService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmUnmanageService", vmUnmanageService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -696,13 +698,11 @@ public class UserVmManagerImplTest {
         lenient().doNothing().when(resourceLimitMgr).decrementResourceCount(anyLong(), any(Resource.ResourceType.class), anyLong());
 
         Mockito.when(virtualMachineProfile.getId()).thenReturn(vmId);
-        unmanagedVMsManagerMockedStatic = mockStatic(UnmanagedVMsManager.class);
     }
 
     @After
     public void afterTest() {
         CallContext.unregister();
-        unmanagedVMsManagerMockedStatic.close();
         for (Map.Entry<ConfigKey, Object> entry : originalConfigValues.entrySet()) {
             updateDefaultConfigValue(entry.getKey(), entry.getValue(), true);
         }
@@ -3486,127 +3486,16 @@ public class UserVmManagerImplTest {
     }
 
     @Test
-    public void testUnmanageUserVMVmNotFound() {
-        when(userVmDao.findById(vmId)).thenReturn(null);
-        InvalidParameterValueException exception = assertThrows(InvalidParameterValueException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-        assertEquals("Unable to find a VM with ID = " + vmId, exception.getMessage());
-        verify(userVmDao, never()).acquireInLockTable(anyLong());
-        verify(userVmDao, never()).releaseFromLockTable(anyLong());
-    }
+    public void unmanageUserVMDelegatesToVmUnmanageService() {
+        Pair<Boolean, String> expected = new Pair<>(true, "Unmanaged successfully");
+        when(vmUnmanageService.unmanageUserVM(eq(vmId), nullable(Long.class),
+                any(VmUnmanageService.ManagerOperations.class))).thenReturn(expected);
 
-    @Test
-    public void testUnmanageUserVMAlreadyRemoved() {
-        when(userVmVoMock.getRemoved()).thenReturn(new Date());
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        assertThrows(InvalidParameterValueException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-    }
-
-    @Test
-    public void testUnmanageUserVMInvalidState() {
-        when(userVmVoMock.getId()).thenReturn(vmId);
-        when(userVmVoMock.getName()).thenReturn("test-vm");
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        when(userVmDao.acquireInLockTable(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Starting);
-        CloudRuntimeException exception = assertThrows(CloudRuntimeException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-        assertEquals("Instance: test-vm is not running or stopped, cannot be unmanaged", exception.getMessage());
-        verify(userVmDao, times(1)).releaseFromLockTable(vmId);
-    }
-
-    @Test
-    public void testUnmanageUserVMUnsupportedHypervisor() {
-        when(userVmVoMock.getId()).thenReturn(vmId);
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        when(userVmDao.acquireInLockTable(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Stopped);
-        when(userVmVoMock.getHypervisorType()).thenReturn(Hypervisor.HypervisorType.Hyperv);
-        unmanagedVMsManagerMockedStatic.when(() -> UnmanagedVMsManager.isSupported(Hypervisor.HypervisorType.Hyperv)).thenReturn(false);
-
-        CloudRuntimeException exception = assertThrows(CloudRuntimeException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-
-        assertEquals("Unmanaging a VM is currently not supported on hypervisor Hyperv", exception.getMessage());
-        verify(userVmDao, times(1)).releaseFromLockTable(vmId);
-    }
-
-    @Test
-    public void testUnmanageUserVMItManagerReturnsFalse() {
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getId()).thenReturn(vmId);
-        when(userVmVoMock.getUuid()).thenReturn(vmUuid);
-        when(userVmDao.acquireInLockTable(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Running);
-        when(userVmVoMock.getHypervisorType()).thenReturn(Hypervisor.HypervisorType.KVM);
-        unmanagedVMsManagerMockedStatic.when(() -> UnmanagedVMsManager.isSupported(Hypervisor.HypervisorType.KVM)).thenReturn(true);
-        when(volumeDaoMock.findByInstance(vmId)).thenReturn(Collections.emptyList());
-        when(virtualMachineManager.unmanage(vmUuid, null)).thenReturn(new Pair<>(false, "Backend failure"));
-
-        doNothing().when(userVmManagerImpl).checkUnmanagingVMOngoingVolumeSnapshots(any(UserVmVO.class));
-        doNothing().when(userVmManagerImpl).checkUnmanagingVMVolumes(any(UserVmVO.class), any(List.class));
-
-        CloudRuntimeException exception = assertThrows(CloudRuntimeException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-
-        assertEquals("Error while unmanaging VM: " + vmUuid, exception.getMessage());
-        verify(userVmManagerImpl, never()).cleanupUnmanageVMResources(any(UserVmVO.class));
-        verify(userVmManagerImpl, never()).unmanageVMFromDB(anyLong());
-        verify(userVmDao, times(1)).releaseFromLockTable(vmId);
-    }
-
-    @Test
-    public void testUnmanageUserVMGenericException() {
-        RuntimeException testException = new RuntimeException("Something went wrong");
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getId()).thenReturn(vmId);
-        when(userVmDao.acquireInLockTable(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Running);
-        when(userVmVoMock.getHypervisorType()).thenReturn(Hypervisor.HypervisorType.KVM);
-        unmanagedVMsManagerMockedStatic.when(() -> UnmanagedVMsManager.isSupported(Hypervisor.HypervisorType.KVM)).thenReturn(true);
-        doThrow(testException).when(userVmManagerImpl).checkUnmanagingVMOngoingVolumeSnapshots(any(UserVmVO.class));
-
-        CloudRuntimeException exception = assertThrows(CloudRuntimeException.class, () -> {
-            userVmManagerImpl.unmanageUserVM(vmId, null);
-        });
-
-        assertNotNull(exception.getCause());
-        assertEquals(testException, exception.getCause());
-        verify(userVmDao, times(1)).releaseFromLockTable(vmId);
-    }
-
-    @Test
-    public void testUnmanageUserVMSuccess() {
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getId()).thenReturn(vmId);
-        when(userVmVoMock.getUuid()).thenReturn(vmUuid);
-        when(userVmDao.acquireInLockTable(vmId)).thenReturn(userVmVoMock);
-        when(userVmVoMock.getState()).thenReturn(VirtualMachine.State.Running);
-        when(userVmVoMock.getHypervisorType()).thenReturn(Hypervisor.HypervisorType.KVM);
-        unmanagedVMsManagerMockedStatic.when(() -> UnmanagedVMsManager.isSupported(Hypervisor.HypervisorType.KVM)).thenReturn(true);
-        when(volumeDaoMock.findByInstance(vmId)).thenReturn(Collections.emptyList());
-        when(virtualMachineManager.unmanage(vmUuid, null)).thenReturn(new Pair<>(true, "Unmanaged successfully"));
-        doNothing().when(userVmManagerImpl).checkUnmanagingVMOngoingVolumeSnapshots(any(UserVmVO.class));
-        doNothing().when(userVmManagerImpl).checkUnmanagingVMVolumes(any(UserVmVO.class), any(List.class));
-        doNothing().when(userVmManagerImpl).cleanupUnmanageVMResources(any(UserVmVO.class));
-        doNothing().when(userVmManagerImpl).unmanageVMFromDB(anyLong());
-        doNothing().when(userVmManagerImpl).publishUnmanageVMUsageEvents(any(UserVmVO.class), any(List.class));
         Pair<Boolean, String> result = userVmManagerImpl.unmanageUserVM(vmId, null);
-        assertTrue(result.first());
-        assertEquals("Unmanaged successfully", result.second());
-        verify(userVmDao, times(1)).acquireInLockTable(vmId);
-        verify(userVmManagerImpl, times(1)).checkUnmanagingVMOngoingVolumeSnapshots(userVmVoMock);
-        verify(userVmManagerImpl, times(1)).checkUnmanagingVMVolumes(userVmVoMock, Collections.emptyList());
-        verify(userVmManagerImpl, times(1)).cleanupUnmanageVMResources(userVmVoMock);
-        verify(userVmManagerImpl, times(1)).unmanageVMFromDB(vmId);
-        verify(userVmManagerImpl, times(1)).publishUnmanageVMUsageEvents(userVmVoMock, Collections.emptyList());
-        verify(userVmDao, times(1)).releaseFromLockTable(vmId);
+
+        assertEquals(expected, result);
+        verify(vmUnmanageService).unmanageUserVM(eq(vmId), nullable(Long.class),
+                any(VmUnmanageService.ManagerOperations.class));
     }
 
     @Test
