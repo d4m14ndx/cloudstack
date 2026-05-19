@@ -309,6 +309,8 @@ public class UserVmManagerImplTest {
     private VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
     @Mock
     private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
+    @Mock
+    private VmExpungeResourceCleanupService vmExpungeResourceCleanupService;
 
     @Mock
     VirtualMachineManager virtualMachineManager;
@@ -641,6 +643,8 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartPlacementService", startPlacementService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmExpungeFailureTransitionService", vmExpungeFailureTransitionService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmExpungeResourceCleanupService", vmExpungeResourceCleanupService);
         // Slice 14: wire VmSecurityGroupAssignmentServiceImpl so the
         // getSecurityGroupIdList / checkAndUpdateSecurityGroupForVM
         // wrappers don't NPE when updateVirtualMachine tests pass through
