@@ -30,7 +30,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -200,13 +199,10 @@ import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
-import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.VMTemplateZoneVO;
 import com.cloud.storage.Volume;
-import com.cloud.storage.Volume.Type;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.GuestOSCategoryDao;
@@ -431,6 +427,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
     @Inject
     protected VmNicUpdateService vmNicUpdateService;
+    @Inject
+    protected VmAllocationOrchestrationService vmAllocationOrchestrationService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -506,111 +504,18 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                          final LinkedHashMap<? extends Network, List<? extends NicProfile>> auxiliaryNetworks,final DeploymentPlan plan, final HypervisorType hyperType,
                          final Map<String, Map<Integer, String>> extraDhcpOptions, final Map<Long, DiskOffering> datadiskTemplateToDiskOfferingMap, Volume volume, Snapshot snapshot)
                     throws InsufficientCapacityException {
-
-        logger.info("Allocating Instance from Template: {} with hostname: {} and {} networks", template, vmInstanceName, auxiliaryNetworks.size());
-        VMInstanceVO persistedVm = null;
-        try {
-            final VMInstanceVO vm = _vmDao.findVMByInstanceName(vmInstanceName);
-            final Account owner = _entityMgr.findById(Account.class, vm.getAccountId());
-
-            logger.debug("Allocating entries for VM: " + vm);
-
-            vm.setDataCenterId(plan.getDataCenterId());
-            if (plan.getPodId() != null) {
-                vm.setPodIdToDeployIn(plan.getPodId());
-            }
-            assert plan.getClusterId() == null && plan.getPoolId() == null : "We currently don't support cluster and pool preset yet";
-            persistedVm = _vmDao.persist(vm);
-
-            final VirtualMachineProfileImpl vmProfile = new VirtualMachineProfileImpl(persistedVm, template, serviceOffering, null, null);
-
-            Long rootDiskSize = rootDiskOfferingInfo.getSize();
-            if (vm.getType().isUsedBySystem() && SystemVmRootDiskSize.value() != null && SystemVmRootDiskSize.value() > 0L) {
-                rootDiskSize = SystemVmRootDiskSize.value();
-            }
-            final Long rootDiskSizeFinal = rootDiskSize;
-
-            logger.debug("Allocating NICs for {}", persistedVm);
-
-            try {
-                if (!vmProfile.getBootArgs().contains("ExternalLoadBalancerVm")) {
-                    _networkMgr.allocate(vmProfile, auxiliaryNetworks, extraDhcpOptions);
-                }
-            } catch (final ConcurrentOperationException e) {
-                throw new CloudRuntimeException("Concurrent operation while trying to allocate resources for the VM", e);
-            }
-
-            logger.debug("Allocating disks for {}",  persistedVm);
-
-            allocateRootVolume(persistedVm, template, rootDiskOfferingInfo, owner, rootDiskSizeFinal, volume, snapshot);
-
-            // Create new Volume context and inject event resource type, id and details to generate VOLUME.CREATE event for the ROOT disk.
-            CallContext volumeContext = CallContext.register(CallContext.current(), ApiCommandResourceType.Volume);
-            try {
-                if (dataDiskOfferings != null) {
-                    int index = 0;
-                    for (final DiskOfferingInfo dataDiskOfferingInfo : dataDiskOfferings) {
-                        Long deviceId = dataDiskDeviceIds.get(index++);
-                        String volumeName = deviceId == null ? "DATA-" + persistedVm.getId() : "DATA-" + persistedVm.getId() + "-" + String.valueOf(deviceId);
-                        volumeMgr.allocateRawVolume(Type.DATADISK, volumeName, dataDiskOfferingInfo.getDiskOffering(), dataDiskOfferingInfo.getSize(),
-                                dataDiskOfferingInfo.getMinIops(), dataDiskOfferingInfo.getMaxIops(), persistedVm, template, owner, deviceId, true);
-                    }
-                }
-                if (datadiskTemplateToDiskOfferingMap != null && !datadiskTemplateToDiskOfferingMap.isEmpty()) {
-                    Long diskNumber = 1L;
-                    for (Entry<Long, DiskOffering> dataDiskTemplateToDiskOfferingMap : datadiskTemplateToDiskOfferingMap.entrySet()) {
-                        DiskOffering diskOffering = dataDiskTemplateToDiskOfferingMap.getValue();
-                        long diskOfferingSize = diskOffering.getDiskSize() / (1024 * 1024 * 1024);
-                        VMTemplateVO dataDiskTemplate = _templateDao.findById(dataDiskTemplateToDiskOfferingMap.getKey());
-                        volumeMgr.allocateRawVolume(Type.DATADISK, "DATA-" + persistedVm.getId() + "-" + String.valueOf( diskNumber), diskOffering, diskOfferingSize, null, null,
-                                persistedVm, dataDiskTemplate, owner, diskNumber, true);
-                        diskNumber++;
-                    }
-                }
-            } finally {
-                // Remove volumeContext and pop vmContext back
-                CallContext.unregister();
-            }
-
-            logger.debug("Allocation completed for VM: " + persistedVm);
-        } catch (InsufficientCapacityException | CloudRuntimeException e) {
-            // Failed VM will be in Stopped. Transition it to Error, so it can be expunged by ExpungeTask or similar
-            try {
-                if (persistedVm != null) {
-                    stateTransitTo(persistedVm, VirtualMachine.Event.OperationFailedToError, null);
-                }
-            } catch (NoTransitionException nte) {
-                logger.error("Failed to transition {} in {} state to Error state", persistedVm, persistedVm.getState().toString());
-            }
-            throw e;
-        }
+        vmAllocationOrchestrationService.allocate(vmInstanceName, template, serviceOffering, rootDiskOfferingInfo, dataDiskOfferings,
+                dataDiskDeviceIds, auxiliaryNetworks, plan, hyperType, extraDhcpOptions, datadiskTemplateToDiskOfferingMap, volume, snapshot);
     }
 
-    private void allocateRootVolume(VMInstanceVO vm, VirtualMachineTemplate template, DiskOfferingInfo rootDiskOfferingInfo, Account owner, Long rootDiskSizeFinal, Volume volume, Snapshot snapshot) {
-        // Create new Volume context and inject event resource type, id and details to generate VOLUME.CREATE event for the ROOT disk.
-        CallContext volumeContext = CallContext.register(CallContext.current(), ApiCommandResourceType.Volume);
-        try {
-            String rootVolumeName = String.format("ROOT-%s", vm.getId());
-            if (template.getFormat() == ImageFormat.ISO) {
-                volumeMgr.allocateRawVolume(Type.ROOT, rootVolumeName, rootDiskOfferingInfo.getDiskOffering(), rootDiskOfferingInfo.getSize(),
-                        rootDiskOfferingInfo.getMinIops(), rootDiskOfferingInfo.getMaxIops(), vm, template, owner, null, true);
-            } else if (Arrays.asList(ImageFormat.BAREMETAL, ImageFormat.EXTERNAL).contains(template.getFormat())) {
-                logger.debug("{} has format [{}]. Skipping ROOT volume [{}] allocation.", template, template.getFormat(), rootVolumeName);
-            } else {
-                volumeMgr.allocateTemplatedVolumes(Type.ROOT, rootVolumeName, rootDiskOfferingInfo.getDiskOffering(), rootDiskSizeFinal,
-                        rootDiskOfferingInfo.getMinIops(), rootDiskOfferingInfo.getMaxIops(), template, vm, owner, volume, snapshot);
-            }
-        } finally {
-            // Remove volumeContext and pop vmContext back
-            CallContext.unregister();
-        }
+    protected void allocateRootVolume(VMInstanceVO vm, VirtualMachineTemplate template, DiskOfferingInfo rootDiskOfferingInfo, Account owner, Long rootDiskSizeFinal, Volume volume, Snapshot snapshot) {
+        vmAllocationOrchestrationService.allocateRootVolume(vm, template, rootDiskOfferingInfo, owner, rootDiskSizeFinal, volume, snapshot);
     }
 
     @Override
     public void allocate(final String vmInstanceName, final VirtualMachineTemplate template, final ServiceOffering serviceOffering,
             final LinkedHashMap<? extends Network, List<? extends NicProfile>> networks, final DeploymentPlan plan, final HypervisorType hyperType, Volume volume, Snapshot snapshot) throws InsufficientCapacityException {
-        DiskOffering diskOffering = _diskOfferingDao.findById(serviceOffering.getDiskOfferingId());
-        allocate(vmInstanceName, template, serviceOffering, new DiskOfferingInfo(diskOffering), new ArrayList<>(), new ArrayList<>(), networks, plan, hyperType, null, null, volume, snapshot);
+        vmAllocationOrchestrationService.allocate(vmInstanceName, template, serviceOffering, networks, plan, hyperType, volume, snapshot);
     }
 
     @Override
@@ -988,22 +893,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     protected void checkIfTemplateNeededForCreatingVmVolumes(VMInstanceVO vm) {
-        final List<VolumeVO> existingRootVolumes = _volsDao.findReadyRootVolumesByInstance(vm.getId());
-        if (CollectionUtils.isNotEmpty(existingRootVolumes)) {
-            return;
-        }
-        final VMTemplateVO template = _templateDao.findById(vm.getTemplateId());
-        if (template == null) {
-            String msg = "Template for the VM instance can not be found, VM instance configuration needs to be updated";
-            logger.error("{}. Template ID: {} seems to be removed", msg, vm.getTemplateId());
-            throw new CloudRuntimeException(msg);
-        }
-        final VMTemplateZoneVO templateZoneVO = templateZoneDao.findByZoneTemplate(vm.getDataCenterId(), template.getId());
-        if (templateZoneVO == null) {
-            String msg = "Template for the VM instance can not be found in the zone ID: %s, VM instance configuration needs to be updated";
-            logger.error("{}. {}", msg, template);
-            throw new CloudRuntimeException(msg);
-        }
+        vmAllocationOrchestrationService.checkIfTemplateNeededForCreatingVmVolumes(vm);
     }
 
     protected void checkAndAttemptMigrateVmAcrossCluster(final VMInstanceVO vm, final Long destinationClusterId, final Map<Volume, StoragePool> volumePoolMap) {

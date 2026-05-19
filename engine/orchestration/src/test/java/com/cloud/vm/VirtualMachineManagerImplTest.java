@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -117,14 +118,16 @@ import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.network.NetworkService;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.vpc.dao.VpcDao;
+import com.cloud.offering.DiskOfferingInfo;
+import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Cluster;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.DiskOfferingVO;
+import com.cloud.storage.Snapshot;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.VMTemplateZoneVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
@@ -292,6 +295,8 @@ public class VirtualMachineManagerImplTest {
     private VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
     @Mock
     private VmMigrationCheckpointService vmMigrationCheckpointService;
+    @Mock
+    private VmAllocationOrchestrationService vmAllocationOrchestrationService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -372,6 +377,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(vmStopCommandService, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStopCommandService", vmStopCommandService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrationCheckpointService", vmMigrationCheckpointService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmAllocationOrchestrationService", vmAllocationOrchestrationService);
     }
 
     @After
@@ -637,57 +643,32 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
-    public void checkIfTemplateNeededForCreatingVmVolumesExistingRootVolumes() {
-        long vmId = 1L;
+    public void checkIfTemplateNeededForCreatingVmVolumesDelegatesToAllocationService() {
         VMInstanceVO vm = Mockito.mock(VMInstanceVO.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(volumeDaoMock.findReadyRootVolumesByInstance(vmId)).thenReturn(List.of(Mockito.mock(VolumeVO.class)));
-        virtualMachineManagerImpl.checkIfTemplateNeededForCreatingVmVolumes(vm);
-    }
 
-    @Test(expected = CloudRuntimeException.class)
-    public void checkIfTemplateNeededForCreatingVmVolumesMissingTemplate() {
-        long vmId = 1L;
-        long templateId = 1L;
-        VMInstanceVO vm = Mockito.mock(VMInstanceVO.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(vm.getTemplateId()).thenReturn(templateId);
-        Mockito.when(volumeDaoMock.findReadyRootVolumesByInstance(vmId)).thenReturn(null);
-        Mockito.when(templateDao.findById(templateId)).thenReturn(null);
         virtualMachineManagerImpl.checkIfTemplateNeededForCreatingVmVolumes(vm);
-    }
 
-    @Test(expected = CloudRuntimeException.class)
-    public void checkIfTemplateNeededForCreatingVmVolumesMissingZoneTemplate() {
-        long vmId = 1L;
-        long templateId = 1L;
-        long dcId = 1L;
-        VMInstanceVO vm = Mockito.mock(VMInstanceVO.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(vm.getTemplateId()).thenReturn(templateId);
-        Mockito.when(vm.getDataCenterId()).thenReturn(dcId);
-        Mockito.when(volumeDaoMock.findReadyRootVolumesByInstance(vmId)).thenReturn(null);
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        Mockito.when(vm.getId()).thenReturn(templateId);
-        Mockito.when(templateDao.findById(templateId)).thenReturn(template);
-        virtualMachineManagerImpl.checkIfTemplateNeededForCreatingVmVolumes(vm);
+        verify(vmAllocationOrchestrationService).checkIfTemplateNeededForCreatingVmVolumes(vm);
     }
 
     @Test
-    public void checkIfTemplateNeededForCreatingVmVolumesTemplateAvailable() {
-        long vmId = 1L;
-        long templateId = 1L;
-        long dcId = 1L;
-        VMInstanceVO vm = Mockito.mock(VMInstanceVO.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(vm.getTemplateId()).thenReturn(templateId);
-        Mockito.when(vm.getDataCenterId()).thenReturn(dcId);
-        Mockito.when(volumeDaoMock.findReadyRootVolumesByInstance(vmId)).thenReturn(new ArrayList<>());
-        VMTemplateVO template = Mockito.mock(VMTemplateVO.class);
-        Mockito.when(template.getId()).thenReturn(templateId);
-        Mockito.when(templateDao.findById(templateId)).thenReturn(template);
-        Mockito.when(templateZoneDao.findByZoneTemplate(dcId, templateId)).thenReturn(Mockito.mock(VMTemplateZoneVO.class));
-        virtualMachineManagerImpl.checkIfTemplateNeededForCreatingVmVolumes(vm);
+    public void allocateDelegatesToAllocationService() throws Exception {
+        String vmInstanceName = "i-2-3-VM";
+        VirtualMachineTemplate template = mock(VirtualMachineTemplate.class);
+        ServiceOffering serviceOffering = mock(ServiceOffering.class);
+        DiskOfferingInfo rootDiskOfferingInfo = mock(DiskOfferingInfo.class);
+        List<DiskOfferingInfo> dataDiskOfferings = new ArrayList<>();
+        List<Long> dataDiskDeviceIds = new ArrayList<>();
+        LinkedHashMap<Network, List<? extends NicProfile>> networks = new LinkedHashMap<>();
+        DataCenterDeployment plan = mock(DataCenterDeployment.class);
+        Volume volume = mock(Volume.class);
+        Snapshot snapshot = mock(Snapshot.class);
+
+        virtualMachineManagerImpl.allocate(vmInstanceName, template, serviceOffering, rootDiskOfferingInfo, dataDiskOfferings,
+                dataDiskDeviceIds, networks, plan, HypervisorType.KVM, null, null, volume, snapshot);
+
+        verify(vmAllocationOrchestrationService).allocate(vmInstanceName, template, serviceOffering, rootDiskOfferingInfo,
+                dataDiskOfferings, dataDiskDeviceIds, networks, plan, HypervisorType.KVM, null, null, volume, snapshot);
     }
 
     @Test
