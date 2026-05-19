@@ -68,10 +68,14 @@ import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.ResourceLimitResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
+import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
+import org.apache.cloudstack.api.response.SnapshotResponse;
+import org.apache.cloudstack.api.response.SnapshotScheduleResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
+import org.apache.cloudstack.api.response.VMSnapshotResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
@@ -106,6 +110,9 @@ import com.cloud.resource.icon.ResourceIconVO;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
+import com.cloud.storage.Snapshot;
+import com.cloud.storage.snapshot.SnapshotPolicy;
+import com.cloud.storage.snapshot.SnapshotSchedule;
 import com.cloud.storage.GuestOsCategory;
 import com.cloud.usage.UsageVO;
 import com.cloud.user.Account;
@@ -117,6 +124,7 @@ import com.cloud.utils.Pair;
 import com.cloud.utils.net.Ip;
 import com.cloud.vm.ConsoleSessionVO;
 import com.cloud.vm.NicSecondaryIp;
+import com.cloud.vm.snapshot.VMSnapshot;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -159,6 +167,8 @@ public class ApiResponseHelperTest {
     private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
     @Mock
     private ApiAutoscaleResponseService apiAutoscaleResponseService;
+    @Mock
+    private ApiSnapshotResponseService apiSnapshotResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -196,6 +206,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiDirectDownloadCertificateResponseService", apiDirectDownloadCertificateResponseService);
         ReflectionTestUtils.setField(helper, "apiOfferingConfigurationResponseService", apiOfferingConfigurationResponseService);
         ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
+        ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
     }
 
     @Before
@@ -457,6 +468,54 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expectedResponse, response);
         verify(apiUnmanagedInstanceResponseService).createUnmanagedInstanceResponse(instance, cluster, host);
+    }
+
+    @Test
+    public void createSnapshotResponseDelegatesToService() {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        SnapshotResponse expectedResponse = new SnapshotResponse();
+        when(apiSnapshotResponseService.createSnapshotResponse(snapshot)).thenReturn(expectedResponse);
+
+        SnapshotResponse response = helper.createSnapshotResponse(snapshot);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotResponse(snapshot);
+    }
+
+    @Test
+    public void createVMSnapshotResponseDelegatesToService() {
+        VMSnapshot vmSnapshot = Mockito.mock(VMSnapshot.class);
+        VMSnapshotResponse expectedResponse = new VMSnapshotResponse();
+        when(apiSnapshotResponseService.createVMSnapshotResponse(vmSnapshot)).thenReturn(expectedResponse);
+
+        VMSnapshotResponse response = helper.createVMSnapshotResponse(vmSnapshot);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createVMSnapshotResponse(vmSnapshot);
+    }
+
+    @Test
+    public void createSnapshotPolicyResponseDelegatesToService() {
+        SnapshotPolicy policy = Mockito.mock(SnapshotPolicy.class);
+        SnapshotPolicyResponse expectedResponse = new SnapshotPolicyResponse();
+        when(apiSnapshotResponseService.createSnapshotPolicyResponse(policy)).thenReturn(expectedResponse);
+
+        SnapshotPolicyResponse response = helper.createSnapshotPolicyResponse(policy);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotPolicyResponse(policy);
+    }
+
+    @Test
+    public void createSnapshotScheduleResponseDelegatesToService() {
+        SnapshotSchedule schedule = Mockito.mock(SnapshotSchedule.class);
+        SnapshotScheduleResponse expectedResponse = new SnapshotScheduleResponse();
+        when(apiSnapshotResponseService.createSnapshotScheduleResponse(schedule)).thenReturn(expectedResponse);
+
+        SnapshotScheduleResponse response = helper.createSnapshotScheduleResponse(schedule);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotScheduleResponse(schedule);
     }
 
     @Test

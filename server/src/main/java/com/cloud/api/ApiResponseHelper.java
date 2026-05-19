@@ -196,11 +196,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificateHostMap;
 import org.apache.cloudstack.direct.download.DirectDownloadManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreCapabilities;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.framework.jobs.AsyncJob;
 import org.apache.cloudstack.framework.jobs.AsyncJobManager;
 import org.apache.cloudstack.framework.jobs.dao.AsyncJobDao;
@@ -438,11 +434,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     ConfigurationManager _configMgr;
     @Inject
-    SnapshotDataFactory snapshotfactory;
-    @Inject
     private VolumeDao _volumeDao;
-    @Inject
-    private DataStoreManager _dataStoreMgr;
     @Inject
     private SnapshotDataStoreDao _snapshotStoreDao;
     @Inject
@@ -479,6 +471,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
     @Inject
     private ApiAutoscaleResponseService apiAutoscaleResponseService;
+    @Inject
+    private ApiSnapshotResponseService apiSnapshotResponseService;
     @Inject
     private AnnotationDao annotationDao;
     @Inject
@@ -607,193 +601,21 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public SnapshotResponse createSnapshotResponse(Snapshot snapshot) {
-        SnapshotResponse snapshotResponse = new SnapshotResponse();
-        snapshotResponse.setId(snapshot.getUuid());
-
-        populateOwner(snapshotResponse, snapshot);
-
-        VolumeVO volume = findVolumeById(snapshot.getVolumeId());
-        String snapshotTypeStr = snapshot.getRecurringType().name();
-        snapshotResponse.setSnapshotType(snapshotTypeStr);
-        if (volume != null) {
-            snapshotResponse.setVolumeId(volume.getUuid());
-            snapshotResponse.setVolumeName(volume.getName());
-            snapshotResponse.setVolumeType(volume.getVolumeType().name());
-            snapshotResponse.setVolumeState(volume.getState().name());
-            snapshotResponse.setVirtualSize(volume.getSize());
-            DataCenter zone = ApiDBUtils.findZoneById(volume.getDataCenterId());
-            if (zone != null) {
-                snapshotResponse.setZoneId(zone.getUuid());
-                snapshotResponse.setZoneName(zone.getName());
-            }
-
-            if (volume.getVolumeType() == Volume.Type.ROOT && volume.getInstanceId() != null) {
-                //TODO combine lines and 489 into a join in the volume dao
-                VMInstanceVO instance = ApiDBUtils.findVMInstanceById(volume.getInstanceId());
-                if (instance != null) {
-                    GuestOS guestOs = ApiDBUtils.findGuestOSById(instance.getGuestOSId());
-                    if (guestOs != null) {
-                        snapshotResponse.setOsTypeId(guestOs.getUuid());
-                        snapshotResponse.setOsDisplayName(guestOs.getDisplayName());
-                    }
-                }
-            }
-        }
-        snapshotResponse.setCreated(snapshot.getCreated());
-        snapshotResponse.setName(snapshot.getName());
-        snapshotResponse.setIntervalType(ApiDBUtils.getSnapshotIntervalTypes(snapshot.getId()));
-        snapshotResponse.setState(snapshot.getState());
-        snapshotResponse.setLocationType(ApiDBUtils.getSnapshotLocationType(snapshot.getId()));
-
-        SnapshotInfo snapshotInfo = null;
-
-        if (snapshot instanceof SnapshotInfo) {
-            snapshotInfo = (SnapshotInfo)snapshot;
-        } else {
-            DataStoreRole dataStoreRole = getDataStoreRole(snapshot, _snapshotStoreDao, _dataStoreMgr);
-
-            snapshotInfo = snapshotfactory.getSnapshotWithRoleAndZone(snapshot.getId(), dataStoreRole, volume.getDataCenterId());
-        }
-
-        if (snapshotInfo == null) {
-            logger.debug("Unable to find info for image store snapshot with uuid " + snapshot.getUuid());
-            snapshotResponse.setRevertable(false);
-        } else {
-        snapshotResponse.setRevertable(snapshotInfo.isRevertable());
-        snapshotResponse.setPhysicalSize(snapshotInfo.getPhysicalSize());
-        }
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.Snapshot, snapshot.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        snapshotResponse.setTags(new HashSet<>(tagResponses));
-        snapshotResponse.setHasAnnotation(annotationDao.hasAnnotations(snapshot.getUuid(), AnnotationService.EntityType.SNAPSHOT.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-
-        snapshotResponse.setObjectName("snapshot");
-        return snapshotResponse;
+        return apiSnapshotResponseService.createSnapshotResponse(snapshot);
     }
 
     public static DataStoreRole getDataStoreRole(Snapshot snapshot, SnapshotDataStoreDao snapshotStoreDao, DataStoreManager dataStoreMgr) {
-        SnapshotDataStoreVO snapshotStore = snapshotStoreDao.findOneBySnapshotAndDatastoreRole(snapshot.getId(), DataStoreRole.Primary);
-
-        if (snapshotStore == null) {
-            return DataStoreRole.Image;
-        }
-
-        long storagePoolId = snapshotStore.getDataStoreId();
-        DataStore dataStore = dataStoreMgr.getDataStore(storagePoolId, DataStoreRole.Primary);
-        if (dataStore == null) {
-            return DataStoreRole.Image;
-        }
-
-        Map<String, String> mapCapabilities = dataStore.getDriver().getCapabilities();
-
-        if (mapCapabilities != null) {
-            String value = mapCapabilities.get(DataStoreCapabilities.STORAGE_SYSTEM_SNAPSHOT.toString());
-            boolean supportsStorageSystemSnapshots = Boolean.getBoolean(value);
-
-            if (supportsStorageSystemSnapshots) {
-                return DataStoreRole.Primary;
-            }
-        }
-
-        return DataStoreRole.Image;
+        return ApiSnapshotResponseServiceImpl.getDataStoreRole(snapshot, snapshotStoreDao, dataStoreMgr);
     }
 
     @Override
     public VMSnapshotResponse createVMSnapshotResponse(VMSnapshot vmSnapshot) {
-        VMSnapshotResponse vmSnapshotResponse = new VMSnapshotResponse();
-        vmSnapshotResponse.setId(vmSnapshot.getUuid());
-        vmSnapshotResponse.setName(vmSnapshot.getName());
-        vmSnapshotResponse.setState(vmSnapshot.getState());
-        vmSnapshotResponse.setCreated(vmSnapshot.getCreated());
-        vmSnapshotResponse.setDescription(vmSnapshot.getDescription());
-        vmSnapshotResponse.setDisplayName(vmSnapshot.getDisplayName());
-        UserVm vm = ApiDBUtils.findUserVmById(vmSnapshot.getVmId());
-        if (vm != null) {
-            vmSnapshotResponse.setVirtualMachineId(vm.getUuid());
-            vmSnapshotResponse.setVirtualMachineName(StringUtils.isEmpty(vm.getDisplayName()) ? vm.getHostName() : vm.getDisplayName());
-            vmSnapshotResponse.setHypervisor(vm.getHypervisorType().getHypervisorDisplayName());
-            DataCenterVO datacenter = ApiDBUtils.findZoneById(vm.getDataCenterId());
-            if (datacenter != null) {
-                vmSnapshotResponse.setZoneId(datacenter.getUuid());
-                vmSnapshotResponse.setZoneName(datacenter.getName());
-            }
-        }
-        if (vmSnapshot.getParent() != null) {
-            VMSnapshot vmSnapshotParent = ApiDBUtils.getVMSnapshotById(vmSnapshot.getParent());
-            if (vmSnapshotParent != null) {
-                vmSnapshotResponse.setParent(vmSnapshotParent.getUuid());
-                vmSnapshotResponse.setParentName(vmSnapshotParent.getDisplayName());
-            }
-        }
-        populateOwner(vmSnapshotResponse, vmSnapshot);
-
-        List<? extends ResourceTag> tags = _resourceTagDao.listBy(vmSnapshot.getId(), ResourceObjectType.VMSnapshot);
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, false);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        vmSnapshotResponse.setTags(new HashSet<>(tagResponses));
-        vmSnapshotResponse.setHasAnnotation(annotationDao.hasAnnotations(vmSnapshot.getUuid(), AnnotationService.EntityType.VM_SNAPSHOT.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-
-        vmSnapshotResponse.setCurrent(vmSnapshot.getCurrent());
-        vmSnapshotResponse.setType(vmSnapshot.getType().toString());
-        vmSnapshotResponse.setObjectName("vmsnapshot");
-        return vmSnapshotResponse;
+        return apiSnapshotResponseService.createVMSnapshotResponse(vmSnapshot);
     }
 
     @Override
     public SnapshotPolicyResponse createSnapshotPolicyResponse(SnapshotPolicy policy) {
-        SnapshotPolicyResponse policyResponse = new SnapshotPolicyResponse();
-        policyResponse.setId(policy.getUuid());
-        Volume vol = ApiDBUtils.findVolumeById(policy.getVolumeId());
-        if (vol != null) {
-            policyResponse.setVolumeId(vol.getUuid());
-            policyResponse.setVolumeName(vol.getName());
-        }
-        policyResponse.setSchedule(policy.getSchedule());
-        policyResponse.setIntervalType(policy.getInterval());
-        policyResponse.setMaxSnaps(policy.getMaxSnaps());
-        policyResponse.setTimezone(policy.getTimezone());
-        policyResponse.setForDisplay(policy.isDisplay());
-        policyResponse.setObjectName("snapshotpolicy");
-
-        List<? extends ResourceTag> tags = _resourceTagDao.listBy(policy.getId(), ResourceObjectType.SnapshotPolicy);
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, false);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        policyResponse.setTags(new HashSet<>(tagResponses));
-        List<ZoneResponse> zoneResponses = new ArrayList<>();
-        List<DataCenterVO> zones = ApiDBUtils.findSnapshotPolicyZones(policy, vol);
-        for (DataCenterVO zone : zones) {
-            ZoneResponse zoneResponse = new ZoneResponse();
-            zoneResponse.setId(zone.getUuid());
-            zoneResponse.setName(zone.getName());
-            zoneResponse.setTags(null);
-            zoneResponses.add(zoneResponse);
-        }
-        policyResponse.setZones(new HashSet<>(zoneResponses));
-        List<StoragePoolResponse> poolResponses = new ArrayList<>();
-        List<StoragePoolVO> pools = ApiDBUtils.findSnapshotPolicyPools(policy, vol);
-        for (StoragePoolVO pool : pools) {
-            StoragePoolResponse storagePoolResponse = new StoragePoolResponse();
-            storagePoolResponse.setId(pool.getUuid());
-            storagePoolResponse.setName(pool.getName());
-            poolResponses.add(storagePoolResponse);
-        }
-        policyResponse.setStoragePools(new HashSet<>(poolResponses));
-
-        return policyResponse;
+        return apiSnapshotResponseService.createSnapshotPolicyResponse(policy);
     }
 
     @Override
@@ -3843,24 +3665,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public SnapshotScheduleResponse createSnapshotScheduleResponse(SnapshotSchedule snapshotSchedule) {
-        SnapshotScheduleResponse response = new SnapshotScheduleResponse();
-        response.setId(snapshotSchedule.getUuid());
-        if (snapshotSchedule.getVolumeId() != null) {
-            Volume vol = ApiDBUtils.findVolumeById(snapshotSchedule.getVolumeId());
-            if (vol != null) {
-                response.setVolumeId(vol.getUuid());
-            }
-        }
-        if (snapshotSchedule.getPolicyId() != null) {
-            SnapshotPolicy policy = ApiDBUtils.findSnapshotPolicyById(snapshotSchedule.getPolicyId());
-            if (policy != null) {
-                response.setSnapshotPolicyId(policy.getUuid());
-            }
-        }
-        response.setScheduled(snapshotSchedule.getScheduledTimestamp());
-
-        response.setObjectName("snapshot");
-        return response;
+        return apiSnapshotResponseService.createSnapshotScheduleResponse(snapshotSchedule);
     }
 
     @Override
