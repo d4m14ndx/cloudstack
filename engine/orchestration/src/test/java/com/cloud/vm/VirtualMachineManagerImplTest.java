@@ -97,8 +97,6 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
-import com.cloud.dc.ClusterDetailsDao;
-import com.cloud.dc.ClusterDetailsVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.Pod;
 import com.cloud.dc.dao.ClusterDao;
@@ -252,8 +250,6 @@ public class VirtualMachineManagerImplTest {
     @Mock
     private ClusterDao clusterDao;
     @Mock
-    private ClusterDetailsDao _clusterDetailsDao;
-    @Mock
     private VMInstanceDetailsDao vmInstanceDetailsDao;
     @Mock
     private ItWorkDao _workDao;
@@ -293,6 +289,8 @@ public class VirtualMachineManagerImplTest {
     private VmMetadataSyncService vmMetadataSyncService;
     @Mock
     private VmNetworkNameMappingService vmNetworkNameMappingService;
+    @Mock
+    private VmStartProfilePreparationService vmStartProfilePreparationService;
     @Mock
     private VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
 
@@ -368,6 +366,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningServiceImpl", vmVolumeMigrationPlanningServiceImpl);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmDiskOfferingSuitabilityService", vmDiskOfferingSuitabilityService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkNameMappingService", vmNetworkNameMappingService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStartProfilePreparationService", vmStartProfilePreparationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
     }
 
@@ -781,6 +780,46 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
+    public void updateOverCommitRatioForVmProfileDelegatesToStartProfilePreparationService() {
+        virtualMachineManagerImpl.updateOverCommitRatioForVmProfile(virtualMachineProfileMock, clusterMockId);
+
+        verify(vmStartProfilePreparationService).updateOverCommitRatioForVmProfile(virtualMachineProfileMock, clusterMockId);
+    }
+
+    @Test
+    public void conditionallySetPodToDeployInDelegatesToStartProfilePreparationService() {
+        virtualMachineManagerImpl.conditionallySetPodToDeployIn(vmInstanceMock);
+
+        verify(vmStartProfilePreparationService).conditionallySetPodToDeployIn(vmInstanceMock);
+    }
+
+    @Test
+    public void areAllVolumesAllocatedDelegatesToStartProfilePreparationService() {
+        when(vmStartProfilePreparationService.areAllVolumesAllocated(vmInstanceVoMockId)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.areAllVolumesAllocated(vmInstanceVoMockId);
+
+        assertTrue(result);
+        verify(vmStartProfilePreparationService).areAllVolumesAllocated(vmInstanceVoMockId);
+    }
+
+    @Test
+    public void logBootModeParametersDelegatesToStartProfilePreparationService() {
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+
+        virtualMachineManagerImpl.logBootModeParameters(params);
+
+        verify(vmStartProfilePreparationService).logBootModeParameters(params);
+    }
+
+    @Test
+    public void resetVmNicsDeviceIdDelegatesToStartProfilePreparationService() {
+        virtualMachineManagerImpl.resetVmNicsDeviceId(vmInstanceVoMockId);
+
+        verify(vmStartProfilePreparationService).resetVmNicsDeviceId(vmInstanceVoMockId);
+    }
+
+    @Test
     public void testOrchestrateStartNonNullPodId() throws Exception {
         VMInstanceVO vmInstance = new VMInstanceVO();
         ReflectionTestUtils.setField(vmInstance, "id", 1L);
@@ -850,15 +889,7 @@ public class VirtualMachineManagerImplTest {
 
         Cluster cluster = mock(Cluster.class);
         when(dest.getCluster()).thenReturn(cluster);
-        ClusterDetailsVO cluster_detail_cpu = mock(ClusterDetailsVO.class);
-        ClusterDetailsVO cluster_detail_ram = mock(ClusterDetailsVO.class);
         when(cluster.getId()).thenReturn(1L);
-        when(_clusterDetailsDao.findDetail(1L, VmDetailConstants.CPU_OVER_COMMIT_RATIO)).thenReturn(cluster_detail_cpu);
-        when(_clusterDetailsDao.findDetail(1L, VmDetailConstants.MEMORY_OVER_COMMIT_RATIO)).thenReturn(cluster_detail_ram);
-        when(vmInstanceDetailsDao.findDetail(anyLong(), Mockito.anyString())).thenReturn(null);
-        when(cluster_detail_cpu.getValue()).thenReturn("1.0");
-        when(cluster_detail_ram.getValue()).thenReturn("1.0");
-        doReturn(false).when(virtualMachineManagerImpl).areAllVolumesAllocated(Mockito.anyLong());
 
         CallContext callContext = mock(CallContext.class);
         when(callContext.getCallingAccount()).thenReturn(account);
@@ -946,15 +977,12 @@ public class VirtualMachineManagerImplTest {
 
         Cluster cluster = mock(Cluster.class);
         when(dest.getCluster()).thenReturn(cluster);
-        ClusterDetailsVO cluster_detail_cpu = mock(ClusterDetailsVO.class);
-        ClusterDetailsVO cluster_detail_ram = mock(ClusterDetailsVO.class);
         when(cluster.getId()).thenReturn(1L);
-        when(_clusterDetailsDao.findDetail(1L, VmDetailConstants.CPU_OVER_COMMIT_RATIO)).thenReturn(cluster_detail_cpu);
-        when(_clusterDetailsDao.findDetail(1L, VmDetailConstants.MEMORY_OVER_COMMIT_RATIO)).thenReturn(cluster_detail_ram);
-        when(vmInstanceDetailsDao.findDetail(anyLong(), Mockito.anyString())).thenReturn(null);
-        when(cluster_detail_cpu.getValue()).thenReturn("1.0");
-        when(cluster_detail_ram.getValue()).thenReturn("1.0");
-        doReturn(true).when(virtualMachineManagerImpl).areAllVolumesAllocated(Mockito.anyLong());
+        Mockito.doAnswer(invocation -> {
+            VMInstanceVO vm = invocation.getArgument(0);
+            vm.setPodIdToDeployIn(null);
+            return null;
+        }).when(vmStartProfilePreparationService).conditionallySetPodToDeployIn(vmInstance);
 
         CallContext callContext = mock(CallContext.class);
         when(callContext.getCallingAccount()).thenReturn(account);
@@ -1403,14 +1431,6 @@ public class VirtualMachineManagerImplTest {
 
         when(hostMock.getClusterId()).thenReturn(clusterMockId);
 
-        // Mock cpuOvercommitRatio and ramOvercommitRatio
-        ClusterDetailsVO cpuOvercommitRatio = Mockito.mock(ClusterDetailsVO.class);
-        when(cpuOvercommitRatio.getValue()).thenReturn("1.0");
-        when(_clusterDetailsDao.findDetail(clusterMockId, VmDetailConstants.CPU_OVER_COMMIT_RATIO)).thenReturn(cpuOvercommitRatio);
-        ClusterDetailsVO ramOvercommitRatio = Mockito.mock(ClusterDetailsVO.class);
-        when(ramOvercommitRatio.getValue()).thenReturn("1.0");
-        when(_clusterDetailsDao.findDetail(clusterMockId, VmDetailConstants.MEMORY_OVER_COMMIT_RATIO)).thenReturn(ramOvercommitRatio);
-
         // Mock NICs
         List<NicVO> nics = new ArrayList<>();
         NicVO nic1 = Mockito.mock(NicVO.class);
@@ -1457,7 +1477,7 @@ public class VirtualMachineManagerImplTest {
         // Assert
         assertNotNull(result);
         assertEquals(vmTO, result);
-        verify(_clusterDetailsDao, times(2)).findDetail(eq(clusterMockId), anyString());
+        verify(vmStartProfilePreparationService).updateOverCommitRatioForVmProfile(any(VirtualMachineProfile.class), eq(clusterMockId));
         verify(vmInstanceDetailsDao).listDetailsKeyPairs(anyLong(), anyList());
     }
 
