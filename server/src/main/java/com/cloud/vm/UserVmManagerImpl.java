@@ -556,6 +556,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmHostNameUniquenessService vmHostNameUniquenessService;
     @Inject
+    private VmStartPlacementService vmStartPlacementService;
+    @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
     @Inject
     private VmCredentialResetService vmCredentialResetService;
@@ -4321,50 +4323,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private Pod getDestinationPod(Long podId, boolean isRootAdmin) {
-        Pod destinationPod = null;
-        if (podId != null) {
-            if (!isRootAdmin) {
-                throw new PermissionDeniedException(
-                        "Parameter " + ApiConstants.POD_ID + " can only be specified by a Root Admin, permission denied");
-            }
-            destinationPod = _podDao.findById(podId);
-            if (destinationPod == null) {
-                throw new InvalidParameterValueException("Unable to find the pod to deploy the VM, pod id=" + podId);
-            }
-        }
-        return destinationPod;
+        return vmStartPlacementService.getDestinationPod(podId, isRootAdmin);
     }
 
     private Cluster getDestinationCluster(Long clusterId, boolean isRootAdmin) {
-        Cluster destinationCluster = null;
-        if (clusterId != null) {
-            if (!isRootAdmin) {
-                throw new PermissionDeniedException(
-                        "Parameter " + ApiConstants.CLUSTER_ID + " can only be specified by a Root Admin, permission denied");
-            }
-            destinationCluster = _clusterDao.findById(clusterId);
-            if (destinationCluster == null) {
-                throw new InvalidParameterValueException("Unable to find the cluster to deploy the VM, cluster id=" + clusterId);
-            }
-        }
-        return destinationCluster;
+        return vmStartPlacementService.getDestinationCluster(clusterId, isRootAdmin);
     }
 
     private HostVO getDestinationHost(Long hostId, boolean isRootAdmin, boolean isExplicitHost) {
-        HostVO destinationHost = null;
-        if (hostId != null) {
-            if (isExplicitHost && !isRootAdmin) {
-                throw new PermissionDeniedException(
-                        "Parameter " + ApiConstants.HOST_ID + " can only be specified by a Root Admin, permission denied");
-            }
-            destinationHost = _hostDao.findById(hostId);
-            if (destinationHost == null) {
-                throw new InvalidParameterValueException("Unable to find the host to deploy the VM, host id=" + hostId);
-            } else if (destinationHost.getResourceState() != ResourceState.Enabled || destinationHost.getStatus() != Status.Up ) {
-                throw new InvalidParameterValueException("Unable to deploy the VM as the host: " + destinationHost.getName() + " is not in the right state");
-            }
-        }
-        return destinationHost;
+        return vmStartPlacementService.getDestinationHost(hostId, isRootAdmin, isExplicitHost);
     }
 
     @Override
