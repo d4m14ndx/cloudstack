@@ -16,8 +16,6 @@
 // under the License.
 package com.cloud.api;
 
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -200,7 +198,6 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificateHostMap;
 import org.apache.cloudstack.direct.download.DirectDownloadManager;
-import org.apache.cloudstack.direct.download.DirectDownloadManager.HostCertificateStatus.CertificateStatus;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreCapabilities;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
@@ -300,7 +297,6 @@ import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.host.ControlState;
 import com.cloud.host.Host;
-import com.cloud.host.HostVO;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.HypervisorCapabilities;
 import com.cloud.network.GuestVlan;
@@ -423,7 +419,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.Dhcp;
 import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.utils.security.CertificateHelper;
 import com.cloud.vm.ConsoleProxyVO;
 import com.cloud.vm.InstanceGroup;
 import com.cloud.vm.Nic;
@@ -438,8 +433,6 @@ import com.cloud.vm.dao.NicExtraDhcpOptionDao;
 import com.cloud.vm.dao.NicSecondaryIpVO;
 import com.cloud.vm.snapshot.VMSnapshot;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
-
-import sun.security.x509.X509CertImpl;
 
 public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
@@ -492,6 +485,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiKeyPairResponseService apiKeyPairResponseService;
     @Inject
     private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
+    @Inject
+    private ApiDirectDownloadCertificateResponseService apiDirectDownloadCertificateResponseService;
     @Inject
     private AnnotationDao annotationDao;
     @Inject
@@ -4691,81 +4686,27 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     }
 
     protected void handleCertificateResponse(String certStr, DirectDownloadCertificateResponse response) {
-        try {
-            Certificate cert = CertificateHelper.buildCertificate(certStr);
-            if (cert instanceof X509CertImpl) {
-                X509CertImpl certificate = (X509CertImpl) cert;
-                response.setVersion(String.valueOf(certificate.getVersion()));
-                response.setSubject(certificate.getSubjectDN().toString());
-                response.setIssuer(certificate.getIssuerDN().toString());
-                response.setSerialNum(certificate.getSerialNumberObject().toString());
-                response.setValidity(String.format("From: [%s] - To: [%s]", certificate.getNotBefore(), certificate.getNotAfter()));
-            }
-        } catch (CertificateException e) {
-            logger.error("Error parsing direct download certificate: " + certStr, e);
-        }
+        apiDirectDownloadCertificateResponseService.handleCertificateResponse(certStr, response);
     }
 
     @Override
     public DirectDownloadCertificateResponse createDirectDownloadCertificateResponse(DirectDownloadCertificate certificate) {
-        DirectDownloadCertificateResponse response = new DirectDownloadCertificateResponse();
-        DataCenterVO datacenter = ApiDBUtils.findZoneById(certificate.getZoneId());
-        if (datacenter != null) {
-            response.setZoneId(datacenter.getUuid());
-            response.setZoneName(datacenter.getName());
-        }
-        response.setId(certificate.getUuid());
-        response.setAlias(certificate.getAlias());
-        handleCertificateResponse(certificate.getCertificate(), response);
-        response.setHypervisor(certificate.getHypervisorType().getHypervisorDisplayName());
-        response.setObjectName("directdownloadcertificate");
-        return response;
+        return apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateResponse(certificate);
     }
 
     @Override
     public List<DirectDownloadCertificateHostStatusResponse> createDirectDownloadCertificateHostMapResponse(List<DirectDownloadCertificateHostMap> hostMappings) {
-        if (CollectionUtils.isEmpty(hostMappings)) {
-            return new ArrayList<>();
-        }
-        List<DirectDownloadCertificateHostStatusResponse> responses = new ArrayList<>(hostMappings.size());
-        for (DirectDownloadCertificateHostMap map : hostMappings) {
-            DirectDownloadCertificateHostStatusResponse response = new DirectDownloadCertificateHostStatusResponse();
-            HostVO host = ApiDBUtils.findHostById(map.getHostId());
-            if (host != null) {
-                response.setHostId(host.getUuid());
-                response.setHostName(host.getName());
-            }
-            response.setStatus(map.isRevoked() ? CertificateStatus.REVOKED.name() : CertificateStatus.UPLOADED.name());
-            response.setObjectName("directdownloadcertificatehoststatus");
-            responses.add(response);
-        }
-        return responses;
-    }
-
-    private DirectDownloadCertificateHostStatusResponse getDirectDownloadHostStatusResponseInternal(Host host, CertificateStatus status, String details) {
-        DirectDownloadCertificateHostStatusResponse response = new DirectDownloadCertificateHostStatusResponse();
-        if (host != null) {
-            response.setHostId(host.getUuid());
-            response.setHostName(host.getName());
-        }
-        response.setStatus(status.name());
-        response.setDetails(details);
-        response.setObjectName("directdownloadcertificatehoststatus");
-        return response;
+        return apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateHostMapResponse(hostMappings);
     }
 
     @Override
     public DirectDownloadCertificateHostStatusResponse createDirectDownloadCertificateHostStatusResponse(DirectDownloadManager.HostCertificateStatus hostStatus) {
-        Host host = hostStatus.getHost();
-        CertificateStatus status = hostStatus.getStatus();
-        return getDirectDownloadHostStatusResponseInternal(host, status, hostStatus.getDetails());
+        return apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateHostStatusResponse(hostStatus);
     }
 
     @Override
     public DirectDownloadCertificateHostStatusResponse createDirectDownloadCertificateProvisionResponse(Long certificateId, Long hostId, Pair<Boolean, String> result) {
-        HostVO host = ApiDBUtils.findHostById(hostId);
-        CertificateStatus status = result != null && result.first() ? CertificateStatus.UPLOADED : CertificateStatus.FAILED;
-        return getDirectDownloadHostStatusResponseInternal(host, status, result != null ? result.second() : "provision certificate failure");
+        return apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateProvisionResponse(certificateId, hostId, result);
     }
 
     @Override
