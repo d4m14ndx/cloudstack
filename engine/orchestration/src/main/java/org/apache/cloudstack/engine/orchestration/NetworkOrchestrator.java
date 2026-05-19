@@ -158,14 +158,12 @@ import com.cloud.network.dao.NetworkDetailsDao;
 import com.cloud.network.dao.NetworkDomainDao;
 import com.cloud.network.dao.NetworkDomainVO;
 import com.cloud.network.dao.NetworkServiceMapDao;
-import com.cloud.network.dao.NetworkServiceMapVO;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeDao;
 import com.cloud.network.dao.RemoteAccessVpnDao;
-import com.cloud.network.dao.RemoteAccessVpnVO;
 import com.cloud.network.dao.RouterNetworkDao;
 import com.cloud.network.element.AggregatedCommandExecutor;
 import com.cloud.network.element.ConfigDriveNetworkElement;
@@ -443,6 +441,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NetworkHostSetupService networkHostSetupService;
     @Inject
     NetworkUpdateSequenceService networkUpdateSequenceService;
+    @Inject
+    NetworkServiceChangeCleanupService networkServiceChangeCleanupService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -1853,109 +1853,13 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     @Override
-    public List<String> getServicesNotSupportedInNewOffering(Network network, long newNetworkOfferingId) {
-        NetworkOffering offering = _networkOfferingDao.findById(newNetworkOfferingId);
-        List<String> services = _ntwkOfferingSrvcDao.listServicesForNetworkOffering(offering.getId());
-        List<NetworkServiceMapVO> serviceMap = _ntwkSrvcDao.getServicesInNetwork(network.getId());
-        List<String> servicesNotInNewOffering = new ArrayList<>();
-        for (NetworkServiceMapVO serviceVO : serviceMap) {
-            boolean inlist = false;
-            for (String service : services) {
-                if (serviceVO.getService().equalsIgnoreCase(service)) {
-                    inlist = true;
-                    break;
-                }
-            }
-            if (!inlist) {
-                //ignore Gateway service as this has no effect on the
-                //behaviour of network.
-                if (!serviceVO.getService().equalsIgnoreCase(Service.Gateway.getName()))
-                    servicesNotInNewOffering.add(serviceVO.getService());
-            }
-        }
-        return servicesNotInNewOffering;
+    public List<String> getServicesNotSupportedInNewOffering(final Network network, final long newNetworkOfferingId) {
+        return networkServiceChangeCleanupService.getServicesNotSupportedInNewOffering(network, newNetworkOfferingId);
     }
 
     @Override
-    public void cleanupConfigForServicesInNetwork(List<String> services, final Network network) {
-        long networkId = network.getId();
-        Account caller = _accountDao.findById(Account.ACCOUNT_ID_SYSTEM);
-        long userId = User.UID_SYSTEM;
-        //remove all PF/Static Nat rules for the network
-        logger.info("Services: {} are no longer supported in network: {} after applying new network offering: {} removing the related configuration",
-                services::toString, network::toString, () -> _networkOfferingDao.findById(network.getNetworkOfferingId()));
-        if (services.contains(Service.StaticNat.getName()) || services.contains(Service.PortForwarding.getName())) {
-            try {
-                if (_rulesMgr.revokeAllPFStaticNatRulesForNetwork(networkId, userId, caller)) {
-                    logger.debug("Successfully cleaned up portForwarding/staticNat rules for network {}", network);
-                } else {
-                    logger.warn("Failed to release portForwarding/StaticNat rules as a part of network {} cleanup", network);
-                }
-                if (services.contains(Service.StaticNat.getName())) {
-                    //removing static nat configured on ips.
-                    //optimizing the db operations using transaction.
-                    Transaction.execute(new TransactionCallbackNoReturn() {
-                        @Override
-                        public void doInTransactionWithoutResult(TransactionStatus status) {
-                            List<IPAddressVO> ips = _ipAddressDao.listStaticNatPublicIps(network.getId());
-                            for (IPAddressVO ip : ips) {
-                                ip.setOneToOneNat(false);
-                                ip.setAssociatedWithVmId(null);
-                                ip.setVmIp(null);
-                                ip.setForRouter(false);
-                                _ipAddressDao.update(ip.getId(), ip);
-                            }
-                        }
-                    });
-                }
-            } catch (ResourceUnavailableException ex) {
-                logger.warn("Failed to release portForwarding/StaticNat rules as a part of network {} cleanup due to resourceUnavailable", network, ex);
-            }
-        }
-        if (services.contains(Service.SourceNat.getName())) {
-            Transaction.execute(new TransactionCallbackNoReturn() {
-                @Override
-                public void doInTransactionWithoutResult(TransactionStatus status) {
-                    List<IPAddressVO> ips = _ipAddressDao.listByAssociatedNetwork(network.getId(), true);
-                    //removing static nat configured on ips.
-                    for (IPAddressVO ip : ips) {
-                        ip.setSourceNat(false);
-                        _ipAddressDao.update(ip.getId(), ip);
-                    }
-                }
-            });
-        }
-        if (services.contains(Service.Lb.getName())) {
-            //remove all LB rules for the network
-            if (_lbMgr.removeAllLoadBalanacersForNetwork(networkId, caller, userId)) {
-                logger.debug("Successfully cleaned up load balancing rules for network {}", network);
-            } else {
-                logger.warn("Failed to cleanup LB rules as a part of network {} cleanup", network);
-            }
-        }
-
-        if (services.contains(Service.Firewall.getName())) {
-            //revoke all firewall rules for the network
-            try {
-                if (_firewallMgr.revokeAllFirewallRulesForNetwork(network, userId, caller)) {
-                    logger.debug("Successfully cleaned up firewallRules rules for network {}", network);
-                } else {
-                    logger.warn("Failed to cleanup Firewall rules as a part of network {} cleanup", network);
-                }
-            } catch (ResourceUnavailableException ex) {
-                logger.warn("Failed to cleanup Firewall rules as a part of network {} cleanup due to resourceUnavailable", network, ex);
-            }
-        }
-
-        //do not remove vpn service for vpc networks.
-        if (services.contains(Service.Vpn.getName()) && network.getVpcId() == null) {
-            RemoteAccessVpnVO vpn = _remoteAccessVpnDao.findByAccountAndNetwork(network.getAccountId(), networkId);
-            try {
-                _vpnMgr.destroyRemoteAccessVpnForIp(vpn.getServerAddressId(), caller, true);
-            } catch (ResourceUnavailableException ex) {
-                logger.warn("Failed to cleanup remote access vpn resources of network: {} due to Exception: {}", network, ex);
-            }
-        }
+    public void cleanupConfigForServicesInNetwork(final List<String> services, final Network network) {
+        networkServiceChangeCleanupService.cleanupConfigForServicesInNetwork(services, network);
     }
 
     @Override
