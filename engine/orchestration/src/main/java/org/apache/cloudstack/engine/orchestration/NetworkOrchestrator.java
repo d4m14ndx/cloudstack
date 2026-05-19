@@ -68,7 +68,6 @@ import com.cloud.agent.api.CleanupPersistentNetworkResourceAnswer;
 import com.cloud.agent.api.CleanupPersistentNetworkResourceCommand;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.StartupCommand;
-import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.deployasis.OVFNetworkTO;
 import com.cloud.alert.AlertManager;
@@ -124,7 +123,6 @@ import com.cloud.network.NetworkModel;
 import com.cloud.network.NetworkProfile;
 import com.cloud.network.NetworkService;
 import com.cloud.network.NetworkStateListener;
-import com.cloud.network.Networks;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetwork;
@@ -382,6 +380,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     VpcManager _vpcMgr;
     @Inject
     NetworkModel _networkModel;
+    @Inject
+    NicProfileLifecycleMappingService nicProfileLifecycleMappingService;
     @Inject
     RequestedNicIpReservationService requestedNicIpReservationService;
     @Inject
@@ -1150,99 +1150,19 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     protected Integer applyProfileToNic(final NicVO vo, final NicProfile profile, Integer deviceId) {
-        if (profile.getDeviceId() != null) {
-            vo.setDeviceId(profile.getDeviceId());
-        } else if (deviceId != null) {
-            vo.setDeviceId(deviceId++);
-        }
-
-        if (profile.getReservationStrategy() != null) {
-            vo.setReservationStrategy(profile.getReservationStrategy());
-        }
-
-        vo.setDefaultNic(profile.isDefaultNic());
-
-        vo.setIPv4Address(profile.getIPv4Address());
-        vo.setAddressFormat(profile.getFormat());
-
-        if (profile.getMacAddress() != null) {
-            vo.setMacAddress(profile.getMacAddress());
-        }
-
-        vo.setMode(profile.getMode());
-        vo.setIPv4Netmask(profile.getIPv4Netmask());
-        vo.setIPv4Gateway(profile.getIPv4Gateway());
-
-        if (profile.getBroadCastUri() != null) {
-            vo.setBroadcastUri(profile.getBroadCastUri());
-        }
-
-        if (profile.getIsolationUri() != null) {
-            vo.setIsolationUri(profile.getIsolationUri());
-        }
-
-        vo.setState(Nic.State.Allocated);
-
-        vo.setIPv6Address(profile.getIPv6Address());
-        vo.setIPv6Gateway(profile.getIPv6Gateway());
-        vo.setIPv6Cidr(profile.getIPv6Cidr());
-
-        return deviceId;
+        return nicProfileLifecycleMappingService.applyProfileToNic(vo, profile, deviceId);
     }
 
     protected void applyProfileToNicForRelease(final NicVO vo, final NicProfile profile) {
-        vo.setIPv4Gateway(profile.getIPv4Gateway());
-        vo.setAddressFormat(profile.getFormat());
-        vo.setIPv4Address(profile.getIPv4Address());
-        vo.setIPv6Address(profile.getIPv6Address());
-        vo.setMacAddress(profile.getMacAddress());
-        if (profile.getReservationStrategy() != null) {
-            vo.setReservationStrategy(profile.getReservationStrategy());
-        }
-        vo.setBroadcastUri(profile.getBroadCastUri());
-        vo.setIsolationUri(profile.getIsolationUri());
-        vo.setIPv4Netmask(profile.getIPv4Netmask());
+        nicProfileLifecycleMappingService.applyProfileToNicForRelease(vo, profile);
     }
 
     protected void applyProfileToNetwork(final NetworkVO network, final NetworkProfile profile) {
-        network.setBroadcastUri(profile.getBroadcastUri());
-        network.setDns1(profile.getDns1());
-        network.setDns2(profile.getDns2());
-        network.setPhysicalNetworkId(profile.getPhysicalNetworkId());
+        nicProfileLifecycleMappingService.applyProfileToNetwork(network, profile);
     }
 
     protected NicTO toNicTO(final NicVO nic, final NicProfile profile, final NetworkVO config) {
-        final NicTO to = new NicTO();
-        to.setDeviceId(nic.getDeviceId());
-        to.setBroadcastType(config.getBroadcastDomainType());
-        to.setType(config.getTrafficType());
-        to.setIp(nic.getIPv4Address());
-        to.setNetmask(nic.getIPv4Netmask());
-        to.setMac(nic.getMacAddress());
-        to.setDns1(profile.getIPv4Dns1());
-        to.setDns2(profile.getIPv4Dns2());
-        if (nic.getIPv4Gateway() != null) {
-            to.setGateway(nic.getIPv4Gateway());
-        } else {
-            to.setGateway(config.getGateway());
-        }
-        if (nic.getVmType() != VirtualMachine.Type.User) {
-            to.setPxeDisable(true);
-        }
-        to.setDefaultNic(nic.isDefaultNic());
-        to.setBroadcastUri(nic.getBroadcastUri());
-        to.setIsolationuri(nic.getIsolationUri());
-        if (profile != null) {
-            to.setDns1(profile.getIPv4Dns1());
-            to.setDns2(profile.getIPv4Dns2());
-        }
-
-        final Integer networkRate = _networkModel.getNetworkRate(config.getId(), null);
-        to.setNetworkRateMbps(networkRate);
-
-        to.setUuid(config.getUuid());
-
-        return to;
+        return nicProfileLifecycleMappingService.toNicTO(nic, profile, config);
     }
 
     boolean isNetworkImplemented(final NetworkVO network) {
@@ -3262,23 +3182,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     protected NicProfile getNicProfileForVm(final Network network, final NicProfile requested, final VirtualMachine vm) {
-        NicProfile nic = null;
-        if (requested != null && requested.getBroadCastUri() != null) {
-            final String broadcastUri = requested.getBroadCastUri().toString();
-            final String ipAddress = requested.getIPv4Address();
-            final NicVO nicVO = _nicDao.findByNetworkIdInstanceIdAndBroadcastUri(network.getId(), vm.getId(), broadcastUri);
-            if (nicVO != null) {
-                if (ipAddress == null || nicVO.getIPv4Address().equals(ipAddress)) {
-                    nic = _networkModel.getNicProfile(vm, network.getId(), broadcastUri);
-                }
-            }
-        } else {
-            final NicVO nicVO = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
-            if (nicVO != null) {
-                nic = _networkModel.getNicProfile(vm, network.getId(), null);
-            }
-        }
-        return nic;
+        return nicProfileLifecycleMappingService.getNicProfileForVm(network, requested, vm);
     }
 
     @Override
@@ -3327,72 +3231,22 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     }
 
     private boolean getNicProfileDefaultNic(NicProfile nicProfile) {
-        if (nicProfile != null) {
-            logger.debug("Using requested nic profile isDefaultNic value [{}].", nicProfile.isDefaultNic());
-            return nicProfile.isDefaultNic();
-        }
-
-        logger.debug("Using isDefaultNic default value [false] as requested nic profile is null.");
-        return false;
+        return nicProfileLifecycleMappingService.getNicProfileDefaultNic(nicProfile);
     }
 
     @Override
     public List<NicProfile> getNicProfiles(final Long vmId, HypervisorType hypervisorType) {
-        final List<NicVO> nics = _nicDao.listByVmId(vmId);
-        final List<NicProfile> profiles = new ArrayList<>();
-
-        if (nics != null) {
-            for (final Nic nic : nics) {
-                final NetworkVO network = _networksDao.findById(nic.getNetworkId());
-                final Integer networkRate = _networkModel.getNetworkRate(network.getId(), vmId);
-
-                final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-                final NicProfile profile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), networkRate,
-                        _networkModel.isSecurityGroupSupportedInNetwork(network), _networkModel.getNetworkTag(hypervisorType, network));
-                guru.updateNicProfile(profile, network);
-                profiles.add(profile);
-            }
-        }
-        return profiles;
+        return nicProfileLifecycleMappingService.getNicProfiles(vmId, hypervisorType);
     }
 
     @Override
     public List<NicProfile> getNicProfiles(final VirtualMachine vm) {
-        return getNicProfiles(vm.getId(), vm.getHypervisorType());
+        return nicProfileLifecycleMappingService.getNicProfiles(vm);
     }
 
     @Override
     public Map<String, String> getSystemVMAccessDetails(final VirtualMachine vm) {
-        final Map<String, String> accessDetails = new HashMap<>();
-        accessDetails.put(NetworkElementCommand.ROUTER_NAME, vm.getInstanceName());
-        String privateIpAddress = null;
-        for (final NicProfile profile : getNicProfiles(vm)) {
-            if (profile == null) {
-                continue;
-            }
-            final Network network = _networksDao.findById(profile.getNetworkId());
-            if (network == null) {
-                continue;
-            }
-            final String address = profile.getIPv4Address();
-            if (network.getTrafficType() == Networks.TrafficType.Control) {
-                accessDetails.put(NetworkElementCommand.ROUTER_IP, address);
-            }
-            if (network.getTrafficType() == Networks.TrafficType.Guest) {
-                accessDetails.put(NetworkElementCommand.ROUTER_GUEST_IP, address);
-            }
-            if (network.getTrafficType() == Networks.TrafficType.Management) {
-                privateIpAddress = address;
-            }
-            if (network.getTrafficType() != null && StringUtils.isNotEmpty(address)) {
-                accessDetails.put(network.getTrafficType().name(), address);
-            }
-        }
-
-        if (privateIpAddress != null && StringUtils.isEmpty(accessDetails.get(NetworkElementCommand.ROUTER_IP))) {
-            accessDetails.put(NetworkElementCommand.ROUTER_IP,  privateIpAddress);
-        }
-        return accessDetails;
+        return nicProfileLifecycleMappingService.getSystemVMAccessDetails(vm);
     }
 
     @Override
