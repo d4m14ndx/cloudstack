@@ -97,7 +97,6 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
-import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterDetailsVO;
 import com.cloud.dc.DataCenter;
@@ -229,8 +228,6 @@ public class VirtualMachineManagerImplTest {
     @Mock
     private HostDao hostDaoMock;
     @Mock
-    private UserVmJoinDao userVmJoinDaoMock;
-    @Mock
     private UserVmDao userVmDaoMock;
     @Mock
     private UserVmVO userVmMock;
@@ -296,6 +293,8 @@ public class VirtualMachineManagerImplTest {
     private VmMetadataSyncService vmMetadataSyncService;
     @Mock
     private VmNetworkNameMappingService vmNetworkNameMappingService;
+    @Mock
+    private VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -311,7 +310,6 @@ public class VirtualMachineManagerImplTest {
 
         when(hostDaoMock.findById(any())).thenReturn(hostMock);
 
-        when(userVmJoinDaoMock.searchByIds(any())).thenReturn(new ArrayList<>());
         when(userVmDaoMock.findById(any())).thenReturn(userVmMock);
 
         Mockito.doReturn(volumeMockId).when(volumeVoMock).getId();
@@ -370,6 +368,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningServiceImpl", vmVolumeMigrationPlanningServiceImpl);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmDiskOfferingSuitabilityService", vmDiskOfferingSuitabilityService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkNameMappingService", vmNetworkNameMappingService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
     }
 
     @After
