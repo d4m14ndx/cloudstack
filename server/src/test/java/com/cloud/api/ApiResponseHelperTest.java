@@ -16,6 +16,8 @@
 // under the License.
 package com.cloud.api;
 
+import static org.mockito.ArgumentMatchers.any;
+
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
@@ -45,11 +47,14 @@ import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ResponseObject;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
+import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
 import org.apache.cloudstack.api.response.ApiKeyPairResponse;
 import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
+import org.apache.cloudstack.api.response.ConditionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
+import org.apache.cloudstack.api.response.CounterResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateHostStatusResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
 import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
@@ -85,15 +90,13 @@ import com.cloud.host.Host;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
+import com.cloud.network.as.AutoScalePolicy;
 import com.cloud.network.as.AutoScaleVmGroup;
-import com.cloud.network.as.AutoScaleVmGroupVO;
-import com.cloud.network.as.AutoScaleVmProfileVO;
-import com.cloud.network.as.dao.AutoScaleVmGroupVmMapDao;
+import com.cloud.network.as.AutoScaleVmProfile;
+import com.cloud.network.as.Condition;
+import com.cloud.network.as.Counter;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
-import com.cloud.network.dao.LoadBalancerVO;
-import com.cloud.network.dao.NetworkServiceMapDao;
-import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
 import com.cloud.org.Cluster;
@@ -104,16 +107,12 @@ import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
 import com.cloud.storage.GuestOsCategory;
-import com.cloud.storage.VMTemplateVO;
 import com.cloud.usage.UsageVO;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
-import com.cloud.user.UserData;
-import com.cloud.user.UserDataVO;
 import com.cloud.user.UserVO;
-import com.cloud.user.dao.UserDataDao;
 import com.cloud.utils.Pair;
 import com.cloud.utils.net.Ip;
 import com.cloud.vm.ConsoleSessionVO;
@@ -124,7 +123,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -145,15 +143,6 @@ public class ApiResponseHelperTest {
     AnnotationDao annotationDaoMock;
 
     @Mock
-    NetworkServiceMapDao ntwkSrvcDaoMock;
-
-    @Mock
-    AutoScaleVmGroupVmMapDao autoScaleVmGroupVmMapDaoMock;
-
-    @Mock
-    UserDataDao userDataDaoMock;
-
-    @Mock
     IPAddressDao ipAddressDaoMock;
 
     @Mock
@@ -168,6 +157,8 @@ public class ApiResponseHelperTest {
     private ApiDirectDownloadCertificateResponseService apiDirectDownloadCertificateResponseService;
     @Mock
     private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
+    @Mock
+    private ApiAutoscaleResponseService apiAutoscaleResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -204,6 +195,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiUnmanagedInstanceResponseService", apiUnmanagedInstanceResponseService);
         ReflectionTestUtils.setField(helper, "apiDirectDownloadCertificateResponseService", apiDirectDownloadCertificateResponseService);
         ReflectionTestUtils.setField(helper, "apiOfferingConfigurationResponseService", apiOfferingConfigurationResponseService);
+        ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
     }
 
     @Before
@@ -363,115 +355,63 @@ public class ApiResponseHelperTest {
     }
 
     @Test
-    public void testAutoScaleVmGroupResponse() {
-        AutoScaleVmGroupVO vmGroup = new AutoScaleVmGroupVO(1L, 2L, 3L, 4L, "test", 5, 6, 7, 8, new Date(), 9L, AutoScaleVmGroup.State.ENABLED);
+    public void testCreateCounterResponseDelegatesToAutoscaleResponseService() {
+        Counter counter = Mockito.mock(Counter.class);
+        CounterResponse expected = new CounterResponse();
+        when(apiAutoscaleResponseService.createCounterResponse(counter)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAutoScaleVmProfileById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findLoadBalancerById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
-            when(ApiDBUtils.countAvailableVmsByGroupId(anyLong())).thenReturn(9);
+        CounterResponse response = apiResponseHelper.createCounterResponse(counter);
 
-            AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
-            assertEquals("test", response.getName());
-            assertEquals(5, response.getMinMembers());
-            assertEquals(6, response.getMaxMembers());
-            assertEquals(8, response.getInterval());
-            assertEquals(9, response.getAvailableVirtualMachineCount());
-            assertEquals(AutoScaleVmGroup.State.ENABLED.toString(), response.getState());
-
-            assertNull(response.getNetworkName());
-            assertNull(response.getLbProvider());
-            assertNull(response.getPublicIp());
-            assertNull(response.getPublicPort());
-            assertNull(response.getPrivatePort());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createCounterResponse(counter);
     }
 
     @Test
-    public void testAutoScaleVmGroupResponseWithNetwork() {
-        AutoScaleVmGroupVO vmGroup = new AutoScaleVmGroupVO(1L, 2L, 3L, 4L, "test", 5, 6, 7, 8, new Date(), 9L, AutoScaleVmGroup.State.ENABLED);
+    public void testCreateConditionResponseDelegatesToAutoscaleResponseService() {
+        Condition condition = Mockito.mock(Condition.class);
+        ConditionResponse expected = new ConditionResponse();
+        when(apiAutoscaleResponseService.createConditionResponse(condition)).thenReturn(expected);
 
-        LoadBalancerVO lb = new LoadBalancerVO(null, null, null, 0L, 8080, 8081, null, 0L, 0L, 1L, null, null);
-        NetworkVO network = new NetworkVO(1L, null, null, null, 2L, 1L, 2L, 3L,
-                "testnetwork", "displaytext", "networkdomain", null, 1L, null, null, false, null, false);
-        IPAddressVO ipAddressVO = new IPAddressVO(new Ip("10.10.10.10"), 1L, 1L, 1L,false);
+        ConditionResponse response = apiResponseHelper.createConditionResponse(condition);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAutoScaleVmProfileById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
-            when(ApiDBUtils.findLoadBalancerById(anyLong())).thenReturn(lb);
-
-            when(ApiDBUtils.findNetworkById(anyLong())).thenReturn(network);
-            when(ntwkSrvcDaoMock.getProviderForServiceInNetwork(anyLong(), any())).thenReturn("VirtualRouter");
-            when(ApiDBUtils.findIpAddressById(anyLong())).thenReturn(ipAddressVO);
-
-            AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
-            assertEquals("test", response.getName());
-            assertEquals(5, response.getMinMembers());
-            assertEquals(6, response.getMaxMembers());
-            assertEquals(8, response.getInterval());
-            assertEquals(AutoScaleVmGroup.State.ENABLED.toString(), response.getState());
-
-            assertEquals("testnetwork", response.getNetworkName());
-            assertEquals("VirtualRouter", response.getLbProvider());
-            assertEquals("10.10.10.10", response.getPublicIp());
-            assertEquals("8080", response.getPublicPort());
-            assertEquals("8081", response.getPrivatePort());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createConditionResponse(condition);
     }
 
     @Test
-    public void testAutoScaleVmProfileResponse() {
-        AutoScaleVmProfileVO vmProfile = new AutoScaleVmProfileVO(zoneId, domainId, accountId, serviceOfferingId, templateId, null, null, userdata, null, autoScaleUserId);
-        vmProfile.setUserDataId(userdataId);
-        vmProfile.setUserDataDetails(userdataDetails);
+    public void testCreateAutoScaleVmProfileResponseDelegatesToAutoscaleResponseService() {
+        AutoScaleVmProfile profile = Mockito.mock(AutoScaleVmProfile.class);
+        AutoScaleVmProfileResponse expected = new AutoScaleVmProfileResponse();
+        when(apiAutoscaleResponseService.createAutoScaleVmProfileResponse(profile)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
+        AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(profile);
 
-            UserData.UserDataOverridePolicy templatePolicy = UserData.UserDataOverridePolicy.APPEND;
-            VMTemplateVO templateVO = Mockito.mock(VMTemplateVO.class);
-            when(ApiDBUtils.findTemplateById(anyLong())).thenReturn(templateVO);
-            when(templateVO.getUserDataOverridePolicy()).thenReturn(templatePolicy);
-
-            UserDataVO userDataVO = Mockito.mock(UserDataVO.class);
-            String userDataUuid = "userDataUuid";
-            String userDataName = "userDataName";
-            when(userDataDaoMock.findById(anyLong())).thenReturn(userDataVO);
-            when(userDataVO.getUuid()).thenReturn(userDataUuid);
-            when(userDataVO.getName()).thenReturn(userDataName);
-
-            AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(vmProfile);
-            assertEquals(templatePolicy.toString(), response.getUserDataPolicy());
-            assertEquals(userdata, response.getUserData());
-            assertEquals(userDataUuid, response.getUserDataId());
-            assertEquals(userDataName, response.getUserDataName());
-            assertEquals(userdataDetails, response.getUserDataDetails());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScaleVmProfileResponse(profile);
     }
 
     @Test
-    public void testAutoScaleVmProfileResponseWithoutUserData() {
-        AutoScaleVmProfileVO vmProfile = new AutoScaleVmProfileVO(zoneId, domainId, accountId, serviceOfferingId, templateId, null, null, null, null, autoScaleUserId);
+    public void testCreateAutoScalePolicyResponseDelegatesToAutoscaleResponseService() {
+        AutoScalePolicy policy = Mockito.mock(AutoScalePolicy.class);
+        AutoScalePolicyResponse expected = new AutoScalePolicyResponse();
+        when(apiAutoscaleResponseService.createAutoScalePolicyResponse(policy)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
+        AutoScalePolicyResponse response = apiResponseHelper.createAutoScalePolicyResponse(policy);
 
-            VMTemplateVO templateVO = Mockito.mock(VMTemplateVO.class);
-            when(ApiDBUtils.findTemplateById(anyLong())).thenReturn(templateVO);
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScalePolicyResponse(policy);
+    }
 
-            AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(vmProfile);
-            assertNull(response.getUserDataPolicy());
-            assertNull(response.getUserData());
-            assertNull(response.getUserDataId());
-            assertNull(response.getUserDataName());
-            assertNull(response.getUserDataDetails());
-        }
+    @Test
+    public void testCreateAutoScaleVmGroupResponseDelegatesToAutoscaleResponseService() {
+        AutoScaleVmGroup vmGroup = Mockito.mock(AutoScaleVmGroup.class);
+        AutoScaleVmGroupResponse expected = new AutoScaleVmGroupResponse();
+        when(apiAutoscaleResponseService.createAutoScaleVmGroupResponse(vmGroup)).thenReturn(expected);
+
+        AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
+
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScaleVmGroupResponse(vmGroup);
     }
 
     @Test
