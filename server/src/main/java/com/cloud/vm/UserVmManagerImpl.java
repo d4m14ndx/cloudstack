@@ -143,7 +143,6 @@ import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.VolumeStatsEntry;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
-import com.cloud.agent.api.to.deployasis.OVFNetworkTO;
 import com.cloud.agent.api.to.deployasis.OVFPropertyTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
@@ -515,6 +514,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private TemplateDeployAsIsDetailsDao templateDeployAsIsDetailsDao;
     @Inject
     private UserVmDeployAsIsDetailsDao userVmDeployAsIsDetailsDao;
+    @Inject
+    private VmDeployAsIsNetworkMappingService vmDeployAsIsNetworkMappingService;
     @Inject
     private DataStoreProviderManager _dataStoreProviderMgr;
     @Inject
@@ -6541,41 +6542,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private LinkedHashMap<Integer, Long> getDeployAsIsVmNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
-        LinkedHashMap<Integer, Long> mapping = new LinkedHashMap<>();
-        if (ImageFormat.OVA.equals(template.getFormat())) {
-            List<OVFNetworkTO> OVFNetworkTOList =
-                    templateDeployAsIsDetailsDao.listNetworkRequirementsByTemplateId(template.getId());
-            if (CollectionUtils.isNotEmpty(OVFNetworkTOList)) {
-                Network lastMappedNetwork = null;
-                for (OVFNetworkTO OVFNetworkTO : OVFNetworkTOList) {
-                    Long networkId = vmNetworkMapping.get(OVFNetworkTO.getInstanceID());
-                    if (networkId == null && lastMappedNetwork == null) {
-                        lastMappedNetwork = getNetworkForDeployAsIsOvfNetworkMapping(zone, owner);
-                    }
-                    if (networkId == null) {
-                        networkId = lastMappedNetwork.getId();
-                    }
-                    mapping.put(OVFNetworkTO.getInstanceID(), networkId);
-                }
-            }
-        }
-        return mapping;
-    }
-
-    private Network getNetworkForDeployAsIsOvfNetworkMapping(DataCenter zone, Account owner) throws InsufficientCapacityException, ResourceAllocationException {
-        Network network = null;
-        if (zone.isSecurityGroupEnabled() || _networkModel.isSecurityGroupSupportedForZone(zone.getId())) {
-            network = _networkModel.getNetworkWithSGWithFreeIPs(owner, zone.getId());
-            if (network == null) {
-                throw new InvalidParameterValueException("No network with security enabled is found in zone ID: " + zone.getUuid());
-            }
-        } else {
-            network = getDefaultNetwork(zone, owner, true);
-            if (network == null) {
-                throw new InvalidParameterValueException(String.format("Default network not found for zone ID: %s and account ID: %s", zone.getUuid(), owner.getUuid()));
-            }
-        }
-        return network;
+        return vmDeployAsIsNetworkMappingService.getDeployAsIsVmNetworkMapping(zone, owner, template, vmNetworkMapping, this::getDefaultNetwork);
     }
 
     private void collectVmDiskAndNetworkStatistics(Long vmId, State expectedState) {
