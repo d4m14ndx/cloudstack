@@ -51,6 +51,8 @@ import org.apache.cloudstack.api.ResponseObject;
 import org.apache.cloudstack.api.ResponseObject.ResponseView;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
+import org.apache.cloudstack.api.command.user.job.QueryAsyncJobResultCmd;
+import org.apache.cloudstack.api.response.AsyncJobResponse;
 import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
@@ -70,6 +72,7 @@ import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DomainResponse;
 import org.apache.cloudstack.api.response.DomainRouterResponse;
+import org.apache.cloudstack.api.response.EventResponse;
 import org.apache.cloudstack.api.response.ExtractResponse;
 import org.apache.cloudstack.api.response.FirewallResponse;
 import org.apache.cloudstack.api.response.FirewallRuleResponse;
@@ -90,11 +93,15 @@ import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
 import org.apache.cloudstack.api.response.PodResponse;
+import org.apache.cloudstack.api.response.ProjectAccountResponse;
+import org.apache.cloudstack.api.response.ProjectInvitationResponse;
+import org.apache.cloudstack.api.response.ProjectResponse;
 import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.ResourceLimitResponse;
 import org.apache.cloudstack.api.response.RouterHealthCheckResultResponse;
 import org.apache.cloudstack.api.response.SecondaryStorageHeuristicsResponse;
+import org.apache.cloudstack.api.response.SecurityGroupResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
 import org.apache.cloudstack.api.response.SnapshotResponse;
@@ -131,6 +138,7 @@ import org.apache.cloudstack.network.lb.ApplicationLoadBalancerRule;
 import org.apache.cloudstack.secstorage.heuristics.Heuristic;
 import org.apache.cloudstack.storage.object.Bucket;
 import org.apache.cloudstack.storage.object.ObjectStore;
+import org.apache.cloudstack.framework.jobs.AsyncJob;
 import org.apache.cloudstack.usage.UsageService;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
@@ -181,7 +189,13 @@ import com.cloud.org.Cluster;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.region.ha.GlobalLoadBalancerRule;
+import com.cloud.network.security.SecurityGroup;
+import com.cloud.network.security.SecurityRule;
+import com.cloud.projects.Project;
+import com.cloud.projects.ProjectAccount;
+import com.cloud.projects.ProjectInvitation;
 import com.cloud.resource.icon.ResourceIconVO;
+import com.cloud.event.Event;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
@@ -265,6 +279,8 @@ public class ApiResponseHelperTest {
     @Mock
     private ApiVpcVpnResponseService apiVpcVpnResponseService;
     @Mock
+    private ApiProjectSecurityJobResponseService apiProjectSecurityJobResponseService;
+    @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -317,6 +333,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiIdentityAccountResponseService", apiIdentityAccountResponseService);
         ReflectionTestUtils.setField(helper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
         ReflectionTestUtils.setField(helper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
+        ReflectionTestUtils.setField(helper, "apiProjectSecurityJobResponseService", apiProjectSecurityJobResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(apiResponseHelper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
@@ -455,6 +472,94 @@ public class ApiResponseHelperTest {
         when(apiOfferingConfigurationResponseService.createConfigurationGroupResponse(configurationGroup)).thenReturn(expectedResponse);
 
         assertSame(expectedResponse, helper.createConfigurationGroupResponse(configurationGroup));
+    }
+
+    @Test
+    public void createSecurityGroupResponseDelegatesToProjectSecurityJobResponseService() {
+        SecurityGroup securityGroup = Mockito.mock(SecurityGroup.class);
+        SecurityGroupResponse expected = new SecurityGroupResponse();
+        when(apiProjectSecurityJobResponseService.createSecurityGroupResponse(securityGroup)).thenReturn(expected);
+
+        assertSame(expected, helper.createSecurityGroupResponse(securityGroup));
+        verify(apiProjectSecurityJobResponseService).createSecurityGroupResponse(securityGroup);
+    }
+
+    @Test
+    public void createSecurityGroupResponseFromSecurityGroupRuleDelegatesToProjectSecurityJobResponseService() {
+        List<SecurityRule> securityRules = Collections.singletonList(Mockito.mock(SecurityRule.class));
+        SecurityGroupResponse expected = new SecurityGroupResponse();
+        when(apiProjectSecurityJobResponseService.createSecurityGroupResponseFromSecurityGroupRule(securityRules)).thenReturn(expected);
+
+        assertSame(expected, helper.createSecurityGroupResponseFromSecurityGroupRule(securityRules));
+        verify(apiProjectSecurityJobResponseService).createSecurityGroupResponseFromSecurityGroupRule(securityRules);
+    }
+
+    @Test
+    public void getSecurityGroupIdDelegatesToProjectSecurityJobResponseService() {
+        when(apiProjectSecurityJobResponseService.getSecurityGroupId("default", accountId)).thenReturn(42L);
+
+        assertEquals(Long.valueOf(42L), helper.getSecurityGroupId("default", accountId));
+        verify(apiProjectSecurityJobResponseService).getSecurityGroupId("default", accountId);
+    }
+
+    @Test
+    public void createProjectResponseDelegatesToProjectSecurityJobResponseService() {
+        Project project = Mockito.mock(Project.class);
+        ProjectResponse expected = new ProjectResponse();
+        when(apiProjectSecurityJobResponseService.createProjectResponse(project)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectResponse(project));
+        verify(apiProjectSecurityJobResponseService).createProjectResponse(project);
+    }
+
+    @Test
+    public void createProjectAccountResponseDelegatesToProjectSecurityJobResponseService() {
+        ProjectAccount projectAccount = Mockito.mock(ProjectAccount.class);
+        ProjectAccountResponse expected = new ProjectAccountResponse();
+        when(apiProjectSecurityJobResponseService.createProjectAccountResponse(projectAccount)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectAccountResponse(projectAccount));
+        verify(apiProjectSecurityJobResponseService).createProjectAccountResponse(projectAccount);
+    }
+
+    @Test
+    public void createProjectInvitationResponseDelegatesToProjectSecurityJobResponseService() {
+        ProjectInvitation invitation = Mockito.mock(ProjectInvitation.class);
+        ProjectInvitationResponse expected = new ProjectInvitationResponse();
+        when(apiProjectSecurityJobResponseService.createProjectInvitationResponse(invitation)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectInvitationResponse(invitation));
+        verify(apiProjectSecurityJobResponseService).createProjectInvitationResponse(invitation);
+    }
+
+    @Test
+    public void createEventResponseDelegatesToProjectSecurityJobResponseService() {
+        Event event = Mockito.mock(Event.class);
+        EventResponse expected = new EventResponse();
+        when(apiProjectSecurityJobResponseService.createEventResponse(event)).thenReturn(expected);
+
+        assertSame(expected, helper.createEventResponse(event));
+        verify(apiProjectSecurityJobResponseService).createEventResponse(event);
+    }
+
+    @Test
+    public void queryJobResultDelegatesToProjectSecurityJobResponseService() {
+        QueryAsyncJobResultCmd cmd = Mockito.mock(QueryAsyncJobResultCmd.class);
+        AsyncJobResponse expected = new AsyncJobResponse();
+        when(apiProjectSecurityJobResponseService.queryJobResult(cmd)).thenReturn(expected);
+
+        assertSame(expected, helper.queryJobResult(cmd));
+        verify(apiProjectSecurityJobResponseService).queryJobResult(cmd);
+    }
+
+    @Test
+    public void createAsyncJobResponseDelegatesToProjectSecurityJobResponseService() {
+        AsyncJob job = Mockito.mock(AsyncJob.class);
+        AsyncJobResponse expected = new AsyncJobResponse();
+        when(apiProjectSecurityJobResponseService.createAsyncJobResponse(job)).thenReturn(expected);
+
+        assertSame(expected, helper.createAsyncJobResponse(job));
+        verify(apiProjectSecurityJobResponseService).createAsyncJobResponse(job);
     }
 
     @Test

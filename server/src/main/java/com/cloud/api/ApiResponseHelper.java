@@ -27,7 +27,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -42,9 +41,7 @@ import org.apache.cloudstack.affinity.AffinityGroup;
 import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
-import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.api.ApiConstants.DomainDetails;
 import org.apache.cloudstack.api.ApiConstants.HostDetails;
 import org.apache.cloudstack.api.ApiConstants.VMDetails;
 import org.apache.cloudstack.api.BaseResponseWithAssociatedNetwork;
@@ -146,7 +143,6 @@ import org.apache.cloudstack.api.response.RouterHealthCheckResultResponse;
 import org.apache.cloudstack.api.response.SSHKeyPairResponse;
 import org.apache.cloudstack.api.response.SecondaryStorageHeuristicsResponse;
 import org.apache.cloudstack.api.response.SecurityGroupResponse;
-import org.apache.cloudstack.api.response.SecurityGroupRuleResponse;
 import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.ServiceResponse;
 import org.apache.cloudstack.api.response.SharedFSResponse;
@@ -193,8 +189,6 @@ import org.apache.cloudstack.direct.download.DirectDownloadCertificateHostMap;
 import org.apache.cloudstack.direct.download.DirectDownloadManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.framework.jobs.AsyncJob;
-import org.apache.cloudstack.framework.jobs.AsyncJobManager;
-import org.apache.cloudstack.framework.jobs.dao.AsyncJobDao;
 import org.apache.cloudstack.gui.theme.GuiThemeJoin;
 import org.apache.cloudstack.management.ManagementServerHost;
 import org.apache.cloudstack.network.BgpPeerVO;
@@ -218,18 +212,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.cloud.agent.api.VgpuTypesInfo;
-import com.cloud.api.query.ViewResponseHelper;
 import com.cloud.api.query.dao.UserVmJoinDao;
-import com.cloud.api.query.vo.AsyncJobJoinVO;
 import com.cloud.api.query.vo.ControlledViewEntity;
-import com.cloud.api.query.vo.EventJoinVO;
 import com.cloud.api.query.vo.NetworkOfferingJoinVO;
-import com.cloud.api.query.vo.ProjectAccountJoinVO;
-import com.cloud.api.query.vo.ProjectInvitationJoinVO;
-import com.cloud.api.query.vo.ProjectJoinVO;
 import com.cloud.api.query.ResourceIdSupport;
 import com.cloud.api.query.vo.ResourceTagJoinVO;
-import com.cloud.api.query.vo.SecurityGroupJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.api.response.ApiResponseSerializer;
 import com.cloud.bgp.ASNumber;
@@ -255,7 +242,6 @@ import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.event.Event;
-import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor;
@@ -308,7 +294,6 @@ import com.cloud.network.rules.StaticNatRule;
 import com.cloud.network.rules.StickinessPolicy;
 import com.cloud.network.security.SecurityGroup;
 import com.cloud.network.security.SecurityRule;
-import com.cloud.network.security.SecurityRule.SecurityRuleType;
 import com.cloud.network.vpc.NetworkACL;
 import com.cloud.network.vpc.NetworkACLItem;
 import com.cloud.network.vpc.PrivateGateway;
@@ -396,8 +381,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     protected AccountManager _accountMgr;
     @Inject
-    protected AsyncJobManager _jobMgr;
-    @Inject
     ConfigurationManager _configMgr;
     @Inject
     private VolumeDao _volumeDao;
@@ -450,6 +433,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiVmSystemResponseService apiVmSystemResponseService;
     @Inject
+    private ApiProjectSecurityJobResponseService apiProjectSecurityJobResponseService;
+    @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -489,8 +474,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     Site2SiteVpnManager site2SiteVpnManager;
     @Inject
     ResourceIconManager resourceIconManager;
-    @Inject
-    AsyncJobDao asyncJobDao;
 
     public static String getPrettyDomainPath(String path) {
         return STATIC_OWNER_SERVICE.getPrettyDomainPath(path);
@@ -832,10 +815,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public SecurityGroupResponse createSecurityGroupResponse(SecurityGroup group) {
-        List<SecurityGroupJoinVO> viewSgs = ApiDBUtils.newSecurityGroupView(group);
-        List<SecurityGroupResponse> listSgs = ViewResponseHelper.createSecurityGroupResponses(viewSgs);
-        assert listSgs != null && listSgs.size() == 1 : "There should be one security group returned";
-        return listSgs.get(0);
+        return apiProjectSecurityJobResponseService.createSecurityGroupResponse(group);
     }
 
     @Override
@@ -870,8 +850,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public EventResponse createEventResponse(Event event) {
-        EventJoinVO vEvent = ApiDBUtils.newEventView(event);
-        return ApiDBUtils.newEventResponse(vEvent);
+        return apiProjectSecurityJobResponseService.createEventResponse(event);
     }
 
     protected boolean capacityListingForSingleTag(List<? extends Capacity> capacities) {
@@ -1001,94 +980,16 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public AsyncJobResponse queryJobResult(final QueryAsyncJobResultCmd cmd) {
-        ApiCommandResourceType resourceType = getResourceType(cmd.getResourceType());
-        String resourceTypeName = Optional.ofNullable(resourceType).map(ApiCommandResourceType::name).orElse(null);
-
-        Long resourceId = getResourceId(resourceType, cmd.getResourceId());
-        Long jobId = cmd.getId();
-        if (jobId == null && resourceId == null) {
-            throw new InvalidParameterValueException("Expected parameter job id or parameters resource type and resource id");
-        }
-
-        final AsyncJob job = asyncJobDao.findJob(jobId, resourceId, resourceTypeName);
-        if (job == null) {
-            throw new InvalidParameterValueException("Unable to find a job by id " + jobId + " resource type "
-                    + cmd.getResourceType() + " resource id " + cmd.getResourceId());
-        }
-        jobId = job.getId();
-
-        final User userJobOwner = _accountMgr.getUserIncludingRemoved(job.getUserId());
-        final Account jobOwner = _accountMgr.getAccount(userJobOwner.getAccountId());
-
-        final Account caller = CallContext.current().getCallingAccount();
-        //check permissions
-        if (_accountMgr.isNormalUser(caller.getId())) {
-            //regular users can see only jobs they own
-            if (caller.getId() != jobOwner.getId()) {
-                throw new PermissionDeniedException("Account " + caller + " is not authorized to see job id=" + job.getId());
-            }
-        } else if (_accountMgr.isDomainAdmin(caller.getId())) {
-            _accountMgr.checkAccess(caller, null, true, jobOwner);
-        }
-
-        return createAsyncJobResponse(_jobMgr.queryJob(jobId, true));
+        return apiProjectSecurityJobResponseService.queryJobResult(cmd);
     }
 
     public AsyncJobResponse createAsyncJobResponse(AsyncJob job) {
-        AsyncJobJoinVO vJob = ApiDBUtils.newAsyncJobView(job);
-        return ApiDBUtils.newAsyncJobResponse(vJob);
+        return apiProjectSecurityJobResponseService.createAsyncJobResponse(job);
     }
 
     @Override
     public SecurityGroupResponse createSecurityGroupResponseFromSecurityGroupRule(List<? extends SecurityRule> securityRules) {
-        SecurityGroupResponse response = new SecurityGroupResponse();
-        Map<Long, Account> securiytGroupAccounts = new HashMap<Long, Account>();
-
-        if ((securityRules != null) && !securityRules.isEmpty()) {
-            SecurityGroupJoinVO securityGroup = ApiDBUtils.findSecurityGroupViewById(securityRules.get(0).getSecurityGroupId()).get(0);
-            response.setId(securityGroup.getUuid());
-            response.setName(securityGroup.getName());
-            response.setDescription(securityGroup.getDescription());
-
-            populateOwner(response, securityGroup);
-
-            for (SecurityRule securityRule : securityRules) {
-                SecurityGroupRuleResponse securityGroupData = new SecurityGroupRuleResponse();
-
-                securityGroupData.setRuleId(securityRule.getUuid());
-                securityGroupData.setProtocol(securityRule.getProtocol());
-                if ("icmp".equalsIgnoreCase(securityRule.getProtocol())) {
-                    securityGroupData.setIcmpType(securityRule.getStartPort());
-                    securityGroupData.setIcmpCode(securityRule.getEndPort());
-                } else {
-                    securityGroupData.setStartPort(securityRule.getStartPort());
-                    securityGroupData.setEndPort(securityRule.getEndPort());
-                }
-
-                Long allowedSecurityGroupId = securityRule.getAllowedNetworkId();
-                if (allowedSecurityGroupId != null) {
-                    List<SecurityGroupJoinVO> sgs = ApiDBUtils.findSecurityGroupViewById(allowedSecurityGroupId);
-                    if (sgs != null && sgs.size() > 0) {
-                        SecurityGroupJoinVO sg = sgs.get(0);
-                        securityGroupData.setSecurityGroupName(sg.getName());
-                        securityGroupData.setAccountName(sg.getAccountName());
-                    }
-                } else {
-                    securityGroupData.setCidr(securityRule.getAllowedSourceIpCidr());
-                }
-                if (securityRule.getRuleType() == SecurityRuleType.IngressRule) {
-                    securityGroupData.setObjectName("ingressrule");
-                    response.addSecurityGroupIngressRule(securityGroupData);
-                } else {
-                    securityGroupData.setObjectName("egressrule");
-                    response.addSecurityGroupEgressRule(securityGroupData);
-                }
-
-            }
-            response.setObjectName("securitygroup");
-
-        }
-        return response;
+        return apiProjectSecurityJobResponseService.createSecurityGroupResponseFromSecurityGroupRule(securityRules);
     }
 
     @Override
@@ -1573,20 +1474,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public Long getSecurityGroupId(String groupName, long accountId) {
-        SecurityGroup sg = ApiDBUtils.getSecurityGroup(groupName, accountId);
-        if (sg == null) {
-            return null;
-        } else {
-            return sg.getId();
-        }
+        return apiProjectSecurityJobResponseService.getSecurityGroupId(groupName, accountId);
     }
 
     @Override
     public ProjectResponse createProjectResponse(Project project) {
-        List<ProjectJoinVO> viewPrjs = ApiDBUtils.newProjectView(project);
-        List<ProjectResponse> listPrjs = ViewResponseHelper.createProjectResponse(EnumSet.of(DomainDetails.all), viewPrjs.toArray(new ProjectJoinVO[viewPrjs.size()]));
-        assert listPrjs != null && listPrjs.size() == 1 : "There should be one project  returned";
-        return listPrjs.get(0);
+        return apiProjectSecurityJobResponseService.createProjectResponse(project);
     }
 
     @Override
@@ -1652,16 +1545,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public ProjectAccountResponse createProjectAccountResponse(ProjectAccount projectAccount) {
-        ProjectAccountJoinVO vProj = ApiDBUtils.newProjectAccountView(projectAccount);
-        List<ProjectAccountResponse> listProjs = ViewResponseHelper.createProjectAccountResponse(vProj);
-        assert listProjs != null && listProjs.size() == 1 : "There should be one project account returned";
-        return listProjs.get(0);
+        return apiProjectSecurityJobResponseService.createProjectAccountResponse(projectAccount);
     }
 
     @Override
     public ProjectInvitationResponse createProjectInvitationResponse(ProjectInvitation invite) {
-        ProjectInvitationJoinVO vInvite = ApiDBUtils.newProjectInvitationView(invite);
-        return ApiDBUtils.newProjectInvitationResponse(vInvite);
+        return apiProjectSecurityJobResponseService.createProjectInvitationResponse(invite);
     }
 
     @Override
