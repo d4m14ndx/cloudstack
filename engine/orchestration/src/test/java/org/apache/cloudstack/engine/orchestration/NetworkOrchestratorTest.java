@@ -63,6 +63,7 @@ import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
+import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.RouterNetworkDao;
 import com.cloud.network.element.DhcpServiceProvider;
@@ -71,6 +72,7 @@ import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.VpcVO;
 import com.cloud.offerings.NetworkOfferingVO;
+import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;
 import com.cloud.user.Account;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -123,6 +125,8 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator._networkModel = mock(NetworkModel.class);
         testOrchestrator._nicSecondaryIpDao = mock(NicSecondaryIpDao.class);
         testOrchestrator._ntwkSrvcDao = mock(NetworkServiceMapDao.class);
+        testOrchestrator._ntwkOfferingSrvcDao = mock(NetworkOfferingServiceMapDao.class);
+        testOrchestrator._pNSPDao = mock(PhysicalNetworkServiceProviderDao.class);
         testOrchestrator._nicIpAliasDao = mock(NicIpAliasDao.class);
         testOrchestrator._ipAddressDao = mock(IPAddressDao.class);
         testOrchestrator._vlanDao = mock(VlanDao.class);
@@ -164,6 +168,13 @@ public class NetworkOrchestratorTest extends TestCase {
         resolutionService.networkModel = testOrchestrator._networkModel;
         resolutionService.entityManager = testOrchestrator._entityMgr;
         testOrchestrator.networkProviderResolutionService = resolutionService;
+
+        NetworkProviderMappingServiceImpl mappingService = new NetworkProviderMappingServiceImpl();
+        mappingService.networkOfferingServiceMapDao = testOrchestrator._ntwkOfferingSrvcDao;
+        mappingService.networkModel = testOrchestrator._networkModel;
+        mappingService.physicalNetworkServiceProviderDao = testOrchestrator._pNSPDao;
+        mappingService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        testOrchestrator.networkProviderMappingService = mappingService;
 
         // Wire a real NicDhcpCleanupServiceImpl sharing the same mocks so that
         // assertions on _ntwkSrvcDao / _networkModel / _nicDao made by tests
@@ -240,6 +251,20 @@ public class NetworkOrchestratorTest extends TestCase {
         Assert.assertTrue(testOrchestrator.canUpdateInSequence(network, true));
 
         verify(testOrchestrator.networkUpdateSequenceService).canUpdateInSequence(network, true);
+    }
+
+    @Test
+    public void finalizeServicesAndProvidersForNetworkDelegatesToProviderMappingService() {
+        NetworkProviderMappingService mappingService = mock(NetworkProviderMappingService.class);
+        testOrchestrator.networkProviderMappingService = mappingService;
+        Long physicalNetworkId = 42L;
+        Map<String, String> expected = Collections.singletonMap(Service.Dhcp.getName(), Network.Provider.VirtualRouter.getName());
+        when(mappingService.finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId)).thenReturn(expected);
+
+        Map<String, String> result = testOrchestrator.finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId);
+
+        Assert.assertSame(expected, result);
+        verify(mappingService).finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId);
     }
 
     @Test

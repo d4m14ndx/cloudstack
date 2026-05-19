@@ -109,7 +109,6 @@ import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.OperationTimedoutException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
-import com.cloud.exception.UnsupportedServiceException;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
@@ -173,7 +172,6 @@ import com.cloud.network.vpc.dao.PrivateIpDao;
 import com.cloud.network.vpn.RemoteAccessVpnService;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.offering.NetworkOffering.Availability;
-import com.cloud.offerings.NetworkOfferingServiceMapVO;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.offerings.dao.NetworkOfferingDetailsDao;
@@ -393,6 +391,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     RequestedNicIpReservationService requestedNicIpReservationService;
     @Inject
     NetworkProviderResolutionService networkProviderResolutionService;
+    @Inject
+    NetworkProviderMappingService networkProviderMappingService;
     @Inject
     NicDhcpCleanupService nicDhcpCleanupService;
     @Inject
@@ -3283,53 +3283,11 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public Map<String, String> finalizeServicesAndProvidersForNetwork(final NetworkOffering offering, final Long physicalNetworkId) {
-        final Map<String, String> svcProviders = new HashMap<>();
-        final Map<String, List<String>> providerSvcs = new HashMap<>();
-        final List<NetworkOfferingServiceMapVO> servicesMap = _ntwkOfferingSrvcDao.listByNetworkOfferingId(offering.getId());
-
-        final boolean checkPhysicalNetwork = physicalNetworkId != null ? true : false;
-
-        for (final NetworkOfferingServiceMapVO serviceMap : servicesMap) {
-            if (svcProviders.containsKey(serviceMap.getService())) {
-                // FIXME - right now we pick up the first provider from the list, need to add more logic based on
-                // provider load, etc
-                continue;
-            }
-
-            final String service = serviceMap.getService();
-            String provider = serviceMap.getProvider();
-
-            if (provider == null) {
-                provider = _networkModel.getDefaultUniqueProviderForService(service).getName();
-            }
-
-            // check that provider is supported
-            if (checkPhysicalNetwork) {
-                if (!_pNSPDao.isServiceProviderEnabled(physicalNetworkId, provider, service)) {
-                    throw new UnsupportedServiceException("Provider " + provider + " is either not enabled or doesn't " + "support service " + service + " in physical network id="
-                            + physicalNetworkId);
-                }
-            }
-
-            svcProviders.put(service, provider);
-            List<String> l = providerSvcs.get(provider);
-            if (l == null) {
-                providerSvcs.put(provider, l = new ArrayList<>());
-            }
-            l.add(service);
-        }
-
-        return svcProviders;
+        return networkProviderMappingService.finalizeServicesAndProvidersForNetwork(offering, physicalNetworkId);
     }
 
     private List<Provider> getNetworkProviders(final long networkId) {
-        final List<String> providerNames = _ntwkSrvcDao.getDistinctProviders(networkId);
-        final List<Provider> providers = new ArrayList<>();
-        for (final String providerName : providerNames) {
-            providers.add(Network.Provider.getProvider(providerName));
-        }
-
-        return providers;
+        return networkProviderMappingService.getNetworkProviders(networkId);
     }
 
     @Override
