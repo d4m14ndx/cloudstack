@@ -50,6 +50,7 @@ import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
 import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
+import org.apache.cloudstack.api.response.AccountResponse;
 import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
 import org.apache.cloudstack.api.response.ApiKeyPairResponse;
 import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
@@ -62,6 +63,7 @@ import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
 import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
+import org.apache.cloudstack.api.response.DomainResponse;
 import org.apache.cloudstack.api.response.FirewallResponse;
 import org.apache.cloudstack.api.response.FirewallRuleResponse;
 import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
@@ -91,6 +93,7 @@ import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
+import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.VMSnapshotResponse;
 import org.apache.cloudstack.api.response.VlanIpRangeResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
@@ -113,6 +116,7 @@ import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
 import com.cloud.dc.StorageNetworkIpRange;
 import com.cloud.dc.Vlan;
+import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.host.Host;
 import com.cloud.network.IpAddress;
@@ -144,16 +148,19 @@ import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
 import com.cloud.storage.ImageStore;
 import com.cloud.storage.Snapshot;
+import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.Volume;
 import com.cloud.storage.snapshot.SnapshotPolicy;
 import com.cloud.storage.snapshot.SnapshotSchedule;
 import com.cloud.storage.GuestOsCategory;
+import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.usage.UsageVO;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
+import com.cloud.user.UserAccount;
 import com.cloud.user.UserVO;
 import com.cloud.uservm.UserVm;
 import com.cloud.utils.net.Ip;
@@ -210,6 +217,8 @@ public class ApiResponseHelperTest {
     @Mock
     private ApiStorageResponseService apiStorageResponseService;
     @Mock
+    private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
+    @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -253,6 +262,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
         ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
         ReflectionTestUtils.setField(helper, "apiStorageResponseService", apiStorageResponseService);
+        ReflectionTestUtils.setField(helper, "apiIdentityAccountResponseService", apiIdentityAccountResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
@@ -280,6 +290,68 @@ public class ApiResponseHelperTest {
         when(apiOfferingConfigurationResponseService.createDiskOfferingResponse(offering)).thenReturn(expectedResponse);
 
         assertSame(expectedResponse, helper.createDiskOfferingResponse(offering));
+    }
+
+    @Test
+    public void createUserResponseFromUserDelegatesToIdentityAccountResponseService() {
+        User user = Mockito.mock(User.class);
+        UserResponse expectedResponse = new UserResponse();
+        when(apiIdentityAccountResponseService.createUserResponse(user)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserResponse(user));
+    }
+
+    @Test
+    public void createUserAccountResponseDelegatesToIdentityAccountResponseService() {
+        UserAccount userAccount = Mockito.mock(UserAccount.class);
+        AccountResponse expectedResponse = new AccountResponse();
+        when(apiIdentityAccountResponseService.createUserAccountResponse(ResponseObject.ResponseView.Full, userAccount)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserAccountResponse(ResponseObject.ResponseView.Full, userAccount));
+    }
+
+    @Test
+    public void createAccountResponseDelegatesToIdentityAccountResponseService() {
+        Account account = Mockito.mock(Account.class);
+        AccountResponse expectedResponse = new AccountResponse();
+        when(apiIdentityAccountResponseService.createAccountResponse(ResponseObject.ResponseView.Restricted, account)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createAccountResponse(ResponseObject.ResponseView.Restricted, account));
+    }
+
+    @Test
+    public void createUserResponseFromUserAccountDelegatesToIdentityAccountResponseService() {
+        UserAccount userAccount = Mockito.mock(UserAccount.class);
+        UserResponse expectedResponse = new UserResponse();
+        when(apiIdentityAccountResponseService.createUserResponse(userAccount)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserResponse(userAccount));
+    }
+
+    @Test
+    public void createDomainResponseDelegatesToIdentityAccountResponseService() {
+        Domain domain = Mockito.mock(Domain.class);
+        DomainResponse expectedResponse = new DomainResponse();
+        when(apiIdentityAccountResponseService.createDomainResponse(domain)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createDomainResponse(domain));
+    }
+
+    @Test
+    public void identityAccountFindersDelegateToIdentityAccountResponseService() {
+        User user = Mockito.mock(User.class);
+        Account account = Mockito.mock(Account.class);
+        VirtualMachineTemplate template = Mockito.mock(VirtualMachineTemplate.class);
+        DiskOfferingVO diskOffering = Mockito.mock(DiskOfferingVO.class);
+        when(apiIdentityAccountResponseService.findUserById(1L)).thenReturn(user);
+        when(apiIdentityAccountResponseService.findAccountByNameDomain("account", 2L)).thenReturn(account);
+        when(apiIdentityAccountResponseService.findTemplateById(3L)).thenReturn(template);
+        when(apiIdentityAccountResponseService.findDiskOfferingById(4L)).thenReturn(diskOffering);
+
+        assertSame(user, helper.findUserById(1L));
+        assertSame(account, helper.findAccountByNameDomain("account", 2L));
+        assertSame(template, helper.findTemplateById(3L));
+        assertSame(diskOffering, helper.findDiskOfferingById(4L));
     }
 
     @Test

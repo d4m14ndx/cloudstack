@@ -224,7 +224,6 @@ import org.apache.logging.log4j.Logger;
 import com.cloud.agent.api.VgpuTypesInfo;
 import com.cloud.api.query.ViewResponseHelper;
 import com.cloud.api.query.dao.UserVmJoinDao;
-import com.cloud.api.query.vo.AccountJoinVO;
 import com.cloud.api.query.vo.AsyncJobJoinVO;
 import com.cloud.api.query.vo.ControlledViewEntity;
 import com.cloud.api.query.vo.DataCenterJoinVO;
@@ -240,7 +239,6 @@ import com.cloud.api.query.ResourceIdSupport;
 import com.cloud.api.query.vo.ResourceTagJoinVO;
 import com.cloud.api.query.vo.SecurityGroupJoinVO;
 import com.cloud.api.query.vo.TemplateJoinVO;
-import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.api.query.vo.VpcOfferingJoinVO;
 import com.cloud.api.response.ApiResponseSerializer;
@@ -466,6 +464,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiStorageResponseService apiStorageResponseService;
     @Inject
+    private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
+    @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -518,51 +518,29 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public UserResponse createUserResponse(User user) {
-        UserAccountJoinVO vUser = ApiDBUtils.newUserView(user);
-        return ApiDBUtils.newUserResponse(vUser);
+        return apiIdentityAccountResponseService.createUserResponse(user);
     }
 
     // this method is used for response generation via createAccount (which
     // creates an account + user)
     @Override
     public AccountResponse createUserAccountResponse(ResponseView view, UserAccount user) {
-        return ApiDBUtils.newAccountResponse(view, EnumSet.of(DomainDetails.all), ApiDBUtils.findAccountViewById(user.getAccountId()));
+        return apiIdentityAccountResponseService.createUserAccountResponse(view, user);
     }
 
     @Override
     public AccountResponse createAccountResponse(ResponseView view, Account account) {
-        AccountJoinVO vUser = ApiDBUtils.newAccountView(account);
-        return ApiDBUtils.newAccountResponse(view, EnumSet.of(DomainDetails.all), vUser);
+        return apiIdentityAccountResponseService.createAccountResponse(view, account);
     }
 
     @Override
     public UserResponse createUserResponse(UserAccount user) {
-        UserAccountJoinVO vUser = ApiDBUtils.newUserView(user);
-        return ApiDBUtils.newUserResponse(vUser);
+        return apiIdentityAccountResponseService.createUserResponse(user);
     }
 
     @Override
     public DomainResponse createDomainResponse(Domain domain) {
-        DomainResponse domainResponse = new DomainResponse();
-        domainResponse.setDomainName(domain.getName());
-        domainResponse.setId(domain.getUuid());
-        domainResponse.setLevel(domain.getLevel());
-        domainResponse.setCreated(domain.getCreated());
-        domainResponse.setNetworkDomain(domain.getNetworkDomain());
-        Domain parentDomain = ApiDBUtils.findDomainById(domain.getParent());
-        if (parentDomain != null) {
-            domainResponse.setParentDomainId(parentDomain.getUuid());
-        }
-        domainResponse.setPath(getPrettyDomainPath(domain.getPath()));
-        if (domain.getParent() != null) {
-            domainResponse.setParentDomainName(ApiDBUtils.findDomainById(domain.getParent()).getName());
-        }
-        if (domain.getChildCount() > 0) {
-            domainResponse.setHasChild(true);
-        }
-        populateDomainTags(domain.getUuid(), domainResponse);
-        domainResponse.setObjectName("domain");
-        return domainResponse;
+        return apiIdentityAccountResponseService.createDomainResponse(domain);
     }
 
     @Override
@@ -1134,7 +1112,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public User findUserById(Long userId) {
-        return ApiDBUtils.findUserById(userId);
+        return apiIdentityAccountResponseService.findUserById(userId);
     }
 
     @Override
@@ -1157,17 +1135,17 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public Account findAccountByNameDomain(String accountName, Long domainId) {
-        return ApiDBUtils.findAccountByNameDomain(accountName, domainId);
+        return apiIdentityAccountResponseService.findAccountByNameDomain(accountName, domainId);
     }
 
     @Override
     public VirtualMachineTemplate findTemplateById(Long templateId) {
-        return ApiDBUtils.findTemplateById(templateId);
+        return apiIdentityAccountResponseService.findTemplateById(templateId);
     }
 
     @Override
     public DiskOfferingVO findDiskOfferingById(Long diskOfferingId) {
-        return ApiDBUtils.findDiskOfferingById(diskOfferingId);
+        return apiIdentityAccountResponseService.findDiskOfferingById(diskOfferingId);
     }
 
     @Override
