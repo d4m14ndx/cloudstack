@@ -309,6 +309,8 @@ public class VirtualMachineManagerImplTest {
     private GpuService gpuService;
     @Mock
     private BackupManager backupManager;
+    @Mock
+    private VmNicBackendCommandService vmNicBackendCommandService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -394,6 +396,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkNameMappingService", vmNetworkNameMappingService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStartProfilePreparationService", vmStartProfilePreparationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNicBackendCommandService", vmNicBackendCommandService);
         VmStopCommandServiceImpl vmStopCommandService = new VmStopCommandServiceImpl();
         ReflectionTestUtils.setField(vmStopCommandService, "nicsDao", _nicsDao);
         ReflectionTestUtils.setField(vmStopCommandService, "vmDao", vmInstanceDaoMock);
@@ -772,6 +775,50 @@ public class VirtualMachineManagerImplTest {
         virtualMachineManagerImpl.resetVmNicsDeviceId(vmInstanceVoMockId);
 
         verify(vmStartProfilePreparationService).resetVmNicsDeviceId(vmInstanceVoMockId);
+    }
+
+    @Test
+    public void replugNicDelegatesToNicBackendCommandService() throws Exception {
+        Network network = mock(Network.class);
+        NicTO nic = mock(NicTO.class);
+        VirtualMachineTO vm = mock(VirtualMachineTO.class);
+        Host host = mock(Host.class);
+        when(vmNicBackendCommandService.replugNic(network, nic, vm, host)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.replugNic(network, nic, vm, host);
+
+        assertTrue(result);
+        verify(vmNicBackendCommandService).replugNic(network, nic, vm, host);
+    }
+
+    @Test
+    public void plugNicDelegatesToNicBackendCommandService() throws Exception {
+        Network network = mock(Network.class);
+        NicTO nic = mock(NicTO.class);
+        VirtualMachineTO vm = mock(VirtualMachineTO.class);
+        ReservationContext context = mock(ReservationContext.class);
+        DeployDestination dest = mock(DeployDestination.class);
+        when(vmNicBackendCommandService.plugNic(network, nic, vm, context, dest)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.plugNic(network, nic, vm, context, dest);
+
+        assertTrue(result);
+        verify(vmNicBackendCommandService).plugNic(network, nic, vm, context, dest);
+    }
+
+    @Test
+    public void unplugNicDelegatesToNicBackendCommandService() throws Exception {
+        Network network = mock(Network.class);
+        NicTO nic = mock(NicTO.class);
+        VirtualMachineTO vm = mock(VirtualMachineTO.class);
+        ReservationContext context = mock(ReservationContext.class);
+        DeployDestination dest = mock(DeployDestination.class);
+        when(vmNicBackendCommandService.unplugNic(network, nic, vm, context, dest)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.unplugNic(network, nic, vm, context, dest);
+
+        assertTrue(result);
+        verify(vmNicBackendCommandService).unplugNic(network, nic, vm, context, dest);
     }
 
     @Test
