@@ -100,6 +100,7 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
+import org.apache.cloudstack.snapshot.SnapshotHelper;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -145,6 +146,8 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
+import com.cloud.hypervisor.kvm.dpdk.DpdkHelper;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.dao.NetworkDao;
@@ -163,6 +166,7 @@ import com.cloud.offering.ServiceOffering;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.resourcelimit.CheckedReservation;
+import com.cloud.resource.ResourceManager;
 import com.cloud.server.ManagementService;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
@@ -332,6 +336,21 @@ public class UserVmManagerImplTest {
 
     @Mock
     ClusterDao clusterDao;
+
+    @Mock
+    ResourceManager resourceManager;
+
+    @Mock
+    HypervisorCapabilitiesDao hypervisorCapabilitiesDao;
+
+    @Mock
+    DpdkHelper dpdkHelper;
+
+    @Mock
+    SnapshotHelper snapshotHelper;
+
+    @Mock
+    VmStatsCollectionService vmStatsCollectionService;
 
     @Mock
     private VolumeVO volumeVOMock;
@@ -738,6 +757,34 @@ public class UserVmManagerImplTest {
                 "vmDeployAsIsNetworkMappingService", deployAsIsNetworkMappingService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmMigrationDedicationService", vmMigrationDedicationService);
+        VmLiveMigrationOrchestrationServiceImpl liveMigrationOrchestrationService = new VmLiveMigrationOrchestrationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "accountMgr", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "capacityMgr", mock(com.cloud.capacity.CapacityManager.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "clusterDao", clusterDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "dcDao", _dcDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "planningMgr", planningManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "diskOfferingDao", diskOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "dpdkHelper", dpdkHelper);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "hostDao", hostDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "podDao", hostPodDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "hypervisorCapabilitiesDao", hypervisorCapabilitiesDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "storagePoolDao", primaryDataStoreDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "resourceMgr", resourceManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "serviceOfferingDao", _serviceOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "serviceOfferingDetailsDao", serviceOfferingDetailsDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "snapshotHelper", snapshotHelper);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "storageManager", storageManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "itMgr", virtualMachineManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmMigrationDedicationService", vmMigrationDedicationService);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmMigrationValidator", migrationValidator);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmStatsCollectionService", vmStatsCollectionService);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmVolumeLifecycleValidationService", volumeLifecycleValidationService);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmSnapshotDao", vmSnapshotDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmDao", userVmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "vmInstanceDao", mock(com.cloud.vm.dao.VMInstanceDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(liveMigrationOrchestrationService, "volsDao", volumeDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmLiveMigrationOrchestrationService", liveMigrationOrchestrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmUnmanageService", vmUnmanageService);
 
