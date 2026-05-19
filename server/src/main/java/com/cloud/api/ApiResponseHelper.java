@@ -223,7 +223,6 @@ import org.apache.cloudstack.storage.sharedfs.query.vo.SharedFSJoinVO;
 import org.apache.cloudstack.usage.Usage;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -260,7 +259,6 @@ import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDaoImpl.SummedCapacity;
 import com.cloud.configuration.ConfigurationManager;
-import com.cloud.configuration.ConfigurationService;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
 import com.cloud.dc.ASNumberRangeVO;
@@ -274,9 +272,6 @@ import com.cloud.dc.HostPodVO;
 import com.cloud.dc.Pod;
 import com.cloud.dc.StorageNetworkIpRange;
 import com.cloud.dc.Vlan;
-import com.cloud.dc.Vlan.VlanType;
-import com.cloud.dc.VlanDetailsVO;
-import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.ASNumberDao;
 import com.cloud.dc.dao.ASNumberRangeDao;
 import com.cloud.dc.dao.VlanDetailsDao;
@@ -326,6 +321,7 @@ import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkDetailVO;
 import com.cloud.network.dao.NetworkDetailsDao;
+import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.router.VirtualRouter;
@@ -392,6 +388,7 @@ import com.cloud.user.User;
 import com.cloud.user.UserAccount;
 import com.cloud.user.UserData;
 import com.cloud.user.UserStatisticsVO;
+import com.cloud.user.dao.UserDataDao;
 import com.cloud.user.dao.UserStatisticsDao;
 import com.cloud.uservm.UserVm;
 import com.cloud.utils.Pair;
@@ -474,6 +471,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiSnapshotResponseService apiSnapshotResponseService;
     @Inject
+    private ApiAddressVlanResponseService apiAddressVlanResponseService;
+    @Inject
     private AnnotationDao annotationDao;
     @Inject
     private UserStatisticsDao userStatsDao;
@@ -489,6 +488,10 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     FirewallRulesDao firewallRulesDao;
     @Inject
     VlanDetailsDao vlanDetailsDao;
+    @Inject
+    NetworkServiceMapDao ntwkSrvcDao;
+    @Inject
+    UserDataDao userDataDao;
     @Inject
     BackupRepositoryDao backupRepositoryDao;
     @Inject
@@ -646,297 +649,17 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public VlanIpRangeResponse createVlanIpRangeResponse(Vlan vlan) {
-        return createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan);
+        return apiAddressVlanResponseService.createVlanIpRangeResponse(vlan);
     }
 
     @Override
     public VlanIpRangeResponse createVlanIpRangeResponse(Class<? extends VlanIpRangeResponse> subClass, Vlan vlan) {
-        try {
-            Long podId = ApiDBUtils.getPodIdForVlan(vlan.getId());
-
-            VlanIpRangeResponse vlanResponse = subClass.newInstance();
-            vlanResponse.setId(vlan.getUuid());
-            if (vlan.getVlanType() != null) {
-                vlanResponse.setForVirtualNetwork(vlan.getVlanType().equals(VlanType.VirtualNetwork));
-            }
-            vlanResponse.setVlan(vlan.getVlanTag());
-            DataCenter zone = ApiDBUtils.findZoneById(vlan.getDataCenterId());
-            if (zone != null) {
-                vlanResponse.setZoneId(zone.getUuid());
-            }
-
-            if (podId != null) {
-                HostPodVO pod = ApiDBUtils.findPodById(podId);
-                if (pod != null) {
-                    vlanResponse.setPodId(pod.getUuid());
-                    vlanResponse.setPodName(pod.getName());
-                }
-            }
-
-            String gateway = vlan.getVlanGateway();
-            String netmask = vlan.getVlanNetmask();
-            vlanResponse.setGateway(gateway);
-            vlanResponse.setNetmask(netmask);
-            if (StringUtils.isNotEmpty(gateway) && StringUtils.isNotEmpty(netmask)) {
-                vlanResponse.setCidr(NetUtils.getCidrFromGatewayAndNetmask(gateway, netmask));
-            }
-
-            // get start ip and end ip of corresponding vlan
-            String ipRange = vlan.getIpRange();
-            if (ipRange != null) {
-                String[] range = ipRange.split("-");
-                vlanResponse.setStartIp(range[0]);
-                vlanResponse.setEndIp(range[1]);
-            }
-
-            vlanResponse.setIp6Gateway(vlan.getIp6Gateway());
-            vlanResponse.setIp6Cidr(vlan.getIp6Cidr());
-
-            String ip6Range = vlan.getIp6Range();
-            if (ip6Range != null) {
-                String[] range = ip6Range.split("-");
-                vlanResponse.setStartIpv6(range[0]);
-                vlanResponse.setEndIpv6(range[1]);
-            }
-
-            if (vlan.getNetworkId() != null) {
-                Network nw = ApiDBUtils.findNetworkById(vlan.getNetworkId());
-                if (nw != null) {
-                    vlanResponse.setNetworkId(nw.getUuid());
-                }
-            }
-            Account owner = ApiDBUtils.getVlanAccount(vlan.getId());
-            if (owner != null) {
-                populateAccount(vlanResponse, owner.getId());
-                populateDomain(vlanResponse, owner.getDomainId());
-            } else {
-                Domain domain = ApiDBUtils.getVlanDomain(vlan.getId());
-                if (domain != null) {
-                    populateDomain(vlanResponse, domain.getId());
-                } else {
-                    Long networkId = vlan.getNetworkId();
-                    if (networkId != null) {
-                        Network network = _ntwkModel.getNetwork(networkId);
-                        if (network != null && TrafficType.Guest.equals(network.getTrafficType())) {
-                            Long accountId = network.getAccountId();
-                            populateAccount(vlanResponse, accountId);
-                            populateDomain(vlanResponse, ApiDBUtils.findAccountById(accountId).getDomainId());
-                        }
-                    }
-                }
-            }
-
-            if (vlan.getPhysicalNetworkId() != null) {
-                PhysicalNetwork pnw = ApiDBUtils.findPhysicalNetworkById(vlan.getPhysicalNetworkId());
-                if (pnw != null) {
-                    vlanResponse.setPhysicalNetworkId(pnw.getUuid());
-                }
-            }
-            vlanResponse.setForSystemVms(isForSystemVms(vlan.getId()));
-            vlanResponse.setProvider(getProviderFromVlanDetailKey(vlan));
-            vlanResponse.setObjectName("vlan");
-            return vlanResponse;
-        } catch (InstantiationException | IllegalAccessException e) {
-            throw new CloudRuntimeException("Failed to create Vlan IP Range response", e);
-        }
-    }
-
-    private String getProviderFromVlanDetailKey(Vlan vlan) {
-        for (Map.Entry<String, String> entry : ConfigurationService.ProviderDetailKeyMap.entrySet()) {
-            VlanDetailsVO vlanDetail = vlanDetailsDao.findDetail(vlan.getId(), entry.getValue());
-            if (Objects.nonNull(vlanDetail) && "true".equals(vlanDetail.getValue())) {
-                return entry.getKey();
-            }
-        }
-        return null;
-    }
-    /**
-     * Return true if vlan IP range is dedicated for system vms (SSVM and CPVM), false if not
-     * @param vlanId vlan id
-     * @return true if VLAN IP range is dedicated to system vms
-     */
-    private boolean isForSystemVms(long vlanId){
-        SearchBuilder<IPAddressVO> sb = userIpAddressDao.createSearchBuilder();
-        sb.and("vlanId", sb.entity().getVlanId(), SearchCriteria.Op.EQ);
-        SearchCriteria<IPAddressVO> sc = sb.create();
-        sc.setParameters("vlanId", vlanId);
-        IPAddressVO userIpAddresVO = userIpAddressDao.findOneBy(sc);
-        return userIpAddresVO != null ? userIpAddresVO.isForSystemVms() : false;
-    }
-
-    private void addVmDetailsInIpResponse(IPAddressResponse response, IpAddress ipAddress) {
-        if (ipAddress.getAllocatedToAccountId() != null && ipAddress.getAllocatedToAccountId() == Account.ACCOUNT_ID_SYSTEM) {
-            NicVO nic = ApiDBUtils.findByIp4AddressAndNetworkId(ipAddress.getAddress().toString(), ipAddress.getNetworkId());
-            if (nic != null) {
-                addSystemVmInfoToIpResponse(nic, response);
-            }
-        }
-        if (ipAddress.isForRouter()) {
-            response.setVirtualMachineType(Type.DomainRouter.toString());
-        }
-        if (ipAddress.getAssociatedWithVmId() != null) {
-            addUserVmDetailsInIpResponse(response, ipAddress);
-        }
-    }
-
-    private void addSystemVmInfoToIpResponse(NicVO nic, IPAddressResponse ipResponse) {
-        final boolean isAdmin = Account.Type.ADMIN.equals(CallContext.current().getCallingAccount().getType());
-        if (!isAdmin) {
-            return;
-        }
-        try {
-            nic.getInstanceId();
-        } catch (NullPointerException ex) {
-            return;
-        }
-
-        VirtualMachine vm = ApiDBUtils.findVMInstanceById(nic.getInstanceId());
-        if (vm == null) {
-            return;
-        }
-        ipResponse.setVirtualMachineId(vm.getUuid());
-        ipResponse.setVirtualMachineName(vm.getHostName());
-        ipResponse.setVirtualMachineType(vm.getType().toString());
-    }
-
-    private void addUserVmDetailsInIpResponse(IPAddressResponse response, IpAddress ipAddress) {
-        VirtualMachine vm = ApiDBUtils.findVMInstanceById(ipAddress.getAssociatedWithVmId());
-        if (vm == null) {
-            return;
-        }
-        if (vm.getType().equals(Type.User)) {
-            UserVm userVm = ApiDBUtils.findUserVmById(ipAddress.getAssociatedWithVmId());
-            if (userVm != null) {
-                response.setVirtualMachineId(userVm.getUuid());
-                response.setVirtualMachineName(userVm.getHostName());
-                response.setVirtualMachineType(userVm.getType().toString());
-                response.setVirtualMachineDisplayName(ObjectUtils.firstNonNull(userVm.getDisplayName(), userVm.getHostName()));
-            }
-        } else if (vm.getType().equals(Type.DomainRouter)) {
-            final boolean isAdmin = Account.Type.ADMIN.equals(CallContext.current().getCallingAccount().getType());
-            if (isAdmin) {
-                response.setVirtualMachineId(vm.getUuid());
-                response.setVirtualMachineName(vm.getHostName());
-            }
-            response.setVirtualMachineType(vm.getType().toString());
-        }
+        return apiAddressVlanResponseService.createVlanIpRangeResponse(subClass, vlan);
     }
 
     @Override
     public IPAddressResponse createIPAddressResponse(ResponseView view, IpAddress ipAddr) {
-        VlanVO vlan = ApiDBUtils.findVlanById(ipAddr.getVlanId());
-        boolean forVirtualNetworks = vlan.getVlanType().equals(VlanType.VirtualNetwork);
-        long zoneId = ipAddr.getDataCenterId();
-
-        IPAddressResponse ipResponse = new IPAddressResponse();
-        ipResponse.setId(ipAddr.getUuid());
-        ipResponse.setIpAddress(ipAddr.getAddress().toString());
-        if (ipAddr.getAllocatedTime() != null) {
-            ipResponse.setAllocated(ipAddr.getAllocatedTime());
-        }
-        DataCenter zone = ApiDBUtils.findZoneById(ipAddr.getDataCenterId());
-        if (zone != null) {
-            ipResponse.setZoneId(zone.getUuid());
-            ipResponse.setZoneName(zone.getName());
-        }
-        ipResponse.setSourceNat(ipAddr.isSourceNat());
-        ipResponse.setIsSystem(ipAddr.getSystem());
-
-        // get account information
-        if (ipAddr.getAllocatedToAccountId() != null) {
-            populateOwner(ipResponse, ipAddr);
-        }
-
-        ipResponse.setForVirtualNetwork(forVirtualNetworks);
-        ipResponse.setStaticNat(ipAddr.isOneToOneNat());
-
-        addVmDetailsInIpResponse(ipResponse, ipAddr);
-        if (ipAddr.getVmIp() != null) {
-            ipResponse.setVirtualMachineIp(ipAddr.getVmIp());
-        }
-
-        if (ipAddr.getAssociatedWithNetworkId() != null) {
-            Network ntwk = ApiDBUtils.findNetworkById(ipAddr.getAssociatedWithNetworkId());
-            if (ntwk != null) {
-                ipResponse.setAssociatedNetworkId(ntwk.getUuid());
-                ipResponse.setAssociatedNetworkName(ntwk.getName());
-            }
-        }
-
-
-        setVpcIdInResponse(ipAddr.getVpcId(), ipResponse::setVpcId, ipResponse::setVpcName);
-
-
-        // Network id the ip is associated with (if associated networkId is
-        // null, try to get this information from vlan)
-        Long vlanNetworkId = ApiDBUtils.getVlanNetworkId(ipAddr.getVlanId());
-
-        // Network id the ip belongs to
-        Long networkId;
-        if (vlanNetworkId != null) {
-            networkId = vlanNetworkId;
-        } else {
-            networkId = ApiDBUtils.getPublicNetworkIdByZone(zoneId);
-        }
-
-        if (networkId != null) {
-            NetworkVO nw = ApiDBUtils.findNetworkById(networkId);
-            if (nw != null) {
-                ipResponse.setNetworkId(nw.getUuid());
-                ipResponse.setNetworkName(nw.getName());
-            }
-        }
-        ipResponse.setState(ipAddr.getState().toString());
-
-        if (ipAddr.getPhysicalNetworkId() != null) {
-            PhysicalNetworkVO pnw = ApiDBUtils.findPhysicalNetworkById(ipAddr.getPhysicalNetworkId());
-            if (pnw != null) {
-                ipResponse.setPhysicalNetworkId(pnw.getUuid());
-            }
-        }
-
-        // show vm info for shared networks
-        showVmInfoForSharedNetworks(forVirtualNetworks, ipAddr, ipResponse);
-
-        // show this info to full view only
-        if (view == ResponseView.Full) {
-            VlanVO vl = ApiDBUtils.findVlanById(ipAddr.getVlanId());
-            if (vl != null) {
-                ipResponse.setVlanId(vl.getUuid());
-                ipResponse.setVlanName(vl.getVlanTag());
-            }
-        }
-
-        if (ipAddr.getSystem()) {
-            if (ipAddr.isOneToOneNat()) {
-                ipResponse.setPurpose(IpAddress.Purpose.StaticNat.toString());
-            } else {
-                ipResponse.setPurpose(IpAddress.Purpose.Lb.toString());
-            }
-        }
-
-        ipResponse.setForDisplay(ipAddr.isDisplay());
-
-        ipResponse.setPortable(ipAddr.isPortable());
-        ipResponse.setForSystemVms(ipAddr.isForSystemVms());
-        if (Objects.nonNull(getProviderFromVlanDetailKey(vlan))) {
-            ipResponse.setForProvider(true);
-        }
-
-        //set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.PublicIpAddress, ipAddr.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        ipResponse.setTags(tagResponses);
-        ipResponse.setHasAnnotation(annotationDao.hasAnnotations(ipAddr.getUuid(), AnnotationService.EntityType.PUBLIC_IP_ADDRESS.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-
-        ipResponse.setHasRules(firewallRulesDao.countRulesByIpId(ipAddr.getId()) > 0);
-        ipResponse.setObjectName("ipaddress");
-        return ipResponse;
+        return apiAddressVlanResponseService.createIPAddressResponse(view, ipAddr);
     }
 
 
@@ -951,50 +674,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
                     logger.debug("Not setting the vpcId to the response because the caller does not have access to the VPC");
                 }
                 vpcNameSetter.accept(vpc.getName());
-            }
-        }
-    }
-
-    private void showVmInfoForSharedNetworks(boolean forVirtualNetworks, IpAddress ipAddr, IPAddressResponse ipResponse) {
-        if (!forVirtualNetworks) {
-            NicVO nic = ApiDBUtils.findByIp4AddressAndNetworkId(ipAddr.getAddress().toString(), ipAddr.getNetworkId());
-
-            if (nic == null) {  // find in nic_secondary_ips, user vm only
-                NicSecondaryIpVO secondaryIp =
-                        ApiDBUtils.findSecondaryIpByIp4AddressAndNetworkId(ipAddr.getAddress().toString(), ipAddr.getNetworkId());
-                if (secondaryIp != null) {
-                    UserVm vm = ApiDBUtils.findUserVmById(secondaryIp.getVmId());
-                    if (vm != null) {
-                        ipResponse.setVirtualMachineId(vm.getUuid());
-                        ipResponse.setVirtualMachineName(vm.getHostName());
-                        if (vm.getDisplayName() != null) {
-                            ipResponse.setVirtualMachineDisplayName(vm.getDisplayName());
-                        } else {
-                            ipResponse.setVirtualMachineDisplayName(vm.getHostName());
-                        }
-                    }
-                }
-            } else if (nic.getVmType() == VirtualMachine.Type.User) {
-                UserVm vm = ApiDBUtils.findUserVmById(nic.getInstanceId());
-                if (vm != null) {
-                    ipResponse.setVirtualMachineId(vm.getUuid());
-                    ipResponse.setVirtualMachineName(vm.getHostName());
-                    if (vm.getDisplayName() != null) {
-                        ipResponse.setVirtualMachineDisplayName(vm.getDisplayName());
-                    } else {
-                        ipResponse.setVirtualMachineDisplayName(vm.getHostName());
-                    }
-                }
-            } else if (nic.getVmType() == Type.DomainRouter) {
-                VirtualMachine vm = ApiDBUtils.findVMInstanceById(nic.getInstanceId());
-                if (vm != null) {
-                    ipResponse.setVirtualMachineId(vm.getUuid());
-                    ipResponse.setVirtualMachineName(vm.getHostName());
-                    ipResponse.setVirtualMachineType(vm.getType().toString());
-                }
-            } else if (nic.getVmType().isUsedBySystem()) {
-                ipResponse.setIsSystem(true);
-                addSystemVmInfoToIpResponse(nic, ipResponse);
             }
         }
     }
@@ -3700,26 +3379,14 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public NicSecondaryIpResponse createSecondaryIPToNicResponse(NicSecondaryIp result) {
-        NicSecondaryIpResponse response = new NicSecondaryIpResponse();
-        NicVO nic = _entityMgr.findById(NicVO.class, result.getNicId());
-        NetworkVO network = _entityMgr.findById(NetworkVO.class, result.getNetworkId());
-        response.setId(result.getUuid());
-        setResponseIpAddress(result, response);
-        response.setNicId(nic.getUuid());
-        response.setNwId(network.getUuid());
-        response.setObjectName("nicsecondaryip");
-        return response;
+        return apiAddressVlanResponseService.createSecondaryIPToNicResponse(result);
     }
 
     /**
      * Set the NicSecondaryIpResponse object with the IP address that is not null (IPv4 or IPv6)
      */
     public static void setResponseIpAddress(NicSecondaryIp result, NicSecondaryIpResponse response) {
-        if (result.getIp4Address() != null) {
-            response.setIpAddr(result.getIp4Address());
-        } else if (result.getIp6Address() != null) {
-            response.setIpAddr(result.getIp6Address());
-        }
+        ApiAddressVlanResponseService.setResponseIpAddress(result, response);
     }
 
     /**
@@ -4341,25 +4008,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public IpQuarantineResponse createQuarantinedIpsResponse(PublicIpQuarantine quarantinedIp) {
-        IpQuarantineResponse quarantinedIpsResponse = new IpQuarantineResponse();
-        String ipAddress = userIpAddressDao.findById(quarantinedIp.getPublicIpAddressId()).getAddress().toString();
-        Account previousOwner = _accountMgr.getAccount(quarantinedIp.getPreviousOwnerId());
-
-        quarantinedIpsResponse.setId(quarantinedIp.getUuid());
-        quarantinedIpsResponse.setPublicIpAddress(ipAddress);
-        quarantinedIpsResponse.setPreviousOwnerId(previousOwner.getUuid());
-        quarantinedIpsResponse.setPreviousOwnerName(previousOwner.getName());
-        quarantinedIpsResponse.setCreated(quarantinedIp.getCreated());
-        quarantinedIpsResponse.setRemoved(quarantinedIp.getRemoved());
-        quarantinedIpsResponse.setEndDate(quarantinedIp.getEndDate());
-        quarantinedIpsResponse.setRemovalReason(quarantinedIp.getRemovalReason());
-        if (quarantinedIp.getRemoverAccountId() != null) {
-            Account removerAccount = _accountMgr.getAccount(quarantinedIp.getRemoverAccountId());
-            quarantinedIpsResponse.setRemoverAccountId(removerAccount.getUuid());
-        }
-        quarantinedIpsResponse.setResponseName("quarantinedip");
-
-        return quarantinedIpsResponse;
+        return apiAddressVlanResponseService.createQuarantinedIpsResponse(quarantinedIp);
     }
 
     public ObjectStoreResponse createObjectStoreResponse(ObjectStore os) {

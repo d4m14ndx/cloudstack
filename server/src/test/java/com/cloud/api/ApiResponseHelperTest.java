@@ -61,6 +61,7 @@ import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
+import org.apache.cloudstack.api.response.IPAddressResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
@@ -76,6 +77,7 @@ import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
 import org.apache.cloudstack.api.response.VMSnapshotResponse;
+import org.apache.cloudstack.api.response.VlanIpRangeResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
@@ -89,8 +91,10 @@ import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
+import com.cloud.dc.Vlan;
 import com.cloud.domain.DomainVO;
 import com.cloud.host.Host;
+import com.cloud.network.IpAddress;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
@@ -100,7 +104,6 @@ import com.cloud.network.as.AutoScaleVmProfile;
 import com.cloud.network.as.Condition;
 import com.cloud.network.as.Counter;
 import com.cloud.network.dao.IPAddressDao;
-import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
 import com.cloud.org.Cluster;
@@ -121,7 +124,6 @@ import com.cloud.user.AccountVO;
 import com.cloud.user.User;
 import com.cloud.user.UserVO;
 import com.cloud.utils.Pair;
-import com.cloud.utils.net.Ip;
 import com.cloud.vm.ConsoleSessionVO;
 import com.cloud.vm.NicSecondaryIp;
 import com.cloud.vm.snapshot.VMSnapshot;
@@ -169,6 +171,8 @@ public class ApiResponseHelperTest {
     private ApiAutoscaleResponseService apiAutoscaleResponseService;
     @Mock
     private ApiSnapshotResponseService apiSnapshotResponseService;
+    @Mock
+    private ApiAddressVlanResponseService apiAddressVlanResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -207,6 +211,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiOfferingConfigurationResponseService", apiOfferingConfigurationResponseService);
         ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
         ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
+        ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
     }
 
     @Before
@@ -353,6 +358,54 @@ public class ApiResponseHelperTest {
         ApiResponseHelper.setResponseIpAddress(result, response);
 
         assertTrue(response.getIpAddr().equals("ipv6"));
+    }
+
+    @Test
+    public void createVlanIpRangeResponseDelegatesToService() {
+        Vlan vlan = Mockito.mock(Vlan.class);
+        VlanIpRangeResponse expected = new VlanIpRangeResponse();
+        when(apiAddressVlanResponseService.createVlanIpRangeResponse(vlan)).thenReturn(expected);
+
+        VlanIpRangeResponse response = helper.createVlanIpRangeResponse(vlan);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createVlanIpRangeResponse(vlan);
+    }
+
+    @Test
+    public void createVlanIpRangeResponseSubclassDelegatesToService() {
+        Vlan vlan = Mockito.mock(Vlan.class);
+        VlanIpRangeResponse expected = new VlanIpRangeResponse();
+        when(apiAddressVlanResponseService.createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan)).thenReturn(expected);
+
+        VlanIpRangeResponse response = helper.createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan);
+    }
+
+    @Test
+    public void createIPAddressResponseDelegatesToService() {
+        IpAddress ipAddress = Mockito.mock(IpAddress.class);
+        IPAddressResponse expected = new IPAddressResponse();
+        when(apiAddressVlanResponseService.createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress)).thenReturn(expected);
+
+        IPAddressResponse response = helper.createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress);
+    }
+
+    @Test
+    public void createSecondaryIPToNicResponseDelegatesToService() {
+        NicSecondaryIp secondaryIp = Mockito.mock(NicSecondaryIp.class);
+        NicSecondaryIpResponse expected = new NicSecondaryIpResponse();
+        when(apiAddressVlanResponseService.createSecondaryIPToNicResponse(secondaryIp)).thenReturn(expected);
+
+        NicSecondaryIpResponse response = helper.createSecondaryIPToNicResponse(secondaryIp);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createSecondaryIPToNicResponse(secondaryIp);
     }
 
     @Test
@@ -519,53 +572,15 @@ public class ApiResponseHelperTest {
     }
 
     @Test
-    public void createQuarantinedIpsResponseTestReturnsObject() {
-        String quarantinedIpUuid = "quarantined_ip_uuid";
-        Long previousOwnerId = 300L;
-        String previousOwnerUuid = "previous_owner_uuid";
-        String previousOwnerName = "previous_owner_name";
-        Long removerAccountId = 400L;
-        String removerAccountUuid = "remover_account_uuid";
-        Long publicIpAddressId = 500L;
-        String publicIpAddress = "1.2.3.4";
-        Date created = new Date(599L);
-        Date removed = new Date(600L);
-        Date endDate = new Date(601L);
-        String removalReason = "removalReason";
+    public void createQuarantinedIpsResponseDelegatesToService() {
+        PublicIpQuarantine quarantinedIp = Mockito.mock(PublicIpQuarantine.class);
+        IpQuarantineResponse expected = new IpQuarantineResponse();
+        when(apiAddressVlanResponseService.createQuarantinedIpsResponse(quarantinedIp)).thenReturn(expected);
 
-        PublicIpQuarantine quarantinedIpMock = Mockito.mock(PublicIpQuarantine.class);
-        IPAddressVO ipAddressVoMock = Mockito.mock(IPAddressVO.class);
-        Account previousOwner = Mockito.mock(Account.class);
-        Account removerAccount = Mockito.mock(Account.class);
+        IpQuarantineResponse response = apiResponseHelper.createQuarantinedIpsResponse(quarantinedIp);
 
-        Mockito.when(quarantinedIpMock.getUuid()).thenReturn(quarantinedIpUuid);
-        Mockito.when(quarantinedIpMock.getPreviousOwnerId()).thenReturn(previousOwnerId);
-        Mockito.when(quarantinedIpMock.getPublicIpAddressId()).thenReturn(publicIpAddressId);
-        Mockito.doReturn(ipAddressVoMock).when(ipAddressDaoMock).findById(publicIpAddressId);
-        Mockito.when(ipAddressVoMock.getAddress()).thenReturn(new Ip(publicIpAddress));
-        Mockito.doReturn(previousOwner).when(accountManagerMock).getAccount(previousOwnerId);
-        Mockito.when(previousOwner.getUuid()).thenReturn(previousOwnerUuid);
-        Mockito.when(previousOwner.getName()).thenReturn(previousOwnerName);
-        Mockito.when(quarantinedIpMock.getCreated()).thenReturn(created);
-        Mockito.when(quarantinedIpMock.getRemoved()).thenReturn(removed);
-        Mockito.when(quarantinedIpMock.getEndDate()).thenReturn(endDate);
-        Mockito.when(quarantinedIpMock.getRemovalReason()).thenReturn(removalReason);
-        Mockito.when(quarantinedIpMock.getRemoverAccountId()).thenReturn(removerAccountId);
-        Mockito.when(removerAccount.getUuid()).thenReturn(removerAccountUuid);
-        Mockito.doReturn(removerAccount).when(accountManagerMock).getAccount(removerAccountId);
-
-        IpQuarantineResponse result = apiResponseHelper.createQuarantinedIpsResponse(quarantinedIpMock);
-
-        Assert.assertEquals(quarantinedIpUuid, result.getId());
-        Assert.assertEquals(publicIpAddress, result.getPublicIpAddress());
-        Assert.assertEquals(previousOwnerUuid, result.getPreviousOwnerId());
-        Assert.assertEquals(previousOwnerName, result.getPreviousOwnerName());
-        Assert.assertEquals(created, result.getCreated());
-        Assert.assertEquals(removed, result.getRemoved());
-        Assert.assertEquals(endDate, result.getEndDate());
-        Assert.assertEquals(removalReason, result.getRemovalReason());
-        Assert.assertEquals(removerAccountUuid, result.getRemoverAccountId());
-        Assert.assertEquals("quarantinedip", result.getResponseName());
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createQuarantinedIpsResponse(quarantinedIp);
     }
 
     @Test
