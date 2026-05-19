@@ -116,7 +116,9 @@ import com.cloud.api.query.vo.ServiceOfferingJoinVO;
 import com.cloud.configuration.Resource;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
+import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
+import com.cloud.dc.dao.HostPodDao;
 import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
 import com.cloud.deploy.DeploymentPlanner;
@@ -315,6 +317,12 @@ public class UserVmManagerImplTest {
 
     @Mock
     HostDao hostDao;
+
+    @Mock
+    HostPodDao hostPodDao;
+
+    @Mock
+    ClusterDao clusterDao;
 
     @Mock
     private VolumeVO volumeVOMock;
@@ -622,6 +630,14 @@ public class UserVmManagerImplTest {
         // VmHostNameUniquenessServiceImplTest; here we just need a non-null bean.
         VmHostNameUniquenessServiceImpl hostNameUniquenessService = new VmHostNameUniquenessServiceImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmHostNameUniquenessService", hostNameUniquenessService);
+        // Slice 31: wire start-placement lookup service so start/create VM host,
+        // cluster, and pod validation uses the same test DAOs through the manager
+        // wrappers. Branch behavior is covered in VmStartPlacementServiceImplTest.
+        VmStartPlacementServiceImpl startPlacementService = new VmStartPlacementServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "hostPodDao", hostPodDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "clusterDao", clusterDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "hostDao", hostDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartPlacementService", startPlacementService);
         // Slice 14: wire VmSecurityGroupAssignmentServiceImpl so the
         // getSecurityGroupIdList / checkAndUpdateSecurityGroupForVM
         // wrappers don't NPE when updateVirtualMachine tests pass through
