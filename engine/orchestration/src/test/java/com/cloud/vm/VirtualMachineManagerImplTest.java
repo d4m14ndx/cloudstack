@@ -366,6 +366,11 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkNameMappingService", vmNetworkNameMappingService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStartProfilePreparationService", vmStartProfilePreparationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
+        VmStopCommandServiceImpl vmStopCommandService = new VmStopCommandServiceImpl();
+        ReflectionTestUtils.setField(vmStopCommandService, "nicsDao", _nicsDao);
+        ReflectionTestUtils.setField(vmStopCommandService, "vmDao", vmInstanceDaoMock);
+        ReflectionTestUtils.setField(vmStopCommandService, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStopCommandService", vmStopCommandService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrationCheckpointService", vmMigrationCheckpointService);
     }
 

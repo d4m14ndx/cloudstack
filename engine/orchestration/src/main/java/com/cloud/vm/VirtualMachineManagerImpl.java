@@ -426,6 +426,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     protected VmVlanPersistenceMappingService vmVlanPersistenceMappingService;
     @Inject
+    protected VmStopCommandService vmStopCommandService;
+    @Inject
     protected VmMigrationCheckpointService vmMigrationCheckpointService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
@@ -1344,11 +1346,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                         } else {
                             logger.info("The guru did not like the answers so stopping {}", vm);
                             StopCommand stopCmd = new StopCommand(vm, getExecuteInSequence(vm.getHypervisorType()), false);
-                            stopCmd.setControlIp(getControlNicIpForVM(vm));
-                            Map<String, Boolean> vlanToPersistenceMap = vmVlanPersistenceMappingService.getVlanToPersistenceMapForVM(vm.getId());
-                            if (MapUtils.isNotEmpty(vlanToPersistenceMap)) {
-                                stopCmd.setVlanToPersistenceMap(vlanToPersistenceMap);
-                            }
+                            vmStopCommandService.decorateStopCommandWithNetworkDetails(stopCmd, vm);
                             final StopCommand cmd = stopCmd;
                             final Answer answer = _agentMgr.easySend(destHostId, cmd);
                             if (answer != null && answer instanceof StopAnswer) {
@@ -1698,13 +1696,9 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Override
     public boolean sendStop(final VirtualMachineGuru guru, final VirtualMachineProfile profile, final boolean force, final boolean checkBeforeCleanup) {
         final VirtualMachine vm = profile.getVirtualMachine();
-        Map<String, Boolean> vlanToPersistenceMap = vmVlanPersistenceMappingService.getVlanToPersistenceMapForVM(vm.getId());
         StopCommand stpCmd = new StopCommand(vm, getExecuteInSequence(vm.getHypervisorType()), checkBeforeCleanup);
         updateStopCommandForExternalHypervisorType(vm.getHypervisorType(), profile, stpCmd);
-        if (MapUtils.isNotEmpty(vlanToPersistenceMap)) {
-            stpCmd.setVlanToPersistenceMap(vlanToPersistenceMap);
-        }
-        stpCmd.setControlIp(getControlNicIpForVM(vm));
+        vmStopCommandService.decorateStopCommandWithNetworkDetails(stpCmd, vm);
         stpCmd.setVolumesToDisconnect(getVolumesToDisconnect(vm));
         final StopCommand stop = stpCmd;
         try {
@@ -1960,13 +1954,9 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
         vmGuru.prepareStop(profile);
 
-        Map<String, Boolean> vlanToPersistenceMap = vmVlanPersistenceMappingService.getVlanToPersistenceMapForVM(vm.getId());
         final StopCommand stop = new StopCommand(vm, getExecuteInSequence(vm.getHypervisorType()), false, cleanUpEvenIfUnableToStop);
-        stop.setControlIp(getControlNicIpForVM(vm));
         updateStopCommandForExternalHypervisorType(vm.getHypervisorType(), profile, stop);
-        if (MapUtils.isNotEmpty(vlanToPersistenceMap)) {
-            stop.setVlanToPersistenceMap(vlanToPersistenceMap);
-        }
+        vmStopCommandService.decorateStopCommandWithNetworkDetails(stop, vm);
 
         boolean stopped = false;
         Answer answer = null;
@@ -3132,45 +3122,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     public Command cleanup(final VirtualMachine vm, Map<String, DpdkTO> dpdkInterfaceMapping) {
-        StopCommand cmd = new StopCommand(vm, getExecuteInSequence(vm.getHypervisorType()), false);
-        cmd.setControlIp(getControlNicIpForVM(vm));
-        if (MapUtils.isNotEmpty(dpdkInterfaceMapping)) {
-            cmd.setDpdkInterfaceMapping(dpdkInterfaceMapping);
-        }
-        Map<String, Boolean> vlanToPersistenceMap = vmVlanPersistenceMappingService.getVlanToPersistenceMapForVM(vm.getId());
-        if (MapUtils.isNotEmpty(vlanToPersistenceMap)) {
-            cmd.setVlanToPersistenceMap(vlanToPersistenceMap);
-        }
-        return cmd;
+        return vmStopCommandService.buildCleanupCommand(vm, getExecuteInSequence(vm.getHypervisorType()), dpdkInterfaceMapping);
     }
 
-    private String getControlNicIpForVM(VirtualMachine vm) {
-        if (null == vm.getType()) {
-            return null;
-        }
-
-        switch (vm.getType()) {
-            case ConsoleProxy:
-            case SecondaryStorageVm:
-                NicVO nic = _nicsDao.getControlNicForVM(vm.getId());
-                return nic.getIPv4Address();
-            case DomainRouter:
-                return vm.getPrivateIpAddress();
-            default:
-                logger.debug("{} is a [{}], returning null for control Nic IP.", vm.toString(), vm.getType());
-                return null;
-        }
-    }
     public Command cleanup(final String vmName) {
-        VirtualMachine vm = _vmDao.findVMByInstanceName(vmName);
-
-        StopCommand cmd = new StopCommand(vmName, getExecuteInSequence(null), false);
-        cmd.setControlIp(getControlNicIpForVM(vm));
-        Map<String, Boolean> vlanToPersistenceMap = vmVlanPersistenceMappingService.getVlanToPersistenceMapForVM(vm.getId());
-        if (MapUtils.isNotEmpty(vlanToPersistenceMap)) {
-            cmd.setVlanToPersistenceMap(vlanToPersistenceMap);
-        }
-        return cmd;
+        return vmStopCommandService.buildCleanupCommand(vmName, getExecuteInSequence(null));
     }
 
     public void syncVMMetaData(final Map<String, String> vmMetadatum) {
