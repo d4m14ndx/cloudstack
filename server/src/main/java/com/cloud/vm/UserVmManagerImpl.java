@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -113,7 +112,6 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
-import org.apache.cloudstack.utils.bytescale.ByteScaleUtils;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
@@ -141,10 +139,8 @@ import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.agent.api.to.deployasis.OVFPropertyTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
-import com.cloud.api.ApiDBUtils;
 import com.cloud.api.query.dao.ServiceOfferingJoinDao;
 import com.cloud.api.query.vo.ServiceOfferingJoinVO;
-import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
@@ -581,6 +577,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     protected VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
     @Inject
+    protected VmServiceOfferingScaleService vmServiceOfferingScaleService;
+    @Inject
     protected VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
     @Inject
     private VmUnmanageService vmUnmanageService;
@@ -904,29 +902,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      */
     // This method will be deprecated as we use ScaleVMCmd for both stopped VMs and running VMs
     public UserVm upgradeVirtualMachine(UpgradeVMCmd cmd) throws ResourceAllocationException {
-        Long vmId = cmd.getId();
-        Long svcOffId = cmd.getServiceOfferingId();
-        Account caller = CallContext.current().getCallingAccount();
-
-        // Verify input parameters
-        //UserVmVO vmInstance = _vmDao.findById(vmId);
-        VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-        if (vmInstance == null) {
-            throw new InvalidParameterValueException("unable to find an Instance with id " + vmId);
-        } else if (!(vmInstance.getState().equals(State.Stopped))) {
-            throw new InvalidParameterValueException("Unable to upgrade Instance " + vmInstance.toString() + " " + " in state " + vmInstance.getState()
-            + "; make sure the Instance is stopped");
-        }
-
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        upgradeStoppedVirtualMachine(vmId, svcOffId, cmd.getDetails());
-
-        // Generate usage event for VM upgrade
-        UserVmVO userVm = _vmDao.findById(vmId);
-        generateUsageEvent( userVm, userVm.isDisplayVm(), EventTypes.EVENT_VM_UPGRADE);
-
-        return userVm;
+        return vmServiceOfferingScaleService.upgradeVirtualMachine(cmd);
     }
 
     /**
@@ -961,73 +937,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmUpdateValidator.addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified(newValue, details, detailKey, currentValue);
     }
 
-
-    private void validateOfferingMaxResource(ServiceOfferingVO offering) {
-        serviceOfferingValidator.validateOfferingMaxResource(offering);
-    }
-
     @Override
     public void validateCustomParameters(ServiceOfferingVO serviceOffering, Map<String, String> customParameters) {
         serviceOfferingValidator.validateCustomParameters(serviceOffering, customParameters);
-    }
-
-    private UserVm upgradeStoppedVirtualMachine(Long vmId, Long svcOffId, Map<String, String> customParameters) throws ResourceAllocationException {
-
-        VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-        // Check resource limits for CPU and Memory.
-        ServiceOfferingVO newServiceOffering = serviceOfferingDao.findById(svcOffId);
-        if (newServiceOffering.getState() == ServiceOffering.State.Inactive) {
-            throw new InvalidParameterValueException(String.format("Unable to upgrade Instance %s with an inactive service offering %s", vmInstance.getUuid(), newServiceOffering.getUuid()));
-        }
-        if (newServiceOffering.isDynamic()) {
-            newServiceOffering.setDynamicFlag(true);
-            validateCustomParameters(newServiceOffering, customParameters);
-            newServiceOffering = serviceOfferingDao.getComputeOffering(newServiceOffering, customParameters);
-        } else {
-            validateOfferingMaxResource(newServiceOffering);
-        }
-        ServiceOfferingVO currentServiceOffering = serviceOfferingDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
-
-        validateDiskOfferingChecks(currentServiceOffering, newServiceOffering);
-
-        int newCpu = newServiceOffering.getCpu();
-        int newMemory = newServiceOffering.getRamSize();
-        int currentCpu = currentServiceOffering.getCpu();
-        int currentMemory = currentServiceOffering.getRamSize();
-
-        Account owner = _accountMgr.getActiveAccountById(vmInstance.getAccountId());
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmInstance.getTemplateId());
-
-        List<Reserver> reservations = new ArrayList<>();
-        try {
-            if (!VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-                _resourceLimitMgr.checkVmResourceLimitsForServiceOfferingChange(owner, vmInstance.isDisplay(), (long) currentCpu, (long) newCpu,
-                        (long) currentMemory, (long) newMemory, currentServiceOffering, newServiceOffering, template, reservations);
-            }
-
-            // Check that the specified service offering ID is valid
-            _itMgr.checkIfCanUpgrade(vmInstance, newServiceOffering);
-
-            // Check if the new service offering can be applied to vm instance
-            _accountMgr.checkAccess(owner, newServiceOffering, _dcDao.findById(vmInstance.getDataCenterId()));
-
-            // resize and migrate the root volume if required
-            DiskOfferingVO newDiskOffering = _diskOfferingDao.findById(newServiceOffering.getDiskOfferingId());
-            changeDiskOfferingForRootVolume(vmId, newDiskOffering, customParameters, vmInstance.getDataCenterId());
-
-            _itMgr.upgradeVmDb(vmId, newServiceOffering, currentServiceOffering);
-
-            // Increment or decrement CPU and Memory count accordingly.
-            if (!VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-                _resourceLimitMgr.updateVmResourceCountForServiceOfferingChange(owner.getAccountId(), vmInstance.isDisplay(), (long) currentCpu, (long) newCpu,
-                        (long) currentMemory, (long) newMemory, currentServiceOffering, newServiceOffering, template);
-            }
-
-            return _vmDao.findById(vmInstance.getId());
-
-        } finally {
-            ReservationHelper.closeAll(reservations);
-        }
     }
 
     /**
@@ -1080,240 +992,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @ActionEvent(eventType = EventTypes.EVENT_VM_UPGRADE, eventDescription = "Upgrading VM", async = true)
     public UserVm upgradeVirtualMachine(ScaleVMCmd cmd) throws ResourceUnavailableException, ConcurrentOperationException, ManagementServerException,
     VirtualMachineMigrationException {
-
-        Long vmId = cmd.getId();
-        Long newServiceOfferingId = cmd.getServiceOfferingId();
-        VirtualMachine vm = (VirtualMachine) this._entityMgr.findById(VirtualMachine.class, vmId);
-        if (vm == null) {
-            throw new InvalidParameterValueException("Unable to find VM's UUID");
-        }
-        if (Hypervisor.HypervisorType.External.equals(vm.getHypervisorType())) {
-            logger.error("Scale VM not supported for {} as it is {} hypervisor instance",
-                    vm, Hypervisor.HypervisorType.External.name());
-            throw new InvalidParameterValueException(String.format("Operation not supported for instance: %s",
-                    vm.getName()));
-        }
-        CallContext.current().setEventDetails("Vm Id: " + vm.getUuid());
-
-        Map<String, String> cmdDetails = cmd.getDetails();
-
-        updateInstanceDetailsMapWithCurrentValuesForAbsentDetails(cmdDetails, vm, newServiceOfferingId);
-
-        boolean result = upgradeVirtualMachine(vmId, newServiceOfferingId, cmdDetails);
-        if (result) {
-            UserVmVO vmInstance = _vmDao.findById(vmId);
-            if (vmInstance.getState().equals(State.Stopped)) {
-                // Generate usage event for VM upgrade
-                generateUsageEvent(vmInstance, vmInstance.isDisplayVm(), EventTypes.EVENT_VM_UPGRADE);
-            }
-            return vmInstance;
-        } else {
-            throw new CloudRuntimeException("Failed to scale the VM");
-        }
+        return vmServiceOfferingScaleService.upgradeVirtualMachine(cmd);
     }
 
     @Override
     public boolean upgradeVirtualMachine(Long vmId, Long newServiceOfferingId, Map<String, String> customParameters) throws ResourceUnavailableException,
     ConcurrentOperationException, ManagementServerException, VirtualMachineMigrationException {
-
-        VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-
-        Account caller = CallContext.current().getCallingAccount();
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-        if (vmInstance == null) {
-            logger.error(String.format("VM instance with id [%s] is null, it is not possible to upgrade a null VM.", vmId));
-            return false;
-        }
-
-        if (State.Stopped.equals(vmInstance.getState())) {
-            upgradeStoppedVirtualMachine(vmId, newServiceOfferingId, customParameters);
-            return true;
-        }
-
-        if (State.Running.equals(vmInstance.getState())) {
-            ServiceOfferingVO newServiceOfferingVO = serviceOfferingDao.findById(newServiceOfferingId);
-            VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmInstance.getTemplateId());
-            HostVO instanceHost = _hostDao.findById(vmInstance.getHostId());
-            _hostDao.loadHostTags(instanceHost);
-
-            Set<String> strictHostTags = UserVmManager.getStrictHostTags();
-            if (!instanceHost.checkHostServiceOfferingAndTemplateTags(newServiceOfferingVO, template, strictHostTags)) {
-                logger.error("Cannot upgrade VM {} as the new service offering {} does not have the required host tags {}.",
-                        vmInstance, newServiceOfferingVO,
-                        instanceHost.getHostServiceOfferingAndTemplateMissingTags(newServiceOfferingVO, template, strictHostTags));
-                return false;
-            }
-        }
-        return upgradeRunningVirtualMachine(vmId, newServiceOfferingId, customParameters);
-    }
-
-    private boolean upgradeRunningVirtualMachine(Long vmId, Long newServiceOfferingId, Map<String, String> customParameters) throws ResourceUnavailableException,
-    ConcurrentOperationException, ManagementServerException, VirtualMachineMigrationException {
-
-        Account caller = CallContext.current().getCallingAccount();
-        VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-        Account owner = _accountDao.findById(vmInstance.getAccountId());
-
-        Set<HypervisorType> supportedHypervisorTypes = new HashSet<>();
-        supportedHypervisorTypes.add(HypervisorType.XenServer);
-        supportedHypervisorTypes.add(HypervisorType.VMware);
-        supportedHypervisorTypes.add(HypervisorType.Simulator);
-        supportedHypervisorTypes.add(HypervisorType.KVM);
-
-        HypervisorType vmHypervisorType = vmInstance.getHypervisorType();
-
-        if (!supportedHypervisorTypes.contains(vmHypervisorType)) {
-            String message = String.format("Scaling the VM dynamically is not supported for VMs running on Hypervisor [%s].", vmInstance.getHypervisorType());
-            logger.info(message);
-            throw new InvalidParameterValueException(message);
-        }
-
-        _accountMgr.checkAccess(caller, null, true, vmInstance);
-
-        //Check if its a scale "up"
-        ServiceOfferingVO newServiceOffering = serviceOfferingDao.findById(newServiceOfferingId);
-        if (newServiceOffering.isDynamic()) {
-            newServiceOffering.setDynamicFlag(true);
-            validateCustomParameters(newServiceOffering, customParameters);
-            newServiceOffering = serviceOfferingDao.getComputeOffering(newServiceOffering, customParameters);
-        }
-
-        // Check that the specified service offering ID is valid
-        _itMgr.checkIfCanUpgrade(vmInstance, newServiceOffering);
-
-        ServiceOfferingVO currentServiceOffering = serviceOfferingDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
-        if (newServiceOffering.isDynamicScalingEnabled() != currentServiceOffering.isDynamicScalingEnabled()) {
-            throw new InvalidParameterValueException("Unable to Scale VM: since dynamic scaling enabled flag is not same for new service offering and old service offering");
-        }
-
-        validateDiskOfferingChecks(currentServiceOffering, newServiceOffering);
-
-        int newCpu = newServiceOffering.getCpu();
-        int newMemory = newServiceOffering.getRamSize();
-        int newSpeed = newServiceOffering.getSpeed();
-        int currentCpu = currentServiceOffering.getCpu();
-        int currentMemory = currentServiceOffering.getRamSize();
-        int currentSpeed = currentServiceOffering.getSpeed();
-        int memoryDiff = newMemory - currentMemory;
-        int cpuDiff = newCpu * newSpeed - currentCpu * currentSpeed;
-
-        // Don't allow to scale when (Any of the new values less than current values) OR (All current and new values are same)
-        if ((newSpeed < currentSpeed || newMemory < currentMemory || newCpu < currentCpu) || (newSpeed == currentSpeed && newMemory == currentMemory && newCpu == currentCpu)) {
-            String message = String.format("While the VM is running, only scalling up it is supported. New service offering {\"memory\": %s, \"speed\": %s, \"cpu\": %s} should"
-              + " have at least one value (ram, speed or cpu) greater than the current values {\"memory\": %s, \"speed\": %s, \"cpu\": %s}.", newMemory, newSpeed, newCpu,
-              currentMemory, currentSpeed, currentCpu);
-
-            throw new InvalidParameterValueException(message);
-        }
-
-        if (vmHypervisorType.equals(HypervisorType.KVM) && !currentServiceOffering.isDynamic()) {
-            String message = String.format("Unable to live scale VM on KVM when current service offering is a \"Fixed Offering\". KVM needs the tag \"maxMemory\" to live scale and it is only configured when VM is deployed with a custom service offering and \"Dynamic Scalable\" is enabled.");
-            logger.info(message);
-            throw new InvalidParameterValueException(message);
-        }
-
-        serviceOfferingDao.loadDetails(currentServiceOffering);
-        serviceOfferingDao.loadDetails(newServiceOffering);
-
-        Map<String, String> currentDetails = currentServiceOffering.getDetails();
-        Map<String, String> newDetails = newServiceOffering.getDetails();
-        String currentVgpuType = currentDetails.get("vgpuType");
-        String newVgpuType = newDetails.get("vgpuType");
-
-        if (currentVgpuType != null && (newVgpuType == null || !newVgpuType.equalsIgnoreCase(currentVgpuType))) {
-            throw new InvalidParameterValueException(String.format("Dynamic scaling of vGPU type is not supported. VM has vGPU Type: [%s].", currentVgpuType));
-        }
-
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vmInstance.getTemplateId());
-
-        List<Reserver> reservations = new ArrayList<>();
-        try {
-        // Check resource limits
-        _resourceLimitMgr.checkVmResourceLimitsForServiceOfferingChange(owner, vmInstance.isDisplay(), (long) currentCpu, (long) newCpu,
-                (long) currentMemory, (long) newMemory, currentServiceOffering, newServiceOffering, template, reservations);
-
-        // Dynamically upgrade the running vms
-        boolean success = false;
-        if (vmInstance.getState().equals(State.Running)) {
-            int retry = _scaleRetry;
-            ExcludeList excludes = new ExcludeList();
-
-            // Check zone wide flag
-            boolean enableDynamicallyScaleVm = EnableDynamicallyScaleVm.valueIn(vmInstance.getDataCenterId());
-            if (!enableDynamicallyScaleVm) {
-                throw new PermissionDeniedException("Dynamically scaling Instances is disabled for this zone, please contact your admin.");
-            }
-
-            // Check vm flag
-            if (!vmInstance.isDynamicallyScalable()) {
-                throw new CloudRuntimeException(String.format("Unable to scale %s as it does not have tools to support dynamic scaling.", vmInstance.toString()));
-            }
-
-            // Check disable threshold for cluster is not crossed
-            HostVO host = _hostDao.findById(vmInstance.getHostId());
-            _hostDao.loadDetails(host);
-            if (_capacityMgr.checkIfClusterCrossesThreshold(host.getClusterId(), cpuDiff, memoryDiff)) {
-                throw new CloudRuntimeException(String.format("Unable to scale %s due to insufficient resources.", vmInstance.toString()));
-            }
-
-            while (retry-- != 0) { // It's != so that it can match -1.
-                try {
-                    boolean existingHostHasCapacity = false;
-
-                    // Increment CPU and Memory count accordingly.
-                    _resourceLimitMgr.updateVmResourceCountForServiceOfferingChange(caller.getAccountId(), vmInstance.isDisplay(),
-                            (long) currentCpu, (long) newCpu, (long) currentMemory, (long) newMemory,
-                            currentServiceOffering, newServiceOffering, template);
-
-                    // #1 Check existing host has capacity & and the correct tags
-                    if (!excludes.shouldAvoid(ApiDBUtils.findHostById(vmInstance.getHostId()))) {
-                        existingHostHasCapacity = _capacityMgr.checkIfHostHasCpuCapability(host, newCpu, newSpeed)
-                                && _capacityMgr.checkIfHostHasCapacity(host, cpuDiff, ByteScaleUtils.mebibytesToBytes(memoryDiff), false,
-                                        _capacityMgr.getClusterOverProvisioningFactor(host.getClusterId(), Capacity.CAPACITY_TYPE_CPU),
-                                        _capacityMgr.getClusterOverProvisioningFactor(host.getClusterId(), Capacity.CAPACITY_TYPE_MEMORY), false)
-                                && checkEnforceStrictHostTagCheck(vmInstance, host);
-                        excludes.addHost(vmInstance.getHostId());
-                    }
-
-                    // #2 migrate the vm if host doesn't have capacity or is in avoid set
-                    if (!existingHostHasCapacity) {
-                        _itMgr.findHostAndMigrate(vmInstance.getUuid(), newServiceOfferingId, customParameters, excludes);
-                    }
-
-                    // #3 resize or migrate the root volume if required
-                    DiskOfferingVO newDiskOffering = _diskOfferingDao.findById(newServiceOffering.getDiskOfferingId());
-                    changeDiskOfferingForRootVolume(vmId, newDiskOffering, customParameters, vmInstance.getDataCenterId());
-
-                    // #4 scale the vm now
-                    vmInstance = _vmInstanceDao.findById(vmId);
-                    _itMgr.reConfigureVm(vmInstance.getUuid(), currentServiceOffering, newServiceOffering, customParameters, existingHostHasCapacity);
-                    success = true;
-                    return success;
-                } catch (InsufficientCapacityException | ResourceUnavailableException | ConcurrentOperationException e) {
-                    logger.error(String.format("Unable to scale %s due to [%s].", vmInstance.toString(), e.getMessage()), e);
-                } finally {
-                    if (!success) {
-                        // Decrement CPU and Memory count accordingly.
-                        _resourceLimitMgr.updateVmResourceCountForServiceOfferingChange(caller.getAccountId(), vmInstance.isDisplay(),
-                                (long) newCpu, (long) currentCpu, (long) newMemory, (long) currentMemory,
-                                newServiceOffering, currentServiceOffering, template);
-                    }
-                }
-            }
-        }
-        return success;
-
-        } finally {
-            ReservationHelper.closeAll(reservations);
-        }
+        return vmServiceOfferingScaleService.upgradeVirtualMachine(vmId, newServiceOfferingId, customParameters);
     }
 
     protected void validateDiskOfferingChecks(ServiceOfferingVO currentServiceOffering, ServiceOfferingVO newServiceOffering) {
         serviceOfferingValidator.validateDiskOfferingChecks(currentServiceOffering, newServiceOffering);
-    }
-
-    private void changeDiskOfferingForRootVolume(Long vmId, DiskOfferingVO newDiskOffering, Map<String, String> customParameters, Long zoneId) throws ResourceAllocationException {
-        vmRootDiskOfferingChangeService.changeDiskOfferingForRootVolume(vmId, newDiskOffering, customParameters, zoneId);
     }
 
     @Override
@@ -1384,6 +1073,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         _scaleRetry = NumbersUtil.parseInt(configs.get(Config.ScaleRetry.key()), 2);
 
         _vmIpFetchThreadExecutor = Executors.newFixedThreadPool(VmIpFetchThreadPoolMax.value(), new NamedThreadFactory("vmIpFetchThread"));
+
+        if (vmServiceOfferingScaleService instanceof VmServiceOfferingScaleServiceImpl) {
+            VmServiceOfferingScaleServiceImpl impl = (VmServiceOfferingScaleServiceImpl) vmServiceOfferingScaleService;
+            impl.setScaleRetry(_scaleRetry);
+        }
 
         if (vmRebootService instanceof VmRebootServiceImpl) {
             VmRebootServiceImpl impl = (VmRebootServiceImpl) vmRebootService;
@@ -2702,7 +2396,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             validateCustomParameters(offering, customParameters);
             offering = serviceOfferingDao.getComputeOffering(offering, customParameters);
         } else {
-            validateOfferingMaxResource(offering);
+            serviceOfferingValidator.validateOfferingMaxResource(offering);
         }
         // check if account/domain is with in resource limits to create a new vm
         boolean isIso = Storage.ImageFormat.ISO == template.getFormat();
