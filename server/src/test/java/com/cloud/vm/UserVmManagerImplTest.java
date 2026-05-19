@@ -506,6 +506,9 @@ public class UserVmManagerImplTest {
     VmStartOrchestrationService vmStartOrchestrationService;
 
     @Mock
+    VmDeployStartService vmDeployStartService;
+
+    @Mock
     VmRestoreService vmRestoreService;
 
     @Mock
@@ -678,6 +681,7 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "hostDao", hostDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartPlacementService", startPlacementService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartOrchestrationService", vmStartOrchestrationService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmDeployStartService", vmDeployStartService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmExpungeFailureTransitionService", vmExpungeFailureTransitionService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
@@ -865,6 +869,47 @@ public class UserVmManagerImplTest {
 
         assertSame(expected, result);
         verify(vmStartOrchestrationService).startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner", false);
+    }
+
+    @Test
+    public void startVirtualMachineDeployCommandDelegatesToDeployStartService()
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+        DeployVMCmd cmd = mock(DeployVMCmd.class);
+        UserVm expected = mock(UserVm.class);
+        when(vmDeployStartService.startVirtualMachine(eq(cmd), any(VmDeployStartService.ManagerOperations.class))).thenReturn(expected);
+
+        UserVm result = userVmManagerImpl.startVirtualMachine(cmd);
+
+        assertSame(expected, result);
+        verify(vmDeployStartService).startVirtualMachine(eq(cmd), any(VmDeployStartService.ManagerOperations.class));
+    }
+
+    @Test
+    public void deployStartOverloadDelegatesToDeployStartService()
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+        Map<Long, DiskOffering> diskOfferingMap = new HashMap<>();
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+        UserVm expected = mock(UserVm.class);
+        Long podId = 11L;
+        Long clusterId = 22L;
+        Long hostId = 33L;
+        when(vmDeployStartService.startVirtualMachine(eq(vmId), eq(podId), eq(clusterId), eq(hostId), eq(diskOfferingMap), eq(params), eq("planner"),
+                any(VmDeployStartService.ManagerOperations.class))).thenReturn(expected);
+
+        UserVm result = userVmManagerImpl.startVirtualMachine(vmId, podId, clusterId, hostId, diskOfferingMap, params, "planner");
+
+        assertSame(expected, result);
+        verify(vmDeployStartService).startVirtualMachine(eq(vmId), eq(podId), eq(clusterId), eq(hostId), eq(diskOfferingMap), eq(params), eq("planner"),
+                any(VmDeployStartService.ManagerOperations.class));
+    }
+
+    @Test
+    public void addVmUefiBootOptionsToParamsDelegatesToDeployStartService() {
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+
+        userVmManagerImpl.addVmUefiBootOptionsToParams(params, "UEFI", "SECURE");
+
+        verify(vmDeployStartService).addVmUefiBootOptionsToParams(params, "UEFI", "SECURE");
     }
 
     @Test

@@ -48,7 +48,6 @@ import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseCmd.HTTPMethod;
 import org.apache.cloudstack.api.command.admin.vm.AssignVMCmd;
-import org.apache.cloudstack.api.command.admin.vm.DeployVMCmdByAdmin;
 import org.apache.cloudstack.api.command.admin.vm.RecoverVMCmd;
 import org.apache.cloudstack.api.command.user.vm.AddNicToVMCmd;
 import org.apache.cloudstack.api.command.user.vm.BaseDeployVMCmd;
@@ -280,7 +279,6 @@ import com.cloud.utils.db.UUIDManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.exception.ExceptionProxyObject;
 import com.cloud.utils.exception.ExecutionException;
-import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.VirtualMachine.State;
 import com.cloud.vm.dao.DomainRouterDao;
@@ -499,6 +497,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmStartPlacementService vmStartPlacementService;
     @Inject
     private VmStartOrchestrationService vmStartOrchestrationService;
+    @Inject
+    private VmDeployStartService vmDeployStartService;
     @Inject
     private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
     @Inject
@@ -773,18 +773,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    private void addVmUefiBootOptionsToParams(Map<VirtualMachineProfile.Param, Object> params, String bootType, String bootMode) {
-        if (logger.isTraceEnabled()) {
-            logger.trace(String.format("Adding boot options (%s, %s, %s) into the param map for Instance start as UEFI detail(%s=%s) found for the Instance",
-                    VirtualMachineProfile.Param.UefiFlag.getName(),
-                    VirtualMachineProfile.Param.BootType.getName(),
-                    VirtualMachineProfile.Param.BootMode.getName(),
-                    bootType,
-                    bootMode));
-        }
-        params.put(VirtualMachineProfile.Param.UefiFlag, "Yes");
-        params.put(VirtualMachineProfile.Param.BootType, bootType);
-        params.put(VirtualMachineProfile.Param.BootMode, bootMode);
+    protected void addVmUefiBootOptionsToParams(Map<VirtualMachineProfile.Param, Object> params, String bootType, String bootMode) {
+        vmDeployStartService.addVmUefiBootOptionsToParams(params, bootType, bootMode);
     }
 
     @Override
@@ -1142,38 +1132,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     // used for vm transitioning to error state
-    private void updateVmStateForFailedVmCreation(Long vmId, Long hostId) {
-
-        UserVmVO vm = _vmDao.findById(vmId);
-
-        if (vm != null) {
-            if (vm.getState().equals(State.Stopped)) {
-                HostVO host = _hostDao.findById(hostId);
-                logger.debug("Destroying vm {} as it failed to create on Host: {} with id {}", vm, host, hostId);
-                try {
-                    _itMgr.stateTransitTo(vm, VirtualMachine.Event.OperationFailedToError, null);
-                } catch (NoTransitionException e1) {
-                    logger.warn(e1.getMessage());
-                }
-                // destroy associated volumes for vm in error state
-                // get all volumes in non destroyed state
-                List<VolumeVO> volumesForThisVm = _volsDao.findUsableVolumesForInstance(vm.getId());
-                for (VolumeVO volume : volumesForThisVm) {
-                    if (volume.getState() != Volume.State.Destroy) {
-                        volumeMgr.destroyVolume(volume);
-                    }
-                }
-                String msg = String.format("Failed to deploy Vm %s, on Host %s with Id: %d", vm, host, hostId);
-                _alertMgr.sendAlert(AlertManager.AlertType.ALERT_TYPE_USERVM, vm.getDataCenterId(), vm.getPodIdToDeployIn(), msg, msg);
-
-                // Get serviceOffering and template for Virtual Machine
-                ServiceOfferingVO offering = serviceOfferingDao.findById(vm.getId(), vm.getServiceOfferingId());
-                VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-
-                // Update Resource Count for the given account
-                resourceCountDecrement(vm.getAccountId(), vm.isDisplayVm(), offering, template);
-            }
-        }
+    protected void updateVmStateForFailedVmCreation(Long vmId, Long hostId) {
+        vmDeployStartService.updateVmStateForFailedVmCreation(vmId, hostId, deployStartManagerOperations());
     }
 
 
@@ -2666,82 +2626,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_CREATE, eventDescription = "deploying Vm", async = true)
     public UserVm startVirtualMachine(DeployVMCmd cmd) throws ResourceUnavailableException, InsufficientCapacityException, ConcurrentOperationException, ResourceAllocationException {
-        long vmId = cmd.getEntityId();
-        if (!cmd.getStartVm()) {
-            return getUserVm(vmId);
-        }
-        Long podId = null;
-        Long clusterId = null;
-        Long hostId = cmd.getHostId();
-        Map<VirtualMachineProfile.Param, Object> additionalParams =  new HashMap<>();
-        Map<Long, DiskOffering> diskOfferingMap = cmd.getDataDiskTemplateToDiskOfferingMap();
-        if (cmd instanceof DeployVMCmdByAdmin) {
-            DeployVMCmdByAdmin adminCmd = (DeployVMCmdByAdmin)cmd;
-            podId = adminCmd.getPodId();
-            clusterId = adminCmd.getClusterId();
-        }
-        VMInstanceDetailVO uefiDetail = vmInstanceDetailsDao.findDetail(cmd.getEntityId(), ApiConstants.BootType.UEFI.toString());
-        if (uefiDetail != null) {
-            addVmUefiBootOptionsToParams(additionalParams, uefiDetail.getName(), uefiDetail.getValue());
-        }
-        if (cmd.getBootIntoSetup() != null) {
-            additionalParams.put(VirtualMachineProfile.Param.BootIntoSetup, cmd.getBootIntoSetup());
-        }
-
-        if (StringUtils.isNotBlank(cmd.getPassword())) {
-            additionalParams.put(VirtualMachineProfile.Param.VmPassword, cmd.getPassword());
-        }
-
-        return startVirtualMachine(vmId, podId, clusterId, hostId, diskOfferingMap, additionalParams, cmd.getDeploymentPlanner());
+        return vmDeployStartService.startVirtualMachine(cmd, deployStartManagerOperations());
     }
 
-    private UserVm startVirtualMachine(long vmId, Long podId, Long clusterId, Long hostId, Map<Long, DiskOffering> diskOfferingMap
+    protected UserVm startVirtualMachine(long vmId, Long podId, Long clusterId, Long hostId, Map<Long, DiskOffering> diskOfferingMap
             , Map<VirtualMachineProfile.Param, Object> additonalParams, String deploymentPlannerToUse)
             throws ResourceUnavailableException,
             InsufficientCapacityException, ConcurrentOperationException, ResourceAllocationException {
-        UserVmVO vm = _vmDao.findById(vmId);
-        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> vmParamPair = null;
-
-        try {
-            vmParamPair = startVirtualMachine(vmId, podId, clusterId, hostId, additonalParams, deploymentPlannerToUse);
-            vm = vmParamPair.first();
-
-            // At this point VM should be in "Running" state
-            UserVmVO tmpVm = _vmDao.findById(vm.getId());
-            if (!tmpVm.getState().equals(State.Running)) {
-                // Some other thread changed state of VM, possibly vmsync
-                logger.error("VM " + tmpVm + " unexpectedly went to " + tmpVm.getState() + " state");
-                throw new ConcurrentOperationException("Failed to deploy VM "+vm);
-            }
-
-            try {
-                if (!diskOfferingMap.isEmpty()) {
-                    List<VolumeVO> vols = _volsDao.findByInstance(tmpVm.getId());
-                    for (VolumeVO vol : vols) {
-                        if (vol.getVolumeType() == Volume.Type.DATADISK) {
-                            DiskOffering doff =  _entityMgr.findById(DiskOffering.class, vol.getDiskOfferingId());
-                            _volService.resizeVolumeOnHypervisor(vol.getId(), doff.getDiskSize(), tmpVm.getHostId(), vm.getInstanceName());
-                        }
-                    }
-                }
-            }
-            catch (Exception e) {
-                logger.fatal("Unable to resize the data disk for vm {} due to {}", vm, e.getMessage(), e);
-            }
-
-        } finally {
-            updateVmStateForFailedVmCreation(vm.getId(), hostId);
-        }
-
-        // Check that the password was passed in and is valid
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-        if (template.isEnablePassword()) {
-            // this value is not being sent to the backend; need only for api
-            // display purposes
-            vm.setPassword((String)vmParamPair.second().get(VirtualMachineProfile.Param.VmPassword));
-        }
-
-        return vm;
+        return vmDeployStartService.startVirtualMachine(vmId, podId, clusterId, hostId, diskOfferingMap,
+                additonalParams, deploymentPlannerToUse, deployStartManagerOperations());
     }
 
     private void addUserVMCmdlineArgs(Long vmId, VirtualMachineProfile profile, DeployDestination dest, StringBuilder buf) {
@@ -4626,6 +4519,30 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     public Pair<Boolean, String> unmanageUserVM(Long vmId, Long paramHostId) {
         return vmUnmanageService.unmanageUserVM(vmId, paramHostId, unmanageManagerOperations());
+    }
+
+    private VmDeployStartService.ManagerOperations deployStartManagerOperations() {
+        return new VmDeployStartService.ManagerOperations() {
+            @Override
+            public UserVm getUserVm(long vmId) {
+                return UserVmManagerImpl.this.getUserVm(vmId);
+            }
+
+            @Override
+            public Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> startVirtualMachine(long vmId, Long podId,
+                    Long clusterId, Long hostId, Map<VirtualMachineProfile.Param, Object> additionalParams,
+                    String deploymentPlannerToUse)
+                    throws ResourceUnavailableException, InsufficientCapacityException,
+                    ConcurrentOperationException, ResourceAllocationException {
+                return UserVmManagerImpl.this.startVirtualMachine(vmId, podId, clusterId, hostId, additionalParams, deploymentPlannerToUse);
+            }
+
+            @Override
+            public void resourceCountDecrement(long accountId, Boolean displayVm,
+                    ServiceOffering serviceOffering, VirtualMachineTemplate template) {
+                UserVmManagerImpl.this.resourceCountDecrement(accountId, displayVm, serviceOffering, template);
+            }
+        };
     }
 
     private VmUnmanageService.ManagerOperations unmanageManagerOperations() {
