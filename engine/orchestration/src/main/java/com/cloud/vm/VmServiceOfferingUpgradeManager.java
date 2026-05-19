@@ -16,24 +16,24 @@
 // under the License.
 package com.cloud.vm;
 
+import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
 
 /**
- * Service-offering upgrade persistence helpers — applying a new
- * {@link ServiceOffering} to an existing VM, updating the customizable
- * dynamic-offering detail map, and reporting whether the VM's ROOT
- * volume currently sits on local storage (used by upgrade-eligibility
- * checks before the new offering is committed).
+ * Service-offering upgrade helpers - checking whether a VM can move to
+ * a new {@link ServiceOffering}, applying the offering to the VM row,
+ * updating the customizable dynamic-offering detail map, and reporting
+ * whether the VM's ROOT volume currently sits on local storage.
  *
  * <p>Extracted from {@link VirtualMachineManagerImpl} as part of the
- * Phase 4 Spring-component decomposition.
- * {@code VirtualMachineManagerImpl} retains the
- * {@code checkIfCanUpgrade} and
- * {@code checkIfNewOfferingStorageScopeMatchesStoragePool}
- * orchestration so existing {@code @Spy}-stubbed tests on
- * {@code isRootVolumeOnLocalStorage} keep firing through the wrapper.
+ * Phase 4 Spring-component decomposition. {@code VirtualMachineManagerImpl}
+ * retains one-line wrappers for compatibility.
  */
 public interface VmServiceOfferingUpgradeManager {
+
+    void checkIfCanUpgrade(VirtualMachine vmInstance, ServiceOffering newServiceOffering);
+
+    void checkIfNewOfferingStorageScopeMatchesStoragePool(VirtualMachine vmInstance, DiskOffering newDiskOffering);
 
     /**
      * Returns {@code true} when the VM's ROOT volume is allocated on a
