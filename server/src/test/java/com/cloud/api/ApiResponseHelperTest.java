@@ -173,6 +173,8 @@ public class ApiResponseHelperTest {
     private ApiSnapshotResponseService apiSnapshotResponseService;
     @Mock
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
+    @Mock
+    private ApiResponseOwnerService apiResponseOwnerService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -212,6 +214,8 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
         ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
         ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
+        ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
+        ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
     }
 
     @Before

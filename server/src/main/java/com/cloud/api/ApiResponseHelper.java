@@ -419,6 +419,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     protected Logger logger = LogManager.getLogger(ApiResponseHelper.class);
     private static final DecimalFormat s_percentFormat = new DecimalFormat("##.##");
+    private static final ApiResponseOwnerService STATIC_OWNER_SERVICE = new ApiResponseOwnerServiceImpl();
 
     @Inject
     private EntityManager _entityMgr;
@@ -473,6 +474,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
     @Inject
+    private ApiResponseOwnerService apiResponseOwnerService;
+    @Inject
     private AnnotationDao annotationDao;
     @Inject
     private UserStatisticsDao userStatsDao;
@@ -515,12 +518,11 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     AsyncJobDao asyncJobDao;
 
     public static String getPrettyDomainPath(String path) {
-        if (path == null) {
-            return null;
-        }
-        StringBuilder domainPath = new StringBuilder("ROOT");
-        (domainPath.append(path)).deleteCharAt(domainPath.length() - 1);
-        return domainPath.toString();
+        return STATIC_OWNER_SERVICE.getPrettyDomainPath(path);
+    }
+
+    protected ApiResponseOwnerService getApiResponseOwnerService() {
+        return apiResponseOwnerService != null ? apiResponseOwnerService : STATIC_OWNER_SERVICE;
     }
 
     @Override
@@ -2431,79 +2433,23 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     // ControlledEntity id to uuid conversion are all done.
     // currently code is scattered in
     private void populateOwner(ControlledEntityResponse response, ControlledEntity object) {
-        Account account = ApiDBUtils.findAccountById(object.getAccountId());
-
-        if (account.getType() == Account.Type.PROJECT) {
-            // find the project
-            Project project = ApiDBUtils.findProjectByProjectAccountId(account.getId());
-            response.setProjectId(project.getUuid());
-            response.setProjectName(project.getName());
-        } else {
-            response.setAccountName(account.getAccountName());
-        }
-        populateDomain(response, object.getDomainId());
+        getApiResponseOwnerService().populateOwner(response, object);
     }
 
     public static void populateOwner(ControlledViewEntityResponse response, ControlledEntity object) {
-        Account account = ApiDBUtils.findAccountById(object.getAccountId());
-
-        if (account.getType() == Account.Type.PROJECT) {
-            // find the project
-            Project project = ApiDBUtils.findProjectByProjectAccountId(account.getId());
-            response.setProjectId(project.getUuid());
-            response.setProjectName(project.getName());
-        } else {
-            response.setAccountName(account.getAccountName());
-        }
-
-        populateDomain(response, object.getDomainId());
+        STATIC_OWNER_SERVICE.populateOwner(response, object);
     }
 
     public static void populateOwner(ControlledViewEntityResponse response, ControlledViewEntity object) {
-
-        if (object.getAccountType() == Account.Type.PROJECT) {
-            response.setProjectId(object.getProjectUuid());
-            response.setProjectName(object.getProjectName());
-        } else {
-            response.setAccountName(object.getAccountName());
-        }
-
-        response.setDomainId(object.getDomainUuid());
-        response.setDomainName(object.getDomainName());
-        response.setDomainPath(getPrettyDomainPath(object.getDomainPath()));
+        STATIC_OWNER_SERVICE.populateOwner(response, object);
     }
 
     public static void populateDomainTags(String domainUuid, DomainResponse domainResponse) {
-        List<ResourceTagJoinVO> tags = ApiDBUtils.listResourceTagViewByResourceUUID(domainUuid,
-                ResourceTag.ResourceObjectType.Domain);
-        if (CollectionUtils.isEmpty(tags)) {
-            return;
-        }
-        Set<ResourceTagResponse> tagResponses = new HashSet<>();
-        for (ResourceTagJoinVO tag : tags) {
-            ResourceTagResponse tagResponse = ApiDBUtils.newResourceTagResponse(tag, true);
-            tagResponses.add(tagResponse);
-        }
-        domainResponse.setTags(tagResponses);
+        STATIC_OWNER_SERVICE.populateDomainTags(domainUuid, domainResponse);
     }
 
     private void populateAccount(ControlledEntityResponse response, long accountId) {
-        Account account = ApiDBUtils.findAccountById(accountId);
-        if (account == null) {
-            logger.debug("Unable to find account with id: " + accountId);
-        } else if (account.getType() == Account.Type.PROJECT) {
-            // find the project
-            Project project = ApiDBUtils.findProjectByProjectAccountId(account.getId());
-            if (project != null) {
-                response.setProjectId(project.getUuid());
-                response.setProjectName(project.getName());
-                response.setAccountName(account.getAccountName());
-            } else {
-                logger.debug("Unable to find project with id: " + account.getId());
-            }
-        } else {
-            response.setAccountName(account.getAccountName());
-        }
+        getApiResponseOwnerService().populateAccount(response, accountId);
     }
 
     private Long resolveAccountDomainId(Long accountId) {
@@ -2512,23 +2458,11 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     }
 
     private void populateDomain(ControlledEntityResponse response, long domainId) {
-        Domain domain = ApiDBUtils.findDomainById(domainId);
-        if (domain == null) {
-            return;
-        }
-        response.setDomainId(domain.getUuid());
-        response.setDomainName(domain.getName());
-        response.setDomainPath(getPrettyDomainPath(domain.getPath()));
+        getApiResponseOwnerService().populateDomain(response, domainId);
     }
 
     private static void populateDomain(ControlledViewEntityResponse response, long domainId) {
-        Domain domain = ApiDBUtils.findDomainById(domainId);
-        if (domain == null) {
-            return;
-        }
-        response.setDomainId(domain.getUuid());
-        response.setDomainName(domain.getName());
-        response.setDomainPath(getPrettyDomainPath(domain.getPath()));
+        STATIC_OWNER_SERVICE.populateDomain(response, domainId);
     }
 
     @Override
