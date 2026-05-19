@@ -62,6 +62,7 @@ import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
 import com.cloud.domain.DomainVO;
+import com.cloud.host.Host;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
@@ -76,6 +77,7 @@ import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
+import com.cloud.org.Cluster;
 import com.cloud.resource.icon.ResourceIconVO;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
@@ -135,6 +137,8 @@ public class ApiResponseHelperTest {
     ResourceIconManager resourceIconManager;
     @Mock
     private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
+    @Mock
+    private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -165,6 +169,7 @@ public class ApiResponseHelperTest {
         helper = new ApiResponseHelper();
         ReflectionTestUtils.setField(helper, "apiUsageResponseService", apiUsageResponseService);
         ReflectionTestUtils.setField(helper, "apiConsoleSessionResponseService", apiConsoleSessionResponseService);
+        ReflectionTestUtils.setField(helper, "apiUnmanagedInstanceResponseService", apiUnmanagedInstanceResponseService);
     }
 
     @Before
@@ -445,29 +450,18 @@ public class ApiResponseHelperTest {
         }
     }
 
-    private UnmanagedInstanceTO getUnmanagedInstanceForTests() {
-        UnmanagedInstanceTO instance = Mockito.mock(UnmanagedInstanceTO.class);
-        Mockito.when(instance.getPowerState()).thenReturn(UnmanagedInstanceTO.PowerState.PowerOff);
-        Mockito.when(instance.getClusterName()).thenReturn("CL1");
-        UnmanagedInstanceTO.Disk disk = Mockito.mock(UnmanagedInstanceTO.Disk.class);
-        Mockito.when(disk.getDiskId()).thenReturn("0");
-        Mockito.when(disk.getLabel()).thenReturn("Hard disk 1");
-        Mockito.when(disk.getCapacity()).thenReturn(17179869184L);
-        Mockito.when(disk.getPosition()).thenReturn(0);
-        Mockito.when(instance.getDisks()).thenReturn(List.of(disk));
-        UnmanagedInstanceTO.Nic nic = Mockito.mock(UnmanagedInstanceTO.Nic.class);
-        Mockito.when(nic.getNicId()).thenReturn("Network adapter 1");
-        Mockito.when(nic.getMacAddress()).thenReturn("aa:bb:cc:dd:ee:ff");
-        Mockito.when(instance.getNics()).thenReturn(List.of(nic));
-        return instance;
-    }
-
     @Test
-    public void testCreateUnmanagedInstanceResponseVmwareDcVms() {
-        UnmanagedInstanceTO instance = getUnmanagedInstanceForTests();
-        UnmanagedInstanceResponse response = apiResponseHelper.createUnmanagedInstanceResponse(instance, null, null);
-        Assert.assertEquals(1, response.getDisks().size());
-        Assert.assertEquals(1, response.getNics().size());
+    public void testCreateUnmanagedInstanceResponseDelegatesToService() {
+        UnmanagedInstanceTO instance = Mockito.mock(UnmanagedInstanceTO.class);
+        Cluster cluster = Mockito.mock(Cluster.class);
+        Host host = Mockito.mock(Host.class);
+        UnmanagedInstanceResponse expectedResponse = new UnmanagedInstanceResponse();
+        Mockito.when(apiUnmanagedInstanceResponseService.createUnmanagedInstanceResponse(instance, cluster, host)).thenReturn(expectedResponse);
+
+        UnmanagedInstanceResponse response = apiResponseHelper.createUnmanagedInstanceResponse(instance, cluster, host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiUnmanagedInstanceResponseService).createUnmanagedInstanceResponse(instance, cluster, host);
     }
 
     @Test
