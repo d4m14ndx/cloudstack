@@ -105,7 +105,6 @@ import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
 import com.cloud.agent.api.RebootCommand;
-import com.cloud.agent.api.ScaleVmCommand;
 import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.StartCommand;
 import com.cloud.agent.api.StartupCommand;
@@ -164,7 +163,6 @@ import com.cloud.host.dao.HostDao;
 import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuru;
-import com.cloud.hypervisor.HypervisorGuruBase;
 import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkModel;
@@ -415,6 +413,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmNicBackendCommandService vmNicBackendCommandService;
     @Inject
     protected VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
+    @Inject
+    protected VmScaleReconfigurationService vmScaleReconfigurationService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -2305,12 +2305,16 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return migrateCommand;
     }
 
-    private void updateVmPod(VMInstanceVO vm, long dstHostId) {
+    void updateVmPod(VMInstanceVO vm, long dstHostId) {
         // update the VMs pod
         HostVO host = _hostDao.findById(dstHostId);
         VMInstanceVO newVm = _vmDao.findById(vm.getId());
         newVm.setPodIdToDeployIn(host.getPodId());
         _vmDao.persist(newVm);
+    }
+
+    long getNodeId() {
+        return _nodeId;
     }
 
     protected Map<Volume, StoragePool> createMappingVolumeAndStoragePool(VirtualMachineProfile profile, Host targetHost, Map<Long, Long> userDefinedMapOfVolumesAndStoragePools) {
@@ -3165,244 +3169,13 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Override
     public void findHostAndMigrate(final String vmUuid, final Long newSvcOfferingId, final Map<String, String> customParameters, final ExcludeList excludes) throws InsufficientCapacityException, ConcurrentOperationException,
     ResourceUnavailableException {
-
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        if (vm == null) {
-            throw new CloudRuntimeException("Unable to find " + vmUuid);
-        }
-        ServiceOfferingVO newServiceOffering = _offeringDao.findById(newSvcOfferingId);
-        if (newServiceOffering.isDynamic()) {
-            newServiceOffering.setDynamicFlag(true);
-            newServiceOffering = _offeringDao.getComputeOffering(newServiceOffering, customParameters);
-        }
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm, null, newServiceOffering, null, null);
-
-        final Long srcHostId = vm.getHostId();
-        final Long oldSvcOfferingId = vm.getServiceOfferingId();
-        if (srcHostId == null) {
-            throw new CloudRuntimeException("Unable to scale the vm because it doesn't have a host id");
-        }
-        final Host host = _hostDao.findById(srcHostId);
-        final DataCenterDeployment plan = new DataCenterDeployment(host.getDataCenterId(), host.getPodId(), host.getClusterId(), null, null, null);
-        excludes.addHost(vm.getHostId());
-        vm.setServiceOfferingId(newSvcOfferingId);
-
-        DeployDestination dest = null;
-
-        try {
-            dest = _dpMgr.planDeployment(profile, plan, excludes, null);
-        } catch (final AffinityConflictException e2) {
-            String message = String.format("Unable to create deployment, affinity rules associated to the %s conflict.", vm.toString());
-            logger.warn(message, e2);
-            throw new CloudRuntimeException(message);
-        }
-
-        if (dest != null) {
-            logger.debug("Found {} for scaling the vm to.", dest);
-        }
-
-        if (dest == null) {
-            throw new InsufficientServerCapacityException("Unable to find a server to scale the vm to.", host.getClusterId());
-        }
-
-        excludes.addHost(dest.getHost().getId());
-        try {
-            migrateForScale(vm.getUuid(), srcHostId, dest, oldSvcOfferingId);
-        } catch (ResourceUnavailableException | ConcurrentOperationException e) {
-            logger.warn("Unable to migrate {} to {} due to [{}]", vm.toString(), dest.getHost().toString(), e.getMessage(), e);
-            throw e;
-        }
+        vmScaleReconfigurationService.findHostAndMigrate(vmUuid, newSvcOfferingId, customParameters, excludes);
     }
 
     @Override
     public void migrateForScale(final String vmUuid, final long srcHostId, final DeployDestination dest, final Long oldSvcOfferingId)
             throws ResourceUnavailableException, ConcurrentOperationException {
-        final AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-            final VirtualMachine vm = _vmDao.findByUuid(vmUuid);
-            VmWorkJobVO placeHolder = vmWorkJobQueueService.createPlaceHolderWork(vm.getId());
-            try {
-                orchestrateMigrateForScale(vmUuid, srcHostId, dest, oldSvcOfferingId);
-            } finally {
-                vmWorkJobQueueService.expungePlaceHolderWork(placeHolder);
-            }
-        } else {
-            final Outcome<VirtualMachine> outcome = vmWorkJobQueueService.migrateVmForScaleThroughJobQueue(vmUuid, srcHostId, dest, oldSvcOfferingId);
-
-            vmWorkJobQueueService.retrieveVmFromJobOutcome(outcome, vmUuid, "migrateVmForScale");
-
-            try {
-                vmWorkJobQueueService.retrieveResultFromJobOutcomeAndThrowExceptionIfNeeded(outcome);
-            } catch (InsufficientCapacityException ex) {
-                throw new RuntimeException("Unexpected exception", ex);
-            }
-        }
-    }
-
-    private void orchestrateMigrateForScale(final String vmUuid, final long srcHostId, final DeployDestination dest, final Long oldSvcOfferingId)
-            throws ResourceUnavailableException, ConcurrentOperationException {
-
-        VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        logger.info("Migrating {} to {}", vm, dest);
-
-        vm.getServiceOfferingId();
-        final long dstHostId = dest.getHost().getId();
-        final Host fromHost = _hostDao.findById(srcHostId);
-        if (fromHost == null) {
-            String logMessageUnableToFindHost = String.format("Unable to find host to migrate from %s.", srcHostId);
-            logger.info(logMessageUnableToFindHost);
-            throw new CloudRuntimeException(logMessageUnableToFindHost);
-        }
-
-        Host dstHost = _hostDao.findById(dstHostId);
-        long destHostClusterId = dest.getCluster().getId();
-        long fromHostClusterId = fromHost.getClusterId();
-        if (fromHostClusterId != destHostClusterId) {
-            String logMessageHostsOnDifferentCluster = String.format("Source and destination host are not in same cluster, unable to migrate to %s", fromHost);
-            logger.info(logMessageHostsOnDifferentCluster);
-            throw new CloudRuntimeException(logMessageHostsOnDifferentCluster);
-        }
-
-        final VirtualMachineGuru vmGuru = getVmGuru(vm);
-
-        vm = _vmDao.findByUuid(vmUuid);
-        if (vm == null) {
-            String message = String.format("Unable to find VM {\"uuid\": \"%s\"}.", vmUuid);
-            logger.warn(message);
-            throw new CloudRuntimeException(message);
-        }
-
-        if (vm.getState() != State.Running) {
-            String message = String.format("%s is not in \"Running\" state, unable to migrate it. Current state [%s].", vm.toString(), vm.getState());
-            logger.warn(message);
-            throw new CloudRuntimeException(message);
-        }
-
-        AlertManager.AlertType alertType = AlertManager.AlertType.ALERT_TYPE_USERVM_MIGRATE;
-        if (VirtualMachine.Type.DomainRouter.equals(vm.getType())) {
-            alertType = AlertManager.AlertType.ALERT_TYPE_DOMAIN_ROUTER_MIGRATE;
-        } else if (VirtualMachine.Type.ConsoleProxy.equals(vm.getType())) {
-            alertType = AlertManager.AlertType.ALERT_TYPE_CONSOLE_PROXY_MIGRATE;
-        }
-
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-        _networkMgr.prepareNicForMigration(profile, dest);
-
-        volumeMgr.prepareForMigration(profile, dest);
-
-        final VirtualMachineTO to = toVmTO(profile);
-        final PrepareForMigrationCommand pfmc = new PrepareForMigrationCommand(to);
-
-        ItWorkVO work = new ItWorkVO(UUID.randomUUID().toString(), _nodeId, State.Migrating, vm.getType(), vm.getId());
-        work.setStep(Step.Prepare);
-        work.setResourceType(ItWorkVO.ResourceType.Host);
-        work.setResourceId(dstHostId);
-        work = _workDao.persist(work);
-
-        Answer pfma = null;
-        try {
-            pfma = _agentMgr.send(dstHostId, pfmc);
-            if (pfma == null || !pfma.getResult()) {
-                final String details = pfma != null ? pfma.getDetails() : "null answer returned";
-                pfma = null;
-                throw new AgentUnavailableException(String.format("Unable to prepare for migration to destination host [%s] due to [%s].", dest.getHost(), details), dstHostId);
-            }
-        } catch (final OperationTimedoutException e1) {
-            throw new AgentUnavailableException("Operation timed out", dstHostId);
-        } finally {
-            if (pfma == null) {
-                work.setStep(Step.Done);
-                _workDao.update(work.getId(), work);
-            }
-        }
-
-        vm.setLastHostId(srcHostId);
-        try {
-            if (vm.getHostId() == null || vm.getHostId() != srcHostId || !changeState(vm, Event.MigrationRequested, dstHostId, work, Step.Migrating)) {
-                String message = String.format("Migration of %s cancelled because state has changed.", vm.toString());
-                logger.warn(message);
-                throw new ConcurrentOperationException(message);
-            }
-        } catch (final NoTransitionException e1) {
-            String message = String.format("Migration of %s cancelled due to [%s].", vm.toString(), e1.getMessage());
-            logger.error(message, e1);
-            throw new ConcurrentOperationException(message);
-        }
-
-        boolean migrated = false;
-        try {
-            final MigrateCommand mc = buildMigrateCommand(vm, to, dest, pfma, null);
-
-            try {
-                final Answer ma = _agentMgr.send(vm.getLastHostId(), mc);
-                if (ma == null || !ma.getResult()) {
-                    String msg = String.format("Unable to migrate %s due to [%s].", vm.toString(), ma != null ? ma.getDetails() : "null answer returned");
-                    logger.error(msg);
-                    throw new CloudRuntimeException(msg);
-                }
-            } catch (final OperationTimedoutException e) {
-                if (e.isActive()) {
-                    logger.warn("Active migration command so scheduling a restart for {}", vm, e);
-                    _haMgr.scheduleRestart(vm, true);
-                }
-                throw new AgentUnavailableException("Operation timed out on migrating " + vm, dstHostId, e);
-            }
-
-            try {
-                final long newServiceOfferingId = vm.getServiceOfferingId();
-                vm.setServiceOfferingId(oldSvcOfferingId);
-                if (!changeState(vm, VirtualMachine.Event.OperationSucceeded, dstHostId, work, Step.Started)) {
-                    throw new ConcurrentOperationException("Unable to change the state for " + vm);
-                }
-                vm.setServiceOfferingId(newServiceOfferingId);
-            } catch (final NoTransitionException e1) {
-                throw new ConcurrentOperationException("Unable to change state due to " + e1.getMessage());
-            }
-
-            try {
-                if (!checkVmOnHost(vm, dstHostId)) {
-                    logger.error("Unable to complete migration for {}", vm);
-                    try {
-                        _agentMgr.send(srcHostId, new Commands(cleanup(vm.getInstanceName())), null);
-                    } catch (final AgentUnavailableException e) {
-                        logger.error("Unable to cleanup source host [{}] due to [{}].", fromHost, e.getMessage(), e);
-                    }
-                    cleanup(vmGuru, new VirtualMachineProfileImpl(vm), work, Event.AgentReportStopped, true);
-                    throw new CloudRuntimeException("Unable to complete migration for " + vm);
-                }
-            } catch (final OperationTimedoutException e) {
-                logger.debug("Error while checking the {} on {}", vm, dstHost, e);
-            }
-
-            migrated = true;
-        } finally {
-            if (!migrated) {
-                logger.info("Migration was unsuccessful.  Cleaning up: {}", vm);
-
-                String alertSubject = String.format("Unable to migrate %s from %s in Zone [%s] and Pod [%s].",
-                        vm.getInstanceName(), fromHost, dest.getDataCenter().getName(), dest.getPod().getName());
-                String alertBody = "Migrate Command failed. Please check logs.";
-                _alertMgr.sendAlert(alertType, fromHost.getDataCenterId(), fromHost.getPodId(), alertSubject, alertBody);
-                try {
-                    _agentMgr.send(dstHostId, new Commands(cleanup(vm.getInstanceName())), null);
-                } catch (final AgentUnavailableException ae) {
-                    logger.info("Looks like the destination Host is unavailable for cleanup");
-                }
-                _networkMgr.setHypervisorHostname(profile, dest, false);
-                try {
-                    stateTransitTo(vm, Event.OperationFailed, srcHostId);
-                } catch (final NoTransitionException e) {
-                    logger.warn(e.getMessage(), e);
-                }
-            } else {
-                _networkMgr.setHypervisorHostname(profile, dest, true);
-
-                updateVmPod(vm, dstHostId);
-            }
-
-            work.setStep(Step.Done);
-            _workDao.update(work.getId(), work);
-        }
+        vmScaleReconfigurationService.migrateForScale(vmUuid, srcHostId, dest, oldSvcOfferingId);
     }
 
     @Override
@@ -3425,111 +3198,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     public VMInstanceVO reConfigureVm(final String vmUuid, final ServiceOffering oldServiceOffering, final ServiceOffering newServiceOffering,
             Map<String, String> customParameters, final boolean reconfiguringOnExistingHost)
                     throws ResourceUnavailableException, InsufficientServerCapacityException, ConcurrentOperationException {
-
-        final AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-            final VirtualMachine vm = _vmDao.findByUuid(vmUuid);
-            VmWorkJobVO placeHolder = vmWorkJobQueueService.createPlaceHolderWork(vm.getId());
-            try {
-                return orchestrateReConfigureVm(vmUuid, oldServiceOffering, newServiceOffering, reconfiguringOnExistingHost);
-            } finally {
-                vmWorkJobQueueService.expungePlaceHolderWork(placeHolder);
-            }
-        } else {
-            final Outcome<VirtualMachine> outcome = vmWorkJobQueueService.reconfigureVmThroughJobQueue(vmUuid, oldServiceOffering, newServiceOffering, customParameters, reconfiguringOnExistingHost);
-
-            VirtualMachine vm = vmWorkJobQueueService.retrieveVmFromJobOutcome(outcome, vmUuid, "reconfigureVm");
-
-            Object result = null;
-            try {
-                result = vmWorkJobQueueService.retrieveResultFromJobOutcomeAndThrowExceptionIfNeeded(outcome);
-            } catch (Exception ex) {
-                throw new RuntimeException("Unhandled exception", ex);
-            }
-
-            if (result != null) {
-                throw new RuntimeException(String.format("Unexpected job execution result [%s]", result));
-            }
-
-            return (VMInstanceVO)vm;
-        }
-    }
-
-    private VMInstanceVO orchestrateReConfigureVm(String vmUuid, ServiceOffering oldServiceOffering, ServiceOffering newServiceOffering,
-                                                  boolean reconfiguringOnExistingHost) throws ResourceUnavailableException, ConcurrentOperationException {
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-
-        HostVO hostVo = _hostDao.findById(vm.getHostId());
-
-        Long clustedId = hostVo.getClusterId();
-        Float memoryOvercommitRatio = CapacityManager.MemOverprovisioningFactor.valueIn(clustedId);
-        Float cpuOvercommitRatio = CapacityManager.CpuOverprovisioningFactor.valueIn(clustedId);
-        boolean divideMemoryByOverprovisioning = HypervisorGuruBase.VmMinMemoryEqualsMemoryDividedByMemOverprovisioningFactor.valueIn(clustedId);
-        boolean divideCpuByOverprovisioning = HypervisorGuruBase.VmMinCpuSpeedEqualsCpuSpeedDividedByCpuOverprovisioningFactor.valueIn(clustedId);
-
-        int minMemory = (int)(newServiceOffering.getRamSize() / (divideMemoryByOverprovisioning ? memoryOvercommitRatio : 1));
-        int minSpeed = (int)(newServiceOffering.getSpeed() / (divideCpuByOverprovisioning ? cpuOvercommitRatio : 1));
-
-        ScaleVmCommand scaleVmCommand =
-                new ScaleVmCommand(vm.getInstanceName(), newServiceOffering.getCpu(), minSpeed,
-                        newServiceOffering.getSpeed(), minMemory * 1024L * 1024L, newServiceOffering.getRamSize() * 1024L * 1024L, newServiceOffering.getLimitCpuUse());
-
-        scaleVmCommand.getVirtualMachine().setId(vm.getId());
-        scaleVmCommand.getVirtualMachine().setUuid(vm.getUuid());
-        scaleVmCommand.getVirtualMachine().setType(vm.getType());
-
-        Long dstHostId = vm.getHostId();
-
-        if (vm.getHypervisorType().equals(HypervisorType.VMware)) {
-            HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vm.getHypervisorType());
-            Map<String, String> details = hvGuru.getClusterSettings(vm.getId());
-            scaleVmCommand.getVirtualMachine().setDetails(details);
-        }
-
-        ItWorkVO work = new ItWorkVO(UUID.randomUUID().toString(), _nodeId, State.Running, vm.getType(), vm.getId());
-
-        work.setStep(Step.Prepare);
-        work.setResourceType(ItWorkVO.ResourceType.Host);
-        work.setResourceId(vm.getHostId());
-        _workDao.persist(work);
-
-        try {
-            Answer reconfigureAnswer = _agentMgr.send(vm.getHostId(), scaleVmCommand);
-
-            if (reconfigureAnswer == null || !reconfigureAnswer.getResult()) {
-                logger.error("Unable to scale vm due to {}", (reconfigureAnswer == null ? "" : reconfigureAnswer.getDetails()));
-                throw new CloudRuntimeException("Unable to scale vm due to " + (reconfigureAnswer == null ? "" : reconfigureAnswer.getDetails()));
-            }
-
-            upgradeVmDb(vm.getId(), newServiceOffering, oldServiceOffering);
-
-            if (vm.getType().equals(VirtualMachine.Type.User)) {
-                _userVmMgr.generateUsageEvent(vm, vm.isDisplayVm(), EventTypes.EVENT_VM_DYNAMIC_SCALE);
-            }
-
-            if (reconfiguringOnExistingHost) {
-                vm.setServiceOfferingId(oldServiceOffering.getId());
-                _capacityMgr.releaseVmCapacity(vm, false, false, vm.getHostId());
-                vm.setServiceOfferingId(newServiceOffering.getId());
-                _capacityMgr.allocateVmCapacity(vm, false);
-            }
-
-        } catch (final OperationTimedoutException e) {
-            throw new AgentUnavailableException("Operation timed out on reconfiguring " + vm, dstHostId);
-        } catch (final AgentUnavailableException e) {
-            throw e;
-        }
-
-        return vm;
-
-    }
-
-    private void removeCustomOfferingDetails(long vmId) {
-        vmServiceOfferingUpgradeManager.removeCustomOfferingDetails(vmId);
-    }
-
-    private void saveCustomOfferingDetails(long vmId, ServiceOffering serviceOffering) {
-        vmServiceOfferingUpgradeManager.saveCustomOfferingDetails(vmId, serviceOffering);
+        return vmScaleReconfigurationService.reConfigureVm(vmUuid, oldServiceOffering, newServiceOffering, customParameters, reconfiguringOnExistingHost);
     }
 
     @Override
@@ -3633,7 +3302,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateMigrateForScale(final VmWorkMigrateForScale work) throws Exception {
         VMInstanceVO vm = findVmById(work.getVmId());
-        orchestrateMigrateForScale(vm.getUuid(),
+        vmScaleReconfigurationService.orchestrateMigrateForScale(vm.getUuid(),
                 work.getSrcHostId(),
                 work.getDeployDestination(),
                 work.getNewServiceOfferringId());

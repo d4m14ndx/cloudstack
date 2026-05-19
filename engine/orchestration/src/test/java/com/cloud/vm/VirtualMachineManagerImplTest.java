@@ -314,6 +314,8 @@ public class VirtualMachineManagerImplTest {
     private VmNicBackendCommandService vmNicBackendCommandService;
     @Mock
     private VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
+    @Mock
+    private VmScaleReconfigurationService vmScaleReconfigurationService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -400,6 +402,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStartProfilePreparationService", vmStartProfilePreparationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNicBackendCommandService", vmNicBackendCommandService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmScaleReconfigurationService", vmScaleReconfigurationService);
         VmStopCommandServiceImpl vmStopCommandService = new VmStopCommandServiceImpl();
         ReflectionTestUtils.setField(vmStopCommandService, "nicsDao", _nicsDao);
         ReflectionTestUtils.setField(vmStopCommandService, "vmDao", vmInstanceDaoMock);
@@ -459,10 +462,32 @@ public class VirtualMachineManagerImplTest {
         assertEquals(routerIp, ipAddresses.get(NetworkElementCommand.ROUTER_IP));
     }
 
-    @Test(expected = CloudRuntimeException.class)
-    public void testScaleVM3() throws Exception {
+    @Test
+    public void findHostAndMigrateDelegatesToScaleReconfigurationService() throws Exception {
         DeploymentPlanner.ExcludeList excludeHostList = new DeploymentPlanner.ExcludeList();
         virtualMachineManagerImpl.findHostAndMigrate(vmInstanceMock.getUuid(), 2l, null, excludeHostList);
+
+        verify(vmScaleReconfigurationService).findHostAndMigrate(vmInstanceMock.getUuid(), 2L, null, excludeHostList);
+    }
+
+    @Test
+    public void migrateForScaleDelegatesToScaleReconfigurationService() throws Exception {
+        DeployDestination dest = mock(DeployDestination.class);
+
+        virtualMachineManagerImpl.migrateForScale(vmInstanceMock.getUuid(), hostMockId, dest, 2L);
+
+        verify(vmScaleReconfigurationService).migrateForScale(vmInstanceMock.getUuid(), hostMockId, dest, 2L);
+    }
+
+    @Test
+    public void reConfigureVmDelegatesToScaleReconfigurationService() throws Exception {
+        Map<String, String> customParameters = new HashMap<>();
+        when(vmScaleReconfigurationService.reConfigureVm(vmInstanceMock.getUuid(), serviceOfferingMock, serviceOfferingMock, customParameters, true)).thenReturn(vmInstanceMock);
+
+        VMInstanceVO result = virtualMachineManagerImpl.reConfigureVm(vmInstanceMock.getUuid(), serviceOfferingMock, serviceOfferingMock, customParameters, true);
+
+        assertSame(vmInstanceMock, result);
+        verify(vmScaleReconfigurationService).reConfigureVm(vmInstanceMock.getUuid(), serviceOfferingMock, serviceOfferingMock, customParameters, true);
     }
 
     @Test
