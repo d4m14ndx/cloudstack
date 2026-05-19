@@ -675,6 +675,15 @@ public class UserVmManagerImplTest {
                 "vmStorageMigrationService", vmStorageMigrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmBackupInstanceLifecycleService", vmBackupInstanceLifecycleService);
+        // Slice 30: wire deploy-as-is OVF network mapping service so deploy paths
+        // keep flowing through the manager wrapper. Branch behavior is covered in
+        // VmDeployAsIsNetworkMappingServiceImplTest.
+        VmDeployAsIsNetworkMappingServiceImpl deployAsIsNetworkMappingService = new VmDeployAsIsNetworkMappingServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(deployAsIsNetworkMappingService,
+                "templateDeployAsIsDetailsDao", mock(com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(deployAsIsNetworkMappingService, "networkModel", networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmDeployAsIsNetworkMappingService", deployAsIsNetworkMappingService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmMigrationDedicationService", vmMigrationDedicationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
