@@ -78,8 +78,10 @@ import org.apache.cloudstack.api.command.user.vm.DeployVMCmd;
 import org.apache.cloudstack.api.command.user.vm.DeployVnfApplianceCmd;
 import org.apache.cloudstack.api.command.user.vm.DestroyVMCmd;
 import org.apache.cloudstack.api.command.user.vm.RestoreVMCmd;
+import org.apache.cloudstack.api.command.user.vm.ScaleVMCmd;
 import org.apache.cloudstack.api.command.user.vm.UpdateVMCmd;
 import org.apache.cloudstack.api.command.user.vm.UpdateVmNicCmd;
+import org.apache.cloudstack.api.command.user.vm.UpgradeVMCmd;
 import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.dao.BackupScheduleDao;
@@ -130,11 +132,14 @@ import com.cloud.event.ActionEventUtils;
 import com.cloud.event.UsageEventUtils;
 import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InsufficientCapacityException;
+import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientServerCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.exception.ManagementServerException;
 import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.exception.VirtualMachineMigrationException;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
@@ -485,6 +490,9 @@ public class UserVmManagerImplTest {
     VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
 
     @Mock
+    VmServiceOfferingScaleService vmServiceOfferingScaleService;
+
+    @Mock
     VmStorageMigrationService vmStorageMigrationService;
 
     @Mock
@@ -695,6 +703,8 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmRootDiskOfferingChangeService", vmRootDiskOfferingChangeService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmServiceOfferingScaleService", vmServiceOfferingScaleService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmStorageMigrationService", vmStorageMigrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmBackupInstanceLifecycleService", vmBackupInstanceLifecycleService);
@@ -738,6 +748,42 @@ public class UserVmManagerImplTest {
         for (Map.Entry<ConfigKey, Object> entry : originalConfigValues.entrySet()) {
             updateDefaultConfigValue(entry.getKey(), entry.getValue(), true);
         }
+    }
+
+    @Test
+    public void upgradeVirtualMachineUpgradeCmdDelegatesToScaleService() throws ResourceAllocationException {
+        UpgradeVMCmd cmd = mock(UpgradeVMCmd.class);
+        UserVm expected = mock(UserVm.class);
+        when(vmServiceOfferingScaleService.upgradeVirtualMachine(cmd)).thenReturn(expected);
+
+        UserVm result = userVmManagerImpl.upgradeVirtualMachine(cmd);
+
+        Assert.assertSame(expected, result);
+        verify(vmServiceOfferingScaleService).upgradeVirtualMachine(cmd);
+    }
+
+    @Test
+    public void upgradeVirtualMachineScaleCmdDelegatesToScaleService() throws ResourceUnavailableException,
+            ConcurrentOperationException, ManagementServerException, VirtualMachineMigrationException {
+        ScaleVMCmd cmd = mock(ScaleVMCmd.class);
+        UserVm expected = mock(UserVm.class);
+        when(vmServiceOfferingScaleService.upgradeVirtualMachine(cmd)).thenReturn(expected);
+
+        UserVm result = userVmManagerImpl.upgradeVirtualMachine(cmd);
+
+        Assert.assertSame(expected, result);
+        verify(vmServiceOfferingScaleService).upgradeVirtualMachine(cmd);
+    }
+
+    @Test
+    public void upgradeVirtualMachineByIdsDelegatesToScaleService() throws ResourceUnavailableException,
+            ConcurrentOperationException, ManagementServerException, VirtualMachineMigrationException {
+        when(vmServiceOfferingScaleService.upgradeVirtualMachine(vmId, serviceOfferingId, customParameters)).thenReturn(true);
+
+        boolean result = userVmManagerImpl.upgradeVirtualMachine(vmId, serviceOfferingId, customParameters);
+
+        Assert.assertTrue(result);
+        verify(vmServiceOfferingScaleService).upgradeVirtualMachine(vmId, serviceOfferingId, customParameters);
     }
 
     @Test
