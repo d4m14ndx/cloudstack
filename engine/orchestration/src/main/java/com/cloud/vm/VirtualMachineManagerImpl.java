@@ -125,8 +125,6 @@ import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.UnPlugNicAnswer;
 import com.cloud.agent.api.UnPlugNicCommand;
 import com.cloud.agent.api.UnmanageInstanceCommand;
-import com.cloud.agent.api.UpdateVmNicAnswer;
-import com.cloud.agent.api.UpdateVmNicCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.DataTO;
 import com.cloud.agent.api.to.DiskTO;
@@ -431,6 +429,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmMigrationCheckpointService vmMigrationCheckpointService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
+    @Inject
+    protected VmNicUpdateService vmNicUpdateService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -4233,7 +4233,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
             VmWorkJobVO placeHolder = vmWorkJobQueueService.createPlaceHolderWork(vm.getId());
             try {
-                return orchestrateUpdateDefaultNicForVM(vm, nic, defaultNic);
+                return vmNicUpdateService.updateDefaultNicForVM(vm, nic, defaultNic);
             } finally {
                 vmWorkJobQueueService.expungePlaceHolderWork(placeHolder);
             }
@@ -4256,25 +4256,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         }
     }
 
-    private Boolean orchestrateUpdateDefaultNicForVM(final VirtualMachine vm, final Nic nic, final Nic defaultNic) {
-
-        logger.debug("Updating default nic of vm {} from nic {} to nic {}", vm, defaultNic.getUuid(), nic.getUuid());
-        Integer chosenID = nic.getDeviceId();
-        Integer existingID = defaultNic.getDeviceId();
-        NicVO nicVO = _nicsDao.findById(nic.getId());
-        NicVO defaultNicVO = _nicsDao.findById(defaultNic.getId());
-
-        nicVO.setDefaultNic(true);
-        nicVO.setDeviceId(existingID);
-        defaultNicVO.setDefaultNic(false);
-        defaultNicVO.setDeviceId(chosenID);
-
-        _nicsDao.persist(nicVO);
-        _nicsDao.persist(defaultNicVO);
-        return true;
-    }
-
-
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateUpdateDefaultNic(final VmWorkUpdateDefaultNic work) throws Exception {
         VMInstanceVO vm = findVmById(work.getVmId());
@@ -4286,7 +4267,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         if (defaultNic == null) {
             throw new CloudRuntimeException("Unable to find default nic " + work.getDefaultNicId());
         }
-        final boolean result = orchestrateUpdateDefaultNicForVM(vm, nic, defaultNic);
+        final boolean result = vmNicUpdateService.updateDefaultNicForVM(vm, nic, defaultNic);
         return new Pair<>(JobInfo.Status.SUCCEEDED,
                 _jobMgr.marshallResultObject(result));
     }
@@ -4308,33 +4289,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         throw new CloudRuntimeException("Unexpected job execution result.");
     }
 
-    private boolean orchestrateUpdateVmNic(final VirtualMachine vm, final Nic nic, final Boolean enabled) throws ResourceUnavailableException {
-        if (vm.getState() == State.Running) {
-            try {
-                UpdateVmNicCommand updateVmNicCmd = new UpdateVmNicCommand(nic.getMacAddress(), vm.getName(), enabled);
-                Commands cmds = new Commands(Command.OnError.Stop);
-                cmds.addCommand("updatevmnic", updateVmNicCmd);
-
-                _agentMgr.send(vm.getHostId(), cmds);
-
-                UpdateVmNicAnswer updateVmNicAnswer = cmds.getAnswer(UpdateVmNicAnswer.class);
-                if (updateVmNicAnswer == null || !updateVmNicAnswer.getResult()) {
-                    logger.warn("Unable to update VM %s NIC [{}].", vm.getName(), nic.getUuid());
-                    return false;
-                }
-            } catch (final OperationTimedoutException e) {
-                throw new AgentUnavailableException(String.format("Unable to update NIC %s for VM %s.", nic.getUuid(), vm.getUuid()), vm.getHostId(), e);
-            }
-        }
-
-        NicVO nicVo = _nicsDao.findById(nic.getId());
-        nicVo.setEnabled(enabled);
-        _nicsDao.persist(nicVo);
-
-        return true;
-    }
-
-
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateUpdateVmNic(final VmWorkUpdateNic work) throws Exception {
         VMInstanceVO vm = findVmById(work.getVmId());
@@ -4342,7 +4296,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         if (nic == null) {
             throw new CloudRuntimeException(String.format("Unable to find NIC with ID %s.", work.getNicId()));
         }
-        final boolean result = orchestrateUpdateVmNic(vm, nic, work.isEnabled());
+        final boolean result = vmNicUpdateService.updateVmNic(vm, nic, work.isEnabled());
         return new Pair<>(JobInfo.Status.SUCCEEDED, _jobMgr.marshallResultObject(result));
     }
 
