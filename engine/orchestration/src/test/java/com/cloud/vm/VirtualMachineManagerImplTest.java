@@ -181,6 +181,8 @@ public class VirtualMachineManagerImplTest {
     private VMInstanceVO vmInstanceMock;
     @Mock
     private VmWorkJobDao _workJobDao;
+    @Mock
+    private VmWorkJobQueueService vmWorkJobQueueService;
 
     private long vmInstanceVoMockId = 1L;
 
