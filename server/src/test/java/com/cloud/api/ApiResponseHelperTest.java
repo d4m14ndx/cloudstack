@@ -62,7 +62,6 @@ import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
 import com.cloud.domain.DomainVO;
-import com.cloud.host.HostVO;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
@@ -95,7 +94,6 @@ import com.cloud.user.dao.UserDataDao;
 import com.cloud.utils.net.Ip;
 import com.cloud.vm.ConsoleSessionVO;
 import com.cloud.vm.NicSecondaryIp;
-import com.cloud.vm.VMInstanceVO;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -135,20 +133,11 @@ public class ApiResponseHelperTest {
 
     @Mock
     ResourceIconManager resourceIconManager;
+    @Mock
+    private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
-    @Mock
-    private DomainVO domainVOMock;
-    @Mock
-    private UserVO userVOMock;
-    @Mock
-    private AccountVO accountVOMock;
-    @Mock
-    private HostVO hostVOMock;
-    @Mock
-    private VMInstanceVO vmInstanceVOMock;
-
     @Spy
     @InjectMocks
     ApiResponseHelper apiResponseHelper = new ApiResponseHelper();
@@ -175,6 +164,7 @@ public class ApiResponseHelperTest {
 
         helper = new ApiResponseHelper();
         ReflectionTestUtils.setField(helper, "apiUsageResponseService", apiUsageResponseService);
+        ReflectionTestUtils.setField(helper, "apiConsoleSessionResponseService", apiConsoleSessionResponseService);
     }
 
     @Before
@@ -688,113 +678,25 @@ public class ApiResponseHelperTest {
                 Mockito.anyCollection());
     }
 
-    private ConsoleSessionResponse getExpectedConsoleSessionResponseForTests(boolean fullView) {
+    @Test
+    public void createConsoleSessionResponseDelegatesToServiceForRestrictedResponse() {
         ConsoleSessionResponse expected = new ConsoleSessionResponse();
-        expected.setId("uuid");
-        expected.setCreated(new Date());
-        expected.setAcquired(new Date());
-        expected.setRemoved(new Date());
-        expected.setConsoleEndpointCreatorAddress("127.0.0.1");
-        expected.setClientAddress("127.0.0.1");
+        when(apiConsoleSessionResponseService.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted)).thenReturn(expected);
 
-        if (fullView) {
-            expected.setDomain("domain");
-            expected.setDomainPath("domainPath");
-            expected.setDomainId("domainUuid");
-            expected.setUser("user");
-            expected.setUserId("userUuid");
-            expected.setAccount("account");
-            expected.setAccountId("accountUuid");
-            expected.setHostName("host");
-            expected.setHostId("hostUuid");
-            expected.setVmId("vmUuid");
-            expected.setVmName("vmName");
-        }
+        ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
 
-        return expected;
+        Assert.assertSame(expected, response);
+        verify(apiConsoleSessionResponseService).createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
     }
 
     @Test
-    public void createConsoleSessionResponseTestShouldReturnRestrictedResponse() {
-        ConsoleSessionResponse expected = getExpectedConsoleSessionResponseForTests(false);
+    public void createConsoleSessionResponseDelegatesToServiceForFullResponse() {
+        ConsoleSessionResponse expected = new ConsoleSessionResponse();
+        when(apiConsoleSessionResponseService.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> apiDBUtilsStaticMock = Mockito.mockStatic(ApiDBUtils.class)) {
-            Mockito.when(consoleSessionMock.getUuid()).thenReturn(expected.getId());
-            Mockito.when(consoleSessionMock.getDomainId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getCreated()).thenReturn(expected.getCreated());
-            Mockito.when(consoleSessionMock.getAcquired()).thenReturn(expected.getAcquired());
-            Mockito.when(consoleSessionMock.getRemoved()).thenReturn(expected.getRemoved());
-            Mockito.when(consoleSessionMock.getConsoleEndpointCreatorAddress()).thenReturn(expected.getConsoleEndpointCreatorAddress());
-            Mockito.when(consoleSessionMock.getClientAddress()).thenReturn(expected.getClientAddress());
+        ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
 
-            ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
-
-            Assert.assertEquals(expected.getId(), response.getId());
-            Assert.assertEquals(expected.getCreated(), response.getCreated());
-            Assert.assertEquals(expected.getAcquired(), response.getAcquired());
-            Assert.assertEquals(expected.getRemoved(), response.getRemoved());
-            Assert.assertEquals(expected.getConsoleEndpointCreatorAddress(), response.getConsoleEndpointCreatorAddress());
-            Assert.assertEquals(expected.getClientAddress(), response.getClientAddress());
-        }
-    }
-
-    @Test
-    public void createConsoleSessionResponseTestShouldReturnFullResponse() {
-        ConsoleSessionResponse expected = getExpectedConsoleSessionResponseForTests(true);
-
-        try (MockedStatic<ApiDBUtils> apiDBUtilsStaticMock = Mockito.mockStatic(ApiDBUtils.class)) {
-            Mockito.when(consoleSessionMock.getUuid()).thenReturn(expected.getId());
-            Mockito.when(consoleSessionMock.getDomainId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getAccountId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getUserId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getHostId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getInstanceId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getCreated()).thenReturn(expected.getCreated());
-            Mockito.when(consoleSessionMock.getAcquired()).thenReturn(expected.getAcquired());
-            Mockito.when(consoleSessionMock.getRemoved()).thenReturn(expected.getRemoved());
-            Mockito.when(consoleSessionMock.getConsoleEndpointCreatorAddress()).thenReturn(expected.getConsoleEndpointCreatorAddress());
-            Mockito.when(consoleSessionMock.getClientAddress()).thenReturn(expected.getClientAddress());
-
-            apiDBUtilsStaticMock.when(() -> ApiDBUtils.findDomainById(2L)).thenReturn(domainVOMock);
-            Mockito.when(domainVOMock.getName()).thenReturn(expected.getDomain());
-            Mockito.when(domainVOMock.getPath()).thenReturn(expected.getDomainPath());
-            Mockito.when(domainVOMock.getUuid()).thenReturn(expected.getDomainId());
-
-            Mockito.when(apiResponseHelper.findUserById(2L)).thenReturn(userVOMock);
-            Mockito.when(userVOMock.getUsername()).thenReturn(expected.getUser());
-            Mockito.when(userVOMock.getUuid()).thenReturn(expected.getUserId());
-
-            Mockito.when(ApiDBUtils.findAccountById(2L)).thenReturn(accountVOMock);
-            Mockito.when(accountVOMock.getAccountName()).thenReturn(expected.getAccount());
-            Mockito.when(accountVOMock.getUuid()).thenReturn(expected.getAccountId());
-
-            Mockito.when(apiResponseHelper.findHostById(2L)).thenReturn(hostVOMock);
-            Mockito.when(hostVOMock.getUuid()).thenReturn(expected.getHostId());
-            Mockito.when(hostVOMock.getName()).thenReturn(expected.getHostName());
-
-            apiDBUtilsStaticMock.when(() -> ApiDBUtils.findVMInstanceById(2L)).thenReturn(vmInstanceVOMock);
-            Mockito.when(vmInstanceVOMock.getUuid()).thenReturn(expected.getVmId());
-            Mockito.when(vmInstanceVOMock.getInstanceName()).thenReturn(expected.getVmName());
-
-            ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
-
-            Assert.assertEquals(expected.getId(), response.getId());
-            Assert.assertEquals(expected.getCreated(), response.getCreated());
-            Assert.assertEquals(expected.getAcquired(), response.getAcquired());
-            Assert.assertEquals(expected.getRemoved(), response.getRemoved());
-            Assert.assertEquals(expected.getConsoleEndpointCreatorAddress(), response.getConsoleEndpointCreatorAddress());
-            Assert.assertEquals(expected.getClientAddress(), response.getClientAddress());
-            Assert.assertEquals(expected.getDomain(), response.getDomain());
-            Assert.assertEquals(expected.getDomainPath(), response.getDomainPath());
-            Assert.assertEquals(expected.getDomainId(), response.getDomainId());
-            Assert.assertEquals(expected.getUser(), response.getUser());
-            Assert.assertEquals(expected.getUserId(), response.getUserId());
-            Assert.assertEquals(expected.getAccount(), response.getAccount());
-            Assert.assertEquals(expected.getAccountId(), response.getAccountId());
-            Assert.assertEquals(expected.getHostId(), response.getHostId());
-            Assert.assertEquals(expected.getHostName(), response.getHostName());
-            Assert.assertEquals(expected.getVmId(), response.getVmId());
-            Assert.assertEquals(expected.getVmName(), response.getVmName());
-        }
+        Assert.assertSame(expected, response);
+        verify(apiConsoleSessionResponseService).createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
     }
 }

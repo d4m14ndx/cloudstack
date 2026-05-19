@@ -494,6 +494,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiUsageResponseService apiUsageResponseService;
     @Inject
+    private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
+    @Inject
     private AnnotationDao annotationDao;
     @Inject
     private UserStatisticsDao userStatsDao;
@@ -5114,71 +5116,9 @@ protected Map<String, ResourceIcon> getResourceIconsUsingOsCategory(List<Templat
         return guiThemeResponse;
     }
 
-    private void populateDomainFieldsOnConsoleSessionResponse(ConsoleSession consoleSession, ConsoleSessionResponse consoleSessionResponse) {
-        Domain domain = ApiDBUtils.findDomainById(consoleSession.getDomainId());
-        if (domain != null) {
-            consoleSessionResponse.setDomain(domain.getName());
-            consoleSessionResponse.setDomainPath(domain.getPath());
-            consoleSessionResponse.setDomainId(domain.getUuid());
-        }
-    }
-
-    private void populateUserFieldsOnConsoleSessionResponse(ConsoleSession consoleSession, ConsoleSessionResponse consoleSessionResponse) {
-        User user = findUserById(consoleSession.getUserId());
-        if (user != null) {
-            consoleSessionResponse.setUser(user.getUsername());
-            consoleSessionResponse.setUserId(user.getUuid());
-        }
-    }
-
-    private void populateAccountFieldsOnConsoleSessionResponse(ConsoleSession consoleSession, ConsoleSessionResponse consoleSessionResponse) {
-        Account account = ApiDBUtils.findAccountById(consoleSession.getAccountId());
-        if (account != null) {
-            consoleSessionResponse.setAccount(account.getAccountName());
-            consoleSessionResponse.setAccountId(account.getUuid());
-        }
-    }
-
-    private void populateHostFieldsOnConsoleSessionResponse(ConsoleSession consoleSession, ConsoleSessionResponse consoleSessionResponse) {
-        Host host = findHostById(consoleSession.getHostId());
-        if (host != null) {
-            consoleSessionResponse.setHostId(host.getUuid());
-            consoleSessionResponse.setHostName(host.getName());
-        }
-    }
-
-    private void populateInstanceFieldsOnConsoleSessionResponse(ConsoleSession consoleSession, ConsoleSessionResponse consoleSessionResponse) {
-        VMInstanceVO instance = ApiDBUtils.findVMInstanceById(consoleSession.getInstanceId());
-        if (instance != null) {
-            consoleSessionResponse.setVmId(instance.getUuid());
-            consoleSessionResponse.setVmName(instance.getInstanceName());
-        }
-    }
-
     @Override
     public ConsoleSessionResponse createConsoleSessionResponse(ConsoleSession consoleSession, ResponseView responseView) {
-        ConsoleSessionResponse consoleSessionResponse = new ConsoleSessionResponse();
-        if (consoleSession == null) {
-            return consoleSessionResponse;
-        }
-
-        consoleSessionResponse.setId(consoleSession.getUuid());
-        consoleSessionResponse.setCreated(consoleSession.getCreated());
-        consoleSessionResponse.setAcquired(consoleSession.getAcquired());
-        consoleSessionResponse.setRemoved(consoleSession.getRemoved());
-        consoleSessionResponse.setConsoleEndpointCreatorAddress(consoleSession.getConsoleEndpointCreatorAddress());
-        consoleSessionResponse.setClientAddress(consoleSession.getClientAddress());
-
-        populateDomainFieldsOnConsoleSessionResponse(consoleSession, consoleSessionResponse);
-        populateUserFieldsOnConsoleSessionResponse(consoleSession, consoleSessionResponse);
-        populateAccountFieldsOnConsoleSessionResponse(consoleSession, consoleSessionResponse);
-        populateInstanceFieldsOnConsoleSessionResponse(consoleSession, consoleSessionResponse);
-        if (responseView == ResponseView.Full) {
-            populateHostFieldsOnConsoleSessionResponse(consoleSession, consoleSessionResponse);
-        }
-
-        consoleSessionResponse.setObjectName("consolesession");
-        return consoleSessionResponse;
+        return apiConsoleSessionResponseService.createConsoleSessionResponse(consoleSession, responseView);
     }
 
     @Override
