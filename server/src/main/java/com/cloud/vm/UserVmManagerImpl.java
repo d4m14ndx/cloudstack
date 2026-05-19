@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
-import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -294,7 +293,6 @@ import com.cloud.user.dao.UserDataDao;
 import com.cloud.user.dao.UserStatisticsDao;
 import com.cloud.user.dao.VmDiskStatisticsDao;
 import com.cloud.uservm.UserVm;
-import com.cloud.utils.DateUtil;
 import com.cloud.utils.Journal;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
@@ -523,7 +521,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmUpdateValidator vmUpdateValidator;
     @Inject
-    private VmLeaseService vmLeaseService;
+    private VmLeaseApplicationService vmLeaseApplicationService;
     @Inject
     private VmAssignmentValidator vmAssignmentValidator;
     @Inject
@@ -4069,7 +4067,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void validateLeaseProperties(Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
-        vmLeaseService.validateLeaseProperties(leaseDuration, leaseExpiryAction);
+        vmLeaseApplicationService.validateLeaseProperties(leaseDuration, leaseExpiryAction);
     }
 
     /**
@@ -4078,72 +4076,15 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
      * get leaseDuration from service_offering if leaseDuration is not passed
      */
     void applyLeaseOnCreateInstance(UserVm vm, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction, ServiceOfferingJoinVO serviceOfferingJoinVO) {
-        // Orchestration stays here so existing test spies can verify that
-        // addLeaseDetailsForInstance is invoked exactly when expected. The
-        // leaf wrapper itself delegates to VmLeaseService.
-        if (leaseDuration == null) {
-            leaseDuration = serviceOfferingJoinVO.getLeaseDuration();
-        }
-        if (leaseDuration == null || leaseDuration < 1) {
-            return;
-        }
-        leaseExpiryAction = leaseExpiryAction != null ? leaseExpiryAction : serviceOfferingJoinVO.getLeaseExpiryAction();
-        if (leaseExpiryAction == null) {
-            return;
-        }
-        addLeaseDetailsForInstance(vm, leaseDuration, leaseExpiryAction);
+        vmLeaseApplicationService.applyLeaseOnCreateInstance(vm, leaseDuration, leaseExpiryAction, serviceOfferingJoinVO);
     }
 
     protected void applyLeaseOnUpdateInstance(UserVm instance, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
-        // Orchestration stays here so existing test spies can verify the
-        // inner addLeaseDetailsForInstance call. Leaves delegate to
-        // VmLeaseService.
-        validateLeaseProperties(leaseDuration, leaseExpiryAction);
-        String instanceUuid = instance.getUuid();
-
-        Map<String, String> vmDetails = vmInstanceDetailsDao.listDetailsKeyPairs(instance.getId(),
-                List.of(VmDetailConstants.INSTANCE_LEASE_EXPIRY_DATE, VmDetailConstants.INSTANCE_LEASE_EXECUTION));
-        String leaseExecution = vmDetails.get(VmDetailConstants.INSTANCE_LEASE_EXECUTION);
-        String leaseExpiryDate = vmDetails.get(VmDetailConstants.INSTANCE_LEASE_EXPIRY_DATE);
-
-        if (StringUtils.isEmpty(leaseExpiryDate)) {
-            String errorMsg = "Lease can't be applied on instance with id: " + instanceUuid + ", it doesn't have lease associated during deployment";
-            logger.debug(errorMsg);
-            throw new CloudRuntimeException(errorMsg);
-        }
-
-        if (!VMLeaseManager.LeaseActionExecution.PENDING.name().equals(leaseExecution)) {
-            String errorMsg = "Lease can't be applied on instance with id: " + instanceUuid + ", it doesn't have active lease";
-            logger.debug(errorMsg);
-            throw new CloudRuntimeException(errorMsg);
-        }
-
-        long leaseExpiryTimeDiff;
-        try {
-            leaseExpiryTimeDiff = DateUtil.getTimeDifference(
-                    DateUtil.parseDateString(TimeZone.getTimeZone("UTC"), leaseExpiryDate), new Date());
-        } catch (Exception ex) {
-            logger.error("Error occurred computing time difference for instance lease expiry, " +
-                    "will skip applying lease for vm with id: {}", instanceUuid, ex);
-            return;
-        }
-        if (leaseExpiryTimeDiff < 0) {
-            logger.debug("Lease has expired for instance with id: {}, can't modify lease information", instanceUuid);
-            throw new CloudRuntimeException("Lease is not allowed to be redefined on expired leased instance");
-        }
-
-        if (leaseDuration < 1) {
-            vmInstanceDetailsDao.addDetail(instance.getId(), VmDetailConstants.INSTANCE_LEASE_EXECUTION,
-                    VMLeaseManager.LeaseActionExecution.DISABLED.name(), false);
-            ActionEventUtils.onActionEvent(CallContext.current().getCallingUserId(), instance.getAccountId(), instance.getDomainId(),
-                    EventTypes.VM_LEASE_DISABLED, "Disabling lease on the instance", instance.getId(), ApiCommandResourceType.VirtualMachine.toString());
-            return;
-        }
-        addLeaseDetailsForInstance(instance, leaseDuration, leaseExpiryAction);
+        vmLeaseApplicationService.applyLeaseOnUpdateInstance(instance, leaseDuration, leaseExpiryAction);
     }
 
     protected void addLeaseDetailsForInstance(UserVm vm, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
-        vmLeaseService.addLeaseDetailsForInstance(vm, leaseDuration, leaseExpiryAction);
+        vmLeaseApplicationService.addLeaseDetailsForInstance(vm, leaseDuration, leaseExpiryAction);
     }
 
     private VolumeInfo getVolume(long id, Long templateId, boolean isSnapshot) {
