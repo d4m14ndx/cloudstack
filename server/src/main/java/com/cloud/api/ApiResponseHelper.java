@@ -73,7 +73,6 @@ import org.apache.cloudstack.api.response.ClusterResponse;
 import org.apache.cloudstack.api.response.ConditionResponse;
 import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
-import org.apache.cloudstack.api.response.ConfigurationSubGroupResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
 import org.apache.cloudstack.api.response.ControlledEntityResponse;
 import org.apache.cloudstack.api.response.ControlledViewEntityResponse;
@@ -192,7 +191,6 @@ import org.apache.cloudstack.backup.dao.BackupOfferingDao;
 import org.apache.cloudstack.backup.dao.BackupRepositoryDao;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
-import org.apache.cloudstack.config.ConfigurationSubGroup;
 import org.apache.cloudstack.consoleproxy.ConsoleSession;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
@@ -241,7 +239,6 @@ import com.cloud.api.query.vo.AccountJoinVO;
 import com.cloud.api.query.vo.AsyncJobJoinVO;
 import com.cloud.api.query.vo.ControlledViewEntity;
 import com.cloud.api.query.vo.DataCenterJoinVO;
-import com.cloud.api.query.vo.DiskOfferingJoinVO;
 import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
 import com.cloud.api.query.vo.HostJoinVO;
@@ -254,7 +251,6 @@ import com.cloud.api.query.vo.ProjectJoinVO;
 import com.cloud.api.query.ResourceIdSupport;
 import com.cloud.api.query.vo.ResourceTagJoinVO;
 import com.cloud.api.query.vo.SecurityGroupJoinVO;
-import com.cloud.api.query.vo.ServiceOfferingJoinVO;
 import com.cloud.api.query.vo.StoragePoolJoinVO;
 import com.cloud.api.query.vo.TemplateJoinVO;
 import com.cloud.api.query.vo.UserAccountJoinVO;
@@ -269,8 +265,6 @@ import com.cloud.capacity.CapacityVO;
 import com.cloud.capacity.dao.CapacityDaoImpl.SummedCapacity;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.ConfigurationService;
-import com.cloud.configuration.Resource.ResourceOwnerType;
-import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
 import com.cloud.dc.ASNumberRangeVO;
@@ -410,7 +404,6 @@ import com.cloud.user.dao.UserDataDao;
 import com.cloud.user.dao.UserStatisticsDao;
 import com.cloud.uservm.UserVm;
 import com.cloud.utils.Pair;
-import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
@@ -487,6 +480,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
     @Inject
     private ApiDirectDownloadCertificateResponseService apiDirectDownloadCertificateResponseService;
+    @Inject
+    private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
     @Inject
     private AnnotationDao annotationDao;
     @Inject
@@ -589,116 +584,32 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public DiskOfferingResponse createDiskOfferingResponse(DiskOffering offering) {
-        DiskOfferingJoinVO vOffering = ApiDBUtils.newDiskOfferingView(offering);
-        return ApiDBUtils.newDiskOfferingResponse(vOffering);
+        return apiOfferingConfigurationResponseService.createDiskOfferingResponse(offering);
     }
 
     @Override
     public ResourceLimitResponse createResourceLimitResponse(ResourceLimit limit) {
-        ResourceLimitResponse resourceLimitResponse = new ResourceLimitResponse();
-        if (limit.getResourceOwnerType() == ResourceOwnerType.Domain) {
-            populateDomain(resourceLimitResponse, limit.getOwnerId());
-        } else if (limit.getResourceOwnerType() == ResourceOwnerType.Account) {
-            Account accountTemp = ApiDBUtils.findAccountById(limit.getOwnerId());
-            populateAccount(resourceLimitResponse, limit.getOwnerId());
-            populateDomain(resourceLimitResponse, accountTemp.getDomainId());
-        }
-        resourceLimitResponse.setResourceType(limit.getType());
-
-        if (ResourceType.isStorageType(limit.getType()) && limit.getMax() >= 0) {
-            resourceLimitResponse.setMax((long)Math.ceil((double)limit.getMax() / ResourceType.bytesToGiB));
-        } else {
-            resourceLimitResponse.setMax(limit.getMax());
-        }
-        resourceLimitResponse.setTag(limit.getTag());
-        resourceLimitResponse.setObjectName("resourcelimit");
-
-        return resourceLimitResponse;
+        return apiOfferingConfigurationResponseService.createResourceLimitResponse(limit, this::populateAccount, this::populateDomain, this::resolveAccountDomainId);
     }
 
     @Override
     public ResourceCountResponse createResourceCountResponse(ResourceCount resourceCount) {
-        ResourceCountResponse resourceCountResponse = new ResourceCountResponse();
-
-        if (resourceCount.getResourceOwnerType() == ResourceOwnerType.Account) {
-            Account accountTemp = ApiDBUtils.findAccountById(resourceCount.getOwnerId());
-            if (accountTemp != null) {
-                populateAccount(resourceCountResponse, accountTemp.getId());
-                populateDomain(resourceCountResponse, accountTemp.getDomainId());
-            }
-        } else if (resourceCount.getResourceOwnerType() == ResourceOwnerType.Domain) {
-            populateDomain(resourceCountResponse, resourceCount.getOwnerId());
-        }
-
-        resourceCountResponse.setResourceType(resourceCount.getType());
-        resourceCountResponse.setResourceCount(resourceCount.getCount());
-        resourceCountResponse.setObjectName(ApiConstants.RESOURCE_COUNT);
-        if (StringUtils.isNotEmpty(resourceCount.getTag())) {
-            resourceCountResponse.setTag(resourceCount.getTag());
-        }
-        return resourceCountResponse;
+        return apiOfferingConfigurationResponseService.createResourceCountResponse(resourceCount, this::populateAccount, this::populateDomain, this::resolveAccountDomainId);
     }
 
     @Override
     public ServiceOfferingResponse createServiceOfferingResponse(ServiceOffering offering) {
-        ServiceOfferingJoinVO vOffering = ApiDBUtils.newServiceOfferingView(offering);
-        return ApiDBUtils.newServiceOfferingResponse(vOffering);
+        return apiOfferingConfigurationResponseService.createServiceOfferingResponse(offering);
     }
 
     @Override
     public ConfigurationResponse createConfigurationResponse(Configuration cfg) {
-        ConfigurationResponse cfgResponse = new ConfigurationResponse();
-        cfgResponse.setCategory(cfg.getCategory());
-        Pair<String, String> configGroupAndSubGroup = _configMgr.getConfigurationGroupAndSubGroup(cfg.getName());
-        cfgResponse.setGroup(configGroupAndSubGroup.first());
-        cfgResponse.setSubGroup(configGroupAndSubGroup.second());
-        cfgResponse.setDescription(cfg.getDescription());
-        cfgResponse.setName(cfg.getName());
-        if (cfg.isEncrypted()) {
-            cfgResponse.setValue(DBEncryptionUtil.encrypt(cfg.getValue()));
-        } else {
-            cfgResponse.setValue(cfg.getValue());
-        }
-        cfgResponse.setDefaultValue(cfg.getDefaultValue());
-        cfgResponse.setIsDynamic(cfg.isDynamic());
-        cfgResponse.setComponent(cfg.getComponent());
-        if (cfg.getParent() != null) {
-            cfgResponse.setParent(cfg.getParent());
-        }
-        cfgResponse.setDisplayText(cfg.getDisplayText());
-        cfgResponse.setType(_configMgr.getConfigurationType(cfg.getName()));
-        if (cfg.getOptions() != null) {
-            cfgResponse.setOptions(cfg.getOptions());
-        }
-        cfgResponse.setObjectName("configuration");
-
-        return cfgResponse;
+        return apiOfferingConfigurationResponseService.createConfigurationResponse(cfg);
     }
 
     @Override
     public ConfigurationGroupResponse createConfigurationGroupResponse(ConfigurationGroup cfgGroup) {
-        ConfigurationGroupResponse cfgGroupResponse = new ConfigurationGroupResponse();
-        cfgGroupResponse.setGroupName(cfgGroup.getName());
-        cfgGroupResponse.setDescription(cfgGroup.getDescription());
-        cfgGroupResponse.setPrecedence(cfgGroup.getPrecedence());
-
-        List<? extends ConfigurationSubGroup> subgroups = _configMgr.getConfigurationSubGroups(cfgGroup.getId());
-        List<ConfigurationSubGroupResponse> cfgSubGroupResponses = new ArrayList<>();
-        for (ConfigurationSubGroup subgroup : subgroups) {
-            ConfigurationSubGroupResponse cfgSubGroupResponse = createConfigurationSubGroupResponse(subgroup);
-            cfgSubGroupResponses.add(cfgSubGroupResponse);
-        }
-        cfgGroupResponse.setSubGroups(cfgSubGroupResponses);
-        cfgGroupResponse.setObjectName("configurationgroup");
-        return cfgGroupResponse;
-    }
-
-    private ConfigurationSubGroupResponse createConfigurationSubGroupResponse(ConfigurationSubGroup cfgSubGroup) {
-        ConfigurationSubGroupResponse cfgSubGroupResponse = new ConfigurationSubGroupResponse();
-        cfgSubGroupResponse.setSubGroupName(cfgSubGroup.getName());
-        cfgSubGroupResponse.setPrecedence(cfgSubGroup.getPrecedence());
-        cfgSubGroupResponse.setObjectName("subgroup");
-        return cfgSubGroupResponse;
+        return apiOfferingConfigurationResponseService.createConfigurationGroupResponse(cfgGroup);
     }
 
     @Override
@@ -3099,6 +3010,11 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
         } else {
             response.setAccountName(account.getAccountName());
         }
+    }
+
+    private Long resolveAccountDomainId(Long accountId) {
+        Account account = ApiDBUtils.findAccountById(accountId);
+        return account != null ? account.getDomainId() : null;
     }
 
     private void populateDomain(ControlledEntityResponse response, long domainId) {

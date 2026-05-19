@@ -52,15 +52,23 @@ import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateHostStatusResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
+import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
+import org.apache.cloudstack.api.response.ConfigurationResponse;
+import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
+import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
+import org.apache.cloudstack.api.response.ResourceLimitResponse;
+import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
+import org.apache.cloudstack.config.Configuration;
+import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.usage.UsageService;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
@@ -70,6 +78,8 @@ import org.apache.cloudstack.direct.download.DirectDownloadManager;
 
 import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
+import com.cloud.configuration.ResourceCount;
+import com.cloud.configuration.ResourceLimit;
 import com.cloud.domain.DomainVO;
 import com.cloud.host.Host;
 import com.cloud.network.Networks;
@@ -87,6 +97,8 @@ import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
 import com.cloud.org.Cluster;
+import com.cloud.offering.DiskOffering;
+import com.cloud.offering.ServiceOffering;
 import com.cloud.resource.icon.ResourceIconVO;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
@@ -110,6 +122,7 @@ import com.cloud.vm.NicSecondaryIp;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -153,6 +166,8 @@ public class ApiResponseHelperTest {
     private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
     @Mock
     private ApiDirectDownloadCertificateResponseService apiDirectDownloadCertificateResponseService;
+    @Mock
+    private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
@@ -188,6 +203,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiKeyPairResponseService", apiKeyPairResponseService);
         ReflectionTestUtils.setField(helper, "apiUnmanagedInstanceResponseService", apiUnmanagedInstanceResponseService);
         ReflectionTestUtils.setField(helper, "apiDirectDownloadCertificateResponseService", apiDirectDownloadCertificateResponseService);
+        ReflectionTestUtils.setField(helper, "apiOfferingConfigurationResponseService", apiOfferingConfigurationResponseService);
     }
 
     @Before
@@ -203,6 +219,60 @@ public class ApiResponseHelperTest {
     @After
     public void cleanup() {
         CallContext.unregister();
+    }
+
+    @Test
+    public void createDiskOfferingResponseDelegatesToOfferingConfigurationResponseService() {
+        DiskOffering offering = Mockito.mock(DiskOffering.class);
+        DiskOfferingResponse expectedResponse = new DiskOfferingResponse();
+        when(apiOfferingConfigurationResponseService.createDiskOfferingResponse(offering)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createDiskOfferingResponse(offering));
+    }
+
+    @Test
+    public void createResourceLimitResponseDelegatesToOfferingConfigurationResponseService() {
+        ResourceLimit limit = Mockito.mock(ResourceLimit.class);
+        ResourceLimitResponse expectedResponse = new ResourceLimitResponse();
+        when(apiOfferingConfigurationResponseService.createResourceLimitResponse(any(ResourceLimit.class), any(), any(), any())).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createResourceLimitResponse(limit));
+    }
+
+    @Test
+    public void createResourceCountResponseDelegatesToOfferingConfigurationResponseService() {
+        ResourceCount resourceCount = Mockito.mock(ResourceCount.class);
+        ResourceCountResponse expectedResponse = new ResourceCountResponse();
+        when(apiOfferingConfigurationResponseService.createResourceCountResponse(any(ResourceCount.class), any(), any(), any())).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createResourceCountResponse(resourceCount));
+    }
+
+    @Test
+    public void createServiceOfferingResponseDelegatesToOfferingConfigurationResponseService() {
+        ServiceOffering offering = Mockito.mock(ServiceOffering.class);
+        ServiceOfferingResponse expectedResponse = new ServiceOfferingResponse();
+        when(apiOfferingConfigurationResponseService.createServiceOfferingResponse(offering)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createServiceOfferingResponse(offering));
+    }
+
+    @Test
+    public void createConfigurationResponseDelegatesToOfferingConfigurationResponseService() {
+        Configuration configuration = Mockito.mock(Configuration.class);
+        ConfigurationResponse expectedResponse = new ConfigurationResponse();
+        when(apiOfferingConfigurationResponseService.createConfigurationResponse(configuration)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createConfigurationResponse(configuration));
+    }
+
+    @Test
+    public void createConfigurationGroupResponseDelegatesToOfferingConfigurationResponseService() {
+        ConfigurationGroup configurationGroup = Mockito.mock(ConfigurationGroup.class);
+        ConfigurationGroupResponse expectedResponse = new ConfigurationGroupResponse();
+        when(apiOfferingConfigurationResponseService.createConfigurationGroupResponse(configurationGroup)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createConfigurationGroupResponse(configurationGroup));
     }
 
     @Test
