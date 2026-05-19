@@ -69,8 +69,6 @@ import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CleanupPersistentNetworkResourceAnswer;
 import com.cloud.agent.api.CleanupPersistentNetworkResourceCommand;
 import com.cloud.agent.api.Command;
-import com.cloud.agent.api.SetupPersistentNetworkAnswer;
-import com.cloud.agent.api.SetupPersistentNetworkCommand;
 import com.cloud.agent.api.StartupCommand;
 import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
@@ -81,7 +79,6 @@ import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource;
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.ASNumberVO;
-import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
@@ -103,7 +100,6 @@ import com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao;
 import com.cloud.domain.Domain;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
-import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.ConnectionException;
 import com.cloud.exception.InsufficientAddressCapacityException;
@@ -417,6 +413,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     RouterDefaultDnsUpdateService routerDefaultDnsUpdateService;
     @Inject
     NetworkResourceCleanupService networkResourceCleanupService;
+    @Inject
+    PersistentNetworkSetupService persistentNetworkSetupService;
     @Inject
     NetworkOfferingVlanValidationService networkOfferingVlanValidationService;
     @Inject
@@ -1298,59 +1296,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         return to;
     }
 
-    private Pair<Boolean, NicTO> isNtwConfiguredInCluster(HostVO hostVO, Map<Long, List<Long>> clusterToHostsMap, NetworkVO networkVO, NetworkOfferingVO networkOfferingVO) {
-        Long clusterId = hostVO.getClusterId();
-        List<Long> hosts = clusterToHostsMap.get(clusterId);
-        if (hosts == null) {
-            hosts = new ArrayList<>();
-        }
-        if (hostVO.getHypervisorType() == HypervisorType.KVM || hostVO.getHypervisorType() == HypervisorType.XenServer) {
-            hosts.add(hostVO.getId());
-            clusterToHostsMap.put(clusterId, hosts);
-            return new Pair<>(false, createNicTOFromNetworkAndOffering(networkVO, networkOfferingVO, hostVO));
-        }
-        if (hosts != null && !hosts.isEmpty()) {
-            return new Pair<>(true, createNicTOFromNetworkAndOffering(networkVO, networkOfferingVO, hostVO));
-        }
-        hosts.add(hostVO.getId());
-        clusterToHostsMap.put(clusterId, hosts);
-        return new Pair<>(false, createNicTOFromNetworkAndOffering(networkVO, networkOfferingVO, hostVO));
-    }
-
-    private void setupPersistentNetwork(NetworkVO network, NetworkOfferingVO offering, Long dcId) throws AgentUnavailableException, OperationTimedoutException {
-        List<ClusterVO> clusterVOs = clusterDao.listClustersByDcId(dcId);
-        List<HostVO> hosts = resourceManager.listAllUpAndEnabledHostsInOneZoneByType(Host.Type.Routing, dcId);
-        Map<Long, List<Long>> clusterToHostsMap = new HashMap<>();
-
-        for (HostVO host : hosts) {
-            try {
-                Pair<Boolean, NicTO> networkCfgStateAndDetails = isNtwConfiguredInCluster(host, clusterToHostsMap, network, offering);
-                if (networkCfgStateAndDetails.first()) {
-                    continue;
-                }
-                NicTO to = networkCfgStateAndDetails.second();
-                SetupPersistentNetworkCommand cmd = new SetupPersistentNetworkCommand(to);
-                final SetupPersistentNetworkAnswer answer = (SetupPersistentNetworkAnswer) _agentMgr.send(host.getId(), cmd);
-
-                if (answer == null) {
-                    logger.warn("Unable to get an answer to the SetupPersistentNetworkCommand from agent: {}", host);
-                    clusterToHostsMap.get(host.getClusterId()).remove(host.getId());
-                    continue;
-                }
-
-                if (!answer.getResult()) {
-                    logger.warn("Unable to setup agent {} due to {}", host, answer.getDetails());
-                    clusterToHostsMap.get(host.getClusterId()).remove(host.getId());
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to connect to host: {}", host);
-            }
-        }
-        if (clusterToHostsMap.keySet().size() != clusterVOs.size()) {
-            logger.warn("Hosts on all clusters may not have been configured with network devices.");
-        }
-    }
-
     private boolean networkMeetsPersistenceCriteria(NetworkVO network, NetworkOfferingVO offering, boolean cleanup) {
         boolean criteriaMet = offering.isPersistent() &&
                 (network.getBroadcastUri() != null && BroadcastDomainType.getSchemeValue(network.getBroadcastUri()) == BroadcastDomainType.Vlan);
@@ -1417,7 +1362,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
             long dcId = dest.getDataCenter().getId();
             if (networkMeetsPersistenceCriteria(network, offering, false)) {
-                setupPersistentNetwork(network, offering, dcId);
+                persistentNetworkSetupService.setupPersistentNetwork(network, offering, dcId);
             }
             if (isSharedNetworkWithServices(network)) {
                 network.setState(Network.State.Implemented);
