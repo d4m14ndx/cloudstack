@@ -200,7 +200,6 @@ import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
-import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.Storage.ImageFormat;
@@ -210,7 +209,6 @@ import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.VMTemplateZoneVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.Volume.Type;
-import com.cloud.storage.VolumeApiServiceImpl;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.GuestOSCategoryDao;
@@ -230,7 +228,6 @@ import com.cloud.utils.Journal;
 import com.cloud.utils.LogUtils;
 import com.cloud.utils.Pair;
 import com.cloud.utils.ReflectionUse;
-import com.cloud.utils.StringUtils;
 import com.cloud.utils.Ternary;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
@@ -3315,64 +3312,14 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public void checkIfCanUpgrade(final VirtualMachine vmInstance, final ServiceOffering newServiceOffering) {
-        if (newServiceOffering == null) {
-            throw new InvalidParameterValueException("Invalid parameter, newServiceOffering can't be null");
-        }
-
-        if (ServiceOffering.State.Inactive.equals(newServiceOffering.getState())) {
-            throw new InvalidParameterValueException(String.format("New service offering is inactive: [%s].", newServiceOffering.getUuid()));
-        }
-
-        if (!(vmInstance.getState().equals(State.Stopped) || vmInstance.getState().equals(State.Running))) {
-            logger.warn("Unable to upgrade virtual machine {} in state {}", vmInstance.toString(), vmInstance.getState());
-            throw new InvalidParameterValueException("Unable to upgrade virtual machine " + vmInstance.toString() + " " + " in state " + vmInstance.getState() +
-                    "; make sure the virtual machine is stopped/running");
-        }
-
-        if (!newServiceOffering.isDynamic() && vmInstance.getServiceOfferingId() == newServiceOffering.getId()) {
-            logger.info("Not upgrading vm {} since it already has the requested service offering ({})", vmInstance.toString(), newServiceOffering.getName());
-
-            throw new InvalidParameterValueException("Not upgrading vm " + vmInstance.toString() + " since it already " + "has the requested service offering (" +
-                    newServiceOffering.getName() + ")");
-        }
-
-        final ServiceOfferingVO currentServiceOffering = _offeringDao.findByIdIncludingRemoved(vmInstance.getId(), vmInstance.getServiceOfferingId());
-        final DiskOfferingVO currentDiskOffering = _diskOfferingDao.findByIdIncludingRemoved(currentServiceOffering.getDiskOfferingId());
-        final DiskOfferingVO newDiskOffering = _diskOfferingDao.findById(newServiceOffering.getDiskOfferingId());
-
-        checkIfNewOfferingStorageScopeMatchesStoragePool(vmInstance, newDiskOffering);
-
-        if (currentServiceOffering.isSystemUse() != newServiceOffering.isSystemUse()) {
-            throw new InvalidParameterValueException("isSystem property is different for current service offering and new service offering");
-        }
-
-        final List<String> currentTags = StringUtils.csvTagsToList(currentDiskOffering.getTags());
-        final List<String> newTags = StringUtils.csvTagsToList(newDiskOffering.getTags());
-        if (VolumeApiServiceImpl.MatchStoragePoolTagsWithDiskOffering.valueIn(vmInstance.getDataCenterId())) {
-            if (!VolumeApiServiceImpl.doesNewDiskOfferingHasTagsAsOldDiskOffering(currentDiskOffering, newDiskOffering)) {
-                    throw new InvalidParameterValueException("Unable to upgrade virtual machine; the current service offering " + " should have tags as subset of " +
-                            "the new service offering tags. Current service offering tags: " + currentTags + "; " + "new service " + "offering tags: " + newTags);
-            }
-        }
+        vmServiceOfferingUpgradeManager.checkIfCanUpgrade(vmInstance, newServiceOffering);
     }
 
     /**
      * Throws an InvalidParameterValueException in case the new service offerings does not match the storage scope (e.g. local or shared).
      */
     protected void checkIfNewOfferingStorageScopeMatchesStoragePool(VirtualMachine vmInstance, DiskOffering newDiskOffering) {
-        boolean isRootVolumeOnLocalStorage = isRootVolumeOnLocalStorage(vmInstance.getId());
-
-        if (newDiskOffering.isUseLocalStorage() && !isRootVolumeOnLocalStorage) {
-            String message = String .format("Unable to upgrade virtual machine %s, target offering use local storage but the storage pool where "
-                    + "the volume is allocated is a shared storage.", vmInstance.toString());
-            throw new InvalidParameterValueException(message);
-        }
-
-        if (!newDiskOffering.isUseLocalStorage() && isRootVolumeOnLocalStorage) {
-            String message = String.format("Unable to upgrade virtual machine %s, target offering use shared storage but the storage pool where "
-                    + "the volume is allocated is a local storage.", vmInstance.toString());
-            throw new InvalidParameterValueException(message);
-        }
+        vmServiceOfferingUpgradeManager.checkIfNewOfferingStorageScopeMatchesStoragePool(vmInstance, newDiskOffering);
     }
 
     public boolean isRootVolumeOnLocalStorage(long vmId) {

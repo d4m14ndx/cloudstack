@@ -108,7 +108,6 @@ import com.cloud.deploy.DeploymentPlanner.ExcludeList;
 import com.cloud.deploy.DeploymentPlanningManager;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.exception.AgentUnavailableException;
-import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.OperationTimedoutException;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
@@ -118,12 +117,10 @@ import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.network.NetworkService;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.vpc.dao.VpcDao;
-import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Cluster;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.storage.DiskOfferingVO;
-import com.cloud.storage.ScopeType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
@@ -306,14 +303,12 @@ public class VirtualMachineManagerImplTest {
 
         when(vmInstanceMock.getName()).thenReturn(vmName);
         when(vmInstanceMock.getId()).thenReturn(vmInstanceVoMockId);
-        when(vmInstanceMock.getServiceOfferingId()).thenReturn(2L);
 
         when(hostDaoMock.findById(any())).thenReturn(hostMock);
 
         when(userVmDaoMock.findById(any())).thenReturn(userVmMock);
 
         Mockito.doReturn(volumeMockId).when(volumeVoMock).getId();
-        Mockito.doReturn(storagePoolVoMockId).when(volumeVoMock).getPoolId();
 
         ArrayList<StoragePoolAllocator> storagePoolAllocators = new ArrayList<>();
         storagePoolAllocators.add(storagePoolAllocatorMock);
@@ -330,6 +325,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(upgradeManager, "vmInstanceDetailsDao", vmInstanceDetailsDao);
         ReflectionTestUtils.setField(upgradeManager, "templateDao", templateDao);
         ReflectionTestUtils.setField(upgradeManager, "serviceOfferingDao", serviceOfferingDaoMock);
+        ReflectionTestUtils.setField(upgradeManager, "diskOfferingDao", diskOfferingDaoMock);
         ReflectionTestUtils.setField(upgradeManager, "entityMgr", _entityMgr);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", upgradeManager);
 
@@ -502,33 +498,13 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
-    public void testCheckIfCanUpgrade() throws Exception {
-        when(vmInstanceMock.getState()).thenReturn(State.Stopped);
-        when(serviceOfferingMock.isDynamic()).thenReturn(true);
-        when(vmInstanceMock.getServiceOfferingId()).thenReturn(1l);
-
-        ServiceOfferingVO mockCurrentServiceOffering = mock(ServiceOfferingVO.class);
-        DiskOfferingVO mockCurrentDiskOffering = mock(DiskOfferingVO.class);
-
-        when(serviceOfferingDaoMock.findByIdIncludingRemoved(anyLong(), anyLong())).thenReturn(mockCurrentServiceOffering);
-        when(diskOfferingDaoMock.findByIdIncludingRemoved(anyLong())).thenReturn(mockCurrentDiskOffering);
-        when(diskOfferingDaoMock.findById(anyLong())).thenReturn(diskOfferingMock);
-        when(diskOfferingMock.isUseLocalStorage()).thenReturn(false);
-        when(mockCurrentServiceOffering.isSystemUse()).thenReturn(true);
-        when(serviceOfferingMock.isSystemUse()).thenReturn(true);
-        String[] oldDOStorageTags = {"x","y"};
-        String[] newDOStorageTags = {"z","x","y"};
-        when(mockCurrentDiskOffering.getTagsArray()).thenReturn(oldDOStorageTags);
-        when(diskOfferingMock.getTagsArray()).thenReturn(newDOStorageTags);
+    public void checkIfCanUpgradeDelegatesToServiceOfferingUpgradeManager() {
+        VmServiceOfferingUpgradeManager manager = mock(VmServiceOfferingUpgradeManager.class);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", manager);
 
         virtualMachineManagerImpl.checkIfCanUpgrade(vmInstanceMock, serviceOfferingMock);
-    }
 
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCheckIfCanUpgradeFail() {
-        when(serviceOfferingMock.getState()).thenReturn(ServiceOffering.State.Inactive);
-
-        virtualMachineManagerImpl.checkIfCanUpgrade(vmInstanceMock, serviceOfferingMock);
+        verify(manager).checkIfCanUpgrade(vmInstanceMock, serviceOfferingMock);
     }
 
     @Test
@@ -634,58 +610,25 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
-    public void isRootVolumeOnLocalStorageTestOnLocal() {
-        prepareAndTestIsRootVolumeOnLocalStorage(ScopeType.HOST, true);
-    }
+    public void checkIfNewOfferingStorageScopeMatchesStoragePoolDelegatesToServiceOfferingUpgradeManager() {
+        VmServiceOfferingUpgradeManager manager = mock(VmServiceOfferingUpgradeManager.class);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", manager);
 
-    @Test
-    public void isRootVolumeOnLocalStorageTestCluster() {
-        prepareAndTestIsRootVolumeOnLocalStorage(ScopeType.CLUSTER, false);
-    }
-
-    @Test
-    public void isRootVolumeOnLocalStorageTestZone() {
-        prepareAndTestIsRootVolumeOnLocalStorage(ScopeType.ZONE, false);
-    }
-
-    private void prepareAndTestIsRootVolumeOnLocalStorage(ScopeType scope, boolean expected) {
-        StoragePoolVO storagePoolVoMock = Mockito.mock(StoragePoolVO.class);
-        Mockito.doReturn(storagePoolVoMock).when(storagePoolDaoMock).findById(anyLong());
-        Mockito.doReturn(scope).when(storagePoolVoMock).getScope();
-        List<VolumeVO> mockedVolumes = new ArrayList<>();
-        mockedVolumes.add(volumeVoMock);
-        Mockito.doReturn(mockedVolumes).when(volumeDaoMock).findByInstanceAndType(anyLong(), any());
-
-        boolean result = virtualMachineManagerImpl.isRootVolumeOnLocalStorage(0l);
-
-        assertEquals(expected, result);
-    }
-
-    @Test
-    public void checkIfNewOfferingStorageScopeMatchesStoragePoolTestLocalLocal() {
-        prepareAndRunCheckIfNewOfferingStorageScopeMatchesStoragePool(true, true);
-    }
-
-    @Test
-    public void checkIfNewOfferingStorageScopeMatchesStoragePoolTestSharedShared() {
-        prepareAndRunCheckIfNewOfferingStorageScopeMatchesStoragePool(false, false);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void checkIfNewOfferingStorageScopeMatchesStoragePoolTestLocalShared() {
-        prepareAndRunCheckIfNewOfferingStorageScopeMatchesStoragePool(true, false);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void checkIfNewOfferingStorageScopeMatchesStoragePoolTestSharedLocal() {
-        prepareAndRunCheckIfNewOfferingStorageScopeMatchesStoragePool(false, true);
-    }
-
-    private void prepareAndRunCheckIfNewOfferingStorageScopeMatchesStoragePool(boolean isRootOnLocal, boolean isOfferingUsingLocal) {
-        Mockito.doReturn(isRootOnLocal).when(virtualMachineManagerImpl).isRootVolumeOnLocalStorage(anyLong());
-        Mockito.doReturn("vmInstanceMockedToString").when(vmInstanceMock).toString();
-        Mockito.doReturn(isOfferingUsingLocal).when(diskOfferingMock).isUseLocalStorage();
         virtualMachineManagerImpl.checkIfNewOfferingStorageScopeMatchesStoragePool(vmInstanceMock, diskOfferingMock);
+
+        verify(manager).checkIfNewOfferingStorageScopeMatchesStoragePool(vmInstanceMock, diskOfferingMock);
+    }
+
+    @Test
+    public void isRootVolumeOnLocalStorageDelegatesToServiceOfferingUpgradeManager() {
+        VmServiceOfferingUpgradeManager manager = mock(VmServiceOfferingUpgradeManager.class);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", manager);
+        when(manager.isRootVolumeOnLocalStorage(vmInstanceVoMockId)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.isRootVolumeOnLocalStorage(vmInstanceVoMockId);
+
+        assertTrue(result);
+        verify(manager).isRootVolumeOnLocalStorage(vmInstanceVoMockId);
     }
 
     @Test

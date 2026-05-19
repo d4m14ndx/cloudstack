@@ -23,6 +23,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -44,15 +45,20 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import com.cloud.event.UsageEventVO;
+import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.utils.db.EntityManager;
+import com.cloud.vm.VirtualMachine.State;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
 
@@ -65,6 +71,7 @@ public class VmServiceOfferingUpgradeManagerImplTest {
     @Mock private VMInstanceDetailsDao vmInstanceDetailsDao;
     @Mock private VMTemplateDao templateDao;
     @Mock private ServiceOfferingDao serviceOfferingDao;
+    @Mock private DiskOfferingDao diskOfferingDao;
     @Mock private EntityManager entityMgr;
     @Mock private UserVmManager userVmManager;
 
@@ -77,6 +84,178 @@ public class VmServiceOfferingUpgradeManagerImplTest {
     private static final long POOL_ID = 11L;
     private static final long TEMPLATE_ID = 7L;
     private static final long ZONE_ID = 3L;
+
+    private VirtualMachine vmForUpgrade(State state, long serviceOfferingId, long zoneId) {
+        VirtualMachine vm = mock(VirtualMachine.class);
+        lenient().when(vm.getId()).thenReturn(VM_ID);
+        lenient().when(vm.getState()).thenReturn(state);
+        lenient().when(vm.getServiceOfferingId()).thenReturn(serviceOfferingId);
+        lenient().when(vm.getDataCenterId()).thenReturn(zoneId);
+        lenient().when(vm.toString()).thenReturn("vm-" + VM_ID);
+        return vm;
+    }
+
+    private ServiceOffering serviceOfferingForEligibility(long id, boolean dynamic, ServiceOffering.State state, boolean systemUse, long diskOfferingId) {
+        ServiceOffering offering = mock(ServiceOffering.class);
+        lenient().when(offering.getId()).thenReturn(id);
+        lenient().when(offering.isDynamic()).thenReturn(dynamic);
+        lenient().when(offering.getState()).thenReturn(state);
+        lenient().when(offering.isSystemUse()).thenReturn(systemUse);
+        lenient().when(offering.getDiskOfferingId()).thenReturn(diskOfferingId);
+        lenient().when(offering.getUuid()).thenReturn("offering-" + id);
+        lenient().when(offering.getName()).thenReturn("offering-" + id);
+        return offering;
+    }
+
+    private DiskOfferingVO diskOfferingVo(long id, boolean useLocalStorage, String tags, String[] tagsArray) {
+        DiskOfferingVO offering = mock(DiskOfferingVO.class);
+        lenient().when(offering.getId()).thenReturn(id);
+        lenient().when(offering.isUseLocalStorage()).thenReturn(useLocalStorage);
+        lenient().when(offering.getTags()).thenReturn(tags);
+        lenient().when(offering.getTagsArray()).thenReturn(tagsArray);
+        return offering;
+    }
+
+    // ---- checkIfCanUpgrade ----
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsNullNewOffering() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+
+        manager.checkIfCanUpgrade(vm, null);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsInactiveOffering() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(NEW_OFFERING_ID, true, ServiceOffering.State.Inactive, true, 22L);
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsVmStateOtherThanStoppedOrRunning() {
+        VirtualMachine vm = vmForUpgrade(State.Starting, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(NEW_OFFERING_ID, true, ServiceOffering.State.Active, true, 22L);
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsSameStaticOffering() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(OLD_OFFERING_ID, false, ServiceOffering.State.Active, true, 22L);
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsSystemUseMismatch() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(NEW_OFFERING_ID, true, ServiceOffering.State.Active, false, 22L);
+        ServiceOfferingVO currentOffering = mock(ServiceOfferingVO.class);
+        when(currentOffering.getDiskOfferingId()).thenReturn(11L);
+        when(currentOffering.isSystemUse()).thenReturn(true);
+        DiskOfferingVO currentDiskOffering = diskOfferingVo(11L, false, "x,y", new String[] {"x", "y"});
+        DiskOfferingVO newDiskOffering = diskOfferingVo(22L, false, "z,x,y", new String[] {"z", "x", "y"});
+        when(serviceOfferingDao.findByIdIncludingRemoved(VM_ID, OLD_OFFERING_ID)).thenReturn(currentOffering);
+        when(diskOfferingDao.findByIdIncludingRemoved(11L)).thenReturn(currentDiskOffering);
+        when(diskOfferingDao.findById(22L)).thenReturn(newDiskOffering);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.emptyList());
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    @Test
+    public void checkIfCanUpgradeAllowsStoppedVmWhenStorageScopeSystemUseAndTagsMatch() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(NEW_OFFERING_ID, true, ServiceOffering.State.Active, true, 22L);
+        ServiceOfferingVO currentOffering = mock(ServiceOfferingVO.class);
+        when(currentOffering.getDiskOfferingId()).thenReturn(11L);
+        when(currentOffering.isSystemUse()).thenReturn(true);
+        DiskOfferingVO currentDiskOffering = diskOfferingVo(11L, false, "x,y", new String[] {"x", "y"});
+        DiskOfferingVO newDiskOffering = diskOfferingVo(22L, false, "z,x,y", new String[] {"z", "x", "y"});
+        when(serviceOfferingDao.findByIdIncludingRemoved(VM_ID, OLD_OFFERING_ID)).thenReturn(currentOffering);
+        when(diskOfferingDao.findByIdIncludingRemoved(11L)).thenReturn(currentDiskOffering);
+        when(diskOfferingDao.findById(22L)).thenReturn(newDiskOffering);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.emptyList());
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfCanUpgradeRejectsWhenCurrentDiskOfferingTagsAreNotSubsetOfNewTags() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        ServiceOffering newOffering = serviceOfferingForEligibility(NEW_OFFERING_ID, true, ServiceOffering.State.Active, true, 22L);
+        ServiceOfferingVO currentOffering = mock(ServiceOfferingVO.class);
+        when(currentOffering.getDiskOfferingId()).thenReturn(11L);
+        when(currentOffering.isSystemUse()).thenReturn(true);
+        DiskOfferingVO currentDiskOffering = diskOfferingVo(11L, false, "x,y", new String[] {"x", "y"});
+        DiskOfferingVO newDiskOffering = diskOfferingVo(22L, false, "x", new String[] {"x"});
+        when(serviceOfferingDao.findByIdIncludingRemoved(VM_ID, OLD_OFFERING_ID)).thenReturn(currentOffering);
+        when(diskOfferingDao.findByIdIncludingRemoved(11L)).thenReturn(currentDiskOffering);
+        when(diskOfferingDao.findById(22L)).thenReturn(newDiskOffering);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.emptyList());
+
+        manager.checkIfCanUpgrade(vm, newOffering);
+    }
+
+    // ---- checkIfNewOfferingStorageScopeMatchesStoragePool ----
+
+    @Test
+    public void checkIfNewOfferingStorageScopeMatchesStoragePoolAllowsLocalToLocal() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        DiskOffering newDiskOffering = mock(DiskOffering.class);
+        when(newDiskOffering.isUseLocalStorage()).thenReturn(true);
+        VolumeVO rootVolume = mock(VolumeVO.class);
+        when(rootVolume.getPoolId()).thenReturn(POOL_ID);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.singletonList(rootVolume));
+        StoragePoolVO pool = mock(StoragePoolVO.class);
+        when(pool.getScope()).thenReturn(ScopeType.HOST);
+        when(storagePoolDao.findById(POOL_ID)).thenReturn(pool);
+
+        manager.checkIfNewOfferingStorageScopeMatchesStoragePool(vm, newDiskOffering);
+    }
+
+    @Test
+    public void checkIfNewOfferingStorageScopeMatchesStoragePoolAllowsSharedToShared() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        DiskOffering newDiskOffering = mock(DiskOffering.class);
+        when(newDiskOffering.isUseLocalStorage()).thenReturn(false);
+        VolumeVO rootVolume = mock(VolumeVO.class);
+        when(rootVolume.getPoolId()).thenReturn(POOL_ID);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.singletonList(rootVolume));
+        StoragePoolVO pool = mock(StoragePoolVO.class);
+        when(pool.getScope()).thenReturn(ScopeType.CLUSTER);
+        when(storagePoolDao.findById(POOL_ID)).thenReturn(pool);
+
+        manager.checkIfNewOfferingStorageScopeMatchesStoragePool(vm, newDiskOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfNewOfferingStorageScopeMatchesStoragePoolRejectsLocalOfferingForSharedRoot() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        DiskOffering newDiskOffering = mock(DiskOffering.class);
+        when(newDiskOffering.isUseLocalStorage()).thenReturn(true);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.emptyList());
+
+        manager.checkIfNewOfferingStorageScopeMatchesStoragePool(vm, newDiskOffering);
+    }
+
+    @Test(expected = InvalidParameterValueException.class)
+    public void checkIfNewOfferingStorageScopeMatchesStoragePoolRejectsSharedOfferingForLocalRoot() {
+        VirtualMachine vm = vmForUpgrade(State.Stopped, OLD_OFFERING_ID, ZONE_ID);
+        DiskOffering newDiskOffering = mock(DiskOffering.class);
+        when(newDiskOffering.isUseLocalStorage()).thenReturn(false);
+        VolumeVO rootVolume = mock(VolumeVO.class);
+        when(rootVolume.getPoolId()).thenReturn(POOL_ID);
+        when(volumeDao.findByInstanceAndType(eq(VM_ID), any())).thenReturn(Collections.singletonList(rootVolume));
+        StoragePoolVO pool = mock(StoragePoolVO.class);
+        when(pool.getScope()).thenReturn(ScopeType.HOST);
+        when(storagePoolDao.findById(POOL_ID)).thenReturn(pool);
+
+        manager.checkIfNewOfferingStorageScopeMatchesStoragePool(vm, newDiskOffering);
+    }
 
     // ---- isRootVolumeOnLocalStorage ----
 
