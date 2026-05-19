@@ -38,10 +38,8 @@ import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
-import org.apache.cloudstack.acl.RoleVO;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
-import org.apache.cloudstack.acl.dao.RoleDao;
 import org.apache.cloudstack.affinity.AffinityGroup;
 import org.apache.cloudstack.affinity.AffinityGroupResponse;
 import org.apache.cloudstack.annotation.AnnotationService;
@@ -298,7 +296,6 @@ import com.cloud.dc.dao.ASNumberRangeDao;
 import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
-import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.Event;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
@@ -409,14 +406,11 @@ import com.cloud.tags.dao.ResourceTagDao;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
-import com.cloud.user.AccountVO;
-import com.cloud.user.ApiKeyPairState;
 import com.cloud.user.SSHKeyPair;
 import com.cloud.user.User;
 import com.cloud.user.UserAccount;
 import com.cloud.user.UserData;
 import com.cloud.user.UserStatisticsVO;
-import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.UserDataDao;
 import com.cloud.user.dao.UserStatisticsDao;
 import com.cloud.uservm.UserVm;
@@ -496,6 +490,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     @Inject
     private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
     @Inject
+    private ApiKeyPairResponseService apiKeyPairResponseService;
+    @Inject
     private AnnotationDao annotationDao;
     @Inject
     private UserStatisticsDao userStatsDao;
@@ -545,15 +541,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
         (domainPath.append(path)).deleteCharAt(domainPath.length() - 1);
         return domainPath.toString();
     }
-
-    @Inject
-    private RoleDao roleDao;
-
-    @Inject
-    private AccountDao accountDao;
-
-    @Inject
-    private DomainDao domainDao;
 
     @Override
     public UserResponse createUserResponse(User user) {
@@ -5123,77 +5110,12 @@ protected Map<String, ResourceIcon> getResourceIconsUsingOsCategory(List<Templat
 
     @Override
     public ApiKeyPairResponse createKeyPairResponse(ApiKeyPair keyPair) {
-        ApiKeyPairResponse apiKeyPairResponse = new ApiKeyPairResponse();
-
-        populateApiKeyPairInApiKeyPairResponse(keyPair, apiKeyPairResponse);
-        populateUserInApiKeyPairResponse(keyPair, apiKeyPairResponse);
-
-        AccountVO account = accountDao.findByIdIncludingRemoved(keyPair.getAccountId());
-        apiKeyPairResponse.setAccountId(account.getUuid());
-        apiKeyPairResponse.setAccountName(account.getAccountName());
-        apiKeyPairResponse.setAccountType(account.getType().toString());
-
-        populateDomainInApiKeyPairResponse(account.getDomainId(), apiKeyPairResponse);
-        populateRoleInApiKeyPairResponse(account.getRoleId(), apiKeyPairResponse);
-
-        return apiKeyPairResponse;
-    }
-
-    protected void populateRoleInApiKeyPairResponse(Long roleId, ApiKeyPairResponse apiKeyPairResponse) {
-        RoleVO roleVO = roleDao.findById(roleId);
-        apiKeyPairResponse.setRoleId(roleVO.getUuid());
-        apiKeyPairResponse.setRoleName(roleVO.getName());
-        apiKeyPairResponse.setRoleType(roleVO.getRoleType().name());
-    }
-
-    protected static void populateApiKeyPairInApiKeyPairResponse(ApiKeyPair keyPair, ApiKeyPairResponse apiKeyPairResponse) {
-        apiKeyPairResponse.setName(keyPair.getName());
-        apiKeyPairResponse.setApiKey(keyPair.getApiKey());
-        apiKeyPairResponse.setSecretKey(keyPair.getSecretKey());
-        apiKeyPairResponse.setDescription(keyPair.getDescription());
-        apiKeyPairResponse.setId(keyPair.getUuid());
-        apiKeyPairResponse.setCreated(keyPair.getCreated());
-        apiKeyPairResponse.setStartDate(keyPair.getStartDate());
-        apiKeyPairResponse.setEndDate(keyPair.getEndDate());
-
-        ApiKeyPairState state = ApiKeyPairState.ENABLED;
-        if (keyPair.getRemoved() != null) {
-            state = ApiKeyPairState.REMOVED;
-        } else if (keyPair.hasEndDatePassed()) {
-            state = ApiKeyPairState.EXPIRED;
-        }
-        apiKeyPairResponse.setState(state);
-    }
-
-    protected void populateUserInApiKeyPairResponse(ApiKeyPair keyPair, ApiKeyPairResponse apiKeyPairResponse) {
-        User user = ApiDBUtils.findUserById(keyPair.getUserId());
-        apiKeyPairResponse.setUserId(user.getUuid());
-        apiKeyPairResponse.setUsername(user.getUsername());
-    }
-
-    protected void populateDomainInApiKeyPairResponse(Long domainId, ApiKeyPairResponse apiKeyPairResponse) {
-        DomainVO domainVO = domainDao.findById(domainId);
-        apiKeyPairResponse.setDomainId(domainVO.getUuid());
-        apiKeyPairResponse.setDomainName(domainVO.getName());
-        StringBuilder domainPath = new StringBuilder("ROOT");
-        (domainPath.append(domainVO.getPath())).deleteCharAt(domainPath.length() - 1);
-        apiKeyPairResponse.setDomainPath(domainPath.toString());
+        return apiKeyPairResponseService.createKeyPairResponse(keyPair);
     }
 
     @Override
     public ListResponse<BaseRolePermissionResponse> createKeypairPermissionsResponse(final List<ApiKeyPairPermission> permissions) {
-        final ListResponse<BaseRolePermissionResponse> response = new ListResponse<>();
-        final List<BaseRolePermissionResponse> permissionResponses = new ArrayList<>();
-        for (final ApiKeyPairPermission permission : permissions) {
-            BaseRolePermissionResponse permissionResponse = new BaseRolePermissionResponse();
-            permissionResponse.setRule(permission.getRule());
-            permissionResponse.setRulePermission(permission.getPermission());
-            permissionResponse.setDescription(permission.getDescription());
-            permissionResponse.setObjectName("keypermission");
-            permissionResponses.add(permissionResponse);
-        }
-        response.setResponses(permissionResponses);
-        return response;
+        return apiKeyPairResponseService.createKeypairPermissionsResponse(permissions);
     }
 
     @Override

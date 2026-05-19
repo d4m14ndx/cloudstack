@@ -43,12 +43,17 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ResponseObject;
+import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
+import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
+import org.apache.cloudstack.api.response.ApiKeyPairResponse;
+import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
+import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
@@ -135,9 +140,13 @@ public class ApiResponseHelperTest {
     ResourceIconManager resourceIconManager;
     @Mock
     private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
+    @Mock
+    private ApiKeyPairResponseService apiKeyPairResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
+    @Mock
+    private ApiKeyPair apiKeyPairMock;
     @Spy
     @InjectMocks
     ApiResponseHelper apiResponseHelper = new ApiResponseHelper();
@@ -165,6 +174,7 @@ public class ApiResponseHelperTest {
         helper = new ApiResponseHelper();
         ReflectionTestUtils.setField(helper, "apiUsageResponseService", apiUsageResponseService);
         ReflectionTestUtils.setField(helper, "apiConsoleSessionResponseService", apiConsoleSessionResponseService);
+        ReflectionTestUtils.setField(helper, "apiKeyPairResponseService", apiKeyPairResponseService);
     }
 
     @Before
@@ -698,5 +708,28 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expected, response);
         verify(apiConsoleSessionResponseService).createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
+    }
+
+    @Test
+    public void createKeyPairResponseDelegatesToService() {
+        ApiKeyPairResponse expected = new ApiKeyPairResponse();
+        when(apiKeyPairResponseService.createKeyPairResponse(apiKeyPairMock)).thenReturn(expected);
+
+        ApiKeyPairResponse response = apiResponseHelper.createKeyPairResponse(apiKeyPairMock);
+
+        Assert.assertSame(expected, response);
+        verify(apiKeyPairResponseService).createKeyPairResponse(apiKeyPairMock);
+    }
+
+    @Test
+    public void createKeypairPermissionsResponseDelegatesToService() {
+        List<ApiKeyPairPermission> permissions = Collections.emptyList();
+        ListResponse<BaseRolePermissionResponse> expected = new ListResponse<>();
+        when(apiKeyPairResponseService.createKeypairPermissionsResponse(permissions)).thenReturn(expected);
+
+        ListResponse<BaseRolePermissionResponse> response = apiResponseHelper.createKeypairPermissionsResponse(permissions);
+
+        Assert.assertSame(expected, response);
+        verify(apiKeyPairResponseService).createKeypairPermissionsResponse(permissions);
     }
 }
