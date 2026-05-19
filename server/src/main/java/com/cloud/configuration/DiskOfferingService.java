@@ -16,6 +16,9 @@
 // under the License.
 package com.cloud.configuration;
 
+import java.util.List;
+
+import org.apache.cloudstack.api.command.admin.offering.CloneDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.CreateDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.DeleteDiskOfferingCmd;
 import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
@@ -23,27 +26,15 @@ import org.apache.cloudstack.api.command.admin.offering.UpdateDiskOfferingCmd;
 import com.cloud.offering.DiskOffering;
 
 /**
- * Disk-offering CRUD operations — create, update and delete a {@code DISK_OFFERING}
- * from an admin or domain-admin command. Extracted from
+ * Disk-offering create/clone/read/update/delete operations for a
+ * {@code DISK_OFFERING} from an admin or domain-admin command. Extracted from
  * {@link ConfigurationManagerImpl} as the second parallel slice of the Phase&nbsp;4
  * Spring-component decomposition.
  *
- * <p>{@code ConfigurationManagerImpl} retains thin delegating wrappers so the
- * {@code ConfigurationService} / {@link ConfigurationManager} interface contracts
- * keep working unchanged, and so existing test spies that verify the inner
- * validation helpers ({@code validateDomain}, {@code validateZone},
- * {@code updateDiskOfferingIfCmdAttributeNotNull},
- * {@code updateDiskOfferingDetailsDomainIds},
- * {@code checkDomainAdminUpdateOfferingRestrictions},
- * {@code getAccountNonChildDomains}, {@code checkIfDomainIsChildDomain})
- * continue to invoke them on the manager. Those helpers are duplicated inside
- * {@link DiskOfferingServiceImpl} so the slice has no back-reference into the
- * manager — the same pattern used by {@link PodServiceImpl}.
- *
- * <p>The protected {@code createDiskOffering(userId, ...)} overload on
- * {@code ConfigurationManagerImpl} also remains, because service-offering
- * creation calls it directly; the slice keeps its own internal copy of that
- * flow that backs the {@link CreateDiskOfferingCmd} path here.
+ * <p>The manager retains only API-contract wrappers for these methods. Service
+ * offering creation owns its separate root-disk persistence path and is handled
+ * by {@link ServiceOfferingServiceImpl}; do not route service-offering work
+ * through this disk-offering service.
  */
 public interface DiskOfferingService {
 
@@ -56,6 +47,23 @@ public interface DiskOfferingService {
      * org.apache.cloudstack.context.CallContext} event details.
      */
     DiskOffering createDiskOffering(CreateDiskOfferingCmd cmd);
+
+    /**
+     * Clone an existing disk offering, inheriting omitted parameters from the
+     * source offering and persisting the result through the disk-offering write
+     * path owned by this service.
+     */
+    DiskOffering cloneDiskOffering(CloneDiskOfferingCmd cmd);
+
+    /**
+     * Return domain ids attached to an existing disk offering.
+     */
+    List<Long> getDiskOfferingDomains(Long diskOfferingId);
+
+    /**
+     * Return zone ids attached to an existing disk offering.
+     */
+    List<Long> getDiskOfferingZones(Long diskOfferingId);
 
     /**
      * Update an existing disk offering. Re-validates domain / zone references

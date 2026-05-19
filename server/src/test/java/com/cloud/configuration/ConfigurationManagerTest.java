@@ -59,10 +59,8 @@ import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.offering.DiskOffering;
 import com.cloud.projects.ProjectManager;
 import com.cloud.storage.DiskOfferingVO;
-import com.cloud.storage.StoragePoolTagVO;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.StoragePoolTagsDao;
@@ -137,7 +135,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -1169,152 +1166,6 @@ public class ConfigurationManagerTest {
     @Test
     public void testGetVlanNumberFromUriUntagged() {
         assertEquals("untagged", configurationMgr.getVlanNumberFromUri("vlan://untagged"));
-    }
-
-    @Test
-    public void validateMaxRateEqualsOrGreaterTestAllGood() {
-        configurationMgr.validateMaxRateEqualsOrGreater(1l, 2l, "IOPS Read");
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void validateMaxRateEqualsOrGreaterTestNormalRateGreaterThanMax() {
-        configurationMgr.validateMaxRateEqualsOrGreater(3l, 2l, "IOPS Read");
-    }
-
-    @Test
-    public void validateMaxRateNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(3l, null, "IOPS Read");
-    }
-
-    @Test
-    public void validateNormalRateNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(null, 3l, "IOPS Read");
-    }
-
-    @Test
-    public void validateAllNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(null, 3l, "IOPS Read");
-    }
-
-    @Test
-    public void validateMaximumIopsAndBytesLengthTestAllNull() {
-        configurationMgr.validateMaximumIopsAndBytesLength(null, null, null, null);
-    }
-
-    @Test
-    public void validateMaximumIopsAndBytesLengthTestDefaultLengthConfigs() {
-        configurationMgr.validateMaximumIopsAndBytesLength(36000l, 36000l, 36000l, 36000l);
-    }
-
-    @Test
-    public void shouldUpdateDiskOfferingTests(){
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(Mockito.anyString(), Mockito.anyString(), Mockito.anyInt(), Mockito.anyBoolean(), Mockito.anyString(), Mockito.anyString(), Mockito.any(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(Mockito.anyString(), nullable(String.class), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), Mockito.any(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), Mockito.anyString(), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), Mockito.anyInt(), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(int.class), Mockito.anyBoolean(), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(int.class), nullable(Boolean.class), Mockito.anyString(), Mockito.anyString(), nullable(DiskOffering.State.class)));
-    }
-
-    @Test
-    public void shouldUpdateDiskOfferingTestFalse(){
-        assertFalse(configurationMgr.shouldUpdateDiskOffering(null, null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateIopsRateParametersTestFalse() {
-        assertFalse(configurationMgr.shouldUpdateIopsRateParameters(null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateIopsRateParametersTests(){
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong()));
-    }
-
-    @Test
-    public void shouldUpdateBytesRateParametersTestFalse() {
-        assertFalse(configurationMgr.shouldUpdateBytesRateParameters(null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateBytesRateParametersTests(){
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong()));
-    }
-
-    @Test
-    public void updateDiskOfferingTagsIfIsNotNullTestWhenTagsIsNull(){
-        Mockito.doNothing().when(configurationMgr).updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-        Mockito.verify(configurationMgr, Mockito.times(1)).updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-    }
-    @Test
-    public void updateDiskOfferingTagsIfIsNotNullTestWhenTagsIsNotNull(){
-        String tags = "tags";
-        Mockito.doNothing().when(configurationMgr).updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        Mockito.verify(configurationMgr, Mockito.times(1)).updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void updateDiskOfferingTagsWithPrimaryStorageTagsEqualNullTestThrowException(){
-        String tags = "tags";
-        List<String> storageTagsNull = new ArrayList<>();
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.getStoragePoolTags(anyLong())).thenReturn(storageTagsNull);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void updateDiskOfferingTagsWithPrimaryStorageMissingTagsTestThrowException(){
-        String tags = "tag1,tag2";
-        List<String> storageTagsWithMissingTag = new ArrayList<>(Arrays.asList("tag1"));
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.getStoragePoolTags(anyLong())).thenReturn(storageTagsWithMissingTag);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test
-    public void updateDiskOfferingTagsWithPrimaryStorageWithCorrectTagsTestSuccess(){
-        String tags = "tag1,tag2";
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        StoragePoolTagVO poolTagMock1 = Mockito.mock(StoragePoolTagVO.class);
-        StoragePoolTagVO poolTagMock2 = Mockito.mock(StoragePoolTagVO.class);
-        List<StoragePoolTagVO> poolTags = List.of(poolTagMock1, poolTagMock2);
-        Mockito.doReturn("tag1").when(poolTagMock1).getTag();
-        Mockito.doReturn("tag2").when(poolTagMock2).getTag();
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.findStoragePoolTags(anyLong())).thenReturn(poolTags);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        Mockito.verify(diskOfferingVOMock, Mockito.times(1)).setTags(tags);
     }
 
     @Test(expected = IllegalArgumentException.class)
