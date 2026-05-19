@@ -85,7 +85,6 @@ import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
-import com.cloud.dc.DataCenterVnetVO;
 import com.cloud.dc.PodVlanMapVO;
 import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanDetailsVO;
@@ -138,7 +137,6 @@ import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetwork;
 import com.cloud.network.VpcVirtualNetworkApplianceService;
 import com.cloud.network.dao.AccountGuestVlanMapDao;
-import com.cloud.network.dao.AccountGuestVlanMapVO;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.Ipv6GuestPrefixSubnetNetworkMapDao;
@@ -419,6 +417,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     RouterDefaultDnsUpdateService routerDefaultDnsUpdateService;
     @Inject
     NetworkResourceCleanupService networkResourceCleanupService;
+    @Inject
+    NetworkOfferingVlanValidationService networkOfferingVlanValidationService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -2248,86 +2248,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
             }
 
             //TODO(VXLAN): Support VNI specified
-            // VlanId can be specified only when network offering supports it
-            final boolean vlanSpecified = vlanId != null;
-            if (vlanSpecified != ntwkOff.isSpecifyVlan()) {
-                if (vlanSpecified) {
-                    if (!isSharedNetworkWithoutSpecifyVlan(ntwkOff) && !isPrivateGatewayWithoutSpecifyVlan(ntwkOff)) {
-                        throw new InvalidParameterValueException("Can't specify vlan; corresponding offering says specifyVlan=false");
-                    }
-                } else {
-                    throw new InvalidParameterValueException("Vlan has to be specified; corresponding offering says specifyVlan=true");
-                }
-            }
-
-            if (vlanSpecified) {
-                URI uri = encodeVlanIdIntoBroadcastUri(vlanId, pNtwk);
-                // Aux: generate secondary URI for secondary VLAN ID (if provided) for performing checks
-                URI secondaryUri = StringUtils.isNotBlank(isolatedPvlan) ? BroadcastDomainType.fromString(isolatedPvlan) : null;
-                if (isSharedNetworkWithoutSpecifyVlan(ntwkOff) || isPrivateGatewayWithoutSpecifyVlan(ntwkOff)) {
-                    bypassVlanOverlapCheck = true;
-                }
-                //don't allow to specify vlan tag used by physical network for dynamic vlan allocation
-                if (!(bypassVlanOverlapCheck && (ntwkOff.getGuestType() == GuestType.Shared || isPrivateNetwork))
-                        && _dcDao.findVnet(zoneId, pNtwk.getId(), BroadcastDomainType.getValue(uri)).size() > 0) {
-                    throw new InvalidParameterValueException("The VLAN tag to use for new guest network, " + vlanId + " is already being used for dynamic vlan allocation for the guest network in zone "
-                            + zone.getName());
-                }
-                if (secondaryUri != null && !(bypassVlanOverlapCheck && ntwkOff.getGuestType() == GuestType.Shared) &&
-                        _dcDao.findVnet(zoneId, pNtwk.getId(), BroadcastDomainType.getValue(secondaryUri)).size() > 0) {
-                    throw new InvalidParameterValueException(String.format(
-                            "The VLAN tag for isolated PVLAN %s is already being used for dynamic vlan allocation for the guest network in zone %s",
-                            isolatedPvlan, zone));
-                }
-                if (!UuidUtils.isUuid(vlanId)) {
-                    // For Isolated and L2 networks, don't allow to create network with vlan that already exists in the zone
-                    if (!hasGuestBypassVlanOverlapCheck(bypassVlanOverlapCheck, ntwkOff, isPrivateNetwork)) {
-                        if (_networksDao.listByZoneAndUriAndGuestType(zoneId, uri.toString(), null).size() > 0) {
-                            throw new InvalidParameterValueException(String.format(
-                                    "Network with vlan %s already exists or overlaps with other network vlans in zone %s",
-                                    vlanId, zone));
-                        } else if (secondaryUri != null && _networksDao.listByZoneAndUriAndGuestType(zoneId, secondaryUri.toString(), null).size() > 0) {
-                            throw new InvalidParameterValueException(String.format(
-                                    "Network with vlan %s already exists or overlaps with other network vlans in zone %s",
-                                    isolatedPvlan, zone));
-                        } else {
-                            final List<DataCenterVnetVO> dcVnets = _datacenterVnetDao.findVnet(zoneId, BroadcastDomainType.getValue(uri));
-                            //for the network that is created as part of private gateway,
-                            //the vnet is not coming from the data center vnet table, so the list can be empty
-                            if (!dcVnets.isEmpty()) {
-                                final DataCenterVnetVO dcVnet = dcVnets.get(0);
-                                // Fail network creation if specified vlan is dedicated to a different account
-                                if (dcVnet.getAccountGuestVlanMapId() != null) {
-                                    final Long accountGuestVlanMapId = dcVnet.getAccountGuestVlanMapId();
-                                    final AccountGuestVlanMapVO map = _accountGuestVlanMapDao.findById(accountGuestVlanMapId);
-                                    if (map.getAccountId() != owner.getAccountId()) {
-                                        throw new InvalidParameterValueException("Vlan " + vlanId + " is dedicated to a different account");
-                                    }
-                                    // Fail network creation if owner has a dedicated range of vlans but the specified vlan belongs to the system pool
-                                } else {
-                                    final List<AccountGuestVlanMapVO> maps = _accountGuestVlanMapDao.listAccountGuestVlanMapsByAccount(owner.getAccountId());
-                                    if (maps != null && !maps.isEmpty()) {
-                                        final int vnetsAllocatedToAccount = _datacenterVnetDao.countVnetsAllocatedToAccount(zoneId, owner.getAccountId());
-                                        final int vnetsDedicatedToAccount = _datacenterVnetDao.countVnetsDedicatedToAccount(zoneId, owner.getAccountId());
-                                        if (vnetsAllocatedToAccount < vnetsDedicatedToAccount) {
-                                            throw new InvalidParameterValueException("Specified vlan " + vlanId + " doesn't belong" + " to the vlan range dedicated to the owner "
-                                                    + owner.getAccountName());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // don't allow to creating shared network with given Vlan ID, if there already exists a isolated network or
-                        // shared network with same Vlan ID in the zone
-                        if (!bypassVlanOverlapCheck && _networksDao.listByZoneAndUriAndGuestType(zoneId, uri.toString(), GuestType.Isolated).size() > 0) {
-                            throw new InvalidParameterValueException(String.format(
-                                    "There is an existing isolated/shared network that overlaps with vlan id:%s in zone %s", vlanId, zone));
-                        }
-                    }
-                }
-
-            }
+            networkOfferingVlanValidationService.validateGuestNetworkOfferingVlan(vlanId, isolatedPvlan, bypassVlanOverlapCheck,
+                    ntwkOff, pNtwk, zone, zoneId, owner, isPrivateNetwork);
 
             // If networkDomain is not specified, take it from the global configuration
             if (_networkModel.areServicesSupportedByNetworkOffering(networkOfferingId, Service.Dns)) {
@@ -2539,14 +2461,11 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public boolean isSharedNetworkWithoutSpecifyVlan(NetworkOffering offering) {
-        if (offering == null || offering.getTrafficType() != TrafficType.Guest || offering.getGuestType() != GuestType.Shared) {
-            return false;
-        }
-        return !offering.isSpecifyVlan();
+        return networkOfferingVlanValidationService.isSharedNetworkWithoutSpecifyVlan(offering);
     }
 
     private boolean isPrivateGatewayWithoutSpecifyVlan(NetworkOffering ntwkOff) {
-        return ntwkOff.getId() == _networkOfferingDao.findByUniqueName(NetworkOffering.SystemPrivateGatewayNetworkOfferingWithoutVlan).getId();
+        return networkOfferingVlanValidationService.isPrivateGatewayWithoutSpecifyVlan(ntwkOff);
     }
 
     /**
@@ -2555,28 +2474,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
      * @return Broadcast URI, e.g. 'vlan://vlan_ID' or 'vxlan://vlxan_ID'
      */
     protected URI encodeVlanIdIntoBroadcastUri(String vlanId, PhysicalNetwork pNtwk) {
-        if (pNtwk == null) {
-            throw new InvalidParameterValueException(String.format("Failed to encode VLAN/VXLAN %s into a Broadcast URI. Physical Network cannot be null.", vlanId));
-        }
-
-        if (!pNtwk.getIsolationMethods().isEmpty() && StringUtils.isNotBlank(pNtwk.getIsolationMethods().get(0))) {
-            String isolationMethod = pNtwk.getIsolationMethods().get(0).toLowerCase();
-            String vxlan = BroadcastDomainType.Vxlan.toString().toLowerCase();
-            if (isolationMethod.equals(vxlan)) {
-                return BroadcastDomainType.encodeStringIntoBroadcastUri(vlanId, BroadcastDomainType.Vxlan);
-            }
-        }
-        return BroadcastDomainType.fromString(vlanId);
-    }
-
-    /**
-     * Checks bypass VLAN id/range overlap check during network creation for guest networks
-     *
-     * @param bypassVlanOverlapCheck bypass VLAN id/range overlap check
-     * @param ntwkOff                network offering
-     */
-    private boolean hasGuestBypassVlanOverlapCheck(final boolean bypassVlanOverlapCheck, final NetworkOfferingVO ntwkOff, final boolean isPrivateNetwork) {
-        return bypassVlanOverlapCheck && (ntwkOff.getGuestType() != GuestType.Isolated || isPrivateNetwork);
+        return networkOfferingVlanValidationService.encodeVlanIdIntoBroadcastUri(vlanId, pNtwk);
     }
 
     /**
@@ -2587,12 +2485,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
      * @param ntwkOff network offering
      */
     protected void checkL2OfferingServices(NetworkOfferingVO ntwkOff) {
-        if (ntwkOff.getGuestType() == GuestType.L2 && !_networkModel.listNetworkOfferingServices(ntwkOff.getId()).isEmpty() &&
-                (!_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.UserData) ||
-                        (_networkModel.areServicesSupportedByNetworkOffering(ntwkOff.getId(), Service.UserData) &&
-                                _networkModel.listNetworkOfferingServices(ntwkOff.getId()).size() > 1))) {
-            throw new InvalidParameterValueException("For L2 networks, only UserData service is allowed");
-        }
+        networkOfferingVlanValidationService.checkL2OfferingServices(ntwkOff);
     }
 
     @Override

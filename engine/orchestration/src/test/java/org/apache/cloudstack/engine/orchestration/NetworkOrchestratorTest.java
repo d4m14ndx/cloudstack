@@ -99,6 +99,7 @@ public class NetworkOrchestratorTest extends TestCase {
 
     NetworkOrchestrator testOrchestrator = Mockito.spy(new NetworkOrchestrator());
     RequestedNicIpReservationServiceImpl requestedNicIpReservationService;
+    NetworkOfferingVlanValidationServiceImpl networkOfferingVlanValidationService;
 
     private String guruName = "GuestNetworkGuru";
     private String dhcpProvider = "VirtualRouter";
@@ -132,12 +133,25 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator._vpcMgr = mock(VpcManager.class);
         testOrchestrator._ipAddrMgr = mock(IpAddressManager.class);
         testOrchestrator._entityMgr = mock(EntityManager.class);
+        testOrchestrator._networkOfferingDao = mock(com.cloud.offerings.dao.NetworkOfferingDao.class);
+        testOrchestrator._dcDao = mock(com.cloud.dc.dao.DataCenterDao.class);
+        testOrchestrator._datacenterVnetDao = mock(com.cloud.dc.dao.DataCenterVnetDao.class);
+        testOrchestrator._accountGuestVlanMapDao = mock(com.cloud.network.dao.AccountGuestVlanMapDao.class);
 
         requestedNicIpReservationService = Mockito.spy(new RequestedNicIpReservationServiceImpl());
         requestedNicIpReservationService.vlanDao = testOrchestrator._vlanDao;
         requestedNicIpReservationService.ipAddressDao = testOrchestrator._ipAddressDao;
         requestedNicIpReservationService.networkModel = testOrchestrator._networkModel;
         testOrchestrator.requestedNicIpReservationService = requestedNicIpReservationService;
+
+        networkOfferingVlanValidationService = Mockito.spy(new NetworkOfferingVlanValidationServiceImpl());
+        networkOfferingVlanValidationService.dataCenterDao = testOrchestrator._dcDao;
+        networkOfferingVlanValidationService.networksDao = testOrchestrator._networksDao;
+        networkOfferingVlanValidationService.dataCenterVnetDao = testOrchestrator._datacenterVnetDao;
+        networkOfferingVlanValidationService.accountGuestVlanMapDao = testOrchestrator._accountGuestVlanMapDao;
+        networkOfferingVlanValidationService.networkOfferingDao = testOrchestrator._networkOfferingDao;
+        networkOfferingVlanValidationService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.networkOfferingVlanValidationService = networkOfferingVlanValidationService;
 
         // Wire a real NetworkProviderResolutionServiceImpl that shares the
         // same dao/network-model mocks as the orchestrator under test, so
