@@ -89,11 +89,8 @@ import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMNetworkMapDao;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 import org.apache.cloudstack.engine.service.api.OrchestrationService;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProvider;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
@@ -134,8 +131,6 @@ import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.GetVmIpAddressCommand;
-import com.cloud.agent.api.GetVolumeStatsAnswer;
-import com.cloud.agent.api.GetVolumeStatsCommand;
 import com.cloud.agent.api.PvlanSetupCommand;
 import com.cloud.agent.api.RestoreVMSnapshotAnswer;
 import com.cloud.agent.api.RestoreVMSnapshotCommand;
@@ -201,7 +196,6 @@ import com.cloud.gpu.GPU;
 import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
-import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
@@ -572,6 +566,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmRootVolumeStorageCleanupService vmRootVolumeStorageCleanupService;
     @Inject
     private VmStatsCollectionService vmStatsCollectionService;
+    @Inject
+    private VmVolumeStatisticsService vmVolumeStatisticsService;
     @Inject
     protected VmStorageMigrationService vmStorageMigrationService;
     @Inject
@@ -1322,56 +1318,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public HashMap<String, VolumeStatsEntry> getVolumeStatistics(long clusterId, String poolUuid, StoragePoolType poolType,  int timeout) {
-        List<HostVO> neighbors = _resourceMgr.listHostsInClusterByStatus(clusterId, Status.Up);
-        StoragePoolVO storagePool = _storagePoolDao.findPoolByUUID(poolUuid);
-        HashMap<String, VolumeStatsEntry> volumeStatsByUuid = new HashMap<>();
-
-        for (HostVO neighbor : neighbors) {
-
-            // - zone wide storage for specific hypervisortypes
-            if ((ScopeType.ZONE.equals(storagePool.getScope()) && storagePool.getHypervisor() != neighbor.getHypervisorType())) {
-                // skip this neighbour if their hypervisor type is not the same as that of the store
-                continue;
-            }
-
-            List<String> volumeLocators = getVolumesByHost(neighbor, storagePool);
-            if (!CollectionUtils.isEmpty(volumeLocators)) {
-
-                GetVolumeStatsCommand cmd = new GetVolumeStatsCommand(poolType, poolUuid, volumeLocators);
-                Answer answer = null;
-
-                DataStoreProvider storeProvider = _dataStoreProviderMgr
-                        .getDataStoreProvider(storagePool.getStorageProviderName());
-                DataStoreDriver storeDriver = storeProvider.getDataStoreDriver();
-
-                if (storeDriver instanceof PrimaryDataStoreDriver && ((PrimaryDataStoreDriver) storeDriver).canProvideVolumeStats()) {
-                    // Get volume stats from the pool directly instead of sending cmd to host
-                    answer = storageManager.getVolumeStats(storagePool, cmd);
-                } else {
-                    if (timeout > 0) {
-                        cmd.setWait(timeout/1000);
-                    }
-
-                    answer = _agentMgr.easySend(neighbor.getId(), cmd);
-                }
-
-                if (answer != null && answer instanceof GetVolumeStatsAnswer) {
-                    GetVolumeStatsAnswer volstats = (GetVolumeStatsAnswer)answer;
-                    if (volstats.getVolumeStats() != null) {
-                        volumeStatsByUuid.putAll(volstats.getVolumeStats());
-                    }
-                }
-            }
-        }
-        return volumeStatsByUuid.size() > 0 ? volumeStatsByUuid : null;
-    }
-
-    private List<String> getVolumesByHost(HostVO host, StoragePool pool) {
-        List<VMInstanceVO> vmsPerHost = _vmInstanceDao.listByHostId(host.getId());
-        return vmsPerHost.stream()
-                .flatMap(vm -> _volsDao.findNonDestroyedVolumesByInstanceIdAndPoolId(vm.getId(),pool.getId()).stream().map(vol ->
-                vol.getState() == Volume.State.Ready ? (vol.getFormat() == ImageFormat.OVA ? vol.getChainInfo() : vol.getPath()) : null).filter(Objects::nonNull))
-                .collect(Collectors.toList());
+        return vmVolumeStatisticsService.getVolumeStatistics(clusterId, poolUuid, poolType, timeout);
     }
 
     @Override
