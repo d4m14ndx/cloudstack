@@ -19,6 +19,7 @@ package com.cloud.vm;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -484,6 +485,9 @@ public class UserVmManagerImplTest {
     VmPasswordSSHKeyResetService vmPasswordSSHKeyResetService;
 
     @Mock
+    VmStartOrchestrationService vmStartOrchestrationService;
+
+    @Mock
     VmRestoreService vmRestoreService;
 
     @Mock
@@ -649,6 +653,7 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "clusterDao", clusterDao);
         org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "hostDao", hostDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartPlacementService", startPlacementService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartOrchestrationService", vmStartOrchestrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmExpungeFailureTransitionService", vmExpungeFailureTransitionService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
@@ -748,6 +753,55 @@ public class UserVmManagerImplTest {
         for (Map.Entry<ConfigKey, Object> entry : originalConfigValues.entrySet()) {
             updateDefaultConfigValue(entry.getKey(), entry.getValue(), true);
         }
+    }
+
+    @Test
+    public void startVirtualMachineHostOverloadDelegatesToStartOrchestrationService()
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> expected = new Pair<>(userVmVoMock, params);
+        Long hostId = 44L;
+        when(vmStartOrchestrationService.startVirtualMachine(vmId, hostId, params, "planner")).thenReturn(expected);
+
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> result =
+                userVmManagerImpl.startVirtualMachine(vmId, hostId, params, "planner");
+
+        assertSame(expected, result);
+        verify(vmStartOrchestrationService).startVirtualMachine(vmId, hostId, params, "planner");
+    }
+
+    @Test
+    public void startVirtualMachinePlacementOverloadDelegatesToStartOrchestrationService()
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> expected = new Pair<>(userVmVoMock, params);
+        Long podId = 11L;
+        Long clusterId = 22L;
+        Long hostId = 33L;
+        when(vmStartOrchestrationService.startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner")).thenReturn(expected);
+
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> result =
+                userVmManagerImpl.startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner");
+
+        assertSame(expected, result);
+        verify(vmStartOrchestrationService).startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner");
+    }
+
+    @Test
+    public void startVirtualMachineExplicitHostOverloadDelegatesToStartOrchestrationService()
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
+        Map<VirtualMachineProfile.Param, Object> params = new HashMap<>();
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> expected = new Pair<>(userVmVoMock, params);
+        Long podId = 11L;
+        Long clusterId = 22L;
+        Long hostId = 33L;
+        when(vmStartOrchestrationService.startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner", false)).thenReturn(expected);
+
+        Pair<UserVmVO, Map<VirtualMachineProfile.Param, Object>> result =
+                userVmManagerImpl.startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner", false);
+
+        assertSame(expected, result);
+        verify(vmStartOrchestrationService).startVirtualMachine(vmId, podId, clusterId, hostId, params, "planner", false);
     }
 
     @Test
