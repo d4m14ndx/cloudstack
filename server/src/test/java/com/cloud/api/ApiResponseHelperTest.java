@@ -47,6 +47,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants.HostDetails;
 import org.apache.cloudstack.api.ResponseObject;
+import org.apache.cloudstack.api.ResponseObject.ResponseView;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
 import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
@@ -67,6 +68,7 @@ import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
 import org.apache.cloudstack.api.response.ConfigurationResponse;
 import org.apache.cloudstack.api.response.DiskOfferingResponse;
 import org.apache.cloudstack.api.response.DomainResponse;
+import org.apache.cloudstack.api.response.ExtractResponse;
 import org.apache.cloudstack.api.response.FirewallResponse;
 import org.apache.cloudstack.api.response.FirewallRuleResponse;
 import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
@@ -101,6 +103,7 @@ import org.apache.cloudstack.api.response.Site2SiteVpnGatewayResponse;
 import org.apache.cloudstack.api.response.StaticRouteResponse;
 import org.apache.cloudstack.api.response.StorageNetworkIpRangeResponse;
 import org.apache.cloudstack.api.response.StoragePoolResponse;
+import org.apache.cloudstack.api.response.TemplatePermissionsResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
@@ -176,6 +179,7 @@ import com.cloud.storage.ImageStore;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.StoragePool;
+import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.snapshot.SnapshotPolicy;
 import com.cloud.storage.snapshot.SnapshotSchedule;
@@ -252,11 +256,15 @@ public class ApiResponseHelperTest {
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
+    @Mock
+    private ApiTemplateIsoResponseService apiTemplateIsoResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
     @Mock
     private ApiKeyPair apiKeyPairMock;
+    @Mock
+    private VMTemplateVO templateMock;
     @Spy
     @InjectMocks
     ApiResponseHelper apiResponseHelper = new ApiResponseHelper();
@@ -300,6 +308,7 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
         ReflectionTestUtils.setField(apiResponseHelper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
+        ReflectionTestUtils.setField(helper, "apiTemplateIsoResponseService", apiTemplateIsoResponseService);
     }
 
     @Before
@@ -1445,5 +1454,50 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expected, response);
         verify(apiLoadBalancerFirewallResponseService).createIpv6FirewallRuleResponse(rule);
+    }
+
+    @Test
+    public void createTemplateResponsesForTemplateIdDelegatesToService() {
+        List<TemplateResponse> expected = Collections.singletonList(new TemplateResponse());
+        when(apiTemplateIsoResponseService.createTemplateResponses(ResponseView.Full, templateId, zoneId, true)).thenReturn(expected);
+
+        List<TemplateResponse> response = helper.createTemplateResponses(ResponseView.Full, templateId, zoneId, true);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplateResponses(ResponseView.Full, templateId, zoneId, true);
+    }
+
+    @Test
+    public void createTemplateUpdateResponseDelegatesToService() {
+        TemplateResponse expected = new TemplateResponse();
+        when(apiTemplateIsoResponseService.createTemplateUpdateResponse(ResponseView.Restricted, templateMock)).thenReturn(expected);
+
+        TemplateResponse response = helper.createTemplateUpdateResponse(ResponseView.Restricted, templateMock);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplateUpdateResponse(ResponseView.Restricted, templateMock);
+    }
+
+    @Test
+    public void createVolumeExtractResponseDelegatesToService() {
+        ExtractResponse expected = new ExtractResponse();
+        when(apiTemplateIsoResponseService.createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume")).thenReturn(expected);
+
+        ExtractResponse response = helper.createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume");
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume");
+    }
+
+    @Test
+    public void createTemplatePermissionsResponseDelegatesToService() {
+        List<String> accountNames = Collections.singletonList("account");
+        TemplatePermissionsResponse expected = new TemplatePermissionsResponse();
+        when(apiTemplateIsoResponseService.createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId)).thenReturn(expected);
+
+        TemplatePermissionsResponse response = helper.createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId);
     }
 }
