@@ -455,6 +455,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     protected VmDiskOfferingSuitabilityService vmDiskOfferingSuitabilityService;
     @Inject
+    protected VmCommandSpecPostProcessingService vmCommandSpecPostProcessingService;
+    @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
 
@@ -1363,9 +1365,9 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                     final VirtualMachineTO vmTO = hvGuru.implement(vmProfile);
                     updateVmMetadataManufacturerAndProduct(vmTO, vm);
 
-                    checkAndSetEnterSetupMode(vmTO, params);
+                    vmCommandSpecPostProcessingService.setEnterSetupMode(vmTO, params);
 
-                    handlePath(vmTO.getDisks(), vm.getHypervisorType());
+                    vmCommandSpecPostProcessingService.prepareManagedDiskPaths(vmTO.getDisks(), vm.getHypervisorType());
                     setVmNetworkDetails(vm, vmTO);
 
                     Commands cmds = new Commands(Command.OnError.Stop);
@@ -1379,7 +1381,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
                     vmGuru.finalizeDeployment(cmds, vmProfile, dest, ctx);
 
-                    addExtraConfig(vmTO);
+                    vmCommandSpecPostProcessingService.addExtraConfig(vmTO);
 
                     work = _workDao.findById(work.getId());
                     if (work == null || work.getStep() != Step.Prepare) {
@@ -1394,7 +1396,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
                     startAnswer = cmds.getAnswer(StartAnswer.class);
                     if (startAnswer != null && startAnswer.getResult()) {
-                        handlePath(vmTO.getDisks(), startAnswer.getIqnToData());
+                        vmCommandSpecPostProcessingService.applyStartAnswerDiskMetadata(vmTO.getDisks(), startAnswer.getIqnToData());
 
                         final String host_guid = startAnswer.getHost_guid();
 
@@ -1406,7 +1408,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                             destHostId = finalHost.getId();
                         }
                         if (vmGuru.finalizeStart(vmProfile, destHostId, cmds, ctx)) {
-                            syncDiskChainChange(startAnswer);
+                            vmCommandSpecPostProcessingService.syncDiskChainChange(startAnswer);
 
                             if (!changeState(vm, Event.OperationSucceeded, destHostId, work, Step.Done)) {
                                 logger.error("Unable to transition to a new state. VM uuid: {}, VM oldstate: {}, Event: {}", vm, vm.getState(), Event.OperationSucceeded);
@@ -1718,107 +1720,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                 _nicsDao.update(nic.getId(),nic);
             }
             deviceId ++;
-        }
-    }
-
-    private void addExtraConfig(VirtualMachineTO vmTO) {
-        Map<String, String> details = vmTO.getDetails();
-        for (String key : details.keySet()) {
-            if (key.startsWith(ApiConstants.EXTRA_CONFIG)) {
-                vmTO.addExtraConfig(key, details.get(key));
-            }
-        }
-    }
-
-    private void handlePath(final DiskTO[] disks, final HypervisorType hypervisorType) {
-        if (hypervisorType != HypervisorType.KVM) {
-            return;
-        }
-
-        if (disks != null) {
-            for (final DiskTO disk : disks) {
-                final Map<String, String> details = disk.getDetails();
-                final boolean isManaged = details != null && Boolean.parseBoolean(details.get(DiskTO.MANAGED));
-
-                if (isManaged && disk.getPath() == null) {
-                    final Long volumeId = disk.getData().getId();
-                    final VolumeVO volume = _volsDao.findById(volumeId);
-
-                    disk.setPath(volume.get_iScsiName());
-
-                    if (disk.getData() instanceof VolumeObjectTO) {
-                        final VolumeObjectTO volTo = (VolumeObjectTO)disk.getData();
-
-                        volTo.setPath(volume.get_iScsiName());
-                    }
-
-                    volume.setPath(volume.get_iScsiName());
-
-                    _volsDao.update(volumeId, volume);
-                }
-            }
-        }
-    }
-
-    private void handlePath(final DiskTO[] disks, final Map<String, Map<String, String>> iqnToData) {
-        if (disks != null && iqnToData != null) {
-            for (final DiskTO disk : disks) {
-                final Map<String, String> details = disk.getDetails();
-                final boolean isManaged = details != null && Boolean.parseBoolean(details.get(DiskTO.MANAGED));
-
-                if (isManaged) {
-                    final Long volumeId = disk.getData().getId();
-                    final VolumeVO volume = _volsDao.findById(volumeId);
-                    final String iScsiName = volume.get_iScsiName();
-
-                    boolean update = false;
-
-                    final Map<String, String> data = iqnToData.get(iScsiName);
-
-                    if (data != null) {
-                        final String path = data.get(StartAnswer.PATH);
-
-                        if (path != null) {
-                            volume.setPath(path);
-
-                            update = true;
-                        }
-
-                        final String imageFormat = data.get(StartAnswer.IMAGE_FORMAT);
-
-                        if (imageFormat != null) {
-                            volume.setFormat(ImageFormat.valueOf(imageFormat));
-
-                            update = true;
-                        }
-
-                        if (update) {
-                            _volsDao.update(volumeId, volume);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private void syncDiskChainChange(final StartAnswer answer) {
-        final VirtualMachineTO vmSpec = answer.getVirtualMachine();
-
-        for (final DiskTO disk : vmSpec.getDisks()) {
-            if (disk.getType() != Volume.Type.ISO) {
-                final VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
-                final VolumeVO volume = _volsDao.findById(vol.getId());
-                if (vmSpec.getDeployAsIsInfo() != null && org.apache.commons.lang3.StringUtils.isNotBlank(vol.getPath())) {
-                    volume.setPath(vol.getPath());
-                    _volsDao.update(volume.getId(), volume);
-                }
-
-                if(vol.getPath() != null) {
-                    volumeMgr.updateVolumeDiskChain(vol.getId(), vol.getPath(), vol.getChainInfo(), vol.getUpdatedDataStoreUUID());
-                } else {
-                    volumeMgr.updateVolumeDiskChain(vol.getId(), volume.getPath(), vol.getChainInfo(), vol.getUpdatedDataStoreUUID());
-                }
-            }
         }
     }
 
@@ -3461,7 +3362,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
             final Commands cmds = new Commands(Command.OnError.Stop);
             RebootCommand rebootCmd = new RebootCommand(vm.getInstanceName(), getExecuteInSequence(vm.getHypervisorType()));
             VirtualMachineTO vmTo = getVmTO(vm.getId());
-            checkAndSetEnterSetupMode(vmTo, params);
+            vmCommandSpecPostProcessingService.setEnterSetupMode(vmTo, params);
             rebootCmd.setVirtualMachine(vmTo);
             updateRebootCommandWithExternalDetails(host, vmTo, rebootCmd);
             cmds.addCommand(rebootCmd);
@@ -3488,15 +3389,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
             logger.warn("Unable to send the reboot command to host {} for the vm {} due to operation timeout.", dest.getHost(), vm, e);
             throw new CloudRuntimeException("Failed to reboot the vm on host " + dest.getHost(), e);
         }
-    }
-
-    private void checkAndSetEnterSetupMode(VirtualMachineTO vmTo, Map<VirtualMachineProfile.Param, Object> params) {
-        Boolean enterSetup = null;
-        if (params != null) {
-            enterSetup = (Boolean) params.get(VirtualMachineProfile.Param.BootIntoSetup);
-        }
-        logger.debug("Orchestrating VM reboot for '{}' {} set to {}", vmTo.getName(), VirtualMachineProfile.Param.BootIntoSetup, enterSetup);
-        vmTo.setEnterHardwareSetup(enterSetup == null ? false : enterSetup);
     }
 
     /**
