@@ -172,6 +172,12 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.networkUpdateSequenceService = mock(NetworkUpdateSequenceService.class);
         testOrchestrator.networkServiceChangeCleanupService = mock(NetworkServiceChangeCleanupService.class);
         testOrchestrator.networkRuleReprogrammingService = mock(NetworkRuleReprogrammingService.class);
+        RouterDefaultDnsUpdateServiceImpl dnsUpdateService = new RouterDefaultDnsUpdateServiceImpl();
+        dnsUpdateService.routerDao = testOrchestrator.routerDao;
+        dnsUpdateService.routerNetworkDao = testOrchestrator.routerNetworkDao;
+        dnsUpdateService.vpcManager = testOrchestrator._vpcMgr;
+        dnsUpdateService.networksDao = testOrchestrator._networksDao;
+        testOrchestrator.routerDefaultDnsUpdateService = dnsUpdateService;
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
