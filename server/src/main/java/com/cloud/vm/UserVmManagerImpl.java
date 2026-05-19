@@ -585,6 +585,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmUnmanageService vmUnmanageService;
     @Inject
+    private VmDeviceBusInfoService vmDeviceBusInfoService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -5663,14 +5665,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public void persistDeviceBusInfo(UserVmVO vm, String rootDiskController) {
-        String existingVmRootDiskController = vm.getDetail(VmDetailConstants.ROOT_DISK_CONTROLLER);
-        if (StringUtils.isEmpty(existingVmRootDiskController) && StringUtils.isNotEmpty(rootDiskController)) {
-            vm.setDetail(VmDetailConstants.ROOT_DISK_CONTROLLER, rootDiskController);
-            _vmDao.saveDetails(vm);
-            if (logger.isDebugEnabled()) {
-                logger.debug("Persisted device bus information rootDiskController={} for vm: {}", rootDiskController, vm);
-            }
-        }
+        vmDeviceBusInfoService.persistDeviceBusInfo(vm, rootDiskController);
     }
 
     @Override
