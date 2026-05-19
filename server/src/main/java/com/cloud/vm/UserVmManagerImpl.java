@@ -47,7 +47,6 @@ import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.affinity.AffinityGroupService;
-import org.apache.cloudstack.affinity.AffinityGroupVMMapVO;
 import org.apache.cloudstack.affinity.AffinityGroupVO;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
@@ -118,7 +117,6 @@ import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.utils.bytescale.ByteScaleUtils;
-import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
@@ -582,6 +580,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     protected VmRootDiskOfferingChangeService vmRootDiskOfferingChangeService;
     @Inject
     protected VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
+    @Inject
+    private VmUnmanageService vmUnmanageService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -6450,44 +6450,22 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public Pair<Boolean, String> unmanageUserVM(Long vmId, Long paramHostId) {
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (vm == null || vm.getRemoved() != null) {
-            throw new InvalidParameterValueException("Unable to find a VM with ID = " + vmId);
-        }
+        return vmUnmanageService.unmanageUserVM(vmId, paramHostId, unmanageManagerOperations());
+    }
 
-        vm = _vmDao.acquireInLockTable(vm.getId());
-
-        try {
-            if (vm.getState() != State.Running && vm.getState() != State.Stopped) {
-                String errorMsg = "Instance: " + vm.getName() + " is not running or stopped, cannot be unmanaged";
-                logger.debug(errorMsg);
-                throw new CloudRuntimeException(errorMsg);
+    private VmUnmanageService.ManagerOperations unmanageManagerOperations() {
+        return new VmUnmanageService.ManagerOperations() {
+            @Override
+            public boolean cleanupVmResources(UserVmVO vm) {
+                return UserVmManagerImpl.this.cleanupVmResources(vm);
             }
 
-            if (!UnmanagedVMsManager.isSupported(vm.getHypervisorType())) {
-                throw new UnsupportedServiceException("Unmanaging a VM is currently not supported on hypervisor " +
-                        vm.getHypervisorType().toString());
+            @Override
+            public void resourceCountDecrement(long accountId, Boolean displayVm,
+                    ServiceOffering serviceOffering, VirtualMachineTemplate template) {
+                UserVmManagerImpl.this.resourceCountDecrement(accountId, displayVm, serviceOffering, template);
             }
-
-            List<VolumeVO> volumes = _volsDao.findByInstance(vm.getId());
-            checkUnmanagingVMOngoingVolumeSnapshots(vm);
-            checkUnmanagingVMVolumes(vm, volumes);
-
-            Pair<Boolean, String> result = _itMgr.unmanage(vm.getUuid(), paramHostId);
-            if (result.first()) {
-                cleanupUnmanageVMResources(vm);
-                unmanageVMFromDB(vm.getId());
-                publishUnmanageVMUsageEvents(vm, volumes);
-            } else {
-                throw new CloudRuntimeException("Error while unmanaging VM: " + vm.getUuid());
-            }
-            return result;
-        } catch (Exception e) {
-            logger.error("Could not unmanage VM {}", vm, e);
-            throw new CloudRuntimeException(e);
-        } finally {
-            _vmDao.releaseFromLockTable(vm.getId());
-        }
+        };
     }
 
     @Override
@@ -6560,92 +6538,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 return UserVmManagerImpl.this.getDefaultNetwork(zone, owner, selectAny);
             }
         };
-    }
-
-    /*
-        Generate usage events related to unmanaging a VM
-     */
-    void publishUnmanageVMUsageEvents(UserVmVO vm, List<VolumeVO> volumes) {
-        postProcessingUnmanageVMVolumes(volumes, vm);
-        postProcessingUnmanageVM(vm);
-    }
-
-    /*
-        Cleanup the VM from resources and groups
-     */
-    void cleanupUnmanageVMResources(UserVmVO vm) {
-        cleanupVmResources(vm);
-        removeVMFromAffinityGroups(vm.getId());
-    }
-
-    void unmanageVMFromDB(long vmId) {
-        VMInstanceVO vm = _vmInstanceDao.findById(vmId);
-        vmInstanceDetailsDao.removeDetails(vmId);
-        vm.setState(State.Expunging);
-        vm.setRemoved(new Date());
-        _vmInstanceDao.update(vm.getId(), vm);
-    }
-
-    /*
-        Remove VM from affinity groups after unmanaging
-     */
-    private void removeVMFromAffinityGroups(long vmId) {
-        List<AffinityGroupVMMapVO> affinityGroups = _affinityGroupVMMapDao.listByInstanceId(vmId);
-        if (affinityGroups.size() > 0) {
-            logger.debug("Cleaning up VM from affinity groups after unmanaging");
-            for (AffinityGroupVMMapVO map : affinityGroups) {
-                _affinityGroupVMMapDao.expunge(map.getId());
-            }
-        }
-    }
-
-    /*
-        Decrement VM resources and generate usage events after unmanaging VM
-     */
-    private void postProcessingUnmanageVM(UserVmVO vm) {
-        ServiceOfferingVO offering = serviceOfferingDao.findById(vm.getServiceOfferingId());
-        VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-        // First generate a VM stop event if the VM was not stopped already
-        boolean resourceNotDecremented = true;
-        if (vm.getState() != State.Stopped) {
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VM_STOP, vm.getAccountId(), vm.getDataCenterId(),
-                    vm.getId(), vm.getHostName(), vm.getServiceOfferingId(), vm.getTemplateId(),
-                    vm.getHypervisorType().toString(), VirtualMachine.class.getName(), vm.getUuid(), vm.isDisplayVm());
-
-            resourceCountDecrement(vm.getAccountId(), vm.isDisplayVm(), offering, template);
-            resourceNotDecremented = false;
-        }
-        // VM destroy usage event
-        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VM_DESTROY, vm.getAccountId(), vm.getDataCenterId(),
-                vm.getId(), vm.getHostName(), vm.getServiceOfferingId(), vm.getTemplateId(),
-                vm.getHypervisorType().toString(), VirtualMachine.class.getName(), vm.getUuid(), vm.isDisplayVm());
-        if (resourceNotDecremented) {
-            resourceCountDecrement(vm.getAccountId(), vm.isDisplayVm(), offering, template);
-        }
-    }
-
-    /*
-        Decrement resources for volumes and generate usage event for ROOT volume after unmanaging VM.
-        Usage events for DATA disks are published by the transition listener: @see VolumeStateListener#postStateTransitionEvent
-     */
-    private void postProcessingUnmanageVMVolumes(List<VolumeVO> volumes, UserVmVO vm) {
-        for (VolumeVO volume : volumes) {
-            if (volume.getVolumeType() == Volume.Type.ROOT) {
-                //
-                UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_DELETE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                        Volume.class.getName(), volume.getUuid(), volume.isDisplayVolume());
-            }
-            _resourceLimitMgr.decrementVolumeResourceCount(vm.getAccountId(), volume.isDisplayVolume(),
-                    volume.getSize(), _diskOfferingDao.findByIdIncludingRemoved(volume.getDiskOfferingId()));
-        }
-    }
-
-    void checkUnmanagingVMOngoingVolumeSnapshots(UserVmVO vm) {
-        vmVolumeLifecycleValidationService.checkUnmanagingVMOngoingVolumeSnapshots(vm);
-    }
-
-    void checkUnmanagingVMVolumes(UserVmVO vm, List<VolumeVO> volumes) {
-        vmVolumeLifecycleValidationService.checkUnmanagingVMVolumes(vm, volumes);
     }
 
     private LinkedHashMap<Integer, Long> getDeployAsIsVmNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
