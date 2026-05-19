@@ -105,7 +105,6 @@ import org.apache.cloudstack.api.response.InstanceGroupResponse;
 import org.apache.cloudstack.api.response.InternalLoadBalancerElementResponse;
 import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
-import org.apache.cloudstack.api.response.IpRangeResponse;
 import org.apache.cloudstack.api.response.Ipv4RouteResponse;
 import org.apache.cloudstack.api.response.Ipv6RouteResponse;
 import org.apache.cloudstack.api.response.IsolationMethodResponse;
@@ -226,10 +225,8 @@ import com.cloud.api.query.ViewResponseHelper;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.AsyncJobJoinVO;
 import com.cloud.api.query.vo.ControlledViewEntity;
-import com.cloud.api.query.vo.DataCenterJoinVO;
 import com.cloud.api.query.vo.DomainRouterJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
-import com.cloud.api.query.vo.HostJoinVO;
 import com.cloud.api.query.vo.InstanceGroupJoinVO;
 import com.cloud.api.query.vo.NetworkOfferingJoinVO;
 import com.cloud.api.query.vo.ProjectAccountJoinVO;
@@ -246,13 +243,11 @@ import com.cloud.bgp.ASNumber;
 import com.cloud.bgp.ASNumberRange;
 import com.cloud.capacity.Capacity;
 import com.cloud.capacity.CapacityVO;
-import com.cloud.capacity.dao.CapacityDaoImpl.SummedCapacity;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
 import com.cloud.dc.ASNumberRangeVO;
 import com.cloud.dc.ASNumberVO;
-import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterGuestIpv6Prefix;
@@ -408,6 +403,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     protected Logger logger = LogManager.getLogger(ApiResponseHelper.class);
     private static final DecimalFormat s_percentFormat = new DecimalFormat("##.##");
     private static final ApiResponseOwnerService STATIC_OWNER_SERVICE = new ApiResponseOwnerServiceImpl();
+    private static final ApiHostZoneCapacityResponseService STATIC_HOST_ZONE_CAPACITY_RESPONSE_SERVICE = new ApiHostZoneCapacityResponseServiceImpl();
 
     @Inject
     private EntityManager _entityMgr;
@@ -425,9 +421,6 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private SnapshotDataStoreDao _snapshotStoreDao;
     @Inject
     private PrimaryDataStoreDao _storagePoolDao;
-    @Inject
-    private ClusterDetailsDao _clusterDetailsDao;
-    @Inject
     private ResourceTagDao _resourceTagDao;
     @Inject
     private NicExtraDhcpOptionDao _nicExtraDhcpOptionDao;
@@ -465,6 +458,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiStorageResponseService apiStorageResponseService;
     @Inject
     private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
+    @Inject
+    private ApiHostZoneCapacityResponseService apiHostZoneCapacityResponseService;
     @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
@@ -594,28 +589,22 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public HostResponse createHostResponse(Host host) {
-        return createHostResponse(host, EnumSet.of(HostDetails.all));
+        return apiHostZoneCapacityResponseService.createHostResponse(host);
     }
 
     @Override
     public HostResponse createHostResponse(Host host, EnumSet<HostDetails> details) {
-        List<HostJoinVO> viewHosts = ApiDBUtils.newHostView(host);
-        List<HostResponse> listHosts = ViewResponseHelper.createHostResponse(details, viewHosts.toArray(new HostJoinVO[viewHosts.size()]));
-        assert listHosts != null && listHosts.size() == 1 : "There should be one host returned";
-        return listHosts.get(0);
+        return apiHostZoneCapacityResponseService.createHostResponse(host, details);
     }
 
     @Override
     public HostForMigrationResponse createHostForMigrationResponse(Host host) {
-        return createHostForMigrationResponse(host, EnumSet.of(HostDetails.all));
+        return apiHostZoneCapacityResponseService.createHostForMigrationResponse(host);
     }
 
     @Override
     public HostForMigrationResponse createHostForMigrationResponse(Host host, EnumSet<HostDetails> details) {
-        List<HostJoinVO> viewHosts = ApiDBUtils.newHostView(host);
-        List<HostForMigrationResponse> listHosts = ViewResponseHelper.createHostForMigrationResponse(details, viewHosts.toArray(new HostJoinVO[viewHosts.size()]));
-        assert listHosts != null && listHosts.size() == 1 : "There should be one host returned";
-        return listHosts.get(0);
+        return apiHostZoneCapacityResponseService.createHostForMigrationResponse(host, details);
     }
 
     @Override
@@ -661,163 +650,21 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public PodResponse createMinimalPodResponse(Pod pod) {
-        PodResponse podResponse = new PodResponse();
-        podResponse.setId(pod.getUuid());
-        podResponse.setName(pod.getName());
-        podResponse.setObjectName("pod");
-        return podResponse;
+        return apiHostZoneCapacityResponseService.createMinimalPodResponse(pod);
     }
 
     @Override
     public PodResponse createPodResponse(Pod pod, Boolean showCapacities) {
-        String[] ipRange = new String[2];
-        List<String> startIps = new ArrayList<String>();
-        List<String> endIps = new ArrayList<String>();
-        List<String> forSystemVms = new ArrayList<String>();
-        List<String> vlanIds = new ArrayList<String>();
-
-        List<IpRangeResponse> ipRanges = new ArrayList<>();
-
-        if (pod.getDescription() != null && pod.getDescription().length() > 0) {
-            final String[] existingPodIpRanges = pod.getDescription().split(",");
-
-            for(String podIpRange: existingPodIpRanges) {
-                IpRangeResponse ipRangeResponse = new IpRangeResponse();
-                final String[] existingPodIpRange = podIpRange.split("-");
-
-                String startIp = ((existingPodIpRange.length > 0) && (existingPodIpRange[0] != null)) ? existingPodIpRange[0] : "";
-                ipRangeResponse.setStartIp(startIp);
-                startIps.add(startIp);
-
-                String endIp = ((existingPodIpRange.length > 1) && (existingPodIpRange[1] != null)) ? existingPodIpRange[1] : "";
-                ipRangeResponse.setEndIp(endIp);
-                endIps.add(endIp);
-
-                String forSystemVm = (existingPodIpRange.length > 2) && (existingPodIpRange[2] != null) ? existingPodIpRange[2] : "0";
-                ipRangeResponse.setForSystemVms(forSystemVm);
-                forSystemVms.add(forSystemVm);
-
-                String vlanId = (existingPodIpRange.length > 3) &&
-                        (existingPodIpRange[3] != null && !existingPodIpRange[3].equals("untagged")) ?
-                        BroadcastDomainType.Vlan.toUri(existingPodIpRange[3]).toString() :
-                        BroadcastDomainType.Vlan.toUri(Vlan.UNTAGGED).toString();
-                ipRangeResponse.setVlanId(vlanId);
-                vlanIds.add(vlanId);
-
-                ipRanges.add(ipRangeResponse);
-            }
-        }
-
-        PodResponse podResponse = new PodResponse();
-        podResponse.setId(pod.getUuid());
-        podResponse.setName(pod.getName());
-        DataCenterVO zone = ApiDBUtils.findZoneById(pod.getDataCenterId());
-        if (zone != null) {
-            podResponse.setZoneId(zone.getUuid());
-            podResponse.setZoneName(zone.getName());
-        }
-        podResponse.setNetmask(NetUtils.getCidrNetmask(pod.getCidrSize()));
-        podResponse.setIpRanges(ipRanges);
-        podResponse.setStartIp(startIps);
-        podResponse.setEndIp(endIps);
-        podResponse.setForSystemVms(forSystemVms);
-        podResponse.setVlanId(vlanIds);
-        podResponse.setGateway(pod.getGateway());
-        podResponse.setAllocationState(pod.getAllocationState().toString());
-        podResponse.setStorageAccessGroups(pod.getStorageAccessGroups());
-        podResponse.setZoneStorageAccessGroups(zone.getStorageAccessGroups());
-        if (showCapacities != null && showCapacities) {
-            List<SummedCapacity> capacities = ApiDBUtils.getCapacityByClusterPodZone(null, pod.getId(), null);
-            Set<CapacityResponse> capacityResponses = new HashSet<CapacityResponse>();
-            for (SummedCapacity capacity : capacities) {
-                CapacityResponse capacityResponse = new CapacityResponse();
-                capacityResponse.setCapacityType(capacity.getCapacityType());
-                capacityResponse.setCapacityName(CapacityVO.getCapacityName(capacity.getCapacityType()));
-                capacityResponse.setCapacityUsed(capacity.getUsedCapacity() + capacity.getReservedCapacity());
-                if (capacity.getCapacityType() == Capacity.CAPACITY_TYPE_STORAGE_ALLOCATED) {
-                    List<SummedCapacity> c = ApiDBUtils.findNonSharedStorageForClusterPodZone(null, pod.getId(), null);
-                    capacityResponse.setCapacityTotal(capacity.getTotalCapacity() - c.get(0).getTotalCapacity());
-                    capacityResponse.setCapacityUsed(capacity.getUsedCapacity() - c.get(0).getUsedCapacity());
-                } else {
-                    capacityResponse.setCapacityTotal(capacity.getTotalCapacity());
-                }
-                if (capacityResponse.getCapacityTotal() != 0) {
-                    capacityResponse.setPercentUsed(s_percentFormat.format((float)capacityResponse.getCapacityUsed() / (float)capacityResponse.getCapacityTotal() * 100f));
-                } else {
-                    capacityResponse.setPercentUsed(s_percentFormat.format(0L));
-                }
-                capacityResponses.add(capacityResponse);
-            }
-            // Do it for stats as well.
-            capacityResponses.addAll(getStatsCapacityresponse(null, null, pod.getId(), pod.getDataCenterId()));
-            podResponse.setCapacities(new ArrayList<CapacityResponse>(capacityResponses));
-        }
-
-        podResponse.setHasAnnotation(annotationDao.hasAnnotations(pod.getUuid(), AnnotationService.EntityType.POD.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-        podResponse.setObjectName("pod");
-        return podResponse;
+        return apiHostZoneCapacityResponseService.createPodResponse(pod, showCapacities);
     }
 
     @Override
     public ZoneResponse createZoneResponse(ResponseView view, DataCenter dataCenter, Boolean showCapacities, Boolean showResourceIcon) {
-        DataCenterJoinVO vOffering = ApiDBUtils.newDataCenterView(dataCenter);
-        return ApiDBUtils.newDataCenterResponse(view, vOffering, showCapacities, showResourceIcon);
+        return apiHostZoneCapacityResponseService.createZoneResponse(view, dataCenter, showCapacities, showResourceIcon);
     }
 
     public static List<CapacityResponse> getDataCenterCapacityResponse(Long zoneId) {
-        List<SummedCapacity> capacities = ApiDBUtils.getCapacityByClusterPodZone(zoneId, null, null);
-        Set<CapacityResponse> capacityResponses = new HashSet<CapacityResponse>();
-
-        for (SummedCapacity capacity : capacities) {
-            CapacityResponse capacityResponse = new CapacityResponse();
-            capacityResponse.setCapacityType(capacity.getCapacityType());
-            capacityResponse.setCapacityName(CapacityVO.getCapacityName(capacity.getCapacityType()));
-            capacityResponse.setCapacityUsed(capacity.getUsedCapacity() + capacity.getReservedCapacity());
-            if (capacity.getCapacityType() == Capacity.CAPACITY_TYPE_STORAGE_ALLOCATED) {
-                List<SummedCapacity> c = ApiDBUtils.findNonSharedStorageForClusterPodZone(zoneId, null, null);
-                capacityResponse.setCapacityTotal(capacity.getTotalCapacity() - c.get(0).getTotalCapacity());
-                capacityResponse.setCapacityUsed(capacity.getUsedCapacity() - c.get(0).getUsedCapacity());
-            } else {
-                capacityResponse.setCapacityTotal(capacity.getTotalCapacity());
-            }
-            if (capacityResponse.getCapacityTotal() != 0) {
-                capacityResponse.setPercentUsed(s_percentFormat.format((float)capacityResponse.getCapacityUsed() / (float)capacityResponse.getCapacityTotal() * 100f));
-            } else {
-                capacityResponse.setPercentUsed(s_percentFormat.format(0L));
-            }
-            capacityResponses.add(capacityResponse);
-        }
-        // Do it for stats as well.
-        capacityResponses.addAll(getStatsCapacityresponse(null, null, null, zoneId));
-
-        return new ArrayList<CapacityResponse>(capacityResponses);
-    }
-
-    private static List<CapacityResponse> getStatsCapacityresponse(Long poolId, Long clusterId, Long podId, Long zoneId) {
-        List<CapacityVO> capacities = new ArrayList<CapacityVO>();
-        capacities.add(ApiDBUtils.getStoragePoolUsedStats(poolId, clusterId, podId, zoneId));
-        if (clusterId == null && podId == null) {
-            capacities.add(ApiDBUtils.getSecondaryStorageUsedStats(poolId, zoneId));
-            capacities.add(ApiDBUtils.getObjectStorageUsedStats(zoneId));
-        }
-
-        List<CapacityResponse> capacityResponses = new ArrayList<CapacityResponse>();
-        for (CapacityVO capacity : capacities) {
-            CapacityResponse capacityResponse = new CapacityResponse();
-            capacityResponse.setCapacityType(capacity.getCapacityType());
-            capacityResponse.setCapacityName(CapacityVO.getCapacityName(capacity.getCapacityType()));
-            capacityResponse.setCapacityUsed(capacity.getUsedCapacity());
-            capacityResponse.setCapacityTotal(capacity.getTotalCapacity());
-            if (capacityResponse.getCapacityTotal() != 0) {
-                capacityResponse.setPercentUsed(s_percentFormat.format((float)capacityResponse.getCapacityUsed() / (float)capacityResponse.getCapacityTotal() * 100f));
-            } else {
-                capacityResponse.setPercentUsed(s_percentFormat.format(0L));
-            }
-            capacityResponses.add(capacityResponse);
-        }
-
-        return capacityResponses;
+        return STATIC_HOST_ZONE_CAPACITY_RESPONSE_SERVICE.getDataCenterCapacityResponse(zoneId);
     }
 
     @Override
@@ -866,78 +713,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public ClusterResponse createMinimalClusterResponse(Cluster cluster) {
-        ClusterResponse clusterResponse = new ClusterResponse();
-        clusterResponse.setId(cluster.getUuid());
-        clusterResponse.setName(cluster.getName());
-        clusterResponse.setObjectName("cluster");
-        return clusterResponse;
+        return apiHostZoneCapacityResponseService.createMinimalClusterResponse(cluster);
     }
 
     @Override
     public ClusterResponse createClusterResponse(Cluster cluster, Boolean showCapacities) {
-        ClusterResponse clusterResponse = new ClusterResponse();
-        clusterResponse.setInternalId(cluster.getId());
-        clusterResponse.setId(cluster.getUuid());
-        clusterResponse.setName(cluster.getName());
-        HostPodVO pod = ApiDBUtils.findPodById(cluster.getPodId());
-        if (pod != null) {
-            clusterResponse.setPodId(pod.getUuid());
-            clusterResponse.setPodName(pod.getName());
-        }
-        DataCenterVO dc = ApiDBUtils.findZoneById(cluster.getDataCenterId());
-        if (dc != null) {
-            clusterResponse.setZoneId(dc.getUuid());
-            clusterResponse.setZoneName(dc.getName());
-        }
-        clusterResponse.setHypervisorType(cluster.getHypervisorType().getHypervisorDisplayName());
-        clusterResponse.setClusterType(cluster.getClusterType().toString());
-        clusterResponse.setAllocationState(cluster.getAllocationState().toString());
-        clusterResponse.setManagedState(cluster.getManagedState().toString());
-        String cpuOvercommitRatio = ApiDBUtils.findClusterDetails(cluster.getId(), "cpuOvercommitRatio");
-        String memoryOvercommitRatio = ApiDBUtils.findClusterDetails(cluster.getId(), "memoryOvercommitRatio");
-        clusterResponse.setCpuOvercommitRatio(cpuOvercommitRatio);
-        clusterResponse.setMemoryOvercommitRatio(memoryOvercommitRatio);
-        clusterResponse.setResourceDetails(_clusterDetailsDao.findDetails(cluster.getId()));
-        if (cluster.getArch() != null) {
-            clusterResponse.setArch(cluster.getArch().getType());
-        }
-
-        clusterResponse.setStorageAccessGroups(cluster.getStorageAccessGroups());
-        clusterResponse.setPodStorageAccessGroups(pod.getStorageAccessGroups());
-        clusterResponse.setZoneStorageAccessGroups(dc.getStorageAccessGroups());
-
-        if (showCapacities != null && showCapacities) {
-            List<SummedCapacity> capacities = ApiDBUtils.getCapacityByClusterPodZone(null, null, cluster.getId());
-            Set<CapacityResponse> capacityResponses = new HashSet<CapacityResponse>();
-
-            for (SummedCapacity capacity : capacities) {
-                CapacityResponse capacityResponse = new CapacityResponse();
-                capacityResponse.setCapacityType(capacity.getCapacityType());
-                capacityResponse.setCapacityName(CapacityVO.getCapacityName(capacity.getCapacityType()));
-                capacityResponse.setCapacityUsed(capacity.getUsedCapacity() + capacity.getReservedCapacity());
-
-                if (capacity.getCapacityType() == Capacity.CAPACITY_TYPE_STORAGE_ALLOCATED) {
-                    List<SummedCapacity> c = ApiDBUtils.findNonSharedStorageForClusterPodZone(null, null, cluster.getId());
-                    capacityResponse.setCapacityTotal(capacity.getTotalCapacity() - c.get(0).getTotalCapacity());
-                    capacityResponse.setCapacityUsed(capacity.getUsedCapacity() - c.get(0).getUsedCapacity());
-                } else {
-                    capacityResponse.setCapacityTotal(capacity.getTotalCapacity());
-                }
-                if (capacityResponse.getCapacityTotal() != 0) {
-                    capacityResponse.setPercentUsed(s_percentFormat.format((float)capacityResponse.getCapacityUsed() / (float)capacityResponse.getCapacityTotal() * 100f));
-                } else {
-                    capacityResponse.setPercentUsed(s_percentFormat.format(0L));
-                }
-                capacityResponses.add(capacityResponse);
-            }
-            // Do it for stats as well.
-            capacityResponses.addAll(getStatsCapacityresponse(null, cluster.getId(), pod.getId(), pod.getDataCenterId()));
-            clusterResponse.setCapacities(new ArrayList<CapacityResponse>(capacityResponses));
-        }
-        clusterResponse.setHasAnnotation(annotationDao.hasAnnotations(cluster.getUuid(), AnnotationService.EntityType.CLUSTER.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-        clusterResponse.setObjectName("cluster");
-        return clusterResponse;
+        return apiHostZoneCapacityResponseService.createClusterResponse(cluster, showCapacities);
     }
 
     @Override

@@ -23,6 +23,7 @@ import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
+import org.apache.cloudstack.api.ApiConstants.HostDetails;
 import org.apache.cloudstack.api.ResponseObject;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
 import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
@@ -58,6 +60,7 @@ import org.apache.cloudstack.api.response.BucketResponse;
 import org.apache.cloudstack.api.response.ConditionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
 import org.apache.cloudstack.api.response.CounterResponse;
+import org.apache.cloudstack.api.response.ClusterResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateHostStatusResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
 import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
@@ -68,6 +71,8 @@ import org.apache.cloudstack.api.response.FirewallResponse;
 import org.apache.cloudstack.api.response.FirewallRuleResponse;
 import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
+import org.apache.cloudstack.api.response.HostForMigrationResponse;
+import org.apache.cloudstack.api.response.HostResponse;
 import org.apache.cloudstack.api.response.IPAddressResponse;
 import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
 import org.apache.cloudstack.api.response.ImageStoreResponse;
@@ -79,6 +84,7 @@ import org.apache.cloudstack.api.response.LoadBalancerResponse;
 import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
 import org.apache.cloudstack.api.response.ObjectStoreResponse;
+import org.apache.cloudstack.api.response.PodResponse;
 import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
 import org.apache.cloudstack.api.response.ResourceLimitResponse;
@@ -97,6 +103,7 @@ import org.apache.cloudstack.api.response.UserResponse;
 import org.apache.cloudstack.api.response.VMSnapshotResponse;
 import org.apache.cloudstack.api.response.VlanIpRangeResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
+import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
@@ -114,6 +121,7 @@ import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
 import com.cloud.configuration.ResourceCount;
 import com.cloud.configuration.ResourceLimit;
+import com.cloud.dc.DataCenter;
 import com.cloud.dc.StorageNetworkIpRange;
 import com.cloud.dc.Vlan;
 import com.cloud.domain.Domain;
@@ -219,6 +227,8 @@ public class ApiResponseHelperTest {
     @Mock
     private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
     @Mock
+    private ApiHostZoneCapacityResponseService apiHostZoneCapacityResponseService;
+    @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -263,9 +273,11 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
         ReflectionTestUtils.setField(helper, "apiStorageResponseService", apiStorageResponseService);
         ReflectionTestUtils.setField(helper, "apiIdentityAccountResponseService", apiIdentityAccountResponseService);
+        ReflectionTestUtils.setField(helper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
+        ReflectionTestUtils.setField(apiResponseHelper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
     }
 
     @Before
@@ -673,6 +685,116 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expectedResponse, response);
         verify(apiSnapshotResponseService).createSnapshotPolicyResponse(policy);
+    }
+
+    @Test
+    public void createHostResponseDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        HostResponse expectedResponse = new HostResponse();
+        when(apiHostZoneCapacityResponseService.createHostResponse(host)).thenReturn(expectedResponse);
+
+        HostResponse response = helper.createHostResponse(host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostResponse(host);
+    }
+
+    @Test
+    public void createHostResponseWithDetailsDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        EnumSet<HostDetails> details = EnumSet.of(HostDetails.stats);
+        HostResponse expectedResponse = new HostResponse();
+        when(apiHostZoneCapacityResponseService.createHostResponse(host, details)).thenReturn(expectedResponse);
+
+        HostResponse response = helper.createHostResponse(host, details);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostResponse(host, details);
+    }
+
+    @Test
+    public void createHostForMigrationResponseDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        HostForMigrationResponse expectedResponse = new HostForMigrationResponse();
+        when(apiHostZoneCapacityResponseService.createHostForMigrationResponse(host)).thenReturn(expectedResponse);
+
+        HostForMigrationResponse response = helper.createHostForMigrationResponse(host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostForMigrationResponse(host);
+    }
+
+    @Test
+    public void createHostForMigrationResponseWithDetailsDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        EnumSet<HostDetails> details = EnumSet.of(HostDetails.capacity);
+        HostForMigrationResponse expectedResponse = new HostForMigrationResponse();
+        when(apiHostZoneCapacityResponseService.createHostForMigrationResponse(host, details)).thenReturn(expectedResponse);
+
+        HostForMigrationResponse response = helper.createHostForMigrationResponse(host, details);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostForMigrationResponse(host, details);
+    }
+
+    @Test
+    public void createMinimalPodResponseDelegatesToHostZoneCapacityResponseService() {
+        com.cloud.dc.Pod pod = Mockito.mock(com.cloud.dc.Pod.class);
+        PodResponse expectedResponse = new PodResponse();
+        when(apiHostZoneCapacityResponseService.createMinimalPodResponse(pod)).thenReturn(expectedResponse);
+
+        PodResponse response = helper.createMinimalPodResponse(pod);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createMinimalPodResponse(pod);
+    }
+
+    @Test
+    public void createPodResponseDelegatesToHostZoneCapacityResponseService() {
+        com.cloud.dc.Pod pod = Mockito.mock(com.cloud.dc.Pod.class);
+        PodResponse expectedResponse = new PodResponse();
+        when(apiHostZoneCapacityResponseService.createPodResponse(pod, true)).thenReturn(expectedResponse);
+
+        PodResponse response = helper.createPodResponse(pod, true);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createPodResponse(pod, true);
+    }
+
+    @Test
+    public void createZoneResponseDelegatesToHostZoneCapacityResponseService() {
+        DataCenter dataCenter = Mockito.mock(DataCenter.class);
+        ZoneResponse expectedResponse = new ZoneResponse();
+        when(apiHostZoneCapacityResponseService.createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false)).thenReturn(expectedResponse);
+
+        ZoneResponse response = helper.createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false);
+    }
+
+    @Test
+    public void createMinimalClusterResponseDelegatesToHostZoneCapacityResponseService() {
+        Cluster cluster = Mockito.mock(Cluster.class);
+        ClusterResponse expectedResponse = new ClusterResponse();
+        when(apiHostZoneCapacityResponseService.createMinimalClusterResponse(cluster)).thenReturn(expectedResponse);
+
+        ClusterResponse response = helper.createMinimalClusterResponse(cluster);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createMinimalClusterResponse(cluster);
+    }
+
+    @Test
+    public void createClusterResponseDelegatesToHostZoneCapacityResponseService() {
+        Cluster cluster = Mockito.mock(Cluster.class);
+        ClusterResponse expectedResponse = new ClusterResponse();
+        when(apiHostZoneCapacityResponseService.createClusterResponse(cluster, true)).thenReturn(expectedResponse);
+
+        ClusterResponse response = helper.createClusterResponse(cluster, true);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createClusterResponse(cluster, true);
     }
 
     @Test
