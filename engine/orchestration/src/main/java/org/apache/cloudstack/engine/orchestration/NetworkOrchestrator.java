@@ -445,6 +445,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     @Inject
     NetworkRuleReprogrammingService networkRuleReprogrammingService;
     @Inject
+    RouterDefaultDnsUpdateService routerDefaultDnsUpdateService;
+    @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
     ClusterDao clusterDao;
@@ -460,38 +462,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     SearchBuilder<IPAddressVO> AssignIpAddressFromPodVlanSearch;
 
     HashMap<Long, Long> _lastNetworkIdsToFree = new HashMap<>();
-
-    private void updateRouterDefaultDns(final VirtualMachineProfile vmProfile, final NicProfile nicProfile) {
-        if (!Type.DomainRouter.equals(vmProfile.getType()) || !nicProfile.isDefaultNic()) {
-            return;
-        }
-        DomainRouterVO router = routerDao.findById(vmProfile.getId());
-        if (router != null && router.getVpcId() != null) {
-            final Vpc vpc = _vpcMgr.getActiveVpc(router.getVpcId());
-            if (StringUtils.isNotBlank(vpc.getIp4Dns1())) {
-                nicProfile.setIPv4Dns1(vpc.getIp4Dns1());
-                nicProfile.setIPv4Dns2(vpc.getIp4Dns2());
-            }
-            if (StringUtils.isNotBlank(vpc.getIp6Dns1())) {
-                nicProfile.setIPv6Dns1(vpc.getIp6Dns1());
-                nicProfile.setIPv6Dns2(vpc.getIp6Dns2());
-            }
-            return;
-        }
-        List<Long> networkIds = routerNetworkDao.getRouterNetworks(vmProfile.getId());
-        if (CollectionUtils.isEmpty(networkIds) || networkIds.size() > 1) {
-            return;
-        }
-        final NetworkVO routerNetwork = _networksDao.findById(networkIds.get(0));
-        if (StringUtils.isNotBlank(routerNetwork.getDns1())) {
-            nicProfile.setIPv4Dns1(routerNetwork.getDns1());
-            nicProfile.setIPv4Dns2(routerNetwork.getDns2());
-        }
-        if (StringUtils.isNotBlank(routerNetwork.getIp6Dns1())) {
-            nicProfile.setIPv6Dns1(routerNetwork.getIp6Dns1());
-            nicProfile.setIPv6Dns2(routerNetwork.getIp6Dns2());
-        }
-    }
 
     @Override
     @DB
@@ -1969,7 +1939,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
         profile.setSecurityGroupEnabled(_networkModel.isSecurityGroupSupportedInNetwork(network));
         guru.updateNicProfile(profile, network);
-        updateRouterDefaultDns(vmProfile, profile);
+        routerDefaultDnsUpdateService.updateRouterDefaultDns(vmProfile, profile);
         configureExtraDhcpOptions(network, nicId);
         return profile;
     }
