@@ -316,6 +316,8 @@ public class VirtualMachineManagerImplTest {
     private VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
     @Mock
     private VmScaleReconfigurationService vmScaleReconfigurationService;
+    @Mock
+    private VmExpungeOrchestrationService vmExpungeOrchestrationService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -354,9 +356,8 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmServiceOfferingUpgradeManager", upgradeManager);
 
         // Wire a real VmIscsiTargetManager backed by the same DAO/agent
-        // mocks so the delegating wrappers in VirtualMachineManagerImpl
-        // (getTargets/removeDynamicTargets) behave like the original
-        // inline implementations during expunge/unmanage flows.
+        // mocks so the unmanage flow behaves like the original inline
+        // implementation.
         VmIscsiTargetManagerImpl iscsiTargetManager = new VmIscsiTargetManagerImpl();
         ReflectionTestUtils.setField(iscsiTargetManager, "hostDao", hostDaoMock);
         ReflectionTestUtils.setField(iscsiTargetManager, "volumeDao", volumeDaoMock);
@@ -364,9 +365,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(iscsiTargetManager, "agentMgr", agentManagerMock);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmIscsiTargetManager", iscsiTargetManager);
 
-        VmExpungeCommandServiceImpl expungeCommandService = new VmExpungeCommandServiceImpl();
-        ReflectionTestUtils.setField(expungeCommandService, "agentMgr", agentManagerMock);
-        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExpungeCommandService", expungeCommandService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExpungeOrchestrationService", vmExpungeOrchestrationService);
 
         VmDestroyOrchestrationServiceImpl destroyOrchestrationService = new VmDestroyOrchestrationServiceImpl();
         ReflectionTestUtils.setField(destroyOrchestrationService, "vmDao", vmInstanceDaoMock);
@@ -877,6 +876,20 @@ public class VirtualMachineManagerImplTest {
 
         assertTrue(result);
         verify(vmNicBackendCommandService).unplugNic(network, nic, vm, context, dest);
+    }
+
+    @Test
+    public void expungeDelegatesToExpungeOrchestrationService() throws Exception {
+        virtualMachineManagerImpl.expunge(vmMockUuid);
+
+        verify(vmExpungeOrchestrationService).expunge(vmMockUuid);
+    }
+
+    @Test
+    public void advanceExpungeDelegatesToExpungeOrchestrationService() throws Exception {
+        virtualMachineManagerImpl.advanceExpunge(vmMockUuid);
+
+        verify(vmExpungeOrchestrationService).advanceExpunge(vmMockUuid);
     }
 
     @Test

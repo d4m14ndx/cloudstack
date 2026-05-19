@@ -34,14 +34,11 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
-import org.apache.cloudstack.annotation.AnnotationService;
-import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.backup.dao.BackupDao;
@@ -76,7 +73,6 @@ import org.apache.cloudstack.gpu.GpuService;
 import org.apache.cloudstack.jobs.JobInfo;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
-import org.apache.cloudstack.resource.ResourceCleanupService;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
@@ -138,7 +134,6 @@ import com.cloud.deploy.DeploymentPlanner;
 import com.cloud.deploy.DeploymentPlanner.ExcludeList;
 import com.cloud.deploy.DeploymentPlanningManager;
 import com.cloud.deploy.DeploymentPlanningManagerImpl;
-import com.cloud.deployasis.dao.UserVmDeployAsIsDetailsDao;
 import com.cloud.domain.Domain;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
@@ -337,13 +332,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     private SecurityGroupManager _securityGroupManager;
     @Inject
-    private UserVmDeployAsIsDetailsDao userVmDeployAsIsDetailsDao;
-    @Inject
-    private AnnotationDao annotationDao;
-    @Inject
     public NetworkService networkService;
-    @Inject
-    ResourceCleanupService resourceCleanupService;
     @Inject
     VmWorkJobDao vmWorkJobDao;
     @Inject
@@ -386,7 +375,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     protected VmWorkJobQueueService vmWorkJobQueueService;
     @Inject
-    protected VmExpungeCommandService vmExpungeCommandService;
+    protected VmExpungeOrchestrationService vmExpungeOrchestrationService;
     @Inject
     protected VmDestroyOrchestrationService vmDestroyOrchestrationService;
     @Inject
@@ -514,110 +503,16 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public void expunge(final String vmUuid) throws ResourceUnavailableException {
-        try {
-            advanceExpunge(vmUuid);
-        } catch (final OperationTimedoutException e) {
-            throw new CloudRuntimeException("Operation timed out", e);
-        } catch (final ConcurrentOperationException e) {
-            throw new CloudRuntimeException("Concurrent operation ", e);
-        }
+        vmExpungeOrchestrationService.expunge(vmUuid);
     }
 
     @Override
     public void advanceExpunge(final String vmUuid) throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        advanceExpunge(vm);
-    }
-
-    private boolean isVmDestroyed(VMInstanceVO vm) {
-        if (vm == null || vm.getRemoved() != null) {
-            logger.debug("Unable to find vm or vm is expunged: " + vm);
-            return true;
-        }
-        return false;
+        vmExpungeOrchestrationService.advanceExpunge(vmUuid);
     }
 
     protected void advanceExpunge(VMInstanceVO vm) throws ResourceUnavailableException, OperationTimedoutException, ConcurrentOperationException {
-        if (isVmDestroyed(vm)) {
-            return;
-        }
-
-        if (HypervisorType.External.equals(vm.getHypervisorType())) {
-            UserVmVO userVM = _userVmDao.findById(vm.getId());
-            _userVmDao.loadDetails(userVM);
-            userVM.setDetail(VmDetailConstants.EXPUNGE_EXTERNAL_VM, Boolean.TRUE.toString());
-            _userVmDao.saveDetails(userVM);
-        }
-
-        advanceStop(vm.getUuid(), VmDestroyForcestop.value());
-        vm = _vmDao.findByUuid(vm.getUuid());
-
-        try {
-            if (!stateTransitTo(vm, VirtualMachine.Event.ExpungeOperation, vm.getHostId())) {
-                logger.debug("Unable to expunge the vm because it is not in the correct state: " + vm);
-                throw new CloudRuntimeException("Unable to expunge " + vm);
-
-            }
-        } catch (final NoTransitionException e) {
-            logger.debug("Unable to expunge the vm because it is not in the correct state: " + vm);
-            throw new CloudRuntimeException("Unable to expunge " + vm, e);
-        }
-
-        logger.debug("Expunging vm " + vm);
-
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm);
-
-        final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vm.getHypervisorType());
-
-        List<NicProfile> vmNics = profile.getNics();
-        logger.debug("Cleaning up NICS [{}] of {}.", vmNics.stream().map(nic -> nic.toString()).collect(Collectors.joining(", ")),vm.toString());
-        final List<Command> nicExpungeCommands = hvGuru.finalizeExpungeNics(vm, profile.getNics());
-        _networkMgr.cleanupNics(profile);
-
-        logger.debug("Cleaning up hypervisor data structures (ex. SRs in XenServer) for managed storage. Data from {}.", vm.toString());
-
-        final List<Command> volumeExpungeCommands = hvGuru.finalizeExpungeVolumes(vm);
-
-        final Long hostId = vm.getHostId() != null ? vm.getHostId() : vm.getLastHostId();
-
-        List<Map<String, String>> targets = getTargets(hostId, vm.getId());
-
-        vmExpungeCommandService.sendVolumeExpungeCommands(volumeExpungeCommands, hostId, vm);
-
-        if (hostId != null) {
-            volumeMgr.revokeAccess(vm.getId(), hostId);
-        }
-
-        volumeMgr.cleanupVolumes(vm.getId());
-
-        if (hostId != null && CollectionUtils.isNotEmpty(targets)) {
-            removeDynamicTargets(hostId, targets);
-        }
-
-        final VirtualMachineGuru guru = getVmGuru(vm);
-        guru.finalizeExpunge(vm);
-
-        userVmDeployAsIsDetailsDao.removeDetails(vm.getId());
-
-        // Remove comments (if any)
-        annotationDao.removeByEntityType(AnnotationService.EntityType.VM.name(), vm.getUuid());
-
-        // send hypervisor-dependent commands before removing
-        final List<Command> finalizeExpungeCommands = hvGuru.finalizeExpunge(vm);
-        vmExpungeCommandService.sendFinalizeExpungeCommands(finalizeExpungeCommands, nicExpungeCommands, vm, hostId);
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("Expunged " + vm);
-        }
-        resourceCleanupService.purgeExpungedVmResourcesLaterIfNeeded(vm);
-    }
-
-    private List<Map<String, String>> getTargets(Long hostId, long vmId) {
-        return vmIscsiTargetManager.getTargets(hostId, vmId);
-    }
-
-    private void removeDynamicTargets(long hostId, List<Map<String, String>> targets) {
-        vmIscsiTargetManager.removeDynamicTargets(hostId, targets);
+        vmExpungeOrchestrationService.advanceExpunge(vm);
     }
 
     @Override
@@ -1521,9 +1416,9 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         }
         volumeMgr.unmanageVolumes(vm.getId());
 
-        List<Map<String, String>> targets = getTargets(hostId, vm.getId());
+        List<Map<String, String>> targets = vmIscsiTargetManager.getTargets(hostId, vm.getId());
         if (hostId != null && CollectionUtils.isNotEmpty(targets)) {
-            removeDynamicTargets(hostId, targets);
+            vmIscsiTargetManager.removeDynamicTargets(hostId, targets);
         }
     }
 
