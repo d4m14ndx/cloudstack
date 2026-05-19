@@ -318,6 +318,8 @@ public class VirtualMachineManagerImplTest {
     private VmScaleReconfigurationService vmScaleReconfigurationService;
     @Mock
     private VmExpungeOrchestrationService vmExpungeOrchestrationService;
+    @Mock
+    private VmNetworkAttachmentOrchestrationService vmNetworkAttachmentOrchestrationService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -410,6 +412,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrationCheckpointService", vmMigrationCheckpointService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmAllocationOrchestrationService", vmAllocationOrchestrationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrateAwayPlanningService", vmMigrateAwayPlanningService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkAttachmentOrchestrationService", vmNetworkAttachmentOrchestrationService);
     }
 
     @After
@@ -890,6 +893,18 @@ public class VirtualMachineManagerImplTest {
         virtualMachineManagerImpl.advanceExpunge(vmMockUuid);
 
         verify(vmExpungeOrchestrationService).advanceExpunge(vmMockUuid);
+    }
+
+    @Test
+    public void toNicTODelegatesToNetworkAttachmentOrchestrationService() {
+        NicProfile nic = mock(NicProfile.class);
+        NicTO nicTO = mock(NicTO.class);
+        when(vmNetworkAttachmentOrchestrationService.toNicTO(nic, HypervisorType.KVM)).thenReturn(nicTO);
+
+        NicTO result = virtualMachineManagerImpl.toNicTO(nic, HypervisorType.KVM);
+
+        assertEquals(nicTO, result);
+        verify(vmNetworkAttachmentOrchestrationService).toNicTO(nic, HypervisorType.KVM);
     }
 
     @Test

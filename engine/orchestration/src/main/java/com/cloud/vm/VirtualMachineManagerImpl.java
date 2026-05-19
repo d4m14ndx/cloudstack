@@ -137,7 +137,6 @@ import com.cloud.deploy.DeploymentPlanningManagerImpl;
 import com.cloud.domain.Domain;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
-import com.cloud.event.UsageEventUtils;
 import com.cloud.exception.AffinityConflictException;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConcurrentOperationException;
@@ -164,7 +163,6 @@ import com.cloud.network.NetworkModel;
 import com.cloud.network.NetworkService;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkDetailsDao;
-import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.security.SecurityGroupManager;
 import com.cloud.offering.DiskOffering;
@@ -225,7 +223,8 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.snapshot.VMSnapshotManager;
 import com.google.gson.Gson;
 
-public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMachineManager, VmWorkJobHandler, Listener, Configurable, VmStateMachineActions {
+public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMachineManager, VmWorkJobHandler, Listener, Configurable, VmStateMachineActions,
+        VmNetworkAttachmentOrchestrationService.BackendNicOperations {
 
     public static final String VM_WORK_JOB_HANDLER = VirtualMachineManagerImpl.class.getSimpleName();
 
@@ -404,6 +403,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
     @Inject
     protected VmScaleReconfigurationService vmScaleReconfigurationService;
+    @Inject
+    protected VmNetworkAttachmentOrchestrationService vmNetworkAttachmentOrchestrationService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -2828,82 +2829,14 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         }
     }
 
-    /**
-     * duplicated in {@see UserVmManagerImpl} for a {@see UserVmVO}
-     */
-    private void checkIfNetworkExistsForUserVM(VirtualMachine virtualMachine, Network network) {
-        if (virtualMachine.getType() != VirtualMachine.Type.User) {
-            return; // others may have multiple nics in the same network
-        }
-        List<NicVO> allNics = _nicsDao.listByVmId(virtualMachine.getId());
-        for (NicVO nic : allNics) {
-            if (nic.getNetworkId() == network.getId()) {
-                throw new CloudRuntimeException("A NIC already exists for VM:" + virtualMachine.getInstanceName() + " in network: " + network.getUuid());
-            }
-        }
-    }
-
     private NicProfile orchestrateAddVmToNetwork(final VirtualMachine vm, final Network network, final NicProfile requested) throws ConcurrentOperationException, ResourceUnavailableException,
     InsufficientCapacityException {
-        final CallContext cctx = CallContext.current();
-
-        checkIfNetworkExistsForUserVM(vm, network);
-        logger.debug("Adding Instance {} to Network {}; requested NIC profile {}", vm, network, requested);
-        final VMInstanceVO vmVO = _vmDao.findById(vm.getId());
-        final ReservationContext context = new ReservationContextImpl(null, null, cctx.getCallingUser(), cctx.getCallingAccount());
-
-        final VirtualMachineProfileImpl vmProfile = new VirtualMachineProfileImpl(vmVO, null, null, null, null);
-
-        final DataCenter dc = _entityMgr.findById(DataCenter.class, network.getDataCenterId());
-        final Host host = _hostDao.findById(vm.getHostId());
-        final DeployDestination dest = new DeployDestination(dc, null, null, host);
-
-        if (vm.getState() == State.Running) {
-            final NicProfile nic = _networkMgr.createNicForVm(network, requested, context, vmProfile, true);
-
-            final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vmProfile.getVirtualMachine().getHypervisorType());
-            final VirtualMachineTO vmTO = hvGuru.implement(vmProfile);
-
-            final NicTO nicTO = toNicTO(nic, vmProfile.getVirtualMachine().getHypervisorType());
-
-            //4) plug the nic to the vm
-            logger.debug("Plugging NIC for Instance {} in Network {}", vm, network);
-
-            boolean result = false;
-            try {
-                result = plugNic(network, nicTO, vmTO, context, dest);
-                if (result) {
-                    _userVmMgr.setupVmForPvlan(true, vm.getHostId(), nic);
-                    logger.debug("Nic is plugged successfully for vm {} in network {}. VM is a part of network now.", vm, network);
-                    final long isDefault = nic.isDefaultNic() ? 1 : 0;
-
-                    if(VirtualMachine.Type.User.equals(vmVO.getType())) {
-                        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_ASSIGN, vmVO.getAccountId(), vmVO.getDataCenterId(), vmVO.getId(),
-                                Long.toString(nic.getId()), network.getNetworkOfferingId(), null, isDefault, VirtualMachine.class.getName(), vmVO.getUuid(), vm.isDisplay());
-                    }
-                    return nic;
-                } else {
-                    logger.warn("Failed to plug NIC to the Instance {} in Network {}", vm, network);
-                    return null;
-                }
-            } finally {
-                if (!result) {
-                    logger.debug("Removing NIC {} from Instance {} as NIC plug failed on the backend.", nic, vmProfile.getVirtualMachine());
-                    _networkMgr.removeNic(vmProfile, _nicsDao.findById(nic.getId()));
-                }
-            }
-        } else if (vm.getState() == State.Stopped) {
-            return _networkMgr.createNicForVm(network, requested, context, vmProfile, false);
-        } else {
-            logger.warn("Unable to add vm {} to network {}", vm, network);
-            throw new ResourceUnavailableException("Unable to add vm " + vm + " to network, is not in the right state", DataCenter.class, vm.getDataCenterId());
-        }
+        return vmNetworkAttachmentOrchestrationService.addVmToNetwork(vm, network, requested, this);
     }
 
     @Override
     public NicTO toNicTO(final NicProfile nic, final HypervisorType hypervisorType) {
-        final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(hypervisorType);
-        return hvGuru.toNicTO(nic);
+        return vmNetworkAttachmentOrchestrationService.toNicTO(nic, hypervisorType);
     }
 
     @Override
@@ -2938,48 +2871,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     private boolean orchestrateRemoveNicFromVm(final VirtualMachine vm, final Nic nic) throws ConcurrentOperationException, ResourceUnavailableException {
-        final CallContext cctx = CallContext.current();
-        final VMInstanceVO vmVO = _vmDao.findById(vm.getId());
-        final NetworkVO network = _networkDao.findById(nic.getNetworkId());
-        final ReservationContext context = new ReservationContextImpl(null, null, cctx.getCallingUser(), cctx.getCallingAccount());
-
-        final VirtualMachineProfileImpl vmProfile = new VirtualMachineProfileImpl(vmVO, null, null, null, null);
-
-        final DataCenter dc = _entityMgr.findById(DataCenter.class, network.getDataCenterId());
-        final Host host = _hostDao.findById(vm.getHostId());
-        final DeployDestination dest = new DeployDestination(dc, null, null, host);
-        final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vmProfile.getVirtualMachine().getHypervisorType());
-        final VirtualMachineTO vmTO = hvGuru.implement(vmProfile);
-
-        final NicProfile nicProfile =
-                new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), _networkModel.getNetworkRate(network.getId(), vm.getId()),
-                        _networkModel.isSecurityGroupSupportedInNetwork(network), _networkModel.getNetworkTag(vmProfile.getVirtualMachine().getHypervisorType(), network));
-
-        if (vm.getState() == State.Running) {
-            final NicTO nicTO = toNicTO(nicProfile, vmProfile.getVirtualMachine().getHypervisorType());
-            logger.debug("Un-plugging NIC {} for Instance {} from Network {}.", nic, vm, network);
-            final boolean result = unplugNic(network, nicTO, vmTO, context, dest);
-            if (result) {
-                _userVmMgr.setupVmForPvlan(false, vm.getHostId(), nicProfile);
-                logger.debug("NIC is unplugged successfully for Instance {} in Network {}.", vm, network);
-                final long isDefault = nic.isDefaultNic() ? 1 : 0;
-                UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_REMOVE, vm.getAccountId(), vm.getDataCenterId(), vm.getId(),
-                        Long.toString(nic.getId()), network.getNetworkOfferingId(), null, isDefault, VirtualMachine.class.getName(), vm.getUuid(), vm.isDisplay());
-            } else {
-                logger.warn("Failed to unplug NIC for the Instance {} from Network {}.", vm, network);
-                return false;
-            }
-        } else if (vm.getState() != State.Stopped) {
-            logger.warn("Unable to remove Instance {} from Network {}", vm, network);
-            throw new ResourceUnavailableException("Unable to remove Instance " + vm + " from Network, is not in the right state", DataCenter.class, vm.getDataCenterId());
-        }
-
-        _networkMgr.releaseNic(vmProfile, nic);
-        logger.debug("Successfully released NIC {} for Instance {}", nic, vm);
-
-        _networkMgr.removeNic(vmProfile, nic);
-        _nicsDao.remove(nic.getId());
-        return true;
+        return vmNetworkAttachmentOrchestrationService.removeNicFromVm(vm, nic, this);
     }
 
     @Override
@@ -2990,75 +2882,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @DB
     private boolean orchestrateRemoveVmFromNetwork(final VirtualMachine vm, final Network network, final URI broadcastUri) throws ConcurrentOperationException, ResourceUnavailableException {
-        final CallContext cctx = CallContext.current();
-        final VMInstanceVO vmVO = _vmDao.findById(vm.getId());
-        final ReservationContext context = new ReservationContextImpl(null, null, cctx.getCallingUser(), cctx.getCallingAccount());
-
-        final VirtualMachineProfileImpl vmProfile = new VirtualMachineProfileImpl(vmVO, null, null, null, null);
-
-        final DataCenter dc = _entityMgr.findById(DataCenter.class, network.getDataCenterId());
-        final Host host = _hostDao.findById(vm.getHostId());
-        final DeployDestination dest = new DeployDestination(dc, null, null, host);
-        final HypervisorGuru hvGuru = _hvGuruMgr.getGuru(vmProfile.getVirtualMachine().getHypervisorType());
-        final VirtualMachineTO vmTO = hvGuru.implement(vmProfile);
-
-        Nic nic = null;
-        if (broadcastUri != null) {
-            nic = _nicsDao.findByNetworkIdInstanceIdAndBroadcastUri(network.getId(), vm.getId(), broadcastUri.toString());
-        } else {
-            nic = _networkModel.getNicInNetwork(vm.getId(), network.getId());
-        }
-
-        if (nic == null) {
-            logger.warn("Could not get a NIC with {}", network);
-            return false;
-        }
-
-        if (nic.isDefaultNic() && vm.getType() == VirtualMachine.Type.User) {
-            logger.warn("Failed to remove NIC from {} in {}, NIC is default.", vm, network);
-            throw new CloudRuntimeException("Failed to remove NIC from " + vm + " in " + network + ", NIC is default.");
-        }
-
-        final Nic lock = _nicsDao.acquireInLockTable(nic.getId());
-        if (lock == null) {
-            if (_nicsDao.findById(nic.getId()) == null) {
-                logger.debug("Not need to remove the vm {} from network {} as the vm doesn't have nic in this network.", vm, network);
-                return true;
-            }
-            throw new ConcurrentOperationException(String.format("Unable to lock nic %s", nic));
-        }
-
-        logger.debug("Lock is acquired for nic {} as a part of remove vm {} from network {}", lock, vm, network);
-
-        try {
-            final NicProfile nicProfile =
-                    new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), _networkModel.getNetworkRate(network.getId(), vm.getId()),
-                            _networkModel.isSecurityGroupSupportedInNetwork(network), _networkModel.getNetworkTag(vmProfile.getVirtualMachine().getHypervisorType(), network));
-
-            if (vm.getState() == State.Running) {
-                final NicTO nicTO = toNicTO(nicProfile, vmProfile.getVirtualMachine().getHypervisorType());
-                logger.debug("Un-plugging nic for vm {} from network {}", vm, network);
-                final boolean result = unplugNic(network, nicTO, vmTO, context, dest);
-                if (result) {
-                    logger.debug("Nic is unplugged successfully for vm {} in network {}", vm, network);
-                } else {
-                    logger.warn("Failed to unplug nic for the vm {} from network {}", vm, network);
-                    return false;
-                }
-            } else if (vm.getState() != State.Stopped) {
-                logger.warn("Unable to remove vm {} from network {}", vm, network);
-                throw new ResourceUnavailableException("Unable to remove vm " + vm + " from network, is not in the right state", DataCenter.class, vm.getDataCenterId());
-            }
-
-            _networkMgr.releaseNic(vmProfile, nic);
-            logger.debug("Successfully released nic {} for vm {}", nic, vm);
-
-            _networkMgr.removeNic(vmProfile, nic);
-            return true;
-        } finally {
-            _nicsDao.releaseFromLockTable(lock.getId());
-            logger.debug("Lock is released for nic {} as a part of remove vm {} from network {}", lock, vm, network);
-        }
+        return vmNetworkAttachmentOrchestrationService.removeVmFromNetwork(vm, network, broadcastUri, this);
     }
 
     @Override
@@ -3079,11 +2903,13 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         return vmNicBackendCommandService.replugNic(network, nic, vm, host);
     }
 
+    @Override
     public boolean plugNic(final Network network, final NicTO nic, final VirtualMachineTO vm, final ReservationContext context, final DeployDestination dest) throws ConcurrentOperationException,
     ResourceUnavailableException, InsufficientCapacityException {
         return vmNicBackendCommandService.plugNic(network, nic, vm, context, dest);
     }
 
+    @Override
     public boolean unplugNic(final Network network, final NicTO nic, final VirtualMachineTO vm, final ReservationContext context, final DeployDestination dest) throws ConcurrentOperationException,
     ResourceUnavailableException {
         return vmNicBackendCommandService.unplugNic(network, nic, vm, context, dest);
