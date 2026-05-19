@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -168,6 +169,7 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.nicMigrationService = mock(NicMigrationService.class);
         testOrchestrator.networkHostSetupService = mock(NetworkHostSetupService.class);
         testOrchestrator.networkUpdateSequenceService = mock(NetworkUpdateSequenceService.class);
+        testOrchestrator.networkServiceChangeCleanupService = mock(NetworkServiceChangeCleanupService.class);
 
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
@@ -235,6 +237,27 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.finalizeUpdateInSequence(network, false);
 
         verify(testOrchestrator.networkUpdateSequenceService).finalizeUpdateInSequence(network, false);
+    }
+
+    @Test
+    public void getServicesNotSupportedInNewOfferingDelegatesToService() {
+        Network network = mock(Network.class);
+        List<String> services = Collections.singletonList(Service.StaticNat.getName());
+        when(testOrchestrator.networkServiceChangeCleanupService.getServicesNotSupportedInNewOffering(network, 2L)).thenReturn(services);
+
+        Assert.assertEquals(services, testOrchestrator.getServicesNotSupportedInNewOffering(network, 2L));
+
+        verify(testOrchestrator.networkServiceChangeCleanupService).getServicesNotSupportedInNewOffering(network, 2L);
+    }
+
+    @Test
+    public void cleanupConfigForServicesInNetworkDelegatesToService() {
+        Network network = mock(Network.class);
+        List<String> services = Collections.singletonList(Service.Firewall.getName());
+
+        testOrchestrator.cleanupConfigForServicesInNetwork(services, network);
+
+        verify(testOrchestrator.networkServiceChangeCleanupService).cleanupConfigForServicesInNetwork(services, network);
     }
 
     @Test
