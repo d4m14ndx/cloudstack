@@ -93,6 +93,12 @@ import org.apache.cloudstack.api.response.ServiceOfferingResponse;
 import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
 import org.apache.cloudstack.api.response.SnapshotResponse;
 import org.apache.cloudstack.api.response.SnapshotScheduleResponse;
+import org.apache.cloudstack.api.response.PrivateGatewayResponse;
+import org.apache.cloudstack.api.response.RemoteAccessVpnResponse;
+import org.apache.cloudstack.api.response.Site2SiteCustomerGatewayResponse;
+import org.apache.cloudstack.api.response.Site2SiteVpnConnectionResponse;
+import org.apache.cloudstack.api.response.Site2SiteVpnGatewayResponse;
+import org.apache.cloudstack.api.response.StaticRouteResponse;
 import org.apache.cloudstack.api.response.StorageNetworkIpRangeResponse;
 import org.apache.cloudstack.api.response.StoragePoolResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
@@ -104,6 +110,9 @@ import org.apache.cloudstack.api.response.VMSnapshotResponse;
 import org.apache.cloudstack.api.response.VlanIpRangeResponse;
 import org.apache.cloudstack.api.response.VolumeResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
+import org.apache.cloudstack.api.response.VpcOfferingResponse;
+import org.apache.cloudstack.api.response.VpcResponse;
+import org.apache.cloudstack.api.response.VpnUsersResponse;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
@@ -139,13 +148,22 @@ import com.cloud.network.as.Counter;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
+import com.cloud.network.RemoteAccessVpn;
+import com.cloud.network.Site2SiteCustomerGateway;
+import com.cloud.network.Site2SiteVpnConnection;
+import com.cloud.network.Site2SiteVpnGateway;
+import com.cloud.network.VpnUser;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.HealthCheckPolicy;
 import com.cloud.network.rules.LoadBalancer;
 import com.cloud.network.rules.PortForwardingRule;
 import com.cloud.network.rules.StaticNatRule;
 import com.cloud.network.rules.StickinessPolicy;
+import com.cloud.network.vpc.PrivateGateway;
 import com.cloud.network.vpc.NetworkACLItem;
+import com.cloud.network.vpc.StaticRoute;
+import com.cloud.network.vpc.Vpc;
+import com.cloud.network.vpc.VpcOffering;
 import com.cloud.org.Cluster;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.ServiceOffering;
@@ -229,6 +247,8 @@ public class ApiResponseHelperTest {
     @Mock
     private ApiHostZoneCapacityResponseService apiHostZoneCapacityResponseService;
     @Mock
+    private ApiVpcVpnResponseService apiVpcVpnResponseService;
+    @Mock
     private ApiResponseOwnerService apiResponseOwnerService;
     @Mock
     private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
@@ -274,7 +294,9 @@ public class ApiResponseHelperTest {
         ReflectionTestUtils.setField(helper, "apiStorageResponseService", apiStorageResponseService);
         ReflectionTestUtils.setField(helper, "apiIdentityAccountResponseService", apiIdentityAccountResponseService);
         ReflectionTestUtils.setField(helper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
+        ReflectionTestUtils.setField(helper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
         ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
+        ReflectionTestUtils.setField(apiResponseHelper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
         ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
         ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
         ReflectionTestUtils.setField(apiResponseHelper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
@@ -915,6 +937,114 @@ public class ApiResponseHelperTest {
 
         Assert.assertSame(expected, response);
         verify(apiStorageResponseService).createBucketResponse(bucket);
+    }
+
+    @Test
+    public void createVpcOfferingResponseDelegatesToService() {
+        VpcOffering offering = Mockito.mock(VpcOffering.class);
+        VpcOfferingResponse expected = new VpcOfferingResponse();
+        when(apiVpcVpnResponseService.createVpcOfferingResponse(offering)).thenReturn(expected);
+
+        VpcOfferingResponse response = helper.createVpcOfferingResponse(offering);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpcOfferingResponse(offering);
+    }
+
+    @Test
+    public void createVpcResponseDelegatesToService() {
+        Vpc vpc = Mockito.mock(Vpc.class);
+        VpcResponse expected = new VpcResponse();
+        when(apiVpcVpnResponseService.createVpcResponse(ResponseObject.ResponseView.Full, vpc)).thenReturn(expected);
+
+        VpcResponse response = helper.createVpcResponse(ResponseObject.ResponseView.Full, vpc);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpcResponse(ResponseObject.ResponseView.Full, vpc);
+    }
+
+    @Test
+    public void createPrivateGatewayResponseDelegatesToService() {
+        PrivateGateway gateway = Mockito.mock(PrivateGateway.class);
+        PrivateGatewayResponse expected = new PrivateGatewayResponse();
+        when(apiVpcVpnResponseService.createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway)).thenReturn(expected);
+
+        PrivateGatewayResponse response = helper.createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway);
+    }
+
+    @Test
+    public void createStaticRouteResponseDelegatesToService() {
+        StaticRoute route = Mockito.mock(StaticRoute.class);
+        StaticRouteResponse expected = new StaticRouteResponse();
+        when(apiVpcVpnResponseService.createStaticRouteResponse(route)).thenReturn(expected);
+
+        StaticRouteResponse response = helper.createStaticRouteResponse(route);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createStaticRouteResponse(route);
+    }
+
+    @Test
+    public void createSite2SiteVpnGatewayResponseDelegatesToService() {
+        Site2SiteVpnGateway gateway = Mockito.mock(Site2SiteVpnGateway.class);
+        Site2SiteVpnGatewayResponse expected = new Site2SiteVpnGatewayResponse();
+        when(apiVpcVpnResponseService.createSite2SiteVpnGatewayResponse(gateway)).thenReturn(expected);
+
+        Site2SiteVpnGatewayResponse response = helper.createSite2SiteVpnGatewayResponse(gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteVpnGatewayResponse(gateway);
+    }
+
+    @Test
+    public void createSite2SiteCustomerGatewayResponseDelegatesToService() {
+        Site2SiteCustomerGateway gateway = Mockito.mock(Site2SiteCustomerGateway.class);
+        Site2SiteCustomerGatewayResponse expected = new Site2SiteCustomerGatewayResponse();
+        when(apiVpcVpnResponseService.createSite2SiteCustomerGatewayResponse(gateway)).thenReturn(expected);
+
+        Site2SiteCustomerGatewayResponse response = helper.createSite2SiteCustomerGatewayResponse(gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteCustomerGatewayResponse(gateway);
+    }
+
+    @Test
+    public void createSite2SiteVpnConnectionResponseDelegatesToService() {
+        Site2SiteVpnConnection connection = Mockito.mock(Site2SiteVpnConnection.class);
+        Site2SiteVpnConnectionResponse expected = new Site2SiteVpnConnectionResponse();
+        when(apiVpcVpnResponseService.createSite2SiteVpnConnectionResponse(connection)).thenReturn(expected);
+
+        Site2SiteVpnConnectionResponse response = helper.createSite2SiteVpnConnectionResponse(connection);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteVpnConnectionResponse(connection);
+    }
+
+    @Test
+    public void createVpnUserResponseDelegatesToService() {
+        VpnUser vpnUser = Mockito.mock(VpnUser.class);
+        VpnUsersResponse expected = new VpnUsersResponse();
+        when(apiVpcVpnResponseService.createVpnUserResponse(vpnUser)).thenReturn(expected);
+
+        VpnUsersResponse response = helper.createVpnUserResponse(vpnUser);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpnUserResponse(vpnUser);
+    }
+
+    @Test
+    public void createRemoteAccessVpnResponseDelegatesToService() {
+        RemoteAccessVpn vpn = Mockito.mock(RemoteAccessVpn.class);
+        RemoteAccessVpnResponse expected = new RemoteAccessVpnResponse();
+        when(apiVpcVpnResponseService.createRemoteAccessVpnResponse(vpn)).thenReturn(expected);
+
+        RemoteAccessVpnResponse response = helper.createRemoteAccessVpnResponse(vpn);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createRemoteAccessVpnResponse(vpn);
     }
 
     @Test

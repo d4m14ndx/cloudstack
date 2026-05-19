@@ -237,7 +237,6 @@ import com.cloud.api.query.vo.ResourceTagJoinVO;
 import com.cloud.api.query.vo.SecurityGroupJoinVO;
 import com.cloud.api.query.vo.TemplateJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
-import com.cloud.api.query.vo.VpcOfferingJoinVO;
 import com.cloud.api.response.ApiResponseSerializer;
 import com.cloud.bgp.ASNumber;
 import com.cloud.bgp.ASNumberRange;
@@ -323,7 +322,6 @@ import com.cloud.network.vpc.NetworkACLItem;
 import com.cloud.network.vpc.PrivateGateway;
 import com.cloud.network.vpc.StaticRoute;
 import com.cloud.network.vpc.Vpc;
-import com.cloud.network.vpc.VpcGateway;
 import com.cloud.network.vpc.VpcOffering;
 import com.cloud.network.vpc.VpcVO;
 import com.cloud.network.vpc.dao.VpcOfferingDao;
@@ -454,12 +452,13 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiSnapshotResponseService apiSnapshotResponseService;
     @Inject
     private ApiAddressVlanResponseService apiAddressVlanResponseService;
-    @Inject
     private ApiStorageResponseService apiStorageResponseService;
     @Inject
     private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
     @Inject
     private ApiHostZoneCapacityResponseService apiHostZoneCapacityResponseService;
+    @Inject
+    private ApiVpcVpnResponseService apiVpcVpnResponseService;
     @Inject
     private ApiResponseOwnerService apiResponseOwnerService;
     @Inject
@@ -931,34 +930,12 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public VpnUsersResponse createVpnUserResponse(VpnUser vpnUser) {
-        VpnUsersResponse vpnResponse = new VpnUsersResponse();
-        vpnResponse.setId(vpnUser.getUuid());
-        vpnResponse.setUserName(vpnUser.getUsername());
-        vpnResponse.setState(vpnUser.getState().toString());
-
-        populateOwner(vpnResponse, vpnUser);
-
-        vpnResponse.setObjectName("vpnuser");
-        return vpnResponse;
+        return apiVpcVpnResponseService.createVpnUserResponse(vpnUser);
     }
 
     @Override
     public RemoteAccessVpnResponse createRemoteAccessVpnResponse(RemoteAccessVpn vpn) {
-        RemoteAccessVpnResponse vpnResponse = new RemoteAccessVpnResponse();
-        IpAddress ip = ApiDBUtils.findIpAddressById(vpn.getServerAddressId());
-        if (ip != null) {
-            vpnResponse.setPublicIpId(ip.getUuid());
-            vpnResponse.setPublicIp(ip.getAddress().addr());
-        }
-        vpnResponse.setIpRange(vpn.getIpRange());
-        vpnResponse.setPresharedKey(vpn.getIpsecPresharedKey());
-        populateOwner(vpnResponse, vpn);
-        vpnResponse.setState(vpn.getState().toString());
-        vpnResponse.setId(vpn.getUuid());
-        vpnResponse.setForDisplay(vpn.isDisplay());
-        vpnResponse.setObjectName("remoteaccessvpn");
-
-        return vpnResponse;
+        return apiVpcVpnResponseService.createRemoteAccessVpnResponse(vpn);
     }
 
     @Override
@@ -2227,195 +2204,17 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public VpcOfferingResponse createVpcOfferingResponse(VpcOffering offering) {
-        if (!(offering instanceof VpcOfferingJoinVO)) {
-            offering = ApiDBUtils.newVpcOfferingView(offering);
-        }
-        VpcOfferingResponse response = ApiDBUtils.newVpcOfferingResponse(offering);
-        Map<Service, Set<Provider>> serviceProviderMap = ApiDBUtils.listVpcOffServices(offering.getId());
-        List<ServiceResponse> serviceResponses = new ArrayList<ServiceResponse>();
-        for (Map.Entry<Service, Set<Provider>> entry : serviceProviderMap.entrySet()) {
-            Service service = entry.getKey();
-            Set<Provider> srvc_providers = entry.getValue();
-
-            ServiceResponse svcRsp = new ServiceResponse();
-            // skip gateway service
-            if (service == Service.Gateway) {
-                continue;
-            }
-            svcRsp.setName(service.getName());
-            List<ProviderResponse> providers = new ArrayList<ProviderResponse>();
-            for (Provider provider : srvc_providers) {
-                if (provider != null) {
-                    ProviderResponse providerRsp = new ProviderResponse();
-                    providerRsp.setName(provider.getName());
-                    providers.add(providerRsp);
-                }
-            }
-            svcRsp.setProviders(providers);
-
-            serviceResponses.add(svcRsp);
-        }
-        response.setServices(serviceResponses);
-        return response;
+        return apiVpcVpnResponseService.createVpcOfferingResponse(offering);
     }
 
     @Override
     public VpcResponse createVpcResponse(ResponseView view, Vpc vpc) {
-        VpcResponse response = new VpcResponse();
-        response.setId(vpc.getUuid());
-        response.setName(vpc.getName());
-        response.setDisplayText(vpc.getDisplayText());
-        response.setCreated(vpc.getCreated());
-        response.setState(vpc.getState().name());
-        VpcOffering voff = ApiDBUtils.findVpcOfferingById(vpc.getVpcOfferingId());
-        if (voff != null) {
-            response.setVpcOfferingId(voff.getUuid());
-            response.setVpcOfferingName(voff.getName());
-            response.setVpcOfferingConserveMode(voff.isConserveMode());
-        }
-        response.setCidr(vpc.getCidr());
-        response.setRestartRequired(vpc.isRestartRequired());
-        response.setNetworkDomain(vpc.getNetworkDomain());
-        response.setForDisplay(vpc.isDisplay());
-        response.setUsesDistributedRouter(vpc.usesDistributedRouter());
-        response.setRedundantRouter(vpc.isRedundant());
-        response.setRegionLevelVpc(vpc.isRegionLevelVpc());
-        ASNumberVO asNumberVO = asNumberDao.findByZoneAndVpcId(vpc.getZoneId(), vpc.getId());
-        if (Objects.nonNull(asNumberVO)) {
-            response.setAsNumberId(asNumberVO.getUuid());
-            response.setAsNumber(asNumberVO.getAsNumber());
-        }
-        Map<Service, Set<Provider>> serviceProviderMap = ApiDBUtils.listVpcOffServices(vpc.getVpcOfferingId());
-        List<ServiceResponse> serviceResponses = new ArrayList<ServiceResponse>();
-        for (Map.Entry<Service,Set<Provider>>entry : serviceProviderMap.entrySet()) {
-            Service service = entry.getKey();
-            Set<Provider> serviceProviders = entry.getValue();
-            ServiceResponse svcRsp = new ServiceResponse();
-            // skip gateway service
-            if (service == Service.Gateway) {
-                continue;
-            }
-            svcRsp.setName(service.getName());
-            List<ProviderResponse> providers = new ArrayList<ProviderResponse>();
-            for (Provider provider : serviceProviders) {
-                if (provider != null) {
-                    ProviderResponse providerRsp = new ProviderResponse();
-                    providerRsp.setName(provider.getName());
-                    providers.add(providerRsp);
-                }
-            }
-            svcRsp.setProviders(providers);
-
-            serviceResponses.add(svcRsp);
-        }
-
-        List<NetworkResponse> networkResponses = new ArrayList<NetworkResponse>();
-        List<? extends Network> networks = ApiDBUtils.listVpcNetworks(vpc.getId());
-        for (Network network : networks) {
-            NetworkResponse ntwkRsp = createNetworkResponse(view, network);
-            networkResponses.add(ntwkRsp);
-        }
-
-        DataCenter zone = ApiDBUtils.findZoneById(vpc.getZoneId());
-        if (zone != null) {
-            response.setZoneId(zone.getUuid());
-            response.setZoneName(zone.getName());
-        }
-
-        response.setNetworks(networkResponses);
-        response.setServices(serviceResponses);
-        response.setPublicMtu(vpc.getPublicMtu());
-        populateOwner(response, vpc);
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.Vpc, vpc.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses, tagResponse);
-        }
-        response.setTags(tagResponses);
-        response.setHasAnnotation(annotationDao.hasAnnotations(vpc.getUuid(), AnnotationService.EntityType.VPC.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-        ipv6Service.updateIpv6RoutesForVpcResponse(vpc, response);
-        response.setDns1(vpc.getIp4Dns1());
-        response.setDns2(vpc.getIp4Dns2());
-        response.setIpv6Dns1(vpc.getIp6Dns1());
-        response.setIpv6Dns2(vpc.getIp6Dns2());
-
-        // add IPv4 routes
-        if (vpcOfferingDao.isRoutedVpc(vpc.getVpcOfferingId())) {
-            if (Objects.nonNull(asNumberVO)) {
-                response.setIpv4Routing(Network.Routing.Dynamic.name());
-            } else {
-                response.setIpv4Routing(Network.Routing.Static.name());
-            }
-            response.setIpv4Routes(new LinkedHashSet<>());
-            List<IPAddressVO> ips = userIpAddressDao.listByAssociatedVpc(vpc.getId(), true);
-            for (Network network : networkDao.listByVpc(vpc.getId())) {
-                for (IPAddressVO ip : ips) {
-                    Ipv4RouteResponse route = new Ipv4RouteResponse(network.getCidr(), ip.getAddress().addr());
-                    response.addIpv4Route(route);
-                }
-            }
-            if (view == ResponseView.Full) {
-                List<BgpPeerVO> bgpPeerVOS = bgpPeerDao.listNonRevokeByVpcId(vpc.getId());
-                for (BgpPeerVO bgpPeerVO : bgpPeerVOS) {
-                    BgpPeerResponse bgpPeerResponse = routedIpv4Manager.createBgpPeerResponse(bgpPeerVO);
-                    response.addBgpPeer(bgpPeerResponse);
-                }
-            }
-        }
-
-        if (CallContext.current().getCallingAccount().getType() == Account.Type.ADMIN) {
-            response.setKeepMacAddressOnPublicNic(vpc.getKeepMacAddressOnPublicNic());
-        }
-        response.setObjectName("vpc");
-        return response;
+        return apiVpcVpnResponseService.createVpcResponse(view, vpc);
     }
 
     @Override
     public PrivateGatewayResponse createPrivateGatewayResponse(ResponseView view, PrivateGateway result) {
-        PrivateGatewayResponse response = new PrivateGatewayResponse();
-        response.setId(result.getUuid());
-        if (view == ResponseView.Full) {
-            response.setBroadcastUri(result.getBroadcastUri());
-        }
-        response.setGateway(result.getGateway());
-        response.setNetmask(result.getNetmask());
-        if (result.getVpcId() != null) {
-            Vpc vpc = ApiDBUtils.findVpcById(result.getVpcId());
-            response.setVpcId(vpc.getUuid());
-            response.setVpcName(vpc.getName());
-        }
-
-        DataCenter zone = ApiDBUtils.findZoneById(result.getZoneId());
-        if (zone != null) {
-            response.setZoneId(zone.getUuid());
-            response.setZoneName(zone.getName());
-        }
-        response.setAddress(result.getIp4Address());
-        PhysicalNetwork pnet = ApiDBUtils.findPhysicalNetworkById(result.getPhysicalNetworkId());
-        if (pnet != null) {
-            response.setPhysicalNetworkId(pnet.getUuid());
-        }
-
-        populateAccount(response, result.getAccountId());
-        populateDomain(response, result.getDomainId());
-        response.setState(result.getState().toString());
-        response.setSourceNat(result.getSourceNat());
-
-        NetworkACL acl =  ApiDBUtils.findByNetworkACLId(result.getNetworkACLId());
-        if (acl != null) {
-            response.setAclId(acl.getUuid());
-            response.setAclName(acl.getName());
-        }
-
-        setResponseAssociatedNetworkInformation(response, result.getNetworkId());
-
-        response.setObjectName("privategateway");
-
-        return response;
+        return apiVpcVpnResponseService.createPrivateGatewayResponse(view, result);
     }
 
     @Override
@@ -2445,148 +2244,22 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public StaticRouteResponse createStaticRouteResponse(StaticRoute result) {
-        StaticRouteResponse response = new StaticRouteResponse();
-        response.setId(result.getUuid());
-        if (result.getVpcId() != null) {
-            Vpc vpc = ApiDBUtils.findVpcById(result.getVpcId());
-            if (vpc != null) {
-                response.setVpcId(vpc.getUuid());
-            }
-        }
-        if (result.getVpcGatewayId() != null) {
-            VpcGateway vpcGateway = _entityMgr.findById(VpcGateway.class, result.getVpcGatewayId());
-            if (vpcGateway != null) {
-                response.setVpcGatewayId(vpcGateway.getUuid());
-                response.setVpcGatewayIp(vpcGateway.getIp4Address());
-            }
-        }
-        if (result.getNextHop() != null) {
-            response.setNextHop(result.getNextHop());
-        }
-        response.setCidr(result.getCidr());
-
-        StaticRoute.State state = result.getState();
-        if (state.equals(StaticRoute.State.Revoke)) {
-            state = StaticRoute.State.Deleting;
-        }
-        response.setState(state.toString());
-        populateAccount(response, result.getAccountId());
-        populateDomain(response, result.getDomainId());
-
-        // set tag information
-        List<? extends ResourceTag> tags = ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.StaticRoute, result.getId());
-        List<ResourceTagResponse> tagResponses = new ArrayList<ResourceTagResponse>();
-        for (ResourceTag tag : tags) {
-            ResourceTagResponse tagResponse = createResourceTagResponse(tag, true);
-            CollectionUtils.addIgnoreNull(tagResponses,tagResponse);
-        }
-        response.setTags(tagResponses);
-        response.setObjectName("staticroute");
-
-        return response;
+        return apiVpcVpnResponseService.createStaticRouteResponse(result);
     }
 
     @Override
     public Site2SiteVpnGatewayResponse createSite2SiteVpnGatewayResponse(Site2SiteVpnGateway result) {
-        Site2SiteVpnGatewayResponse response = new Site2SiteVpnGatewayResponse();
-        response.setId(result.getUuid());
-        response.setIp(ApiDBUtils.findIpAddressById(result.getAddrId()).getAddress().toString());
-        Vpc vpc = ApiDBUtils.findVpcById(result.getVpcId());
-        if (vpc != null) {
-            response.setVpcId(vpc.getUuid());
-            response.setVpcName(vpc.getName());
-        }
-        response.setRemoved(result.getRemoved());
-        response.setForDisplay(result.isDisplay());
-        response.setObjectName("vpngateway");
-
-        populateAccount(response, result.getAccountId());
-        populateDomain(response, result.getDomainId());
-        return response;
+        return apiVpcVpnResponseService.createSite2SiteVpnGatewayResponse(result);
     }
 
     @Override
     public Site2SiteCustomerGatewayResponse createSite2SiteCustomerGatewayResponse(Site2SiteCustomerGateway result) {
-        Site2SiteCustomerGatewayResponse response = new Site2SiteCustomerGatewayResponse();
-        response.setId(result.getUuid());
-        response.setName(result.getName());
-        response.setGatewayIp(result.getGatewayIp());
-        response.setGuestCidrList(result.getGuestCidrList());
-        response.setIpsecPsk(result.getIpsecPsk());
-        response.setIkePolicy(result.getIkePolicy());
-        response.setEspPolicy(result.getEspPolicy());
-        response.setIkeLifetime(result.getIkeLifetime());
-        response.setEspLifetime(result.getEspLifetime());
-        response.setDpd(result.getDpd());
-        response.setEncap(result.getEncap());
-        response.setRemoved(result.getRemoved());
-        response.setIkeVersion(result.getIkeVersion());
-        response.setSplitConnections(result.getSplitConnections());
-
-        Set<String> obsoleteParameters = site2SiteVpnManager.getObsoleteVpnGatewayParameters(result);
-        if (CollectionUtils.isNotEmpty(obsoleteParameters)) {
-            response.setContainsObsoleteParameters(obsoleteParameters.toString());
-        }
-        Set<String> excludedParameters = site2SiteVpnManager.getExcludedVpnGatewayParameters(result);
-        if (CollectionUtils.isNotEmpty(excludedParameters)) {
-            response.setContainsExcludedParameters(excludedParameters.toString());
-        }
-
-        response.setObjectName("vpncustomergateway");
-        response.setHasAnnotation(annotationDao.hasAnnotations(result.getUuid(), AnnotationService.EntityType.VPN_CUSTOMER_GATEWAY.name(),
-                _accountMgr.isRootAdmin(CallContext.current().getCallingAccount().getId())));
-
-        populateAccount(response, result.getAccountId());
-        populateDomain(response, result.getDomainId());
-
-        return response;
+        return apiVpcVpnResponseService.createSite2SiteCustomerGatewayResponse(result);
     }
 
     @Override
     public Site2SiteVpnConnectionResponse createSite2SiteVpnConnectionResponse(Site2SiteVpnConnection result) {
-        Site2SiteVpnConnectionResponse response = new Site2SiteVpnConnectionResponse();
-        response.setId(result.getUuid());
-        response.setPassive(result.isPassive());
-
-        Long vpnGatewayId = result.getVpnGatewayId();
-        if (vpnGatewayId != null) {
-            Site2SiteVpnGateway vpnGateway = ApiDBUtils.findVpnGatewayById(vpnGatewayId);
-            if (vpnGateway != null) {
-                response.setVpnGatewayId(vpnGateway.getUuid());
-                long ipId = vpnGateway.getAddrId();
-                IPAddressVO ipObj = ApiDBUtils.findIpAddressById(ipId);
-                response.setIp(ipObj.getAddress().addr());
-            }
-        }
-
-        Long customerGatewayId = result.getCustomerGatewayId();
-        if (customerGatewayId != null) {
-            Site2SiteCustomerGateway customerGateway = ApiDBUtils.findCustomerGatewayById(customerGatewayId);
-            if (customerGateway != null) {
-                response.setCustomerGatewayId(customerGateway.getUuid());
-                response.setGatewayIp(customerGateway.getGatewayIp());
-                response.setGuestCidrList(customerGateway.getGuestCidrList());
-                response.setIpsecPsk(customerGateway.getIpsecPsk());
-                response.setIkePolicy(customerGateway.getIkePolicy());
-                response.setEspPolicy(customerGateway.getEspPolicy());
-                response.setIkeLifetime(customerGateway.getIkeLifetime());
-                response.setEspLifetime(customerGateway.getEspLifetime());
-                response.setDpd(customerGateway.getDpd());
-                response.setEncap(customerGateway.getEncap());
-                response.setIkeVersion(customerGateway.getIkeVersion());
-                response.setSplitConnections(customerGateway.getSplitConnections());
-            }
-        }
-
-        populateAccount(response, result.getAccountId());
-        populateDomain(response, result.getDomainId());
-
-        response.setState(result.getState().toString());
-        response.setCreated(result.getCreated());
-        response.setRemoved(result.getRemoved());
-        response.setForDisplay(result.isDisplay());
-        response.setObjectName("vpnconnection");
-        return response;
+        return apiVpcVpnResponseService.createSite2SiteVpnConnectionResponse(result);
     }
 
     @Override
