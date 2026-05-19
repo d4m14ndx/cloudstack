@@ -17,7 +17,6 @@
 package com.cloud.vm;
 
 import static com.cloud.hypervisor.Hypervisor.HypervisorType.Functionality;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -41,7 +40,6 @@ import java.util.stream.Stream;
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import org.apache.cloudstack.acl.ControlledEntity;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
 import org.apache.cloudstack.affinity.AffinityGroupService;
@@ -81,7 +79,6 @@ import org.apache.cloudstack.api.command.user.volume.ResizeVolumeCmd;
 import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.dao.BackupScheduleDao;
 import org.apache.cloudstack.context.CallContext;
-import org.apache.cloudstack.engine.cloud.entity.api.VirtualMachineEntity;
 import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMNetworkMapDao;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
@@ -97,7 +94,6 @@ import org.apache.cloudstack.extension.ExtensionHelper;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
-import org.apache.cloudstack.framework.jobs.impl.AsyncJobVO;
 import org.apache.cloudstack.framework.messagebus.MessageBus;
 import org.apache.cloudstack.framework.messagebus.PublishScope;
 import org.apache.cloudstack.managed.context.ManagedContextRunnable;
@@ -173,7 +169,6 @@ import com.cloud.event.UsageEventUtils;
 import com.cloud.event.dao.UsageEventDao;
 import com.cloud.exception.AffinityConflictException;
 import com.cloud.exception.AgentUnavailableException;
-import com.cloud.exception.CloudException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InsufficientServerCapacityException;
@@ -241,7 +236,6 @@ import com.cloud.resource.ResourceManager;
 import com.cloud.resource.ResourceState;
 import com.cloud.resourcelimit.CheckedReservation;
 import com.cloud.resourcelimit.ReservationHelper;
-import com.cloud.serializer.GsonHelper;
 import com.cloud.server.ManagementService;
 import com.cloud.server.ResourceTag;
 import com.cloud.service.ServiceOfferingVO;
@@ -325,7 +319,6 @@ import com.cloud.vm.dao.VmStatsDao;
 import com.cloud.vm.snapshot.VMSnapshotManager;
 import com.cloud.vm.snapshot.VMSnapshotVO;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
-import com.google.gson.reflect.TypeToken;
 
 
 public class UserVmManagerImpl extends ManagerBase implements UserVmManager, VirtualMachineGuru, Configurable {
@@ -577,6 +570,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     protected VmServiceOfferingScaleService vmServiceOfferingScaleService;
     @Inject
+    protected VmTerminationService vmTerminationService;
+    @Inject
     protected VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
     @Inject
     protected VmAssignmentOwnershipService vmAssignmentOwnershipService;
@@ -643,8 +638,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     protected static long ROOT_DEVICE_ID = 0;
 
-    private final Type jobParamsType = new TypeToken<HashMap<String, String>>() {}.getType();
-
     public List<KubernetesServiceHelper> getKubernetesServiceHelpers() {
         return kubernetesServiceHelpers;
     }
@@ -679,7 +672,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     static final ConfigKey<String> VmwareAdditionalConfigAllowList = new ConfigKey<>(String.class,
     "allow.additional.vm.configuration.list.vmware", "Advanced", "", "Comma separated list of allowed additional configuration options.", true, ConfigKey.Scope.Global, null, null, EnableAdditionalVmConfig.key(), null, null, ConfigKey.Kind.CSV, null);
 
-    private static final ConfigKey<Boolean> VmDestroyForcestop = new ConfigKey<>("Advanced", Boolean.class, "vm.destroy.forcestop", "false",
+    static final ConfigKey<Boolean> VmDestroyForcestop = new ConfigKey<>("Advanced", Boolean.class, "vm.destroy.forcestop", "false",
             "On destroy, force-stop takes this value ", true);
 
     @Override
@@ -864,29 +857,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public boolean stopVirtualMachine(long userId, long vmId) {
-        boolean status = false;
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (logger.isDebugEnabled()) {
-            logger.debug("Stopping vm {} with id {}", vm, vmId);
-        }
-        if (vm == null || vm.getRemoved() != null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("VM is either removed or deleted.");
-            }
-            return true;
-        }
-
-        _userDao.findById(userId);
-        try {
-            VirtualMachineEntity vmEntity = _orchSrvc.getVirtualMachine(vm.getUuid());
-            status = vmEntity.stop(Long.toString(userId));
-        } catch (ResourceUnavailableException e) {
-            logger.debug("Unable to stop due to ", e);
-            status = false;
-        } catch (CloudException e) {
-            throw new CloudRuntimeException("Unable to contact the agent to stop the Instance " + vm, e);
-        }
-        return status;
+        return vmTerminationService.stopVirtualMachine(userId, vmId);
     }
 
     private UserVm rebootVirtualMachine(long userId, long vmId, boolean enterSetup, boolean forced) throws InsufficientCapacityException, ResourceUnavailableException {
@@ -1839,114 +1810,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_DESTROY, eventDescription = "destroying Vm", async = true)
     public UserVm destroyVm(DestroyVMCmd cmd) throws ResourceUnavailableException, ConcurrentOperationException {
-        CallContext ctx = CallContext.current();
-        long vmId = cmd.getId();
-        boolean expunge = cmd.getExpunge();
-
-        if (expunge) {
-            String jobParamsString = ((AsyncJobVO) cmd.getJob()).getCmdInfo();
-            HashMap<String,String> jobParams = GsonHelper.getGson().fromJson(jobParamsString, jobParamsType);
-            String apiKey = jobParams.get("apiKey");
-            checkExpungeVmPermission(ctx.getCallingAccount(), apiKey);
-        }
-
-        // check if VM exists
-        UserVmVO vm = _vmDao.findById(vmId);
-
-        if (vm == null || vm.getRemoved() != null) {
-            throw new InvalidParameterValueException("unable to find a virtual machine with id " + vmId);
-        }
-        if (UserVmManager.SHAREDFSVM.equals(vm.getUserVmType())) {
-            throw new InvalidParameterValueException("Operation not supported on Shared FileSystem Instance");
-        }
-
-        if (Arrays.asList(State.Destroyed, State.Expunging).contains(vm.getState()) && !expunge) {
-            logger.debug("Vm {} is already destroyed", vm);
-            return vm;
-        }
-
-        if (vm.isDeleteProtection()) {
-            throw new InvalidParameterValueException(String.format(
-                    "Instance [id = %s, name = %s] has delete protection enabled and cannot be deleted.",
-                    vm.getUuid(), vm.getName()));
-        }
-
-        // check if vm belongs to AutoScale vm group in Disabled state
-        autoScaleManager.checkIfVmActionAllowed(vmId);
-
-        // check if vm belongs to any plugin resources
-        checkPluginsIfVmCanBeDestroyed(vm);
-
-        // check if there are active volume snapshots tasks
-        logger.debug("Checking if there are any ongoing Snapshots on the ROOT volumes associated with Instance {}", vm);
-        if (checkStatusOfVolumeSnapshots(vm, Volume.Type.ROOT)) {
-            throw new CloudRuntimeException("There is/are unbacked up Snapshot(s) on ROOT volume, Instance destroy is not permitted, please try again later.");
-        }
-        logger.debug("Found no ongoing Snapshots on volume of type ROOT, for the Instance {}", vm);
-
-        List<VolumeVO> volumesToBeDeleted = getVolumesFromIds(cmd);
-
-        checkForUnattachedVolumes(vmId, volumesToBeDeleted);
-        validateVolumes(volumesToBeDeleted);
-
-        final ControlledEntity[] volumesToDelete = volumesToBeDeleted.toArray(new ControlledEntity[0]);
-        _accountMgr.checkAccess(ctx.getCallingAccount(), null, true, volumesToDelete);
-
-        if (expunge) {
-            backupManager.checkAndRemoveBackupOfferingBeforeExpunge(vm);
-        }
-
-        stopVirtualMachine(vmId, VmDestroyForcestop.value());
-
-        // Detach all data disks from VM
-        List<VolumeVO> dataVols = _volsDao.findByInstanceAndType(vmId, Volume.Type.DATADISK);
-        detachVolumesFromVm(vm, dataVols);
-
-        UserVm destroyedVm = destroyVm(vmId, expunge);
-        if (expunge) {
-            boolean expunged = false;
-            String errorMsg = "";
-            try {
-                expunged = expunge(vm);
-            } catch (RuntimeException e) {
-                logger.error("Failed to expunge VM [{}] due to: {}", vm, e.getMessage(), e);
-                errorMsg = e.getMessage();
-            }
-            if (!expunged) {
-                transitionExpungingToError(vm.getId());
-                throw new CloudRuntimeException("Failed to expunge VM " + vm.getUuid() + (StringUtils.isNotBlank(errorMsg) ? " due to: " + errorMsg : ""));
-            }
-        }
-
-        autoScaleManager.removeVmFromVmGroup(vmId);
-
-        deleteVolumesFromVm(vm, volumesToBeDeleted, expunge);
-
-        if (getDestroyRootVolumeOnVmDestruction(vm.getDomainId())) {
-            VolumeVO rootVolume = _volsDao.getInstanceRootVolume(vm.getId());
-            if (rootVolume != null) {
-                _volService.destroyVolume(rootVolume.getId());
-            } else {
-                logger.warn("Tried to destroy ROOT volume for VM [{}], but couldn't retrieve it.", vm);
-            }
-        }
-
-        return destroyedVm;
-    }
-
-    private List<VolumeVO> getVolumesFromIds(DestroyVMCmd cmd) {
-        List<VolumeVO> volumes = new ArrayList<>();
-        if (cmd.getVolumeIds() != null) {
-            for (Long volId : cmd.getVolumeIds()) {
-                VolumeVO vol = _volsDao.findById(volId);
-
-                if (vol == null) {
-                    throw new InvalidParameterValueException("Unable to find volume with ID: " + volId);
-                }
-                volumes.add(vol);
-            }
-        }
-        return volumes;
+        return vmTerminationService.destroyVm(cmd, terminationManagerOperations());
     }
 
     // ---- VM Group methods delegated to VmGroupService ----
@@ -3579,46 +3443,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_STOP, eventDescription = "stopping Vm", async = true)
     public UserVm stopVirtualMachine(long vmId, boolean forced) throws ConcurrentOperationException {
-        // Input validation
-        Account caller = CallContext.current().getCallingAccount();
-        Long userId = CallContext.current().getCallingUserId();
-
-        // if account is removed, return error
-        if (caller != null && caller.getRemoved() != null) {
-            throw new PermissionDeniedException("The account " + caller.getUuid() + " is removed");
-        }
-
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (vm == null) {
-            throw new InvalidParameterValueException("unable to find a virtual machine with id " + vmId);
-        }
-
-        if (forced) {
-            checkForceStopVmPermission(caller);
-        }
-
-        // check if vm belongs to AutoScale vm group in Disabled state
-        autoScaleManager.checkIfVmActionAllowed(vmId);
-
-        boolean status = false;
-        try {
-            VirtualMachineEntity vmEntity = _orchSrvc.getVirtualMachine(vm.getUuid());
-
-            if (forced) {
-                status = vmEntity.stopForced(Long.toString(userId));
-            } else {
-                status = vmEntity.stop(Long.toString(userId));
-            }
-            if (status) {
-                return _vmDao.findById(vmId);
-            } else {
-                return null;
-            }
-        } catch (ResourceUnavailableException e) {
-            throw new CloudRuntimeException("Unable to contact the agent to stop the virtual machine " + vm, e);
-        } catch (CloudException e) {
-            throw new CloudRuntimeException("Unable to contact the agent to stop the virtual machine " + vm, e);
-        }
+        return vmTerminationService.stopVirtualMachine(vmId, forced);
     }
 
     @Override
@@ -3699,68 +3524,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public UserVm destroyVm(long vmId, boolean expunge) throws ResourceUnavailableException, ConcurrentOperationException {
-        // Verify input parameters
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (vm == null || vm.getRemoved() != null) {
-            InvalidParameterValueException ex = new InvalidParameterValueException("Unable to find a virtual machine with specified vmId");
-            throw ex;
-        }
-
-        if (vm.getState() == State.Destroyed || vm.getState() == State.Expunging) {
-            logger.trace("Vm {} is already destroyed", vm);
-            return vm;
-        }
-
-        vmStatsDao.removeAllByVmId(vmId);
-
-        boolean status;
-        State vmState = vm.getState();
-
-        Account owner = _accountMgr.getAccount(vm.getAccountId());
-
-        ServiceOfferingVO offering = serviceOfferingDao.findByIdIncludingRemoved(vm.getId(), vm.getServiceOfferingId());
-
-        try (CheckedReservation vmReservation = new CheckedReservation(owner, ResourceType.user_vm, vmId, null, -1L, reservationDao, resourceLimitService);
-             CheckedReservation cpuReservation = new CheckedReservation(owner, ResourceType.cpu, vmId, null, -1 * Long.valueOf(offering.getCpu()), reservationDao, resourceLimitService);
-             CheckedReservation memReservation = new CheckedReservation(owner, ResourceType.memory, vmId, null, -1 * Long.valueOf(offering.getRamSize()), reservationDao, resourceLimitService);
-             CheckedReservation gpuReservation = offering.getGpuCount() != null && offering.getGpuCount() > 0 ?
-                     new CheckedReservation(owner, ResourceType.gpu, vmId, null, -1 * Long.valueOf(offering.getGpuCount()), reservationDao, resourceLimitService) : null;
-        ) {
-            try {
-                VirtualMachineEntity vmEntity = _orchSrvc.getVirtualMachine(vm.getUuid());
-                status = vmEntity.destroy(expunge);
-            } catch (CloudException e) {
-                CloudRuntimeException ex = new CloudRuntimeException("Unable to destroy with specified vmId", e);
-                ex.addProxyObject(vm.getUuid(), "vmId");
-                throw ex;
-            }
-
-            if (status) {
-                // Mark the account's volumes as destroyed
-                List<VolumeVO> volumes = _volsDao.findByInstance(vmId);
-                for (VolumeVO volume : volumes) {
-                    if (volume.getVolumeType().equals(Volume.Type.ROOT)) {
-                        UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VOLUME_DELETE, volume.getAccountId(), volume.getDataCenterId(), volume.getId(), volume.getName(),
-                                Volume.class.getName(), volume.getUuid(), volume.isDisplayVolume());
-                    }
-                }
-
-                if (vmState != State.Error) {
-                    // Get serviceOffering and template for Virtual Machine
-                    VMTemplateVO template = _templateDao.findByIdIncludingRemoved(vm.getTemplateId());
-                    //Update Resource Count for the given account
-                    resourceCountDecrement(vm.getAccountId(), vm.isDisplayVm(), offering, template);
-                }
-                return _vmDao.findById(vmId);
-            } else {
-                CloudRuntimeException ex = new CloudRuntimeException("Failed to destroy vm with specified vmId");
-                ex.addProxyObject(vm.getUuid(), "vmId");
-                throw ex;
-            }
-        } catch (Exception e) {
-                throw new CloudRuntimeException("Failed to destroy vm with specified vmId", e);
-        }
-
+        return vmTerminationService.destroyVm(vmId, expunge, terminationManagerOperations());
     }
 
     @Override
@@ -5677,6 +5441,41 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             public void resourceCountDecrement(long accountId, Boolean displayVm,
                     ServiceOffering serviceOffering, VirtualMachineTemplate template) {
                 UserVmManagerImpl.this.resourceCountDecrement(accountId, displayVm, serviceOffering, template);
+            }
+        };
+    }
+
+    private VmTerminationService.ManagerOperations terminationManagerOperations() {
+        return new VmTerminationService.ManagerOperations() {
+            @Override
+            public UserVm stopVirtualMachine(long vmId, boolean forced) throws ConcurrentOperationException {
+                return UserVmManagerImpl.this.stopVirtualMachine(vmId, forced);
+            }
+
+            @Override
+            public UserVm destroyVm(long vmId, boolean expunge) throws ResourceUnavailableException, ConcurrentOperationException {
+                return UserVmManagerImpl.this.destroyVm(vmId, expunge);
+            }
+
+            @Override
+            public boolean expunge(UserVmVO vm) {
+                return UserVmManagerImpl.this.expunge(vm);
+            }
+
+            @Override
+            public void transitionExpungingToError(long vmId) {
+                UserVmManagerImpl.this.transitionExpungingToError(vmId);
+            }
+
+            @Override
+            public void resourceCountDecrement(long accountId, Boolean displayVm,
+                    ServiceOffering serviceOffering, VirtualMachineTemplate template) {
+                UserVmManagerImpl.this.resourceCountDecrement(accountId, displayVm, serviceOffering, template);
+            }
+
+            @Override
+            public Boolean getDestroyRootVolumeOnVmDestruction(Long domainId) {
+                return UserVmManagerImpl.this.getDestroyRootVolumeOnVmDestruction(domainId);
             }
         };
     }
