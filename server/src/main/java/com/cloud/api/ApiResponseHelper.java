@@ -173,7 +173,6 @@ import org.apache.cloudstack.api.response.TemplatePermissionsResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
 import org.apache.cloudstack.api.response.TrafficMonitorResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
-import org.apache.cloudstack.api.response.UnmanagedInstanceDiskResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
 import org.apache.cloudstack.api.response.UpgradeRouterTemplateResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
@@ -491,6 +490,8 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
     private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
     @Inject
     private ApiKeyPairResponseService apiKeyPairResponseService;
+    @Inject
+    private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
     @Inject
     private AnnotationDao annotationDao;
     @Inject
@@ -4811,83 +4812,7 @@ public class ApiResponseHelper implements ResponseGenerator, ResourceIdSupport {
 
     @Override
     public UnmanagedInstanceResponse createUnmanagedInstanceResponse(UnmanagedInstanceTO instance, Cluster cluster, Host host) {
-        UnmanagedInstanceResponse response = new UnmanagedInstanceResponse();
-        response.setName(instance.getName());
-        if (cluster != null) {
-            response.setClusterId(cluster.getUuid());
-            response.setClusterName(cluster.getName());
-        } else if (instance.getClusterName() != null) {
-            response.setClusterName(instance.getClusterName());
-        }
-        if (host != null) {
-            response.setHostId(host.getUuid());
-            response.setHostName(host.getName());
-            if (host.getHypervisorType() != null) {
-                response.setHypervisor(host.getHypervisorType().name());
-            }
-            response.setHypervisorVersion(host.getHypervisorVersion());
-        } else {
-            // In case the unmanaged instance is on an external host
-            if (instance.getHostName() != null) {
-                response.setHostName(instance.getHostName());
-            }
-            if (instance.getHypervisorType() != null) {
-                response.setHypervisor(instance.getHypervisorType());
-            }
-            if (instance.getHostHypervisorVersion() != null) {
-                response.setHypervisorVersion(instance.getHostHypervisorVersion());
-            }
-        }
-        response.setPowerState((instance.getPowerState() != null)? instance.getPowerState().toString() : UnmanagedInstanceTO.PowerState.PowerUnknown.toString());
-        response.setCpuCores(instance.getCpuCores());
-        response.setCpuSpeed(instance.getCpuSpeed());
-        response.setCpuCoresPerSocket(instance.getCpuCoresPerSocket());
-        response.setMemory(instance.getMemory());
-        response.setOperatingSystemId(instance.getOperatingSystemId());
-        response.setOperatingSystem(instance.getOperatingSystem());
-        response.setBootMode(instance.getBootMode());
-        response.setBootType(instance.getBootType());
-        response.setObjectName("unmanagedinstance");
-
-        if (instance.getDisks() != null) {
-            for (UnmanagedInstanceTO.Disk disk : instance.getDisks()) {
-                UnmanagedInstanceDiskResponse diskResponse = new UnmanagedInstanceDiskResponse();
-                diskResponse.setDiskId(disk.getDiskId());
-                if (StringUtils.isNotEmpty(disk.getLabel())) {
-                    diskResponse.setLabel(disk.getLabel());
-                }
-                diskResponse.setCapacity(disk.getCapacity());
-                diskResponse.setController(disk.getController());
-                diskResponse.setControllerUnit(disk.getControllerUnit());
-                diskResponse.setPosition(disk.getPosition());
-                diskResponse.setImagePath(disk.getImagePath());
-                diskResponse.setDatastoreName(disk.getDatastoreName());
-                diskResponse.setDatastoreHost(disk.getDatastoreHost());
-                diskResponse.setDatastorePath(disk.getDatastorePath());
-                diskResponse.setDatastoreType(disk.getDatastoreType());
-                response.addDisk(diskResponse);
-            }
-        }
-
-        if (instance.getNics() != null) {
-            for (UnmanagedInstanceTO.Nic nic : instance.getNics()) {
-                NicResponse nicResponse = new NicResponse();
-                nicResponse.setId(nic.getNicId());
-                nicResponse.setNetworkName(nic.getNetwork());
-                nicResponse.setMacAddress(nic.getMacAddress());
-                if (StringUtils.isNotEmpty(nic.getAdapterType())) {
-                    nicResponse.setAdapterType(nic.getAdapterType());
-                }
-                if (!CollectionUtils.isEmpty(nic.getIpAddress())) {
-                    nicResponse.setIpAddresses(nic.getIpAddress());
-                }
-                nicResponse.setVlanId(nic.getVlan());
-                nicResponse.setIsolatedPvlanId(nic.getPvlan());
-                nicResponse.setIsolatedPvlanType(nic.getPvlanType());
-                response.addNic(nicResponse);
-            }
-        }
-        return response;
+        return apiUnmanagedInstanceResponseService.createUnmanagedInstanceResponse(instance, cluster, host);
     }
 
     @Override
