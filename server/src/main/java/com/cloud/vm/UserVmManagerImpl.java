@@ -228,7 +228,6 @@ import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.NsxProviderDao;
 import com.cloud.network.dao.PhysicalNetworkDao;
-import com.cloud.network.element.NsxProviderVO;
 import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.lb.LoadBalancingRulesManager;
 import com.cloud.network.router.CommandSetupHelper;
@@ -559,6 +558,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmStartPlacementService vmStartPlacementService;
     @Inject
     private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
+    @Inject
+    private VmExpungeResourceCleanupService vmExpungeResourceCleanupService;
     @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
     @Inject
@@ -1511,7 +1512,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
             autoScaleManager.removeVmFromVmGroup(vm.getId());
 
-            releaseNetworkResourcesOnExpunge(vm.getId());
+            vmExpungeResourceCleanupService.releaseNetworkResourcesOnExpunge(vm.getId());
 
             List<VolumeVO> rootVol = _volsDao.findByInstanceAndType(vm.getId(), Volume.Type.ROOT);
             // expunge the vm
@@ -1522,7 +1523,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 // Cleanup vm resources - all the PF/LB/StaticNat rules
                 // associated with vm
                 logger.debug("Starting cleaning up vm " + vm + " resources...");
-                if (cleanupVmResources(vm)) {
+                if (vmExpungeResourceCleanupService.cleanupVmResources(vm)) {
                     logger.debug("Successfully cleaned up vm " + vm + " resources as a part of expunge process");
                 } else {
                     logger.warn("Failed to cleanup resources as a part of vm " + vm + " expunge");
@@ -1555,81 +1556,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     private void transitionExpungingToError(long vmId) {
         vmExpungeFailureTransitionService.transitionExpungingToError(vmId);
-    }
-
-    /**
-     * Release network resources, it was done on vm stop previously.
-     * @param id vm id
-     * @throws ConcurrentOperationException
-     * @throws ResourceUnavailableException
-     */
-    private void releaseNetworkResourcesOnExpunge(long id) throws ConcurrentOperationException, ResourceUnavailableException {
-        final VMInstanceVO vmInstance = _vmDao.findById(id);
-        if (vmInstance != null) {
-            final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vmInstance);
-            _networkMgr.release(profile, false);
-        }
-        else {
-            logger.error("Couldn't find vm with id = " + id + ", unable to release network resources");
-        }
-    }
-
-    private boolean cleanupVmResources(UserVmVO vm) {
-        long vmId = vm.getId();
-        boolean success = true;
-        // Remove vm from security groups
-        _securityGroupMgr.removeInstanceFromGroups(vm);
-
-        // Remove vm from instance group
-        removeInstanceFromInstanceGroup(vmId);
-
-        // cleanup firewall rules
-        if (_firewallMgr.revokeFirewallRulesForVm(vmId)) {
-            logger.debug("Firewall rules are removed successfully as a part of vm {} expunge", vm);
-        } else {
-            success = false;
-            logger.warn("Fail to remove firewall rules as a part of vm {} expunge", vm);
-        }
-
-        // cleanup port forwarding rules
-        VMInstanceVO vmInstanceVO = _vmInstanceDao.findById(vmId);
-        NsxProviderVO nsx = nsxProviderDao.findByZoneId(vmInstanceVO.getDataCenterId());
-        if (Objects.isNull(nsx) || Objects.isNull(kubernetesServiceHelpers.get(0).findByVmId(vmId))) {
-            if (_rulesMgr.revokePortForwardingRulesForVm(vmId)) {
-                logger.debug("Port forwarding rules are removed successfully as a part of vm {} expunge", vm);
-            } else {
-                success = false;
-                logger.warn("Fail to remove port forwarding rules as a part of vm {} expunge", vm);
-            }
-        }
-
-        // cleanup load balancer rules
-        if (_lbMgr.removeVmFromLoadBalancers(vmId)) {
-            logger.debug("Removed vm {} from all load balancers as a part of expunge process", vm);
-        } else {
-            success = false;
-            logger.warn("Fail to remove vm {} from load balancers as a part of expunge process", vm);
-        }
-
-        // If vm is assigned to static nat, disable static nat for the ip
-        // address and disassociate ip if elasticIP is enabled
-        List<IPAddressVO> ips = _ipAddressDao.findAllByAssociatedVmId(vmId);
-
-        for (IPAddressVO ip : ips) {
-            try {
-                if (_rulesMgr.disableStaticNat(ip.getId(), _accountMgr.getAccount(Account.ACCOUNT_ID_SYSTEM), User.UID_SYSTEM, true)) {
-                    logger.debug("Disabled 1-1 NAT for IP address {} as a part of Instance {} expunge", ip, vm);
-                } else {
-                    logger.warn("Failed to disable static NAT for IP address {} as a part of Instance {} expunge", ip, vm);
-                    success = false;
-                }
-            } catch (ResourceUnavailableException e) {
-                success = false;
-                logger.warn("Failed to disable static NAT for IP address {} as a part of Instance {} expunge because resource is unavailable", ip, vm, e);
-            }
-        }
-
-        return success;
     }
 
     @Override
@@ -6415,7 +6341,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return new VmUnmanageService.ManagerOperations() {
             @Override
             public boolean cleanupVmResources(UserVmVO vm) {
-                return UserVmManagerImpl.this.cleanupVmResources(vm);
+                return vmExpungeResourceCleanupService.cleanupVmResources(vm);
             }
 
             @Override
