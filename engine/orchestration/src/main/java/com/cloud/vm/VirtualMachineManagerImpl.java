@@ -31,7 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -165,7 +164,6 @@ import com.cloud.deploy.DeploymentPlanningManager;
 import com.cloud.deploy.DeploymentPlanningManagerImpl;
 import com.cloud.deployasis.dao.UserVmDeployAsIsDetailsDao;
 import com.cloud.domain.Domain;
-import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
@@ -201,8 +199,6 @@ import com.cloud.network.dao.NetworkDetailsDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.security.SecurityGroupManager;
-import com.cloud.network.vpc.VpcVO;
-import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.DiskOfferingInfo;
 import com.cloud.offering.NetworkOffering;
@@ -238,7 +234,6 @@ import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.User;
-import com.cloud.user.dao.AccountDao;
 import com.cloud.uservm.UserVm;
 import com.cloud.utils.DateUtil;
 import com.cloud.utils.Journal;
@@ -395,12 +390,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     private AnnotationDao annotationDao;
     @Inject
-    private AccountDao accountDao;
-    @Inject
-    private VpcDao vpcDao;
-    @Inject
-    private DomainDao domainDao;
-    @Inject
     public NetworkService networkService;
     @Inject
     ResourceCleanupService resourceCleanupService;
@@ -451,6 +440,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmExpungeCommandService vmExpungeCommandService;
     @Inject
     protected VmMetadataSyncService vmMetadataSyncService;
+    @Inject
+    protected VmNetworkNameMappingService vmNetworkNameMappingService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
@@ -1504,52 +1495,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     public void setVmNetworkDetails(VMInstanceVO vm, VirtualMachineTO vmTO) {
-        Map<Long, String> networkToNetworkNameMap = new HashMap<>();
-        if (VirtualMachine.Type.User.equals(vm.getType())) {
-            List<UserVmJoinVO> userVmJoinVOs = userVmJoinDao.searchByIds(vm.getId());
-            if (userVmJoinVOs != null && !userVmJoinVOs.isEmpty()) {
-                for (UserVmJoinVO userVmJoinVO : userVmJoinVOs) {
-                    addToNetworkNameMap(userVmJoinVO.getNetworkId(), vm.getDataCenterId(), networkToNetworkNameMap);
-                }
-                vmTO.setNetworkIdToNetworkNameMap(networkToNetworkNameMap);
-            }
-        } else if (VirtualMachine.Type.DomainRouter.equals(vm.getType())) {
-            List<DomainRouterJoinVO> routerJoinVO = domainRouterJoinDao.getRouterByIdAndTrafficType(vm.getId(), Networks.TrafficType.Guest);
-            for (DomainRouterJoinVO router : routerJoinVO) {
-                NetworkVO guestNetwork = _networkDao.findById(router.getNetworkId());
-                if (guestNetwork.getVpcId() == null && guestNetwork.getBroadcastDomainType() == Networks.BroadcastDomainType.NSX) {
-                    addToNetworkNameMap(router.getNetworkId(), vm.getDataCenterId(), networkToNetworkNameMap);
-                }
-            }
-            vmTO.setNetworkIdToNetworkNameMap(networkToNetworkNameMap);
-        }
-    }
-
-    private void addToNetworkNameMap(long networkId, long dataCenterId, Map<Long, String> networkToNetworkNameMap) {
-        NetworkVO networkVO = _networkDao.findById(networkId);
-        Account acc = accountDao.findById(networkVO.getAccountId());
-        Domain domain = domainDao.findById(networkVO.getDomainId());
-        DataCenter zone = _dcDao.findById(dataCenterId);
-        if (Objects.isNull(zone)) {
-            throw new CloudRuntimeException(String.format("Failed to find zone with ID: %s", dataCenterId));
-        }
-        if (Objects.isNull(acc)) {
-            throw new CloudRuntimeException(String.format("Failed to find account with ID: %s", networkVO.getAccountId()));
-        }
-        if (Objects.isNull(domain)) {
-            throw new CloudRuntimeException(String.format("Failed to find domain with ID: %s", networkVO.getDomainId()));
-        }
-        String networkName = String.format("D%s-A%s-Z%s", domain.getId(), acc.getId(), zone.getId());
-        if (Objects.isNull(networkVO.getVpcId())) {
-            networkName += "-S" + networkVO.getId();
-        } else {
-            VpcVO vpc = vpcDao.findById(networkVO.getVpcId());
-            if (Objects.isNull(vpc)) {
-                throw new CloudRuntimeException(String.format("Failed to find VPC with ID: %s", networkVO.getVpcId()));
-            }
-            networkName = String.format("%s-V%s-S%s", networkName, vpc.getId(), networkVO.getId());
-        }
-        networkToNetworkNameMap.put(networkVO.getId(), networkName);
+        vmNetworkNameMappingService.setVmNetworkDetails(vm, vmTO);
     }
 
     private void updateOverCommitRatioForVmProfile(VirtualMachineProfile vmProfile, long clusterId) {

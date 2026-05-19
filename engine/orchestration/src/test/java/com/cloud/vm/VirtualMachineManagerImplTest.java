@@ -98,11 +98,9 @@ import com.cloud.agent.api.routing.NetworkElementCommand;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.api.query.dao.UserVmJoinDao;
-import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.dc.ClusterDetailsDao;
 import com.cloud.dc.ClusterDetailsVO;
 import com.cloud.dc.DataCenter;
-import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.Pod;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
@@ -111,7 +109,6 @@ import com.cloud.deploy.DeployDestination;
 import com.cloud.deploy.DeploymentPlanner;
 import com.cloud.deploy.DeploymentPlanner.ExcludeList;
 import com.cloud.deploy.DeploymentPlanningManager;
-import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.InvalidParameterValueException;
@@ -123,8 +120,6 @@ import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuruManager;
 import com.cloud.network.NetworkService;
 import com.cloud.network.dao.NetworkDao;
-import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.vpc.VpcVO;
 import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.org.Cluster;
@@ -299,6 +294,8 @@ public class VirtualMachineManagerImplTest {
     private VmCommandSpecPostProcessingService vmCommandSpecPostProcessingService;
     @Mock
     private VmMetadataSyncService vmMetadataSyncService;
+    @Mock
+    private VmNetworkNameMappingService vmNetworkNameMappingService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -372,6 +369,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningService", vmVolumeMigrationPlanningService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmVolumeMigrationPlanningServiceImpl", vmVolumeMigrationPlanningServiceImpl);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmDiskOfferingSuitabilityService", vmDiskOfferingSuitabilityService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmNetworkNameMappingService", vmNetworkNameMappingService);
     }
 
     @After
@@ -774,45 +772,13 @@ public class VirtualMachineManagerImplTest {
     }
 
     @Test
-    public void checkIfVmNetworkDetailsReturnedIsCorrect() {
-        VMInstanceVO vm = new VMInstanceVO(1L, 1L, "VM1", "i-2-2-VM",
-                VirtualMachine.Type.User, 1L, HypervisorType.KVM, 1L, 1L, 1L,
-                1L, false, false);
+    public void setVmNetworkDetailsDelegatesToNetworkNameMappingService() {
+        VMInstanceVO vm = mock(VMInstanceVO.class);
+        VirtualMachineTO vmTO = mock(VirtualMachineTO.class);
 
-        VirtualMachineTO vmTO = new VirtualMachineTO() {
-        };
-        UserVmJoinVO userVm = new UserVmJoinVO();
-        NetworkVO networkVO = mock(NetworkVO.class);
-        AccountVO accountVO = mock(AccountVO.class);
-        DomainVO domainVO = mock(DomainVO.class);
-        domainVO.setName("testDomain");
-        DataCenterVO dataCenterVO = mock(DataCenterVO.class);
-        VpcVO vpcVO = mock(VpcVO.class);
-
-        networkVO.setAccountId(1L);
-        networkVO.setName("testNet");
-        networkVO.setVpcId(1L);
-
-        accountVO.setAccountName("testAcc");
-
-        vpcVO.setName("VPC1");
-
-
-        List<UserVmJoinVO> userVms = List.of(userVm);
-        Mockito.when(userVmJoinDaoMock.searchByIds(anyLong())).thenReturn(userVms);
-        Mockito.when(networkDao.findById(anyLong())).thenReturn(networkVO);
-        Mockito.when(accountDao.findById(anyLong())).thenReturn(accountVO);
-        Mockito.when(domainDao.findById(anyLong())).thenReturn(domainVO);
-        Mockito.when(dcDao.findById(anyLong())).thenReturn(dataCenterVO);
-        Mockito.when(vpcDao.findById(anyLong())).thenReturn(vpcVO);
-        Mockito.when(dataCenterVO.getId()).thenReturn(1L);
-        when(accountVO.getId()).thenReturn(2L);
-        Mockito.when(domainVO.getId()).thenReturn(3L);
-        Mockito.when(vpcVO.getId()).thenReturn(4L);
-        Mockito.when(networkVO.getId()).thenReturn(5L);
         virtualMachineManagerImpl.setVmNetworkDetails(vm, vmTO);
-        assertEquals(1, vmTO.getNetworkIdToNetworkNameMap().size());
-        assertEquals("D3-A2-Z1-V4-S5", vmTO.getNetworkIdToNetworkNameMap().get(5L));
+
+        verify(vmNetworkNameMappingService).setVmNetworkDetails(vm, vmTO);
     }
 
     @Test
