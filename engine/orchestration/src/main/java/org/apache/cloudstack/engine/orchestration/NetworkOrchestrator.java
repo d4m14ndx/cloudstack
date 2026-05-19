@@ -140,7 +140,6 @@ import com.cloud.network.Networks;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetwork;
-import com.cloud.network.RemoteAccessVpn;
 import com.cloud.network.VpcVirtualNetworkApplianceService;
 import com.cloud.network.addr.PublicIp;
 import com.cloud.network.dao.AccountGuestVlanMapDao;
@@ -443,6 +442,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NetworkUpdateSequenceService networkUpdateSequenceService;
     @Inject
     NetworkServiceChangeCleanupService networkServiceChangeCleanupService;
+    @Inject
+    NetworkRuleReprogrammingService networkRuleReprogrammingService;
     @Inject
     NicSecondaryIpDao _nicSecondaryIpDao;
     @Inject
@@ -1708,91 +1709,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     // This method re-programs the rules/ips for existing network
     protected boolean reprogramNetworkRules(final long networkId, final Account caller, final Network network) throws ResourceUnavailableException {
-        boolean success = true;
-
-        //Apply egress rules first to effect the egress policy early on the guest traffic
-        final List<FirewallRuleVO> firewallEgressRulesToApply = _firewallDao.listByNetworkPurposeTrafficType(networkId, Purpose.Firewall, FirewallRule.TrafficType.Egress);
-        final NetworkOfferingVO offering = _networkOfferingDao.findById(network.getNetworkOfferingId());
-        final DataCenter zone = _dcDao.findById(network.getDataCenterId());
-        if (_networkModel.areServicesSupportedInNetwork(network.getId(), Service.Firewall) && _networkModel.areServicesSupportedInNetwork(network.getId(), Service.Firewall)
-                && (network.getGuestType() == Network.GuestType.Isolated || network.getGuestType() == Network.GuestType.Shared && zone.getNetworkType() == NetworkType.Advanced)) {
-            // add default egress rule to accept the traffic
-            _firewallMgr.applyDefaultEgressFirewallRule(network.getId(), offering.isEgressDefaultPolicy(), true);
-        }
-        if (!_firewallMgr.applyFirewallRules(firewallEgressRulesToApply, false, caller)) {
-            logger.warn("Failed to reapply firewall Egress rule(s) as a part of Network {} restart", network);
-            success = false;
-        }
-
-        // associate all ip addresses
-        if (!_ipAddrMgr.applyIpAssociations(network, false)) {
-            logger.warn("Failed to apply IP addresses as a part of Network {} restart", network);
-            success = false;
-        }
-
-        // apply BGP settings
-        if (!bgpService.applyBgpPeers(network, false)) {
-            logger.warn("Failed to apply bpg peers as a part of network {} restart", network);
-            success = false;
-        }
-
-
-        // apply static nat
-        if (!_rulesMgr.applyStaticNatsForNetwork(network, false, caller)) {
-            logger.warn("Failed to apply static nats a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply firewall rules
-        final List<FirewallRuleVO> firewallIngressRulesToApply = _firewallDao.listByNetworkPurposeTrafficType(networkId, Purpose.Firewall, FirewallRule.TrafficType.Ingress);
-        if (!_firewallMgr.applyFirewallRules(firewallIngressRulesToApply, false, caller)) {
-            logger.warn("Failed to reapply Ingress firewall rule(s) as a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply port forwarding rules
-        if (!_rulesMgr.applyPortForwardingRulesForNetwork(networkId, false, caller)) {
-            logger.warn("Failed to reapply port forwarding rule(s) as a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply static nat rules
-        if (!_rulesMgr.applyStaticNatRulesForNetwork(networkId, false, caller)) {
-            logger.warn("Failed to reapply static nat rule(s) as a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply public load balancer rules
-        if (!_lbMgr.applyLoadBalancersForNetwork(network, Scheme.Public)) {
-            logger.warn("Failed to reapply Public load balancer rules as a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply internal load balancer rules
-        if (!_lbMgr.applyLoadBalancersForNetwork(network, Scheme.Internal)) {
-            logger.warn("Failed to reapply internal load balancer rules as a part of network {} restart", network);
-            success = false;
-        }
-
-        // apply vpn rules
-        final List<? extends RemoteAccessVpn> vpnsToReapply = _vpnMgr.listRemoteAccessVpns(networkId);
-        if (vpnsToReapply != null) {
-            for (final RemoteAccessVpn vpn : vpnsToReapply) {
-                // Start remote access vpn per ip
-                if (_vpnMgr.startRemoteAccessVpn(vpn.getServerAddressId(), false) == null) {
-                    logger.warn("Failed to reapply vpn rules as a part of network {} restart", network);
-                    success = false;
-                }
-            }
-        }
-
-        //apply network ACLs
-        if (!_networkACLMgr.applyACLToNetwork(networkId)) {
-            logger.warn("Failed to reapply network ACLs as a part of  of network {}", network);
-            success = false;
-        }
-
-        return success;
+        return networkRuleReprogrammingService.reprogramNetworkRules(networkId, caller, network);
     }
 
     protected boolean prepareElement(final NetworkElement element, final Network network, final NicProfile profile, final VirtualMachineProfile vmProfile, final DeployDestination dest,
