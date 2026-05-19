@@ -197,7 +197,6 @@ import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.UUIDManager;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.exception.ExceptionProxyObject;
-import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
@@ -308,6 +307,8 @@ public class UserVmManagerImplTest {
 
     @Mock
     private VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
+    @Mock
+    private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
 
     @Mock
     VirtualMachineManager virtualMachineManager;
@@ -638,6 +639,8 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "clusterDao", clusterDao);
         org.springframework.test.util.ReflectionTestUtils.setField(startPlacementService, "hostDao", hostDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartPlacementService", startPlacementService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmExpungeFailureTransitionService", vmExpungeFailureTransitionService);
         // Slice 14: wire VmSecurityGroupAssignmentServiceImpl so the
         // getSecurityGroupIdList / checkAndUpdateSecurityGroupForVM
         // wrappers don't NPE when updateVirtualMachine tests pass through
@@ -3622,58 +3625,6 @@ public class UserVmManagerImplTest {
         UserVm result = userVmManagerImpl.updateVirtualMachineNic(updateVmNicCmd);
 
         Assert.assertNotNull(result);
-    }
-
-    @Test
-    public void testTransitionExpungingToErrorVmInExpungingState() throws Exception {
-        UserVmVO vm = mock(UserVmVO.class);
-        when(vm.getState()).thenReturn(VirtualMachine.State.Expunging);
-        when(vm.getUuid()).thenReturn("test-uuid");
-        when(userVmDao.findById(vmId)).thenReturn(vm);
-        when(virtualMachineManager.stateTransitTo(eq(vm), eq(VirtualMachine.Event.OperationFailedToError), eq(null))).thenReturn(true);
-
-        java.lang.reflect.Method method = UserVmManagerImpl.class.getDeclaredMethod("transitionExpungingToError", long.class);
-        method.setAccessible(true);
-        method.invoke(userVmManagerImpl, vmId);
-
-        Mockito.verify(virtualMachineManager).stateTransitTo(vm, VirtualMachine.Event.OperationFailedToError, null);
-    }
-
-    @Test
-    public void testTransitionExpungingToErrorVmNotInExpungingState() throws Exception {
-        UserVmVO vm = mock(UserVmVO.class);
-        when(vm.getState()).thenReturn(VirtualMachine.State.Stopped);
-        when(userVmDao.findById(vmId)).thenReturn(vm);
-
-        java.lang.reflect.Method method = UserVmManagerImpl.class.getDeclaredMethod("transitionExpungingToError", long.class);
-        method.setAccessible(true);
-        method.invoke(userVmManagerImpl, vmId);
-
-        Mockito.verify(virtualMachineManager, Mockito.never()).stateTransitTo(any(VirtualMachine.class), any(VirtualMachine.Event.class), any());
-    }
-
-    @Test
-    public void testTransitionExpungingToErrorVmNotFound() throws Exception {
-        when(userVmDao.findById(vmId)).thenReturn(null);
-
-        java.lang.reflect.Method method = UserVmManagerImpl.class.getDeclaredMethod("transitionExpungingToError", long.class);
-        method.setAccessible(true);
-        method.invoke(userVmManagerImpl, vmId);
-
-        Mockito.verify(virtualMachineManager, Mockito.never()).stateTransitTo(any(VirtualMachine.class), any(VirtualMachine.Event.class), any());
-    }
-
-    @Test
-    public void testTransitionExpungingToErrorHandlesNoTransitionException() throws Exception {
-        UserVmVO vm = mock(UserVmVO.class);
-        when(vm.getState()).thenReturn(VirtualMachine.State.Expunging);
-        when(userVmDao.findById(vmId)).thenReturn(vm);
-        when(virtualMachineManager.stateTransitTo(eq(vm), eq(VirtualMachine.Event.OperationFailedToError), eq(null)))
-                .thenThrow(new NoTransitionException("no transition"));
-
-        java.lang.reflect.Method method = UserVmManagerImpl.class.getDeclaredMethod("transitionExpungingToError", long.class);
-        method.setAccessible(true);
-        method.invoke(userVmManagerImpl, vmId);
     }
 
     private ServiceOfferingVO getMockedServiceOffering(boolean custom, boolean customSpeed) {

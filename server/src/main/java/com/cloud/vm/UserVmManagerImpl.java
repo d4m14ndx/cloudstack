@@ -558,6 +558,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmStartPlacementService vmStartPlacementService;
     @Inject
+    private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
+    @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
     @Inject
     private VmCredentialResetService vmCredentialResetService;
@@ -1552,19 +1554,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     private void transitionExpungingToError(long vmId) {
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (vm != null && vm.getState() == State.Expunging) {
-            try {
-                boolean transitioned = _itMgr.stateTransitTo(vm, VirtualMachine.Event.OperationFailedToError, null);
-                if (transitioned) {
-                    logger.info("Transitioned VM [{}] from Expunging to Error after failed expunge", vm.getUuid());
-                } else {
-                    logger.warn("Failed to persist transition of VM [{}] from Expunging to Error after failed expunge, possibly due to concurrent update", vm.getUuid());
-                }
-            } catch (NoTransitionException e) {
-                logger.warn("Failed to transition VM {} to Error state: {}", vm, e.getMessage());
-            }
-        }
+        vmExpungeFailureTransitionService.transitionExpungingToError(vmId);
     }
 
     /**
