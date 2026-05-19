@@ -479,6 +479,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmStorageMigrationService vmStorageMigrationService;
 
+    @Mock
+    VmMigrationDedicationService vmMigrationDedicationService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -672,6 +675,8 @@ public class UserVmManagerImplTest {
                 "vmStorageMigrationService", vmStorageMigrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmBackupInstanceLifecycleService", vmBackupInstanceLifecycleService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmMigrationDedicationService", vmMigrationDedicationService);
 
         Mockito.when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -3847,5 +3852,14 @@ public class UserVmManagerImplTest {
         InvalidParameterValueException ex = Assert.assertThrows(InvalidParameterValueException.class, () ->
                 userVmManagerImpl.verifyVmLimits(userVmVoMock, customParameters));
         Assert.assertTrue(ex.getMessage().startsWith("The CPU speed of this offering"));
+    }
+
+    @Test
+    public void checkHostsDedicationDelegatesToMigrationDedicationService() {
+        VMInstanceVO vm = new VMInstanceVO();
+
+        userVmManagerImpl.checkHostsDedication(vm, 1L, 2L);
+
+        verify(vmMigrationDedicationService).checkHostsDedication(vm, 1L, 2L);
     }
 }
