@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -311,6 +312,8 @@ public class VirtualMachineManagerImplTest {
     private BackupManager backupManager;
     @Mock
     private VmNicBackendCommandService vmNicBackendCommandService;
+    @Mock
+    private VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
@@ -404,6 +407,7 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStopCommandService", vmStopCommandService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrationCheckpointService", vmMigrationCheckpointService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmAllocationOrchestrationService", vmAllocationOrchestrationService);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrateAwayPlanningService", vmMigrateAwayPlanningService);
     }
 
     @After
@@ -695,6 +699,35 @@ public class VirtualMachineManagerImplTest {
 
         verify(vmAllocationOrchestrationService).allocate(vmInstanceName, template, serviceOffering, rootDiskOfferingInfo,
                 dataDiskOfferings, dataDiskDeviceIds, networks, plan, HypervisorType.KVM, null, null, volume, snapshot);
+    }
+
+    @Test
+    public void migrateAwayDelegatesToMigrateAwayPlanningService() throws Exception {
+        virtualMachineManagerImpl.migrateAway(vmMockUuid, hostMockId);
+
+        verify(vmMigrateAwayPlanningService).migrateAway(vmMockUuid, hostMockId);
+    }
+
+    @Test
+    public void checkIfVmHasClusterWideVolumesDelegatesToMigrateAwayPlanningService() {
+        when(vmMigrateAwayPlanningService.checkIfVmHasClusterWideVolumes(vmInstanceVoMockId)).thenReturn(true);
+
+        boolean result = virtualMachineManagerImpl.checkIfVmHasClusterWideVolumes(vmInstanceVoMockId);
+
+        assertTrue(result);
+        verify(vmMigrateAwayPlanningService).checkIfVmHasClusterWideVolumes(vmInstanceVoMockId);
+    }
+
+    @Test
+    public void getMigrationDeploymentDelegatesToMigrateAwayPlanningService() {
+        ExcludeList excludes = new ExcludeList();
+        when(vmMigrateAwayPlanningService.getMigrationDeployment(vmInstanceMock, hostMock, storagePoolVoMockId, excludes))
+                .thenReturn(dataCenterDeploymentMock);
+
+        DataCenterDeployment result = virtualMachineManagerImpl.getMigrationDeployment(vmInstanceMock, hostMock, storagePoolVoMockId, excludes);
+
+        assertSame(dataCenterDeploymentMock, result);
+        verify(vmMigrateAwayPlanningService).getMigrationDeployment(vmInstanceMock, hostMock, storagePoolVoMockId, excludes);
     }
 
     @Test

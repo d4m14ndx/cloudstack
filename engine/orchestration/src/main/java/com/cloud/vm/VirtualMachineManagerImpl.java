@@ -18,7 +18,6 @@
 package com.cloud.vm;
 
 import static com.cloud.configuration.ConfigurationManagerImpl.EXPOSE_ERRORS_TO_USER;
-import static com.cloud.configuration.ConfigurationManagerImpl.MIGRATE_VM_ACROSS_CLUSTERS;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -127,7 +126,6 @@ import com.cloud.alert.AlertManager;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.capacity.CapacityManager;
 import com.cloud.configuration.Resource;
-import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
@@ -415,6 +413,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmAllocationOrchestrationService vmAllocationOrchestrationService;
     @Inject
     protected VmNicBackendCommandService vmNicBackendCommandService;
+    @Inject
+    protected VmMigrateAwayPlanningService vmMigrateAwayPlanningService;
 
 
     VmWorkJobHandlerProxy _jobHandlerProxy = new VmWorkJobHandlerProxy(this);
@@ -2609,98 +2609,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public void migrateAway(final String vmUuid, final long srcHostId) throws InsufficientServerCapacityException {
-        final AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if (jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-            final VirtualMachine vm = _vmDao.findByUuid(vmUuid);
-            VmWorkJobVO placeHolder = vmWorkJobQueueService.createPlaceHolderWork(vm.getId());
-            try {
-                try {
-                    orchestrateMigrateAway(vmUuid, srcHostId, null);
-                } catch (final InsufficientServerCapacityException e) {
-                    logger.warn("Failed to deploy vm {} with original planner, sending HAPlanner", vmUuid);
-                    orchestrateMigrateAway(vmUuid, srcHostId, _haMgr.getHAPlanner());
-                }
-            } finally {
-                vmWorkJobQueueService.expungePlaceHolderWork(placeHolder);
-            }
-        } else {
-            final Outcome<VirtualMachine> outcome = vmWorkJobQueueService.migrateVmAwayThroughJobQueue(vmUuid, srcHostId);
-
-            vmWorkJobQueueService.retrieveVmFromJobOutcome(outcome, vmUuid, "migrateVmAway");
-
-            try {
-                vmWorkJobQueueService.retrieveResultFromJobOutcomeAndThrowExceptionIfNeeded(outcome);
-            } catch (ResourceUnavailableException | InsufficientCapacityException ex) {
-                throw new RuntimeException("Unexpected exception", ex);
-            }
-        }
+        vmMigrateAwayPlanningService.migrateAway(vmUuid, srcHostId);
     }
 
     private void orchestrateMigrateAway(final String vmUuid, final long srcHostId, final DeploymentPlanner planner) throws InsufficientServerCapacityException {
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        if (vm == null) {
-            String message = String.format("Unable to find VM with uuid [%s].", vmUuid);
-            logger.warn(message);
-            throw new CloudRuntimeException(message);
-        }
-
-        ServiceOfferingVO offeringVO = _offeringDao.findById(vm.getId(), vm.getServiceOfferingId());
-        final VirtualMachineProfile profile = new VirtualMachineProfileImpl(vm, null, offeringVO, null, null);
-
-        final Long hostId = vm.getHostId();
-        if (hostId == null) {
-            String message = String.format("Unable to migrate %s due to it does not have a host id.", vm.toString());
-            logger.warn(message);
-            throw new CloudRuntimeException(message);
-        }
-
-        final Host host = _hostDao.findById(hostId);
-        Long poolId = null;
-        final List<VolumeVO> vols = _volsDao.findReadyRootVolumesByInstance(vm.getId());
-        for (final VolumeVO rootVolumeOfVm : vols) {
-            final StoragePoolVO rootDiskPool = _storagePoolDao.findById(rootVolumeOfVm.getPoolId());
-            if (rootDiskPool != null) {
-                poolId = rootDiskPool.getId();
-            }
-        }
-
-        final ExcludeList excludes = new ExcludeList();
-        excludes.addHost(hostId);
-        DataCenterDeployment plan = getMigrationDeployment(vm, host, poolId, excludes);
-
-        DeployDestination dest = null;
-        while (true) {
-
-            try {
-                plan.setMigrationPlan(true);
-                dest = _dpMgr.planDeployment(profile, plan, excludes, planner);
-            } catch (final AffinityConflictException e2) {
-                String message = String.format("Unable to create deployment, affinity rules associated to the %s conflict.", vm.toString());
-                logger.warn(message, e2);
-                throw new CloudRuntimeException(message, e2);
-            }
-            if (dest == null) {
-                logger.warn("Unable to find destination for migrating the vm {}", profile);
-                throw new InsufficientServerCapacityException("Unable to find a server to migrate to.", DataCenter.class, host.getDataCenterId());
-            }
-            logger.debug("Found destination {} for migrating to.", dest);
-
-            excludes.addHost(dest.getHost().getId());
-            try {
-                migrate(vm, srcHostId, dest);
-                return;
-            } catch (ResourceUnavailableException | ConcurrentOperationException e) {
-                logger.warn("Unable to migrate {} to {} due to [{}]", vm.toString(), dest.getHost().toString(), e.getMessage(), e);
-            }
-
-            try {
-                advanceStop(vmUuid, true);
-                throw new CloudRuntimeException("Unable to migrate " + vm);
-            } catch (final ResourceUnavailableException | ConcurrentOperationException | OperationTimedoutException e) {
-                logger.error("Unable to stop {} due to [{}].", vm.toString(), e.getMessage(), e);
-                throw new CloudRuntimeException("Unable to migrate " + vm);
-            }
-        }
+        vmMigrateAwayPlanningService.orchestrateMigrateAway(vmUuid, srcHostId, planner);
     }
 
     /**
@@ -2710,32 +2623,12 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
      */
     @Override
     public boolean checkIfVmHasClusterWideVolumes(Long vmId) {
-        final List<VolumeVO> volumesList = _volsDao.findCreatedByInstance(vmId);
-
-        return volumesList.parallelStream()
-                .anyMatch(vol -> _storagePoolDao.findById(vol.getPoolId()).getScope().equals(ScopeType.CLUSTER));
-
+        return vmMigrateAwayPlanningService.checkIfVmHasClusterWideVolumes(vmId);
     }
 
     @Override
     public DataCenterDeployment getMigrationDeployment(final VirtualMachine vm, final Host host, final Long poolId, final ExcludeList excludes) {
-        if (MIGRATE_VM_ACROSS_CLUSTERS.valueIn(host.getDataCenterId()) &&
-                (HypervisorType.VMware.equals(host.getHypervisorType()) || !checkIfVmHasClusterWideVolumes(vm.getId()))) {
-            logger.info("Searching for hosts in the zone for vm migration");
-            List<Long> clustersToExclude = _clusterDao.listAllClusterIds(host.getDataCenterId());
-            List<ClusterVO> clusterList = _clusterDao.listByDcHyType(host.getDataCenterId(), host.getHypervisorType().toString());
-            for (ClusterVO cluster : clusterList) {
-                clustersToExclude.remove(cluster.getId());
-            }
-            for (Long clusterId : clustersToExclude) {
-                excludes.addCluster(clusterId);
-            }
-            if (VirtualMachine.systemVMs.contains(vm.getType())) {
-                return new DataCenterDeployment(host.getDataCenterId(), host.getPodId(), null, null, poolId, null);
-            }
-            return new DataCenterDeployment(host.getDataCenterId(), null, null, null, poolId, null);
-        }
-        return new DataCenterDeployment(host.getDataCenterId(), host.getPodId(), host.getClusterId(), null, poolId, null);
+        return vmMigrateAwayPlanningService.getMigrationDeployment(vm, host, poolId, excludes);
     }
 
     protected class CleanupTask extends ManagedContextRunnable {
