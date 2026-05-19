@@ -391,6 +391,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     @Inject
     NicDhcpCleanupService nicDhcpCleanupService;
     @Inject
+    NicElementPreparationService nicElementPreparationService;
+    @Inject
     NicProfileMtuService nicProfileMtuService;
     @Inject
     NicImportService nicImportService;
@@ -1449,58 +1451,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         return networkRuleReprogrammingService.reprogramNetworkRules(networkId, caller, network);
     }
 
-    protected boolean prepareElement(final NetworkElement element, final Network network, final NicProfile profile, final VirtualMachineProfile vmProfile, final DeployDestination dest,
-                                     final ReservationContext context) throws InsufficientCapacityException, ConcurrentOperationException, ResourceUnavailableException {
-        element.prepare(network, profile, vmProfile, dest, context);
-        if (vmProfile.getType() == Type.User && element.getProvider() != null) {
-            if (_networkModel.areServicesSupportedInNetwork(network.getId(), Service.Dhcp)
-                    && _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.Dhcp, element.getProvider()) && element instanceof DhcpServiceProvider) {
-                final DhcpServiceProvider sp = (DhcpServiceProvider) element;
-                if (isDhcpAccrossMultipleSubnetsSupported(sp)) {
-                    if (!sp.configDhcpSupportForSubnet(network, profile, vmProfile, dest, context)) {
-                        return false;
-                    }
-                }
-                if (!sp.addDhcpEntry(network, profile, vmProfile, dest, context)) {
-                    return false;
-                }
-            }
-            if (_networkModel.areServicesSupportedInNetwork(network.getId(), Service.Dns)
-                    && _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.Dns, element.getProvider()) && element instanceof DnsServiceProvider) {
-                final DnsServiceProvider sp = (DnsServiceProvider) element;
-                if (profile.getIPv6Address() == null) {
-                    if (!sp.configDnsSupportForSubnet(network, profile, vmProfile, dest, context)) {
-                        return false;
-                    }
-                }
-                if (!sp.addDnsEntry(network, profile, vmProfile, dest, context)) {
-                    return false;
-                }
-            }
-            if (_networkModel.areServicesSupportedInNetwork(network.getId(), Service.UserData)
-                    && _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.UserData, element.getProvider()) && element instanceof UserDataServiceProvider) {
-                final UserDataServiceProvider sp = (UserDataServiceProvider) element;
-                if (!sp.addPasswordAndUserdata(network, profile, vmProfile, dest, context)) {
-                    return false;
-                }
-            }
-            if (element instanceof ConfigDriveNetworkElement && ((
-                    _networkModel.areServicesSupportedInNetwork(network.getId(), Service.Dhcp) &&
-                            _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.Dhcp, element.getProvider())
-            ) || (
-                    _networkModel.areServicesSupportedInNetwork(network.getId(), Service.Dns) &&
-                            _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.Dns, element.getProvider())
-            ) || (
-                    _networkModel.areServicesSupportedInNetwork(network.getId(), Service.UserData) &&
-                            _networkModel.isProviderSupportServiceInNetwork(network.getId(), Service.UserData, element.getProvider())
-            ))) {
-                final ConfigDriveNetworkElement sp = (ConfigDriveNetworkElement) element;
-                return sp.createConfigDriveIso(profile, vmProfile, dest, null);
-            }
-        }
-        return true;
-    }
-
     @Override
     public boolean canUpdateInSequence(final Network network, final boolean forced) {
         return networkUpdateSequenceService.canUpdateInSequence(network, forced);
@@ -1698,7 +1648,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
                             + network.getPhysicalNetworkId());
                 }
                 logger.debug("Asking {} to prepare for {}", element.getName(), nic);
-                if (!prepareElement(element, network, profile, vmProfile, dest, context)) {
+                if (!nicElementPreparationService.prepareElement(element, network, profile, vmProfile, dest, context)) {
                     throw new InsufficientAddressCapacityException("unable to configure the dhcp service, due to insufficiant address capacity", Network.class, network.getId());
                 }
             }
