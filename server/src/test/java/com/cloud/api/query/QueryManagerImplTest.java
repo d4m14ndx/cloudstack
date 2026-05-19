@@ -81,17 +81,13 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.cloud.api.query.dao.TemplateJoinDao;
-import com.cloud.api.query.dao.UserAccountJoinDao;
 import com.cloud.api.query.dao.UserVmJoinDao;
 import com.cloud.api.query.vo.AccountJoinVO;
 import com.cloud.api.query.vo.EventJoinVO;
 import com.cloud.api.query.vo.SecurityGroupJoinVO;
-import com.cloud.api.query.vo.UserAccountJoinVO;
 import com.cloud.api.query.vo.UserVmJoinVO;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.dao.ClusterDao;
-import com.cloud.domain.DomainVO;
-import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.EventVO;
 import com.cloud.event.dao.EventDao;
 import com.cloud.event.dao.EventJoinDao;
@@ -176,12 +172,6 @@ public class QueryManagerImplTest {
     UserVmJoinDao userVmJoinDao;
 
     @Mock
-    UserAccountJoinDao userAccountJoinDao;
-
-    @Mock
-    DomainDao domainDao;
-
-    @Mock
     AccountDao accountDao;
 
     @Mock
@@ -210,6 +200,9 @@ public class QueryManagerImplTest {
 
     @Mock
     SecurityGroupQueryService securityGroupQueryService;
+
+    @Mock
+    UserQueryService userQueryService;
 
     private AccountVO account;
     private UserVO user;
@@ -273,6 +266,9 @@ public class QueryManagerImplTest {
 
         ReflectionTestUtils.setField(queryManagerImplSpy, "securityGroupQueryService", securityGroupQueryService);
         ReflectionTestUtils.setField(queryManager, "securityGroupQueryService", securityGroupQueryService);
+
+        ReflectionTestUtils.setField(queryManagerImplSpy, "userQueryService", userQueryService);
+        ReflectionTestUtils.setField(queryManager, "userQueryService", userQueryService);
     }
 
     private ListEventsCmd setupMockListEventsCmd() {
@@ -531,44 +527,37 @@ public class QueryManagerImplTest {
     }
 
     @Test
-    public void testSearchForUsers() {
+    public void searchForUsersDelegatesToUserQueryService() {
         ListUsersCmd cmd = mock(ListUsersCmd.class);
-        String username = "Admin";
-        String accountName = "Admin";
-        Account.Type accountType = Account.Type.ADMIN;
-        Long domainId = 1L;
-        String apiKeyAccess = "Disabled";
-        User.Source userSource = User.Source.NATIVE;
-        Mockito.when(cmd.getUsername()).thenReturn(username);
-        Mockito.when(cmd.getAccountName()).thenReturn(accountName);
-        Mockito.when(cmd.getAccountType()).thenReturn(accountType);
-        Mockito.when(cmd.getDomainId()).thenReturn(domainId);
-        Mockito.when(cmd.getApiKeyAccess()).thenReturn(apiKeyAccess);
-        Mockito.when(cmd.getUserSource()).thenReturn(userSource);
+        ListResponse<UserResponse> expected = new ListResponse<>();
+        when(userQueryService.searchForUsers(ResponseObject.ResponseView.Restricted, cmd)).thenReturn(expected);
 
-        UserAccountJoinVO user = new UserAccountJoinVO();
-        DomainVO domain = mock(DomainVO.class);
-        SearchBuilder<UserAccountJoinVO> sb = mock(SearchBuilder.class);
-        SearchCriteria<UserAccountJoinVO> sc = mock(SearchCriteria.class);
-        List<UserAccountJoinVO> users = new ArrayList<>();
-        Pair<List<UserAccountJoinVO>, Integer> result = new Pair<>(users, 0);
-        UserResponse response = mock(UserResponse.class);
+        ListResponse<UserResponse> actual = queryManager.searchForUsers(ResponseObject.ResponseView.Restricted, cmd);
 
-        Mockito.when(userAccountJoinDao.createSearchBuilder()).thenReturn(sb);
-        Mockito.when(sb.entity()).thenReturn(user);
-        Mockito.when(sb.create()).thenReturn(sc);
-        Mockito.when(userAccountJoinDao.searchAndCount(any(SearchCriteria.class), any(Filter.class))).thenReturn(result);
+        Assert.assertSame(expected, actual);
+        verify(userQueryService).searchForUsers(ResponseObject.ResponseView.Restricted, cmd);
+    }
 
-        queryManager.searchForUsers(ResponseObject.ResponseView.Restricted, cmd);
+    @Test
+    public void searchForUsersByDomainDelegatesToUserQueryService() {
+        ListResponse<UserResponse> expected = new ListResponse<>();
+        when(userQueryService.searchForUsers(7L, true)).thenReturn(expected);
 
-        verify(sc).setParameters("username", username);
-        verify(sc).setParameters("accountName", accountName);
-        verify(sc).setParameters("type", accountType);
-        verify(sc).setParameters("domainId", domainId);
-        verify(sc).setParameters("apiKeyAccess", false);
-        verify(sc).setParameters("userSource", userSource.toString());
-        verify(userAccountJoinDao, Mockito.times(1)).searchAndCount(
-                any(SearchCriteria.class), any(Filter.class));
+        ListResponse<UserResponse> actual = queryManager.searchForUsers(7L, true);
+
+        Assert.assertSame(expected, actual);
+        verify(userQueryService).searchForUsers(7L, true);
+    }
+
+    @Test
+    public void searchForAccessibleUsersDelegatesToUserQueryService() {
+        List<Long> expected = Collections.singletonList(9L);
+        when(userQueryService.searchForAccessibleUsers()).thenReturn(expected);
+
+        List<Long> actual = queryManager.searchForAccessibleUsers();
+
+        Assert.assertSame(expected, actual);
+        verify(userQueryService).searchForAccessibleUsers();
     }
 
     @Test
