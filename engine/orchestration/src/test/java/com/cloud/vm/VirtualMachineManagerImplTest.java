@@ -293,6 +293,8 @@ public class VirtualMachineManagerImplTest {
     private VmVolumeMigrationPlanningServiceImpl vmVolumeMigrationPlanningServiceImpl;
     @Mock
     private VmDiskOfferingSuitabilityService vmDiskOfferingSuitabilityService;
+    @Mock
+    private VmCommandSpecPostProcessingService vmCommandSpecPostProcessingService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;
