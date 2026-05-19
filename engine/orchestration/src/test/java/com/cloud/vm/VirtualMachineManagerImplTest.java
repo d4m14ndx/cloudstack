@@ -297,6 +297,8 @@ public class VirtualMachineManagerImplTest {
     private VmDiskOfferingSuitabilityService vmDiskOfferingSuitabilityService;
     @Mock
     private VmCommandSpecPostProcessingService vmCommandSpecPostProcessingService;
+    @Mock
+    private VmMetadataSyncService vmMetadataSyncService;
 
     private ConfigDepotImpl configDepotImpl;
     private boolean updatedConfigKeyDepot = false;

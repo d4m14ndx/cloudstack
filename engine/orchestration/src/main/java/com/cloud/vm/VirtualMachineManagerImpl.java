@@ -450,6 +450,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     protected VmExpungeCommandService vmExpungeCommandService;
     @Inject
+    protected VmMetadataSyncService vmMetadataSyncService;
+    @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
 
@@ -3422,59 +3424,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     }
 
     public void syncVMMetaData(final Map<String, String> vmMetadatum) {
-        if (vmMetadatum == null || vmMetadatum.isEmpty()) {
-            return;
-        }
-        List<Pair<Pair<String, VirtualMachine.Type>, Pair<Long, String>>> vmDetails = _userVmDao.getVmsDetailByNames(vmMetadatum.keySet(), "platform");
-        for (final Map.Entry<String, String> entry : vmMetadatum.entrySet()) {
-            final String name = entry.getKey();
-            final String platform = entry.getValue();
-            if (platform == null || platform.isEmpty()) {
-                continue;
-            }
-
-            boolean found = false;
-            for(Pair<Pair<String, VirtualMachine.Type>, Pair<Long, String>> vmDetail : vmDetails ) {
-                Pair<String, VirtualMachine.Type> vmNameTypePair = vmDetail.first();
-                if(vmNameTypePair.first().equals(name)) {
-                    found = true;
-                    if(vmNameTypePair.second() == VirtualMachine.Type.User) {
-                        Pair<Long, String> detailPair = vmDetail.second();
-                        String platformDetail = detailPair.second();
-
-                        if (platformDetail != null && platformDetail.equals(platform)) {
-                            break;
-                        }
-                        updateVmMetaData(detailPair.first(), platform);
-                    }
-                    break;
-                }
-            }
-
-            if(!found) {
-                VMInstanceVO vm = _vmDao.findVMByInstanceName(name);
-                if(vm != null && vm.getType() == VirtualMachine.Type.User) {
-                    updateVmMetaData(vm.getId(), platform);
-                }
-            }
-        }
-    }
-
-    private void updateVmMetaData(Long vmId, String platform) {
-        UserVmVO userVm = _userVmDao.findById(vmId);
-        _userVmDao.loadDetails(userVm);
-        if ( userVm.details.containsKey(VmDetailConstants.TIME_OFFSET)) {
-            userVm.details.remove(VmDetailConstants.TIME_OFFSET);
-        }
-        userVm.setDetail(VmDetailConstants.PLATFORM,  platform);
-        String pvdriver = "xenserver56";
-        if ( platform.contains("device_id")) {
-            pvdriver = "xenserver61";
-        }
-        if (!userVm.details.containsKey(VmDetailConstants.HYPERVISOR_TOOLS_VERSION) || !userVm.details.get(VmDetailConstants.HYPERVISOR_TOOLS_VERSION).equals(pvdriver)) {
-            userVm.setDetail(VmDetailConstants.HYPERVISOR_TOOLS_VERSION, pvdriver);
-        }
-        _userVmDao.saveDetails(userVm);
+        vmMetadataSyncService.syncVMMetaData(vmMetadatum);
     }
 
     @Override
