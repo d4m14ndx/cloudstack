@@ -347,6 +347,10 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(iscsiTargetManager, "agentMgr", agentManagerMock);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmIscsiTargetManager", iscsiTargetManager);
 
+        VmExpungeCommandServiceImpl expungeCommandService = new VmExpungeCommandServiceImpl();
+        ReflectionTestUtils.setField(expungeCommandService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmExpungeCommandService", expungeCommandService);
+
         // Wire a real VmExternalProvisioningManager backed by the same
         // DAO/manager mocks so the delegating wrappers in
         // VirtualMachineManagerImpl exercise the extracted behaviour.

@@ -448,6 +448,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @Inject
     protected VmWorkJobQueueService vmWorkJobQueueService;
     @Inject
+    protected VmExpungeCommandService vmExpungeCommandService;
+    @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
 
 
@@ -656,11 +658,6 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
         advanceExpunge(vm);
     }
 
-    private boolean isValidSystemVMType(VirtualMachine vm) {
-        return VirtualMachine.Type.SecondaryStorageVm.equals(vm.getType()) ||
-                VirtualMachine.Type.ConsoleProxy.equals(vm.getType());
-    }
-
     private boolean isVmDestroyed(VMInstanceVO vm) {
         if (vm == null || vm.getRemoved() != null) {
             logger.debug("Unable to find vm or vm is expunged: " + vm);
@@ -714,17 +711,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
         List<Map<String, String>> targets = getTargets(hostId, vm.getId());
 
-        if (CollectionUtils.isNotEmpty(volumeExpungeCommands) && hostId != null) {
-            final Commands cmds = new Commands(Command.OnError.Stop);
-
-            for (final Command volumeExpungeCommand : volumeExpungeCommands) {
-                volumeExpungeCommand.setBypassHostMaintenance(isValidSystemVMType(vm));
-                cmds.addCommand(volumeExpungeCommand);
-            }
-
-            _agentMgr.send(hostId, cmds);
-            handleUnsuccessfulCommands(cmds, vm);
-        }
+        vmExpungeCommandService.sendVolumeExpungeCommands(volumeExpungeCommands, hostId, vm);
 
         if (hostId != null) {
             volumeMgr.revokeAccess(vm.getId(), hostId);
@@ -746,70 +733,12 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
         // send hypervisor-dependent commands before removing
         final List<Command> finalizeExpungeCommands = hvGuru.finalizeExpunge(vm);
-        handleUnsuccessfulExpungeOperation(finalizeExpungeCommands, nicExpungeCommands, vm, hostId);
+        vmExpungeCommandService.sendFinalizeExpungeCommands(finalizeExpungeCommands, nicExpungeCommands, vm, hostId);
 
         if (logger.isDebugEnabled()) {
             logger.debug("Expunged " + vm);
         }
         resourceCleanupService.purgeExpungedVmResourcesLaterIfNeeded(vm);
-    }
-
-    private void handleUnsuccessfulExpungeOperation(List<Command> finalizeExpungeCommands, List<Command> nicExpungeCommands,
-                                                    VMInstanceVO vm, Long hostId) throws OperationTimedoutException, AgentUnavailableException {
-        if ((CollectionUtils.isNotEmpty(finalizeExpungeCommands) || CollectionUtils.isNotEmpty(nicExpungeCommands)) && hostId != null) {
-            final Commands cmds = new Commands(Command.OnError.Stop);
-            addAllExpungeCommandsFromList(finalizeExpungeCommands, cmds, vm);
-            addAllExpungeCommandsFromList(nicExpungeCommands, cmds, vm);
-            _agentMgr.send(hostId, cmds);
-            if (!cmds.isSuccessful()) {
-                for (final Answer answer : cmds.getAnswers()) {
-                    if (!answer.getResult()) {
-                        logger.warn("Failed to expunge vm due to: {}",  answer.getDetails());
-                        throw new CloudRuntimeException(String.format("Unable to expunge %s due to %s", vm, answer.getDetails()));
-                    }
-                }
-            }
-        }
-    }
-
-    protected void handleUnsuccessfulCommands(Commands cmds, VMInstanceVO vm) throws CloudRuntimeException {
-        String cmdsStr = cmds.toString();
-        String vmToString = vm.toString();
-
-        if (cmds.isSuccessful()) {
-            logger.debug("The commands [{}] to {} were successful.", cmdsStr, vmToString);
-            return;
-        }
-
-        logger.info("The commands [{}] to {} were unsuccessful. Handling answers.", cmdsStr, vmToString);
-
-        Answer[] answers = cmds.getAnswers();
-        if (answers == null) {
-            logger.debug("There are no answers to commands [{}] to {}.", cmdsStr, vmToString);
-            return;
-        }
-
-        for (Answer answer : answers) {
-            String details = answer.getDetails();
-            if (!answer.getResult()) {
-                String message = String.format("Unable to expunge %s due to [%s].", vmToString, details);
-                logger.error(message);
-                throw new CloudRuntimeException(message);
-            }
-
-            logger.debug("Commands [{}] to {} got answer [{}].", cmdsStr, vmToString, details);
-        }
-    }
-
-    private void addAllExpungeCommandsFromList(List<Command> cmdList, Commands cmds, VMInstanceVO vm) {
-        if (CollectionUtils.isEmpty(cmdList)) {
-            return;
-        }
-        for (final Command command : cmdList) {
-            command.setBypassHostMaintenance(isValidSystemVMType(vm));
-            logger.trace("Adding expunge command [{}] for VM [{}]", command.toString(), vm.toString());
-            cmds.addCommand(command);
-        }
     }
 
     private List<Map<String, String>> getTargets(Long hostId, long vmId) {
