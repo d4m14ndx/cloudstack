@@ -107,7 +107,6 @@ import com.cloud.agent.api.PlugNicAnswer;
 import com.cloud.agent.api.PlugNicCommand;
 import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
-import com.cloud.agent.api.RebootAnswer;
 import com.cloud.agent.api.RebootCommand;
 import com.cloud.agent.api.ReplugNicAnswer;
 import com.cloud.agent.api.ReplugNicCommand;
@@ -138,7 +137,6 @@ import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.HostPodVO;
-import com.cloud.dc.Pod;
 import com.cloud.dc.dao.ClusterDao;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.HostPodDao;
@@ -415,6 +413,8 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     protected VmStopCommandService vmStopCommandService;
     @Inject
     protected VmMigrationCheckpointService vmMigrationCheckpointService;
+    @Inject
+    protected VmRebootOrchestrationService vmRebootOrchestrationService;
     @Inject
     protected VmPowerStateSyncManager vmPowerStateSyncManager;
     @Inject
@@ -2760,86 +2760,13 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
 
     @Override
     public void reboot(final String vmUuid, final Map<VirtualMachineProfile.Param, Object> params) throws InsufficientCapacityException, ResourceUnavailableException {
-        try {
-            advanceReboot(vmUuid, params);
-        } catch (final ConcurrentOperationException e) {
-            throw new CloudRuntimeException("Unable to reboot a VM due to concurrent operation", e);
-        }
+        vmRebootOrchestrationService.reboot(vmUuid, params);
     }
 
     @Override
     public void advanceReboot(final String vmUuid, final Map<VirtualMachineProfile.Param, Object> params)
             throws InsufficientCapacityException, ConcurrentOperationException, ResourceUnavailableException {
-
-        final AsyncJobExecutionContext jobContext = AsyncJobExecutionContext.getCurrentExecutionContext();
-        if ( jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)) {
-            final VirtualMachine vm = _vmDao.findByUuid(vmUuid);
-            VmWorkJobVO placeHolder = vmWorkJobQueueService.createPlaceHolderWork(vm.getId());
-            try {
-                logger.debug("reboot parameter value of {} == {} at orchestration", VirtualMachineProfile.Param.BootIntoSetup.getName(),
-                        (params == null? "<very null>":params.get(VirtualMachineProfile.Param.BootIntoSetup)));
-                orchestrateReboot(vmUuid, params);
-            } finally {
-                vmWorkJobQueueService.expungePlaceHolderWork(placeHolder);
-            }
-        } else {
-            logger.debug("reboot parameter value of {} == {} through job-queue", VirtualMachineProfile.Param.BootIntoSetup.getName(),
-                    (params == null? "<very null>":params.get(VirtualMachineProfile.Param.BootIntoSetup)));
-            final Outcome<VirtualMachine> outcome = vmWorkJobQueueService.rebootVmThroughJobQueue(vmUuid, params);
-
-            vmWorkJobQueueService.retrieveVmFromJobOutcome(outcome, vmUuid, "rebootVm");
-
-            vmWorkJobQueueService.retrieveResultFromJobOutcomeAndThrowExceptionIfNeeded(outcome);
-        }
-    }
-
-    private void orchestrateReboot(final String vmUuid, final Map<VirtualMachineProfile.Param, Object> params) throws InsufficientCapacityException, ConcurrentOperationException,
-    ResourceUnavailableException {
-        final VMInstanceVO vm = _vmDao.findByUuid(vmUuid);
-        if (_vmSnapshotMgr.hasActiveVMSnapshotTasks(vm.getId())) {
-            logger.error("Unable to reboot Instance: {} due to: {} has active Instance Snapshot tasks", vm, vm.getInstanceName());
-            throw new CloudRuntimeException("Unable to reboot Instance: " + vm + " due to: " + vm.getInstanceName() + " has active Instance Snapshots tasks");
-        }
-        final DataCenter dc = _entityMgr.findById(DataCenter.class, vm.getDataCenterId());
-        final Host host = _hostDao.findById(vm.getHostId());
-        if (host == null) {
-            throw new CloudRuntimeException("Unable to retrieve host with id " + vm.getHostId());
-        }
-        final Cluster cluster = _entityMgr.findById(Cluster.class, host.getClusterId());
-        final Pod pod = _entityMgr.findById(Pod.class, host.getPodId());
-        final DeployDestination dest = new DeployDestination(dc, pod, cluster, host);
-
-        try {
-            final Commands cmds = new Commands(Command.OnError.Stop);
-            RebootCommand rebootCmd = new RebootCommand(vm.getInstanceName(), getExecuteInSequence(vm.getHypervisorType()));
-            VirtualMachineTO vmTo = getVmTO(vm.getId());
-            vmCommandSpecPostProcessingService.setEnterSetupMode(vmTo, params);
-            rebootCmd.setVirtualMachine(vmTo);
-            updateRebootCommandWithExternalDetails(host, vmTo, rebootCmd);
-            cmds.addCommand(rebootCmd);
-            _agentMgr.send(host.getId(), cmds);
-
-            final Answer rebootAnswer = cmds.getAnswer(RebootAnswer.class);
-            if (rebootAnswer != null && rebootAnswer.getResult()) {
-                boolean isVmSecurityGroupEnabled = _securityGroupManager.isVmSecurityGroupEnabled(vm.getId());
-                if (isVmSecurityGroupEnabled && vm.getType() == VirtualMachine.Type.User) {
-                    List<Long> affectedVms = new ArrayList<>();
-                    affectedVms.add(vm.getId());
-                    _securityGroupManager.scheduleRulesetUpdateToHosts(affectedVms, true, null);
-                }
-                if (vmTo.getGpuDevice() != null) {
-                    _resourceMgr.updateGPUDetailsForVmStart(host.getId(), vm.getId(), vmTo.getGpuDevice());
-                }
-                return;
-            }
-
-            String errorMsg = "Unable to reboot VM " + vm + " on " + dest.getHost() + " due to " + (rebootAnswer == null ? "no reboot response" : rebootAnswer.getDetails());
-            logger.info(errorMsg);
-            throw new CloudRuntimeException(errorMsg);
-        } catch (final OperationTimedoutException e) {
-            logger.warn("Unable to send the reboot command to host {} for the vm {} due to operation timeout.", dest.getHost(), vm, e);
-            throw new CloudRuntimeException("Failed to reboot the vm on host " + dest.getHost(), e);
-        }
+        vmRebootOrchestrationService.advanceReboot(vmUuid, params);
     }
 
     /**
@@ -3921,7 +3848,7 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
     @ReflectionUse
     private Pair<JobInfo.Status, String> orchestrateReboot(final VmWorkReboot work) throws Exception {
         VMInstanceVO vm = findVmById(work.getVmId());
-        orchestrateReboot(vm.getUuid(), work.getParams());
+        vmRebootOrchestrationService.orchestrateReboot(vm.getUuid(), work.getParams());
         return new Pair<>(JobInfo.Status.SUCCEEDED, null);
     }
 
