@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Command as CommandPrimitive } from "cmdk";
-import { Dialog, DialogPortal, DialogOverlay } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Search, ChevronRight } from "@/components/icons";
 import { useTweaks } from "@/lib/store/tweaks";
 import { NAV_SECTIONS } from "@/lib/nav";
@@ -39,9 +39,12 @@ export function CommandPalette() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogPortal>
-        <DialogOverlay />
-        <div className="fixed left-1/2 top-[12vh] z-50 w-full max-w-[620px] -translate-x-1/2 px-4">
+      <DialogContent
+        hideCloseButton
+        className="top-[12vh] max-w-[620px] translate-y-0 border-0 bg-transparent p-0 shadow-none"
+      >
+        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <div className="px-4">
           <CommandPrimitive
             label="Command palette"
             className={cn(
@@ -119,7 +122,7 @@ export function CommandPalette() {
             </CommandPrimitive.List>
           </CommandPrimitive>
         </div>
-      </DialogPortal>
+      </DialogContent>
     </Dialog>
   );
 }

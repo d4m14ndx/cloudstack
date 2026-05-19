@@ -44,6 +44,8 @@ npm run dev
 | `npm run lint`     | ESLint (next/core-web-vitals)                        |
 | `npm run typecheck`| `tsc --noEmit` — strict mode, no unchecked indexes   |
 
+Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a because Next.js 14.2 rejects that option when running `next dev --turbo`.
+
 ## Stack
 
 | Layer        | Choice                              |
