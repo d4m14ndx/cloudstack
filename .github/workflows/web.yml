@@ -5,12 +5,14 @@ on:
     paths:
       - 'web/**'
       - '.github/workflows/web.yml'
+      - 'docker-compose.yml'
   push:
     branches:
       - modernize-2026
     paths:
       - 'web/**'
       - '.github/workflows/web.yml'
+      - 'docker-compose.yml'
 
 permissions:
   contents: read
@@ -43,3 +45,11 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Check Docker Compose config
+        working-directory: .
+        run: docker compose -f docker-compose.yml config
+
+      - name: Build Docker image
+        working-directory: .
+        run: docker build -t cloudstack-web ./web

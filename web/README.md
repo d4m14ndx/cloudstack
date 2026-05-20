@@ -38,13 +38,13 @@ npm run dev
 
 | Script             | Purpose                                              |
 |--------------------|------------------------------------------------------|
-| `npm run dev`      | Dev server with Turbopack on port 3000               |
+| `npm run dev`      | Dev server on port 3000                              |
 | `npm run build`    | Production build (standalone output for Docker)      |
 | `npm run start`    | Run the production build                             |
 | `npm run lint`     | ESLint (next/core-web-vitals)                        |
 | `npm run typecheck`| `tsc --noEmit` — strict mode, no unchecked indexes   |
 
-Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a because Next.js 14.2 rejects that option when running `next dev --turbo`.
+Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a.
 
 ## Stack
 
