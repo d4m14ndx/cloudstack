@@ -21,6 +21,7 @@ import logging
 import os
 import socket
 import ssl
+import stat
 import threading
 import time
 from http.server import HTTPServer
@@ -35,13 +36,14 @@ except ImportError:
 
 from .config import TransferRegistry, validate_transfer_config
 from .constants import (
+    CONTROL_MAX_JSON_SIZE,
     CONTROL_RECV_BUFFER,
     CONTROL_SOCKET,
     CONTROL_SOCKET_BACKLOG,
     CONTROL_SOCKET_PERMISSIONS,
     DEFAULT_HTTP_PORT,
     DEFAULT_LISTEN_ADDRESS,
-    LOGGING_LEVEL
+    LOGGING_LEVEL,
 )
 from .handler import Handler
 
@@ -71,6 +73,8 @@ def _handle_control_conn(conn: socket.socket, registry: TransferRegistry) -> Non
             if not chunk:
                 break
             data += chunk
+            if len(data) > CONTROL_MAX_JSON_SIZE:
+                raise ValueError("control message too large")
             if b"\n" in data:
                 break
 
@@ -127,6 +131,9 @@ def _idle_sweep_loop(registry: TransferRegistry, interval_s: float = 10.0) -> No
 def _control_listener(registry: TransferRegistry, sock_path: str) -> None:
     """Accept loop for the Unix domain control socket (runs in a daemon thread)."""
     if os.path.exists(sock_path):
+        mode = os.stat(sock_path).st_mode
+        if not stat.S_ISSOCK(mode):
+            raise RuntimeError(f"control socket path exists and is not a socket: {sock_path}")
         os.unlink(sock_path)
     os.makedirs(os.path.dirname(sock_path), exist_ok=True)
 

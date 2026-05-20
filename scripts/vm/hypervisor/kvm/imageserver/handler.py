@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import hmac
 import json
 import logging
 import re
@@ -23,7 +24,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs
 
-from .backends import NbdBackend, create_backend
+from .backends import ImageBackend, create_backend
 from .config import TransferRegistry
 from .constants import CHUNK_SIZE, MAX_PARALLEL_READS, MAX_PARALLEL_WRITES, MAX_PATCH_JSON_SIZE
 from .util import is_fallback_dirty_response, json_bytes, now_s
@@ -221,8 +222,51 @@ class Handler(BaseHTTPRequestHandler):
         query = self.path.split("?", 1)[1]
         return parse_qs(query, keep_blank_values=True)
 
-    def _image_cfg(self, image_id: str) -> Optional[Dict[str, Any]]:
-        return self._registry.get(image_id)
+    def _is_authorized(self, cfg: Dict[str, Any]) -> bool:
+        expected = cfg.get("token")
+        if not isinstance(expected, str) or not expected:
+            return False
+
+        supplied = self.headers.get("X-CloudStack-Image-Transfer-Token")
+        auth = self.headers.get("Authorization")
+        if auth:
+            scheme, sep, value = auth.partition(" ")
+            if sep and scheme.lower() == "bearer":
+                supplied = value.strip()
+
+        return isinstance(supplied, str) and hmac.compare_digest(supplied, expected)
+
+    def _send_unauthorized(self) -> None:
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self._send_imageio_headers()
+        self.send_header("WWW-Authenticate", "Bearer")
+        body = json_bytes({"error": "unauthorized"})
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except BrokenPipeError:
+            logging.error(
+                "HTTP response write failure status=%s method=%s path=%s err=%s",
+                int(HTTPStatus.UNAUTHORIZED),
+                self.command,
+                self.path,
+                "client disconnected",
+            )
+
+    def _require_authorized(self, cfg: Dict[str, Any]) -> bool:
+        if self._is_authorized(cfg):
+            return True
+        logging.error(
+            "HTTP failure status=%s method=%s path=%s message=%s",
+            int(HTTPStatus.UNAUTHORIZED),
+            self.command,
+            self.path,
+            "unauthorized",
+        )
+        self._send_unauthorized()
+        return False
 
     # ------------------------------------------------------------------
     # HTTP verb dispatchers
@@ -233,12 +277,10 @@ class Handler(BaseHTTPRequestHandler):
         if image_id is None or tail is not None:
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
-        cfg = self._image_cfg(image_id)
-        if cfg is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
-            return
-
-        with self._registry.request_lifecycle(image_id):
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
             backend = create_backend(cfg)
             try:
                 max_writers = MAX_PARALLEL_WRITES
@@ -300,24 +342,53 @@ class Handler(BaseHTTPRequestHandler):
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
 
-        cfg = self._image_cfg(image_id)
-        if cfg is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
-            return
-
-        if tail == "extents":
-            with self._registry.request_lifecycle(image_id):
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
+            if not self._require_authorized(cfg):
+                return
+            if tail == "extents":
                 query = self._parse_query()
                 context = (query.get("context") or [None])[0]
                 self._handle_get_extents(image_id, cfg, context=context)
-            return
-        if tail is not None:
+                return
+            if tail is not None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
+                return
+
+            range_header = self.headers.get("Range")
+            self._handle_get_image(image_id, cfg, range_header)
+
+    def do_HEAD(self) -> None:
+        image_id, tail = self._parse_route()
+        if image_id is None or tail is not None:
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
 
-        range_header = self.headers.get("Range")
-        with self._registry.request_lifecycle(image_id):
-            self._handle_get_image(image_id, cfg, range_header)
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
+            if not self._require_authorized(cfg):
+                return
+
+            backend = create_backend(cfg)
+            session = None
+            try:
+                session = backend.open_session()
+                size = session.size()
+                self.send_response(HTTPStatus.OK)
+                self._send_imageio_headers()
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(size))
+                self.end_headers()
+            except OSError:
+                self._send_error_json(HTTPStatus.INTERNAL_SERVER_ERROR, "failed to access image")
+            finally:
+                if session is not None:
+                    session.close()
+                backend.close()
 
     def do_PUT(self) -> None:
         image_id, tail = self._parse_route()
@@ -325,12 +396,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
 
-        cfg = self._image_cfg(image_id)
-        if cfg is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
-            return
-
-        with self._registry.request_lifecycle(image_id):
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
+            if not self._require_authorized(cfg):
+                return
             if self.headers.get("Range") is not None:
                 self._send_error_json(
                     HTTPStatus.BAD_REQUEST,
@@ -384,16 +455,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
 
-        cfg = self._image_cfg(image_id)
-        if cfg is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
-            return
-
-        if tail == "flush":
-            with self._registry.request_lifecycle(image_id):
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
+            if not self._require_authorized(cfg):
+                return
+            if tail == "flush":
                 self._handle_post_flush(image_id, cfg)
-            return
-        self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
+                return
+            self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
 
     def do_PATCH(self) -> None:
         image_id, tail = self._parse_route()
@@ -401,12 +472,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
             return
 
-        cfg = self._image_cfg(image_id)
-        if cfg is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
-            return
-
-        with self._registry.request_lifecycle(image_id):
+        with self._registry.acquire_request_config(image_id) as cfg:
+            if cfg is None:
+                self._send_error_json(HTTPStatus.NOT_FOUND, "unknown image_id")
+                return
+            if not self._require_authorized(cfg):
+                return
             backend = create_backend(cfg)
             try:
                 if not backend.supports_range_write:
@@ -671,7 +742,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_put_range_with_backend(
         self,
         image_id: str,
-        backend: NbdBackend,
+        backend: ImageBackend,
         content_range: str,
         content_length: int,
         flush: bool,
@@ -684,10 +755,17 @@ class Handler(BaseHTTPRequestHandler):
                 image_id, content_range, content_length, flush,
             )
             try:
-                start_off, _end_inclusive = self._parse_content_range(content_range)
+                start_off, end_inclusive = self._parse_content_range(content_range)
             except ValueError as e:
                 self._send_error_json(
                     HTTPStatus.BAD_REQUEST, f"invalid Content-Range header: {e}"
+                )
+                return
+            expected_len = end_inclusive - start_off + 1
+            if content_length != expected_len:
+                self._send_error_json(
+                    HTTPStatus.BAD_REQUEST,
+                    f"Content-Length ({content_length}) must equal range length ({expected_len})",
                 )
                 return
 
@@ -724,7 +802,7 @@ class Handler(BaseHTTPRequestHandler):
             backend.close()
 
     def _handle_get_extents_with_backend(
-        self, image_id: str, backend: NbdBackend, context: Optional[str] = None
+        self, image_id: str, backend: ImageBackend, context: Optional[str] = None
     ) -> None:
         start = now_s()
         try:
@@ -773,7 +851,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             backend.close()
 
-    def _handle_post_flush_with_backend(self, image_id: str, backend: NbdBackend) -> None:
+    def _handle_post_flush_with_backend(self, image_id: str, backend: ImageBackend) -> None:
         start = now_s()
         try:
             logging.info("FLUSH start image_id=%s", image_id)
@@ -803,7 +881,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_patch_zero_with_backend(
         self,
         image_id: str,
-        backend: NbdBackend,
+        backend: ImageBackend,
         offset: int,
         size: int,
         flush: bool,
@@ -848,7 +926,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_patch_range_with_backend(
         self,
         image_id: str,
-        backend: NbdBackend,
+        backend: ImageBackend,
         range_header: str,
         content_length: int,
     ) -> None:
@@ -880,8 +958,7 @@ class Handler(BaseHTTPRequestHandler):
                         f"Content-Length ({content_length}) must equal range length ({expected_len})",
                     )
                     return
-                nbd_backend: NbdBackend = backend  # type: ignore[assignment]
-                bytes_written = nbd_backend.write_range(self.rfile, start_off, content_length)
+                bytes_written = backend.write_range(self.rfile, start_off, content_length)
                 self._send_json(HTTPStatus.OK, {"ok": True, "bytes_written": bytes_written})
             except ValueError:
                 image_size = backend.size()

@@ -19,9 +19,8 @@ from typing import Any, Dict
 
 from .base import BackendSession, ImageBackend
 from .file import FileBackend
-from .nbd import NbdBackend
 
-__all__ = ["BackendSession", "ImageBackend", "FileBackend", "NbdBackend", "create_backend"]
+__all__ = ["BackendSession", "ImageBackend", "FileBackend", "create_backend"]
 
 
 def create_backend(cfg: Dict[str, Any]) -> ImageBackend:
@@ -29,6 +28,8 @@ def create_backend(cfg: Dict[str, Any]) -> ImageBackend:
     backend_type = cfg.get("backend", "nbd")
     if backend_type == "file":
         return FileBackend(cfg["file"])
+    from .nbd import NbdBackend
+
     return NbdBackend(
         cfg["socket"],
         export=cfg.get("export"),

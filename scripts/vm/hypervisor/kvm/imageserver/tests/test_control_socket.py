@@ -46,7 +46,7 @@ class TestRegister(ImageServerTestCase):
             resp = self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "file", "file": img},
+                "config": {"backend": "file", "file": img, "token": "test-token"},
             })
             self.assertEqual(resp["status"], "ok")
             self.assertGreaterEqual(resp["active_transfers"], 1)
@@ -59,7 +59,7 @@ class TestRegister(ImageServerTestCase):
             resp = self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "nbd", "socket": "/tmp/fake.sock"},
+                "config": {"backend": "nbd", "socket": "/tmp/fake.sock", "token": "test-token"},
             })
             self.assertEqual(resp["status"], "ok")
         finally:
@@ -73,7 +73,7 @@ class TestRegister(ImageServerTestCase):
             self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "file", "file": img},
+                "config": {"backend": "file", "file": img, "token": "test-token"},
             })
             after = self.ctrl({"action": "status"})["active_transfers"]
             self.assertEqual(after, before + 1)
@@ -84,7 +84,7 @@ class TestRegister(ImageServerTestCase):
         img = make_tmp_image()
         resp = self.ctrl({
             "action": "register",
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -93,7 +93,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": "",
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -108,7 +108,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": f"test-{uuid.uuid4().hex[:8]}",
-            "config": {"backend": "invalid"},
+            "config": {"backend": "invalid", "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -116,7 +116,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": f"test-{uuid.uuid4().hex[:8]}",
-            "config": {"backend": "file"},
+            "config": {"backend": "file", "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -124,7 +124,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": f"test-{uuid.uuid4().hex[:8]}",
-            "config": {"backend": "nbd"},
+            "config": {"backend": "nbd", "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -133,7 +133,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": "../etc/passwd",
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -142,7 +142,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": ".",
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -151,7 +151,7 @@ class TestRegister(ImageServerTestCase):
         resp = self.ctrl({
             "action": "register",
             "transfer_id": "a/b",
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         self.assertEqual(resp["status"], "error")
 
@@ -162,13 +162,13 @@ class TestRegister(ImageServerTestCase):
             self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "file", "file": img},
+                "config": {"backend": "file", "file": img, "token": "test-token"},
             })
             count_before = self.ctrl({"action": "status"})["active_transfers"]
             self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "file", "file": img},
+                "config": {"backend": "file", "file": img, "token": "test-token"},
             })
             count_after = self.ctrl({"action": "status"})["active_transfers"]
             self.assertEqual(count_after, count_before)
@@ -183,7 +183,7 @@ class TestUnregister(ImageServerTestCase):
         self.ctrl({
             "action": "register",
             "transfer_id": tid,
-            "config": {"backend": "file", "file": img},
+            "config": {"backend": "file", "file": img, "token": "test-token"},
         })
         before = self.ctrl({"action": "status"})["active_transfers"]
         resp = self.ctrl({"action": "unregister", "transfer_id": tid})
@@ -236,7 +236,7 @@ class TestConcurrentRegistrations(ImageServerTestCase):
             return self.ctrl({
                 "action": "register",
                 "transfer_id": tid,
-                "config": {"backend": "file", "file": img},
+                "config": {"backend": "file", "file": img, "token": "test-token"},
             })
 
         try:

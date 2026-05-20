@@ -50,6 +50,7 @@ IMAGE_SIZE = 1 * 1024 * 1024  # 1 MiB
 SERVER_STARTUP_TIMEOUT = 10
 QEMU_NBD_STARTUP_TIMEOUT = 5
 HTTP_TIMEOUT = 30  # seconds per HTTP request
+DEFAULT_TRANSFER_TOKEN = "test-token"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,6 +93,7 @@ _server_info: Optional[Dict[str, Any]] = None
 _server_log_fp: Optional[TextIO] = None
 _server_log_path: Optional[str] = None
 _atexit_registered: bool = False
+_transfer_tokens: Dict[str, str] = {}
 
 
 def _free_port() -> int:
@@ -384,7 +386,7 @@ def make_file_transfer(data=None, image_size=IMAGE_SIZE, idle_timeout_seconds=No
     srv = get_image_server()
     path = make_tmp_image(data=data, image_size=image_size)
     transfer_id = f"file-{uuid.uuid4().hex[:8]}"
-    cfg = {"backend": "file", "file": path}
+    cfg = {"backend": "file", "file": path, "token": DEFAULT_TRANSFER_TOKEN}
     if idle_timeout_seconds is not None:
         cfg["idle_timeout_seconds"] = idle_timeout_seconds
     resp = srv["send"]({
@@ -394,9 +396,11 @@ def make_file_transfer(data=None, image_size=IMAGE_SIZE, idle_timeout_seconds=No
     })
     assert resp["status"] == "ok", f"register failed: {resp}"
     url = f"{srv['base_url']}/images/{transfer_id}"
+    _transfer_tokens[url] = DEFAULT_TRANSFER_TOKEN
 
     def cleanup():
         srv["send"]({"action": "unregister", "transfer_id": transfer_id})
+        _transfer_tokens.pop(url, None)
         try:
             os.unlink(path)
         except FileNotFoundError:
@@ -422,13 +426,15 @@ def make_nbd_transfer(image_size=IMAGE_SIZE):
     resp = srv["send"]({
         "action": "register",
         "transfer_id": transfer_id,
-        "config": {"backend": "nbd", "socket": sock_path},
+        "config": {"backend": "nbd", "socket": sock_path, "token": DEFAULT_TRANSFER_TOKEN},
     })
     assert resp["status"] == "ok", f"register failed: {resp}"
     url = f"{srv['base_url']}/images/{transfer_id}"
+    _transfer_tokens[url] = DEFAULT_TRANSFER_TOKEN
 
     def cleanup():
         srv["send"]({"action": "unregister", "transfer_id": transfer_id})
+        _transfer_tokens.pop(url, None)
         server.stop()
         for p in (img_path, sock_path):
             try:
@@ -460,13 +466,15 @@ def make_nbd_transfer_existing_disk(image_path: str, image_format: str = "qcow2"
     resp = srv["send"]({
         "action": "register",
         "transfer_id": transfer_id,
-        "config": {"backend": "nbd", "socket": sock_path},
+        "config": {"backend": "nbd", "socket": sock_path, "token": DEFAULT_TRANSFER_TOKEN},
     })
     assert resp["status"] == "ok", f"register failed: {resp}"
     url = f"{srv['base_url']}/images/{transfer_id}"
+    _transfer_tokens[url] = DEFAULT_TRANSFER_TOKEN
 
     def cleanup():
         srv["send"]({"action": "unregister", "transfer_id": transfer_id})
+        _transfer_tokens.pop(url, None)
         server.stop()
         try:
             os.unlink(sock_path)
@@ -482,8 +490,25 @@ import urllib.request
 import urllib.error
 
 
+def _headers_with_token(url, headers=None):
+    hdrs = {}
+    if headers:
+        hdrs.update(headers)
+    if "Authorization" not in hdrs and "X-CloudStack-Image-Transfer-Token" not in hdrs:
+        clean_url = url.split("?", 1)[0]
+        token = _transfer_tokens.get(clean_url)
+        if token is None:
+            for transfer_url, transfer_token in _transfer_tokens.items():
+                if clean_url.startswith(transfer_url + "/"):
+                    token = transfer_token
+                    break
+        if token:
+            hdrs["Authorization"] = f"Bearer {token}"
+    return hdrs
+
+
 def http_get(url, headers=None, timeout=HTTP_TIMEOUT):
-    req = urllib.request.Request(url, headers=headers or {})
+    req = urllib.request.Request(url, headers=_headers_with_token(url, headers))
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -491,14 +516,13 @@ def http_put(url, data, headers=None, timeout=HTTP_TIMEOUT):
     hdrs = {"Content-Length": str(len(data))}
     if headers:
         hdrs.update(headers)
+    hdrs = _headers_with_token(url, hdrs)
     req = urllib.request.Request(url, data=data, headers=hdrs, method="PUT")
     return urllib.request.urlopen(req, timeout=timeout)
 
 
 def http_post(url, data=b"", headers=None, timeout=HTTP_TIMEOUT):
-    hdrs = {}
-    if headers:
-        hdrs.update(headers)
+    hdrs = _headers_with_token(url, headers)
     req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
     return urllib.request.urlopen(req, timeout=timeout)
 
@@ -509,9 +533,7 @@ def http_options(url, timeout=HTTP_TIMEOUT):
 
 
 def http_patch(url, data, headers=None, timeout=HTTP_TIMEOUT):
-    hdrs = {}
-    if headers:
-        hdrs.update(headers)
+    hdrs = _headers_with_token(url, headers)
     req = urllib.request.Request(url, data=data, headers=hdrs, method="PATCH")
     return urllib.request.urlopen(req, timeout=timeout)
 

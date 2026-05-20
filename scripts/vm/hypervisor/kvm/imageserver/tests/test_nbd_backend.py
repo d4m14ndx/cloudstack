@@ -661,6 +661,7 @@ class TestErrorCases(NbdBackendTestCase):
         conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=30)
         try:
             conn.putrequest("PUT", parsed.path)
+            conn.putheader("Authorization", "Bearer test-token")
             conn.endheaders()
             resp = conn.getresponse()
             self.assertEqual(resp.status, 400)

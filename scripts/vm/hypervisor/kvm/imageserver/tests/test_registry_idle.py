@@ -46,7 +46,7 @@ class TestParseIdleTimeout(unittest.TestCase):
 class TestValidateTransferConfig(unittest.TestCase):
     def test_file_merges_idle(self):
         c = validate_transfer_config(
-            {"backend": "file", "file": "/tmp/x", "idle_timeout_seconds": 3}
+            {"backend": "file", "file": "/tmp/x", "idle_timeout_seconds": 3, "token": "test-token"}
         )
         self.assertEqual(c["idle_timeout_seconds"], 3)
         self.assertEqual(c["backend"], "file")
@@ -64,7 +64,7 @@ class TestRegistryIdleSweep(unittest.TestCase):
             r.register(
                 "t1",
                 validate_transfer_config(
-                    {"backend": "file", "file": "/x", "idle_timeout_seconds": 2}
+                    {"backend": "file", "file": "/x", "idle_timeout_seconds": 2, "token": "test-token"}
                 ),
             )
             clock[0] = 5.0
@@ -82,7 +82,7 @@ class TestRegistryIdleSweep(unittest.TestCase):
             r.register(
                 "t1",
                 validate_transfer_config(
-                    {"backend": "file", "file": "/x", "idle_timeout_seconds": 2}
+                    {"backend": "file", "file": "/x", "idle_timeout_seconds": 2, "token": "test-token"}
                 ),
             )
             clock[0] = 1.0

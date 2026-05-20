@@ -52,7 +52,11 @@ class TestHttp11PersistentConnections(ImageServerTestCase):
             try:
                 path = f"/images/{transfer_id}"
 
-                conn.request("GET", path, headers={"Range": "bytes=0-1023"})
+                conn.request(
+                    "GET",
+                    path,
+                    headers={"Range": "bytes=0-1023", "Authorization": "Bearer test-token"},
+                )
                 resp1 = conn.getresponse()
                 body1 = resp1.read()
                 self.assertEqual(resp1.status, 206)
@@ -60,7 +64,11 @@ class TestHttp11PersistentConnections(ImageServerTestCase):
                 self.assertIsNotNone(conn.sock)
                 first_local_port = conn.sock.getsockname()[1]
 
-                conn.request("GET", path, headers={"Range": "bytes=1024-2047"})
+                conn.request(
+                    "GET",
+                    path,
+                    headers={"Range": "bytes=1024-2047", "Authorization": "Bearer test-token"},
+                )
                 resp2 = conn.getresponse()
                 body2 = resp2.read()
                 self.assertEqual(resp2.status, 206)
@@ -99,6 +107,7 @@ class TestTeardownTiming(ImageServerTestCase):
                 request_headers = (
                     f"PUT /images/{transfer_id} HTTP/1.1\r\n"
                     f"Host: 127.0.0.1:{self.server['port']}\r\n"
+                    "Authorization: Bearer test-token\r\n"
                     f"Content-Length: {len(body)}\r\n"
                     "Connection: close\r\n"
                     "\r\n"
@@ -113,6 +122,7 @@ class TestTeardownTiming(ImageServerTestCase):
                     sent = end
                     if sent >= chunk_size and not started.is_set():
                         started.set()
+                        time.sleep(0.5)
                     time.sleep(0.02)
 
                 headers = _read_http_headers(sock)

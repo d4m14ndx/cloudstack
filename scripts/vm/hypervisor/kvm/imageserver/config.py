@@ -25,6 +25,9 @@ from typing import Any, Dict, Iterator, List, Optional
 from .constants import DEFAULT_IDLE_TIMEOUT_SECONDS
 
 
+_DENIED_PATH_ROOTS = ("/etc", "/proc", "/sys", "/dev")
+
+
 def parse_idle_timeout_seconds(obj: dict) -> int:
     """Seconds of idle time (no completed HTTP requests) before unregister."""
     v = obj.get("idle_timeout_seconds", DEFAULT_IDLE_TIMEOUT_SECONDS)
@@ -36,12 +39,38 @@ def parse_idle_timeout_seconds(obj: dict) -> int:
     return v
 
 
+def _validate_token(obj: dict) -> str:
+    token = obj.get("token")
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError("missing/invalid transfer token")
+    return token.strip()
+
+
+def _validate_absolute_path(path: str, label: str) -> str:
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"missing/invalid {label} path")
+    cleaned = path.strip()
+    normalized = os.path.normpath(cleaned)
+    if cleaned != normalized:
+        raise ValueError(f"{label} path must be normalized")
+    if not os.path.isabs(normalized):
+        raise ValueError(f"{label} path must be absolute")
+    parts = normalized.split(os.sep)
+    if ".." in parts:
+        raise ValueError(f"{label} path must not contain traversal")
+    for root in _DENIED_PATH_ROOTS:
+        if normalized == root or normalized.startswith(root + os.sep):
+            raise ValueError(f"{label} path is outside allowed roots")
+    return normalized
+
+
 def validate_transfer_config(obj: dict) -> dict:
     """
     Validate and normalize a transfer config dict received over the control
     socket. Returns the cleaned config or raises ValueError.
     """
     idle_sec = parse_idle_timeout_seconds(obj)
+    token = _validate_token(obj)
 
     backend = obj.get("backend")
     if backend is None:
@@ -54,23 +83,27 @@ def validate_transfer_config(obj: dict) -> dict:
 
     if backend == "file":
         file_path = obj.get("file")
-        if not isinstance(file_path, str) or not file_path.strip():
-            raise ValueError("missing/invalid file path for file backend")
-        return {"backend": "file", "file": file_path.strip(), "idle_timeout_seconds": idle_sec}
+        file_path = _validate_absolute_path(file_path, "file")
+        return {
+            "backend": "file",
+            "file": file_path,
+            "idle_timeout_seconds": idle_sec,
+            "token": token,
+        }
 
     socket_path = obj.get("socket")
     export = obj.get("export")
     export_bitmap = obj.get("export_bitmap")
-    if not isinstance(socket_path, str) or not socket_path.strip():
-        raise ValueError("missing/invalid socket path for nbd backend")
+    socket_path = _validate_absolute_path(socket_path, "socket")
     if export is not None and (not isinstance(export, str) or not export):
         raise ValueError("invalid export name")
     return {
         "backend": "nbd",
-        "socket": socket_path.strip(),
+        "socket": socket_path,
         "export": export,
         "export_bitmap": export_bitmap,
         "idle_timeout_seconds": idle_sec,
+        "token": token,
     }
 
 
@@ -169,6 +202,38 @@ class TransferRegistry:
             self._inflight[safe_id] = self._inflight.get(safe_id, 0) + 1
         try:
             yield
+        finally:
+            now = time.monotonic()
+            with self._cv:
+                count = self._inflight.get(safe_id, 1) - 1
+                if count <= 0:
+                    self._inflight.pop(safe_id, None)
+                    if safe_id in self._transfers:
+                        self._last_activity[safe_id] = now
+                    self._cv.notify_all()
+                else:
+                    self._inflight[safe_id] = count
+
+    @contextmanager
+    def acquire_request_config(self, transfer_id: str) -> Iterator[Optional[Dict[str, Any]]]:
+        """
+        Atomically fetch a transfer config and mark the request in-flight.
+
+        This prevents unregister/idle expiry from removing the transfer after a
+        handler has accepted its config but before it begins backend work.
+        """
+        safe_id = safe_transfer_id(transfer_id)
+        if safe_id is None:
+            yield None
+            return
+        with self._lock:
+            cfg = self._transfers.get(safe_id)
+            if cfg is None:
+                yield None
+                return
+            self._inflight[safe_id] = self._inflight.get(safe_id, 0) + 1
+        try:
+            yield cfg
         finally:
             now = time.monotonic()
             with self._cv:
