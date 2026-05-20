@@ -172,7 +172,6 @@ import com.cloud.org.Cluster;
 import com.cloud.org.Grouping;
 import com.cloud.resourcelimit.ReservationHelper;
 import com.cloud.server.ManagementService;
-import com.cloud.server.ResourceTag;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
 import com.cloud.service.dao.ServiceOfferingDetailsDao;
@@ -183,7 +182,6 @@ import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage;
-import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
@@ -197,9 +195,6 @@ import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.SnapshotPolicyDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
-import com.cloud.tags.ResourceTagVO;
-import com.cloud.tags.dao.ResourceTagDao;
-import com.cloud.template.TemplateApiService;
 import com.cloud.template.TemplateManager;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
@@ -377,11 +372,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private NicExtraDhcpOptionDao _nicExtraDhcpOptionDao;
     @Inject
-    private TemplateApiService _tmplService;
-    @Inject
     private ConfigurationDao _configDao;
-    @Inject
-    private ResourceTagDao resourceTagDao;
     @Inject
     private VmDeployAsIsNetworkMappingService vmDeployAsIsNetworkMappingService;
     @Inject
@@ -489,6 +480,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmImportFacade vmImportFacade;
     @Inject
     private VmAllocationValidationService vmAllocationValidationService;
+    @Inject
+    private VmCreationPostProcessingService vmCreationPostProcessingService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -2208,40 +2201,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             }
         }
 
-        // check if this templateId has a child ISO
-        List<VMTemplateVO> child_templates = _templateDao.listByParentTemplatetId(template.getId());
-        for (VMTemplateVO tmpl: child_templates) {
-            if (tmpl.getFormat() == Storage.ImageFormat.ISO) {
-                logger.info("MDOV trying to attach disk {} to the VM {}", tmpl, vm);
-                _tmplService.attachIso(tmpl.getId(), vm.getId(), true);
-            }
-        }
-
-        // Add extraConfig to vm_instance_details table
-        String extraConfig = cmd.getExtraConfig();
-        if (StringUtils.isNotBlank(extraConfig)) {
-            if (EnableAdditionalVmConfig.valueIn(callerId)) {
-                logger.info("Adding extra configuration to user vm: {}", vm);
-                addExtraConfig(vm, extraConfig);
-            } else {
-                throw new InvalidParameterValueException("attempted setting extraconfig but enable.additional.vm.configuration is disabled");
-            }
-        }
-
-        if (cmd.getCopyImageTags()) {
-            VMTemplateVO templateOrIso = _templateDao.findById(template.getId());
-            if (templateOrIso != null) {
-                final ResourceTag.ResourceObjectType templateType = (templateOrIso.getFormat() == ImageFormat.ISO) ? ResourceTag.ResourceObjectType.ISO : ResourceTag.ResourceObjectType.Template;
-                final List<? extends ResourceTag> resourceTags = resourceTagDao.listBy(template.getId(), templateType);
-                for (ResourceTag resourceTag : resourceTags) {
-                    final ResourceTagVO copyTag = new ResourceTagVO(resourceTag.getKey(), resourceTag.getValue(), resourceTag.getAccountId(), resourceTag.getDomainId(), vm.getId(), ResourceTag.ResourceObjectType.UserVm, resourceTag.getCustomer(), vm.getUuid());
-                    resourceTagDao.persist(copyTag);
-                }
-            }
-        }
-        if (isLeaseFeatureEnabled) {
-            applyLeaseOnCreateInstance(vm, cmd.getLeaseDuration(), cmd.getLeaseExpiryAction(), svcOffering);
-        }
+        vmCreationPostProcessingService.processCreatedVm(cmd, vm, template, svcOffering, callerId, isLeaseFeatureEnabled);
         return vm;
     }
 
