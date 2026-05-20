@@ -55,6 +55,22 @@ See `../docs/phase5b-local-dev.md` for Redis, Authentik, and CloudStack service-
 
 Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a.
 
+## BFF API proxy
+
+Phase 5b adds the server-side `/api/cs/[command]` proxy foundation. Browser code calls same-origin URLs such as `/api/cs/listVirtualMachines?listall=true`; the route strips any client-supplied `sessionkey`, forces `response=json`, attaches the server-side CloudStack session key from the BFF session, and forwards to `${CS_URL}/client/api`.
+
+Required runtime variables for real CloudStack use:
+
+```bash
+CS_URL=http://cloudstack-mgmt:8080
+CS_SERVICE_APIKEY=<service-account-api-key>
+CS_SERVICE_SECRETKEY=<service-account-secret-key>
+BFF_SESSION_TTL_SECONDS=28800
+CS_SESSION_REFRESH_MARGIN_SECONDS=120
+```
+
+Until the Auth.js/Redis slice lands, the BFF session store is an in-memory development adapter. Production requests without a `cloudstack.session` BFF cookie return `401`; local development can opt into a mock BFF session with `BFF_DEV_SESSION=true` or `NEXT_PUBLIC_APP_ENV=dev`.
+
 ## Stack
 
 | Layer        | Choice                              |
