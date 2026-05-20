@@ -2425,6 +2425,14 @@ public class BackupManagerImpl extends ManagerBase implements BackupManager {
         response.setProtectedSize(backup.getProtectedSize());
         response.setStatus(backup.getStatus());
         response.setIntervalType("MANUAL");
+        response.setFromCheckpointId(backup.getFromCheckpointId());
+        response.setToCheckpointId(backup.getToCheckpointId());
+        if (backup.getHostId() != null) {
+            HostVO host = hostDao.findById(backup.getHostId());
+            if (host != null) {
+                response.setHostId(host.getUuid());
+            }
+        }
         if (backup.getBackupScheduleId() != null) {
             BackupScheduleVO scheduleVO = backupScheduleDao.findById(backup.getBackupScheduleId());
             if (scheduleVO != null) {
