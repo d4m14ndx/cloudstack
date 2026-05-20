@@ -236,7 +236,6 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
-import com.cloud.utils.db.TransactionCallbackWithException;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.db.UUIDManager;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -513,6 +512,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmRuntimeLifecycleService vmRuntimeLifecycleService;
     @Inject
     private VmCreationResourceReservationService vmCreationResourceReservationService;
+    @Inject
+    private VmImportFacade vmImportFacade;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1816,7 +1817,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             vm.setDisplayVm(true);
         }
 
-        setVmRequiredFieldsForImport(isImport, vm, zone, hypervisorType, host, lastHost, powerState);
+        vmImportFacade.setVmRequiredFieldsForImport(isImport, vm, zone, hypervisorType, host, lastHost, powerState);
 
         vmInitialDetailsService.setVncPasswordForKvmIfAvailable(customParameters, vm);
 
@@ -1938,23 +1939,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 ice.addProxyObject(vm.getUuid());
             }
             throw ice;
-        }
-    }
-
-    protected void setVmRequiredFieldsForImport(boolean isImport, UserVmVO vm, DataCenter zone, HypervisorType hypervisorType,
-                                                Host host, Host lastHost, VirtualMachine.PowerState powerState) {
-        if (isImport) {
-            vm.setDataCenterId(zone.getId());
-            if (List.of(HypervisorType.VMware, HypervisorType.KVM).contains(hypervisorType) && host != null) {
-                vm.setHostId(host.getId());
-            }
-            if (lastHost != null) {
-                vm.setLastHostId(lastHost.getId());
-            }
-            vm.setPowerState(powerState);
-            if (powerState == VirtualMachine.PowerState.PowerOn) {
-                vm.setState(State.Running);
-            }
         }
     }
 
@@ -3150,47 +3134,40 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmVolumeDestroyCleanupService.destroyVolumeInContext(vm, expunge, volume);
     }
 
-    private String getInternalName(long accountId, long vmId) {
-        String instanceSuffix = _configDao.getValue(Config.InstanceName.key());
-        if (instanceSuffix == null) {
-            instanceSuffix = "DEFAULT";
-        }
-        return VirtualMachineName.getVmName(vmId, accountId, instanceSuffix);
-    }
-
     @Override
     public UserVm importVM(final DataCenter zone, final Host host, final VirtualMachineTemplate template, final String instanceNameInternal, final String displayName,
                            final Account owner, final String userData, final Account caller, final Boolean isDisplayVm, final String keyboard,
                            final long accountId, final long userId, final ServiceOffering serviceOffering, final String sshPublicKeys, final Long guestOsId,
                            final String hostName, final HypervisorType hypervisorType, final Map<String, String> customParameters,
                            final VirtualMachine.PowerState powerState, final LinkedHashMap<String, List<NicProfile>> networkNicMap) throws InsufficientCapacityException {
-        return Transaction.execute((TransactionCallbackWithException<UserVm, InsufficientCapacityException>) status -> {
-            if (zone == null) {
-                throw new InvalidParameterValueException("Unable to import virtual machine with invalid zone");
-            }
-            if (host == null && hypervisorType == HypervisorType.VMware) {
-                throw new InvalidParameterValueException("Unable to import virtual machine with invalid host");
-            }
+        return vmImportFacade.importVM(zone, host, template, instanceNameInternal, displayName, owner, userData, isDisplayVm, keyboard,
+                accountId, userId, serviceOffering, sshPublicKeys, guestOsId, hostName, hypervisorType, customParameters, powerState,
+                networkNicMap, importManagerOperations());
+    }
 
-            final long id = _vmDao.getNextInSequence(Long.class, "id");
-            String instanceName = StringUtils.isBlank(instanceNameInternal) ?
-                    getInternalName(owner.getAccountId(), id) :
-                    instanceNameInternal;
-
-            if (hostName != null) {
-                // Check is hostName is RFC compliant
-                checkNameForRFCCompliance(hostName);
+    private VmImportFacade.ManagerOperations importManagerOperations() {
+        return new VmImportFacade.ManagerOperations() {
+            @Override
+            public void checkNameForRFCCompliance(String hostName) {
+                UserVmManagerImpl.this.checkNameForRFCCompliance(hostName);
             }
 
-            final String uuidName = _uuidMgr.generateUuid(UserVm.class, null);
-            final Host lastHost = powerState != VirtualMachine.PowerState.PowerOn ? host : null;
-            final Boolean dynamicScalingEnabled = checkIfDynamicScalingCanBeEnabled(null, serviceOffering, template, zone.getId());
-            return commitUserVm(true, zone, host, lastHost, template, hostName, displayName, owner,
-                    null, null, userData, null, null, isDisplayVm, keyboard,
-                    accountId, userId, serviceOffering, template.getFormat().equals(ImageFormat.ISO), guestOsId, sshPublicKeys, networkNicMap,
-                    id, instanceName, uuidName, hypervisorType, customParameters,
-                    null, null, null, powerState, dynamicScalingEnabled, null, serviceOffering.getDiskOfferingId(), null, null, null, null);
-        });
+            @Override
+            public Boolean checkIfDynamicScalingCanBeEnabled(VirtualMachine vm, ServiceOffering offering, VirtualMachineTemplate template, Long zoneId) {
+                return UserVmManagerImpl.this.checkIfDynamicScalingCanBeEnabled(vm, offering, template, zoneId);
+            }
+
+            @Override
+            public UserVmVO commitUserVm(VmImportFacade.Allocation allocation) throws InsufficientCapacityException {
+                return UserVmManagerImpl.this.commitUserVm(true, allocation.getZone(), allocation.getHost(), allocation.getLastHost(), allocation.getTemplate(),
+                        allocation.getHostName(), allocation.getDisplayName(), allocation.getOwner(), null, null, allocation.getUserData(), null, null,
+                        allocation.getDisplayVm(), allocation.getKeyboard(), allocation.getAccountId(), allocation.getUserId(), allocation.getServiceOffering(),
+                        allocation.isIso(), allocation.getGuestOsId(), allocation.getSshPublicKeys(), allocation.getNetworkNicMap(), allocation.getId(),
+                        allocation.getInstanceName(), allocation.getUuidName(), allocation.getHypervisorType(), allocation.getCustomParameters(), null,
+                        null, null, allocation.getPowerState(), allocation.getDynamicScalingEnabled(), null,
+                        allocation.getServiceOffering().getDiskOfferingId(), null, null, null, null);
+            }
+        };
     }
 
     @Override

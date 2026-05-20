@@ -528,6 +528,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmRuntimeLifecycleService vmRuntimeLifecycleService;
 
+    @Mock
+    VmImportFacade vmImportFacade;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -570,6 +573,7 @@ public class UserVmManagerImplTest {
     @Before
     public void beforeTest() {
         userVmManagerImpl.resourceLimitService = resourceLimitMgr;
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmImportFacade", vmImportFacade);
         // The serviceOfferingValidator field was added as part of the Phase 4
         // Spring-component decomposition. The tests below exercise validation
         // behavior through the manager's public methods, so wire up a real
@@ -1570,14 +1574,6 @@ public class UserVmManagerImplTest {
     }
 
     @Test
-    public void testSetVmRequiredFieldsForImportNotImport() {
-        userVmManagerImpl.setVmRequiredFieldsForImport(false, userVmVoMock, _dcMock,
-                Hypervisor.HypervisorType.VMware, Mockito.mock(HostVO.class), Mockito.mock(HostVO.class), VirtualMachine.PowerState.PowerOn);
-        Mockito.verify(userVmVoMock, never()).setDataCenterId(anyLong());
-    }
-
-
-    @Test
     public void createVirtualMachineWithCloudRuntimeException() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
         DeployVMCmd deployVMCmd = new DeployVMCmd();
         ReflectionTestUtils.setField(deployVMCmd, "zoneId", zoneId);
@@ -1614,19 +1610,6 @@ public class UserVmManagerImplTest {
         ArrayList<ExceptionProxyObject> proxyIdList = creThrown.getIdProxyList();
         assertNotNull(proxyIdList != null );
         assertTrue(proxyIdList.stream().anyMatch( p -> p.getUuid().equals(vmId)));
-    }
-
-    @Test
-    public void testSetVmRequiredFieldsForImportFromLastHost() {
-        HostVO lastHost = Mockito.mock(HostVO.class);
-        HostVO host = Mockito.mock(HostVO.class);
-        Mockito.when(_dcMock.getId()).thenReturn(1L);
-        Mockito.when(host.getId()).thenReturn(1L);
-        Mockito.when(lastHost.getId()).thenReturn(2L);
-        userVmManagerImpl.setVmRequiredFieldsForImport(true, userVmVoMock, _dcMock,
-                Hypervisor.HypervisorType.VMware, host, lastHost, VirtualMachine.PowerState.PowerOn);
-        Mockito.verify(userVmVoMock).setLastHostId(2L);
-        Mockito.verify(userVmVoMock).setState(VirtualMachine.State.Running);
     }
 
     @Test
