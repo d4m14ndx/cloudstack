@@ -18,6 +18,8 @@
 package org.apache.cloudstack.backup;
 
 import java.security.SecureRandom;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -58,8 +60,12 @@ import com.cloud.agent.api.Command;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.OperationTimedoutException;
+import com.cloud.host.Host;
+import com.cloud.host.Status;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.resource.ResourceState;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Storage;
 import com.cloud.storage.StoragePoolHostVO;
@@ -173,8 +179,11 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         if (backup == null) {
             throw new CloudRuntimeException("Backup not found: " + cmd.getEntityId());
         }
+        if (!cmd.getVmId().equals(backup.getVmId())) {
+            throw new CloudRuntimeException(String.format("Backup %s does not belong to VM: %s", backup.getUuid(), cmd.getVmId()));
+        }
 
-        VMInstanceVO vm = vmInstanceDao.findById(cmd.getVmId());
+        VMInstanceVO vm = vmInstanceDao.findById(backup.getVmId());
         if (vm == null) {
             failBackup(backup);
             throw new CloudRuntimeException("Instance not found for Backup: " + backup.getUuid());
@@ -193,7 +202,7 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         boolean stoppedVm = VirtualMachine.State.Stopped.equals(vm.getState());
         Map<String, String> diskPathUuidMap = new HashMap<>();
         Map<String, byte[]> diskPathPassphraseMap = new HashMap<>();
-        for (VolumeVO volume : volumeDao.findByInstance(cmd.getVmId())) {
+        for (VolumeVO volume : volumeDao.findByInstance(backup.getVmId())) {
             String volumePath = getVolumePathForFileBasedBackend(volume);
             diskPathUuidMap.put(volumePath, volume.getUuid());
             if (stoppedVm) {
@@ -204,7 +213,7 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
             }
         }
 
-        Map<String, String> vmDetails = vmInstanceDetailsDao.listDetailsKeyPairs(cmd.getVmId());
+        Map<String, String> vmDetails = vmInstanceDetailsDao.listDetailsKeyPairs(backup.getVmId());
         Long fromCheckpointCreateTime = parseOptionalLong(vmDetails.get(VmDetailConstants.ACTIVE_CHECKPOINT_CREATE_TIME));
         StartBackupCommand startBackupCommand = new StartBackupCommand(
                 vm.getInstanceName(),
@@ -243,10 +252,15 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         }
 
         updateBackupState(backup, Backup.Status.FinalizingImageTransfer);
-        for (ImageTransferVO imageTransfer : imageTransferDao.listByBackupId(backup.getId())) {
-            if (!ImageTransfer.Phase.finished.equals(imageTransfer.getPhase())) {
-                finalizeImageTransfer(imageTransfer.getId());
+        try {
+            for (ImageTransferVO imageTransfer : imageTransferDao.listByBackupId(backup.getId())) {
+                if (!ImageTransfer.Phase.finished.equals(imageTransfer.getPhase())) {
+                    finalizeImageTransfer(imageTransfer.getId());
+                }
             }
+        } catch (RuntimeException e) {
+            failBackup(backup);
+            throw e;
         }
 
         if (VirtualMachine.State.Running.equals(vm.getState())) {
@@ -448,10 +462,12 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         if (backup == null) {
             throw new CloudRuntimeException("Backup not found: " + backupId);
         }
+        validateBackupForDownloadImageTransfer(backup, volume);
 
         String transferId = UUID.randomUUID().toString();
         String transferToken = generateTransferAuthToken();
         String socket = backup.getUuid();
+        String checkpointId = getBackupExportCheckpointId(backup);
         boolean nbdServerStarted = false;
         VMInstanceVO vm = vmInstanceDao.findById(backup.getVmId());
         try {
@@ -459,7 +475,7 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
                 socket = transferId;
                 VolumeInfo volumeInfo = volumeDataFactory.getVolume(volume.getId());
                 startNBDServer(transferId, backup.getHostId(), volume.getUuid(), getVolumePathForFileBasedBackend(volume),
-                        ImageTransfer.Direction.download, backup.getFromCheckpointId(), volumeInfo == null ? null : volumeInfo.getPassphrase());
+                        ImageTransfer.Direction.download, checkpointId, volumeInfo == null ? null : volumeInfo.getPassphrase());
                 nbdServerStarted = true;
             }
 
@@ -470,7 +486,7 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
 
             CreateImageTransferCommand command = new CreateImageTransferCommand(transferId,
                     ImageTransfer.Direction.download.toString(), volume.getUuid(), socket,
-                    backup.getFromCheckpointId(), ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()), transferToken);
+                    checkpointId, ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()), transferToken);
             CreateImageTransferAnswer answer = send(backup.getHostId(), command, CreateImageTransferAnswer.class);
             if (!answer.getResult()) {
                 throw new CloudRuntimeException("Failed to create image transfer: " + answer.getDetails());
@@ -582,21 +598,43 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
 
     private String getVolumePathForFileBasedBackend(Volume volume) {
         StoragePoolVO storagePool = getStoragePool(volume);
-        return getVolumePathPrefix(storagePool) + "/" + volume.getPath();
+        String prefix = getVolumePathPrefix(storagePool);
+        String volumePath = volume.getPath();
+        if (StringUtils.isBlank(volumePath)) {
+            throw new CloudRuntimeException("Volume path cannot be determined for volume: " + volume.getUuid());
+        }
+        Path normalizedVolumePath = Paths.get(volumePath).normalize();
+        if (normalizedVolumePath.isAbsolute() || normalizedVolumePath.startsWith("..")) {
+            throw new CloudRuntimeException("Invalid volume path for volume: " + volume.getUuid());
+        }
+        return Paths.get(prefix).resolve(normalizedVolumePath).normalize().toString();
     }
 
     private String getVolumePathPrefix(StoragePoolVO storagePool) {
+        String pathPrefix;
         if (ScopeType.HOST.equals(storagePool.getScope())) {
-            return storagePool.getPath();
+            pathPrefix = storagePool.getPath();
+        } else {
+            Storage.StoragePoolType poolType = storagePool.getPoolType();
+            if (Storage.StoragePoolType.NetworkFilesystem.equals(poolType)) {
+                if (StringUtils.isBlank(storagePool.getUuid())) {
+                    throw new CloudRuntimeException("Storage pool UUID cannot be determined for pool: " + storagePool.getId());
+                }
+                pathPrefix = String.format("/mnt/%s", storagePool.getUuid());
+            } else if (Storage.StoragePoolType.SharedMountPoint.equals(poolType)) {
+                pathPrefix = storagePool.getPath();
+            } else {
+                throw new CloudRuntimeException("Unsupported storage pool type for file based image transfer: " + poolType);
+            }
         }
-        Storage.StoragePoolType poolType = storagePool.getPoolType();
-        if (Storage.StoragePoolType.NetworkFilesystem.equals(poolType)) {
-            return String.format("/mnt/%s", storagePool.getUuid());
+        if (StringUtils.isBlank(pathPrefix)) {
+            throw new CloudRuntimeException("Storage pool path cannot be determined for pool: " + storagePool.getUuid());
         }
-        if (Storage.StoragePoolType.SharedMountPoint.equals(poolType)) {
-            return storagePool.getPath();
+        Path normalizedPrefix = Paths.get(pathPrefix).normalize();
+        if (!normalizedPrefix.isAbsolute()) {
+            throw new CloudRuntimeException("Storage pool path must be absolute for pool: " + storagePool.getUuid());
         }
-        throw new CloudRuntimeException("Unsupported storage pool type for file based image transfer: " + poolType);
+        return normalizedPrefix.toString();
     }
 
     private HostVO getHostFromStoragePool(StoragePoolVO storagePool) {
@@ -610,16 +648,63 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
             if (CollectionUtils.isEmpty(poolHosts)) {
                 throw new CloudRuntimeException("No host found for storage pool: " + storagePool.getUuid());
             }
-            return hostDao.findById(poolHosts.get(0).getHostId());
+            hosts = poolHosts.stream()
+                    .map(poolHost -> hostDao.findById(poolHost.getHostId()))
+                    .collect(Collectors.toList());
         } else {
             throw new CloudRuntimeException("Unsupported storage pool scope: " + storagePool.getScope());
         }
 
+        return selectEligibleKvmHost(storagePool, hosts);
+    }
+
+    private HostVO selectEligibleKvmHost(StoragePoolVO storagePool, List<HostVO> hosts) {
         if (CollectionUtils.isEmpty(hosts)) {
             throw new CloudRuntimeException("No host found for storage pool: " + storagePool.getUuid());
         }
-        Collections.shuffle(hosts);
-        return hosts.get(0);
+        List<HostVO> eligibleHosts = hosts.stream()
+                .filter(this::isEligibleKvmHost)
+                .collect(Collectors.toList());
+        if (CollectionUtils.isEmpty(eligibleHosts)) {
+            throw new CloudRuntimeException("No eligible KVM host found for storage pool: " + storagePool.getUuid());
+        }
+        Collections.shuffle(eligibleHosts);
+        return eligibleHosts.get(0);
+    }
+
+    private boolean isEligibleKvmHost(HostVO host) {
+        return host != null
+                && Host.Type.Routing.equals(host.getType())
+                && Status.Up.equals(host.getStatus())
+                && ResourceState.Enabled.equals(host.getResourceState())
+                && HypervisorType.KVM.equals(host.getHypervisorType());
+    }
+
+    private void validateBackupForDownloadImageTransfer(BackupVO backup, VolumeVO volume) {
+        if (!Backup.Status.ReadyForImageTransfer.equals(backup.getStatus())) {
+            throw new CloudRuntimeException("Backup is not ready for image transfer: " + backup.getUuid());
+        }
+        if (backup.getHostId() == null) {
+            throw new CloudRuntimeException("Host cannot be found for Backup: " + backup.getUuid());
+        }
+        HostVO host = hostDao.findById(backup.getHostId());
+        if (!isEligibleKvmHost(host)) {
+            throw new CloudRuntimeException("Eligible KVM host cannot be found for Backup: " + backup.getUuid());
+        }
+        if (!backup.getVmId().equals(volume.getInstanceId())) {
+            throw new CloudRuntimeException("Volume does not belong to backup VM: " + volume.getUuid());
+        }
+        if (backup.getAccountId() != volume.getAccountId() || backup.getDomainId() != volume.getDomainId()
+                || backup.getZoneId() != volume.getDataCenterId()) {
+            throw new CloudRuntimeException("Volume does not belong to the same account, domain and zone as backup: " + backup.getUuid());
+        }
+    }
+
+    private String getBackupExportCheckpointId(BackupVO backup) {
+        if (StringUtils.isBlank(backup.getToCheckpointId()) || backup.getCheckpointCreateTime() == null) {
+            throw new CloudRuntimeException("Backup checkpoint cannot be determined for image transfer: " + backup.getUuid());
+        }
+        return backup.getToCheckpointId();
     }
 
     private void rotateVmCheckpointDetails(long vmId, BackupVO backup) {

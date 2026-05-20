@@ -30,6 +30,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,8 +69,12 @@ import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.Command;
 import com.cloud.dc.dao.DataCenterDao;
+import com.cloud.host.Host;
+import com.cloud.host.Status;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.resource.ResourceState;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Volume;
@@ -150,6 +155,7 @@ public class KVMBackupExportServiceImplTest {
         when(volume.getDataCenterId()).thenReturn(101L);
         when(volume.getAccountId()).thenReturn(201L);
         when(volume.getDomainId()).thenReturn(301L);
+        when(volume.getInstanceId()).thenReturn(VM_ID);
     }
 
     @Test
@@ -249,6 +255,17 @@ public class KVMBackupExportServiceImplTest {
         assertEquals(Long.valueOf(456L), backup.getCheckpointCreateTime());
         assertEquals(Backup.Status.ReadyForImageTransfer, backup.getStatus());
         verify(backupDao).update(501L, backup);
+    }
+
+    @Test
+    public void startBackupRejectsBackupForDifferentVm() {
+        BackupVO backup = backup(501L, VM_ID + 1, HOST_ID);
+        when(backupDao.findById(501L)).thenReturn(backup);
+
+        assertThrows(CloudRuntimeException.class, () -> service.startBackup(startBackupCmd(VM_ID, 501L)));
+
+        verify(backupDao, never()).update(eq(501L), any(BackupVO.class));
+        verify(vmInstanceDao, never()).findById(anyLong());
     }
 
     @Test
@@ -367,6 +384,68 @@ public class KVMBackupExportServiceImplTest {
     }
 
     @Test
+    public void createDownloadImageTransferRejectsBackupNotReady() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            BackupVO backup = backup(501L, VM_ID, HOST_ID);
+            backup.setStatus(Backup.Status.BackingUp);
+            when(volumeDao.findById(VOLUME_ID)).thenReturn(volume);
+            when(imageTransferDao.findUnfinishedByVolume(VOLUME_ID)).thenReturn(null);
+            when(backupDao.findById(501L)).thenReturn(backup);
+
+            assertThrows(CloudRuntimeException.class,
+                    () -> service.createImageTransfer(VOLUME_ID, 501L, ImageTransfer.Direction.download, ImageTransfer.Format.raw));
+
+            verify(agentManager, never()).send(anyLong(), any(Command.class));
+            verify(imageTransferDao, never()).persist(any(ImageTransferVO.class));
+        }
+    }
+
+    @Test
+    public void createDownloadImageTransferRejectsVolumeFromDifferentVm() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            BackupVO backup = readyDownloadBackup();
+            when(volume.getInstanceId()).thenReturn(VM_ID + 1);
+            when(volumeDao.findById(VOLUME_ID)).thenReturn(volume);
+            when(imageTransferDao.findUnfinishedByVolume(VOLUME_ID)).thenReturn(null);
+            when(backupDao.findById(501L)).thenReturn(backup);
+            HostVO host = eligibleKvmHost();
+            when(hostDao.findById(HOST_ID)).thenReturn(host);
+
+            assertThrows(CloudRuntimeException.class,
+                    () -> service.createImageTransfer(VOLUME_ID, 501L, ImageTransfer.Direction.download, ImageTransfer.Format.raw));
+
+            verify(agentManager, never()).send(anyLong(), any(Command.class));
+            verify(imageTransferDao, never()).persist(any(ImageTransferVO.class));
+        }
+    }
+
+    @Test
+    public void createDownloadImageTransferUsesBackupToCheckpointForExport() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            BackupVO backup = readyDownloadBackup();
+            when(volumeDao.findById(VOLUME_ID)).thenReturn(volume);
+            when(imageTransferDao.findUnfinishedByVolume(VOLUME_ID)).thenReturn(null);
+            when(backupDao.findById(501L)).thenReturn(backup);
+            when(vmInstanceDao.findById(VM_ID)).thenReturn(vm);
+            when(vm.getState()).thenReturn(VirtualMachine.State.Running);
+            HostVO host = eligibleKvmHost();
+            when(hostDao.findById(HOST_ID)).thenReturn(host);
+            when(agentManager.send(eq(HOST_ID), any(CreateImageTransferCommand.class)))
+                    .thenReturn(new CreateImageTransferAnswer(null, true, null, "ticket-1", "https://transfer.example/image"));
+            when(imageTransferDao.persist(any(ImageTransferVO.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            service.createImageTransfer(VOLUME_ID, 501L, ImageTransfer.Direction.download, ImageTransfer.Format.raw);
+
+            ArgumentCaptor<CreateImageTransferCommand> command = ArgumentCaptor.forClass(CreateImageTransferCommand.class);
+            verify(agentManager).send(eq(HOST_ID), command.capture());
+            assertEquals("ckp-to", command.getValue().getCheckpointId());
+        }
+    }
+
+    @Test
     public void finalizeTransferDoesNotUpdateOrRemoveWhenAgentFinalizeFails() throws Exception {
         ImageTransferVO transfer = nbdUploadTransfer();
         when(imageTransferDao.findById(701L)).thenReturn(transfer);
@@ -392,6 +471,25 @@ public class KVMBackupExportServiceImplTest {
 
         verify(imageTransferDao, never()).update(eq(701L), any(ImageTransferVO.class));
         verify(imageTransferDao, never()).remove(701L);
+    }
+
+    @Test
+    public void finalizeBackupMarksBackupErrorWhenTransferFinalizeFails() throws Exception {
+        BackupVO backup = backup(801L, VM_ID, HOST_ID);
+        ImageTransferVO transfer = nbdUploadTransfer();
+        ReflectionTestUtils.setField(transfer, "id", 802L);
+        when(backupDao.findById(801L)).thenReturn(backup);
+        when(vmInstanceDao.findById(VM_ID)).thenReturn(vm);
+        when(imageTransferDao.listByBackupId(801L)).thenReturn(List.of(transfer));
+        when(imageTransferDao.findById(802L)).thenReturn(transfer);
+        when(agentManager.send(eq(HOST_ID), any(FinalizeImageTransferCommand.class)))
+                .thenReturn(new Answer(null, false, "finalize failed"));
+
+        assertThrows(CloudRuntimeException.class, () -> service.finalizeBackup(finalizeBackupCmd(VM_ID, 801L)));
+
+        assertEquals(Backup.Status.Error, backup.getStatus());
+        verify(backupDao, times(2)).update(801L, backup);
+        verify(vmInstanceDetailsDao, never()).addDetail(eq(VM_ID), any(), any(), anyBoolean());
     }
 
     @Test
@@ -479,6 +577,28 @@ public class KVMBackupExportServiceImplTest {
         verify(vmInstanceDetailsDao, never()).addDetail(eq(VM_ID), any(), any(), anyBoolean());
     }
 
+    @Test
+    public void createImageTransferRejectsNonKvmStorageHost() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            when(volumeDao.findById(VOLUME_ID)).thenReturn(volume);
+            when(imageTransferDao.findUnfinishedByVolume(VOLUME_ID)).thenReturn(null);
+            stubStoragePool();
+            HostVO host = mock(HostVO.class);
+            when(host.getType()).thenReturn(Host.Type.Routing);
+            when(host.getStatus()).thenReturn(Status.Up);
+            when(host.getResourceState()).thenReturn(ResourceState.Enabled);
+            when(host.getHypervisorType()).thenReturn(HypervisorType.VMware);
+            when(hostDao.findByDataCenterId(101L)).thenReturn(List.of(host));
+
+            assertThrows(CloudRuntimeException.class,
+                    () -> service.createImageTransfer(VOLUME_ID, null, ImageTransfer.Direction.upload, ImageTransfer.Format.cow));
+
+            verify(agentManager, never()).send(anyLong(), any(Command.class));
+            verify(imageTransferDao, never()).persist(any(ImageTransferVO.class));
+        }
+    }
+
     private void stubVmForCreateBackup(VirtualMachine.State state, Long hostId, Map<String, String> vmDetails) {
         when(vmInstanceDao.findById(VM_ID)).thenReturn(vm);
         when(vm.getState()).thenReturn(state);
@@ -496,9 +616,7 @@ public class KVMBackupExportServiceImplTest {
         when(volumeDao.findById(VOLUME_ID)).thenReturn(volume);
         when(imageTransferDao.findUnfinishedByVolume(VOLUME_ID)).thenReturn(null);
         stubStoragePool();
-        HostVO host = mock(HostVO.class);
-        when(host.getId()).thenReturn(HOST_ID);
-        when(host.getDataCenterId()).thenReturn(101L);
+        HostVO host = eligibleKvmHost();
         when(hostDao.findByDataCenterId(101L)).thenReturn(List.of(host));
     }
 
@@ -567,12 +685,33 @@ public class KVMBackupExportServiceImplTest {
     private BackupVO backup(long backupId, long vmId, long hostId) {
         BackupVO backup = new BackupVO();
         ReflectionTestUtils.setField(backup, "id", backupId);
+        ReflectionTestUtils.setField(backup, "uuid", "backup-uuid");
         backup.setVmId(vmId);
         backup.setHostId(hostId);
         backup.setAccountId(201L);
         backup.setDomainId(301L);
         backup.setZoneId(101L);
         return backup;
+    }
+
+    private BackupVO readyDownloadBackup() {
+        BackupVO backup = backup(501L, VM_ID, HOST_ID);
+        backup.setStatus(Backup.Status.ReadyForImageTransfer);
+        backup.setFromCheckpointId("ckp-from");
+        backup.setToCheckpointId("ckp-to");
+        backup.setCheckpointCreateTime(123L);
+        return backup;
+    }
+
+    private HostVO eligibleKvmHost() {
+        HostVO host = mock(HostVO.class);
+        when(host.getId()).thenReturn(HOST_ID);
+        when(host.getDataCenterId()).thenReturn(101L);
+        when(host.getType()).thenReturn(Host.Type.Routing);
+        when(host.getStatus()).thenReturn(Status.Up);
+        when(host.getResourceState()).thenReturn(ResourceState.Enabled);
+        when(host.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        return host;
     }
 
     private ImageTransferVO nbdUploadTransfer() {
