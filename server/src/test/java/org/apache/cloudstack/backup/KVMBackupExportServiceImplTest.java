@@ -32,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -378,8 +379,10 @@ public class KVMBackupExportServiceImplTest {
         assertEquals(2, responses.size());
         assertEquals("ckp-active", ReflectionTestUtils.getField(responses.get(0), "id"));
         assertEquals(Boolean.TRUE, ReflectionTestUtils.getField(responses.get(0), "isActive"));
+        assertEquals(new Date(100_000L), ReflectionTestUtils.getField(responses.get(0), "created"));
         assertEquals("ckp-last", ReflectionTestUtils.getField(responses.get(1), "id"));
         assertEquals(Boolean.FALSE, ReflectionTestUtils.getField(responses.get(1), "isActive"));
+        assertEquals(new Date(50_000L), ReflectionTestUtils.getField(responses.get(1), "created"));
     }
 
     @Test

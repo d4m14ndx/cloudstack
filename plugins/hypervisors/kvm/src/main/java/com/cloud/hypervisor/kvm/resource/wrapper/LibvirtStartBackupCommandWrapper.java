@@ -47,6 +47,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.time.Instant;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,7 +70,7 @@ public class LibvirtStartBackupCommandWrapper extends CommandWrapper<StartBackup
             } else {
                 createCheckpointForRunningVm(command, resource);
             }
-            return new StartBackupAnswer(command, true, null, System.currentTimeMillis());
+            return new StartBackupAnswer(command, true, null, Instant.now().getEpochSecond());
         } catch (Exception e) {
             logger.error("Failed to start backup checkpoint [{}] on VM [{}].", command.getToCheckpointId(), command.getVmName(), e);
             return new StartBackupAnswer(command, false, e.getMessage());

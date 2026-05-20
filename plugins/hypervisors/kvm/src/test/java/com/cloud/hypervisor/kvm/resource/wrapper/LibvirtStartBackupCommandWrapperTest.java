@@ -65,11 +65,14 @@ public class LibvirtStartBackupCommandWrapperTest {
         when(resource.getDiskPathLabelMap("i-2-VM")).thenReturn(Collections.singletonMap("/var/lib/libvirt/images/root.qcow2", "vda"));
 
         try (MockedConstruction<Script> scripts = Mockito.mockConstruction(Script.class, (mock, context) -> when(mock.execute()).thenReturn(null))) {
+            long startEpochSeconds = System.currentTimeMillis() / 1000L;
             Answer answer = wrapper.execute(command, resource);
 
             Assert.assertTrue(answer instanceof StartBackupAnswer);
             Assert.assertTrue(answer.getResult());
             Assert.assertNotNull(((StartBackupAnswer) answer).getCheckpointCreateTime());
+            Assert.assertTrue(((StartBackupAnswer) answer).getCheckpointCreateTime() >= startEpochSeconds);
+            Assert.assertTrue(((StartBackupAnswer) answer).getCheckpointCreateTime() <= (System.currentTimeMillis() / 1000L) + 1L);
             Script virsh = scripts.constructed().get(0);
             verify(virsh).add("checkpoint-create");
             verify(virsh).add("--domain");
