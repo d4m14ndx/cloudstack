@@ -62,6 +62,8 @@ import com.cloud.resource.ResourceManager;
 import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.context.CallContext;
+import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
+import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationService;
 import org.apache.cloudstack.engine.subsystem.api.storage.StoragePoolAllocator;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
@@ -142,6 +144,7 @@ import com.cloud.storage.snapshot.SnapshotManager;
 import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.user.Account;
 import com.cloud.user.AccountVO;
+import com.cloud.user.ResourceLimitService;
 import com.cloud.user.User;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.Journal;
@@ -180,6 +183,12 @@ public class VirtualMachineManagerImplTest {
     private VmWorkJobDao _workJobDao;
     @Mock
     private VmWorkJobQueueService vmWorkJobQueueService;
+    @Mock
+    private NetworkOrchestrationService networkMgr;
+    @Mock
+    private VolumeOrchestrationService volumeMgr;
+    @Mock
+    private ResourceLimitService resourceLimitMgr;
 
     private long vmInstanceVoMockId = 1L;
 
@@ -409,6 +418,24 @@ public class VirtualMachineManagerImplTest {
         ReflectionTestUtils.setField(vmStopCommandService, "vmDao", vmInstanceDaoMock);
         ReflectionTestUtils.setField(vmStopCommandService, "vmVlanPersistenceMappingService", vmVlanPersistenceMappingService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStopCommandService", vmStopCommandService);
+        VmStopOrchestrationServiceImpl vmStopOrchestrationService = new VmStopOrchestrationServiceImpl();
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "vmDao", vmInstanceDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "hostDao", hostDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "workDao", _workDao);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "storagePoolDao", storagePoolDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "offeringDao", serviceOfferingDaoMock);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "templateDao", templateDao);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "resourceMgr", _resourceMgr);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "resourceLimitMgr", resourceLimitMgr);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "volumeMgr", volumeMgr);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "networkMgr", networkMgr);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "vmWorkJobQueueService", vmWorkJobQueueService);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "vmStopCommandService", vmStopCommandService);
+        ReflectionTestUtils.setField(vmStopOrchestrationService, "virtualMachineManager", virtualMachineManagerImpl);
+        ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmStopOrchestrationService", vmStopOrchestrationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrationCheckpointService", vmMigrationCheckpointService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmAllocationOrchestrationService", vmAllocationOrchestrationService);
         ReflectionTestUtils.setField(virtualMachineManagerImpl, "vmMigrateAwayPlanningService", vmMigrateAwayPlanningService);
