@@ -707,6 +707,7 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
             response.setDiskId(volume.getUuid());
         }
         response.setTransferUrl(imageTransfer.getTransferUrl());
+        response.setSignedTicketId(imageTransfer.getSignedTicketId());
         response.setPhase(imageTransfer.getPhase().toString());
         response.setDirection(imageTransfer.getDirection().toString());
         response.setCreated(imageTransfer.getCreated());

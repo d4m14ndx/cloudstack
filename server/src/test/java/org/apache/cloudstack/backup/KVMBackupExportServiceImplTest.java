@@ -38,11 +38,14 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.cloudstack.api.command.admin.backup.CreateImageTransferCmd;
 import org.apache.cloudstack.api.command.admin.backup.DeleteVmCheckpointCmd;
 import org.apache.cloudstack.api.command.admin.backup.FinalizeBackupCmd;
+import org.apache.cloudstack.api.command.admin.backup.ListImageTransfersCmd;
 import org.apache.cloudstack.api.command.admin.backup.ListVmCheckpointsCmd;
 import org.apache.cloudstack.api.command.admin.backup.StartBackupCmd;
 import org.apache.cloudstack.api.response.CheckpointResponse;
+import org.apache.cloudstack.api.response.ImageTransferResponse;
 import org.apache.cloudstack.backup.dao.BackupDao;
 import org.apache.cloudstack.backup.dao.ImageTransferDao;
 import org.apache.cloudstack.context.CallContext;
@@ -282,6 +285,37 @@ public class KVMBackupExportServiceImplTest {
     }
 
     @Test
+    public void createImageTransferResponseIncludesPersistedSignedTicketId() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            stubUploadVolume();
+            when(agentManager.send(eq(HOST_ID), any(CreateImageTransferCommand.class)))
+                    .thenReturn(new CreateImageTransferAnswer(null, true, null, "ticket-1", "https://transfer.example/image"));
+            when(imageTransferDao.persist(any(ImageTransferVO.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            ImageTransferResponse response = service.createImageTransfer(createImageTransferCmd(VOLUME_ID, null,
+                    ImageTransfer.Direction.upload, ImageTransfer.Format.cow));
+
+            ArgumentCaptor<CreateImageTransferCommand> command = ArgumentCaptor.forClass(CreateImageTransferCommand.class);
+            verify(agentManager).send(eq(HOST_ID), command.capture());
+            assertEquals(command.getValue().getToken(), ReflectionTestUtils.getField(response, "signedTicketId"));
+        }
+    }
+
+    @Test
+    public void listImageTransfersResponseIncludesPersistedSignedTicketId() {
+        ImageTransferVO transfer = nbdUploadTransfer();
+        transfer.setSignedTicketId("ticket-1");
+        when(imageTransferDao.listAll()).thenReturn(List.of(transfer));
+        when(volumeDao.findByIdIncludingRemoved(VOLUME_ID)).thenReturn(volume);
+
+        List<ImageTransferResponse> responses = service.listImageTransfers(listImageTransfersCmd());
+
+        assertEquals(1, responses.size());
+        assertEquals("ticket-1", ReflectionTestUtils.getField(responses.get(0), "signedTicketId"));
+    }
+
+    @Test
     public void createImageTransferValidatesVolumeBeforeAccess() {
         try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
             stubCallContext(callContextMock);
@@ -511,6 +545,22 @@ public class KVMBackupExportServiceImplTest {
         DeleteVmCheckpointCmd cmd = new DeleteVmCheckpointCmd();
         cmd.setVmId(vmId);
         cmd.setCheckpointId(checkpointId);
+        return cmd;
+    }
+
+    private CreateImageTransferCmd createImageTransferCmd(long volumeId, Long backupId, ImageTransfer.Direction direction, ImageTransfer.Format format) {
+        CreateImageTransferCmd cmd = mock(CreateImageTransferCmd.class);
+        when(cmd.getVolumeId()).thenReturn(volumeId);
+        when(cmd.getBackupId()).thenReturn(backupId);
+        when(cmd.getDirection()).thenReturn(direction);
+        when(cmd.getFormat()).thenReturn(format);
+        return cmd;
+    }
+
+    private ListImageTransfersCmd listImageTransfersCmd() {
+        ListImageTransfersCmd cmd = mock(ListImageTransfersCmd.class);
+        when(cmd.getId()).thenReturn(null);
+        when(cmd.getBackupId()).thenReturn(null);
         return cmd;
     }
 

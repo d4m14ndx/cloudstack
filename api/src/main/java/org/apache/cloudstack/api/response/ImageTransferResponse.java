@@ -54,6 +54,10 @@ public class ImageTransferResponse extends BaseResponse {
     @Param(description = "the transfer URL")
     private String transferUrl;
 
+    @SerializedName("signedticketid")
+    @Param(description = "the signed ticket ID used to authorize the image transfer")
+    private String signedTicketId;
+
     @SerializedName("phase")
     @Param(description = "the transfer phase")
     private String phase;
@@ -88,6 +92,10 @@ public class ImageTransferResponse extends BaseResponse {
 
     public void setTransferUrl(String transferUrl) {
         this.transferUrl = transferUrl;
+    }
+
+    public void setSignedTicketId(String signedTicketId) {
+        this.signedTicketId = signedTicketId;
     }
 
     public void setPhase(String phase) {
