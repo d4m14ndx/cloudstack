@@ -8,11 +8,14 @@ import { UserFooter } from "@/components/shell/user-footer";
 import { Badge } from "@/components/ui/badge";
 import { NAV_SECTIONS } from "@/lib/nav";
 import { getCurrentUser, hasRole } from "@/lib/auth/mock";
+import { useTweaks } from "@/lib/store/tweaks";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
   const user = getCurrentUser();
+  const sidebarStyle = useTweaks((s) => s.sidebarStyle);
+  const compact = sidebarStyle === "compact";
 
   return (
     <aside
@@ -22,28 +25,34 @@ export function Sidebar() {
       )}
     >
       {/* Brand */}
-      <div className="flex items-center gap-2.5 px-4 py-3.5">
+      <div className={cn("flex items-center gap-2.5 px-4 py-3.5", compact && "justify-center px-0")}>
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[color:var(--accent)] to-[color:var(--accent-hover)] text-white">
           <BrandMark size={20} />
         </div>
-        <BrandWordmark className="text-[15px] tracking-tight" />
-        <Badge variant="default" className="ml-auto text-[9.5px]">prod</Badge>
+        {!compact && (
+          <>
+            <BrandWordmark className="text-[15px] tracking-tight" />
+            <Badge variant="default" className="ml-auto text-[9.5px]">prod</Badge>
+          </>
+        )}
       </div>
 
       {/* Scope */}
-      <div className="px-3 pb-2">
-        <ScopeSwitcher />
+      <div className={cn("px-3 pb-2", compact && "px-2")}>
+        <ScopeSwitcher compact={compact} />
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-2 py-2">
+      <nav className={cn("flex-1 overflow-y-auto px-2 py-2", compact && "px-2")}>
         {NAV_SECTIONS.map((section) => {
           if (section.requires && !hasRole(section.requires)) return null;
           return (
             <div key={section.title} className="mb-4">
-              <div className="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-wider text-[color:var(--fg-dim)]">
-                {section.title}
-              </div>
+              {!compact && (
+                <div className="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-wider text-[color:var(--fg-dim)]">
+                  {section.title}
+                </div>
+              )}
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
                   if (item.requires && !hasRole(item.requires)) return null;
@@ -56,8 +65,11 @@ export function Sidebar() {
                     <li key={item.href}>
                       <Link
                         href={item.href as never}
+                        aria-label={item.label}
+                        title={item.label}
                         className={cn(
                           "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                          compact && "h-10 justify-center px-0",
                           active
                             ? "bg-[color:var(--surface-3)] text-[color:var(--fg)]"
                             : "text-[color:var(--fg-muted)] hover:bg-[color:var(--surface-3)]/60 hover:text-[color:var(--fg)]"
@@ -70,9 +82,9 @@ export function Sidebar() {
                             aria-hidden
                           />
                         )}
-                        <Icon size={16} strokeWidth={1.6} />
-                        <span className="flex-1">{item.label}</span>
-                        {item.badge && (
+                        <Icon size={16} strokeWidth={1.6} aria-hidden />
+                        {!compact && <span className="flex-1">{item.label}</span>}
+                        {!compact && item.badge && (
                           <Badge
                             variant={typeof item.badge === "string" ? "accent" : "default"}
                             className="text-[9.5px]"
@@ -91,7 +103,7 @@ export function Sidebar() {
       </nav>
 
       {/* User footer */}
-      <UserFooter user={user} />
+      <UserFooter user={user} compact={compact} />
     </aside>
   );
 }
