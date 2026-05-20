@@ -34,6 +34,15 @@ npm run dev
 # open http://localhost:3000
 ```
 
+For Phase 5b local Auth.js/BFF dependencies, use the root compose stack:
+
+```bash
+docker compose up --build
+docker compose --profile auth up --build   # also starts local Authentik
+```
+
+See `../docs/phase5b-local-dev.md` for Redis, Authentik, and CloudStack service-account environment setup.
+
 ## Scripts
 
 | Script             | Purpose                                              |
