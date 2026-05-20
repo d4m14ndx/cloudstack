@@ -8,13 +8,7 @@ import { Search, ChevronRight } from "@/components/icons";
 import { useTweaks } from "@/lib/store/tweaks";
 import { NAV_SECTIONS } from "@/lib/nav";
 import { cn } from "@/lib/utils";
-
-// Phase 5a: mock resources for the palette. Phase 5c+: live results from /api/cs.
-const MOCK_INSTANCES = [
-  "web-prod-01", "web-prod-02", "db-primary", "db-replica", "cache-01", "worker-01"
-];
-const MOCK_NETWORKS = ["prod-vpc", "ci-vpc", "ml-vpc"];
-const MOCK_ACTIONS = ["Deploy instance", "Create network", "Upload template", "Restart console proxy"];
+import { mockCommandActions, mockInstances, mockNetworks } from "@/lib/mock-data";
 
 export function CommandPalette() {
   const router = useRouter();
@@ -83,7 +77,7 @@ export function CommandPalette() {
               </CommandGroup>
 
               <CommandGroup heading="Actions">
-                {MOCK_ACTIONS.map((a) => (
+                {mockCommandActions.map((a) => (
                   <Item key={a} value={a} onSelect={() => setOpen(false)}>
                     {a}
                   </Item>
@@ -91,31 +85,33 @@ export function CommandPalette() {
               </CommandGroup>
 
               <CommandGroup heading="Instances">
-                {MOCK_INSTANCES.map((name) => (
+                {mockInstances.slice(0, 6).map((instance) => (
                   <Item
-                    key={name}
-                    value={`instance ${name}`}
+                    key={instance.id}
+                    value={`instance ${instance.name} ${instance.account} ${instance.zone}`}
                     onSelect={() => {
                       router.push(`/instances` as never);
                       setOpen(false);
                     }}
                   >
-                    <span className="font-mono text-[12.5px]">{name}</span>
+                    <span className="font-mono text-[12.5px]">{instance.name}</span>
+                    <span className="ml-auto text-[11px] text-[color:var(--fg-dim)]">{instance.state}</span>
                   </Item>
                 ))}
               </CommandGroup>
 
               <CommandGroup heading="Networks">
-                {MOCK_NETWORKS.map((name) => (
+                {mockNetworks.slice(0, 3).map((network) => (
                   <Item
-                    key={name}
-                    value={`network ${name}`}
+                    key={network.id}
+                    value={`network ${network.name} ${network.cidr} ${network.zone}`}
                     onSelect={() => {
                       router.push(`/networks` as never);
                       setOpen(false);
                     }}
                   >
-                    <span className="font-mono text-[12.5px]">{name}</span>
+                    <span className="font-mono text-[12.5px]">{network.name}</span>
+                    <span className="ml-auto text-[11px] text-[color:var(--fg-dim)]">{network.cidr}</span>
                   </Item>
                 ))}
               </CommandGroup>

@@ -4,13 +4,7 @@ import { Sparkline } from "@/components/ui/sparkline";
 import { Button } from "@/components/ui/button";
 import { Download, Plus, IconInstances, Cpu, MemoryStick, Database } from "@/components/icons";
 import { getCurrentUser } from "@/lib/auth/mock";
-
-const STATS = [
-  { label: "Instances running", value: "9", denom: "/ 13", delta: "+3 (24h)", series: [4,5,5,6,7,6,7,8,9], color: "var(--accent)" },
-  { label: "vCPUs allocated",   value: "328", denom: "/ 512", delta: "64% of quota", series: [200,220,250,290,310,320,328], color: "var(--success)" },
-  { label: "Memory allocated",  value: "1.2", denom: " TiB", suffix: "/ 2 TiB", delta: "+128 GiB", series: [0.7,0.8,0.9,1.0,1.05,1.15,1.2], color: "var(--warning)" },
-  { label: "Storage used",      value: "18.4", denom: " TiB", suffix: "", delta: "+1.2 TiB", series: [10,12,14,15,16,17,18.4], color: "#ec4899" },
-];
+import { mockDashboardMetrics, mockDashboardSummary } from "@/lib/mock-data";
 
 export default function OverviewPage() {
   const user = getCurrentUser();
@@ -21,7 +15,7 @@ export default function OverviewPage() {
     <>
       <PageHeader
         title={`${greeting}, ${user.name.split(" ")[0]}`}
-        description="4 zones online · 60 hosts · 484 instances running across your platform"
+        description={`${mockDashboardSummary.onlineZones} zones online · ${mockDashboardSummary.totalHosts} hosts · ${mockDashboardSummary.runningInstances} instances running across your platform`}
         actions={
           <>
             <Button variant="secondary" size="md" className="gap-1.5">
@@ -35,7 +29,7 @@ export default function OverviewPage() {
       />
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
-        {STATS.map((s) => {
+        {mockDashboardMetrics.map((s) => {
           const Icon = s.label.startsWith("Instances")
             ? IconInstances
             : s.label.startsWith("vCPUs")
