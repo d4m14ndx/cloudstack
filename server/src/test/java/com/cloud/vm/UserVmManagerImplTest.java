@@ -784,8 +784,17 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(deployAsIsNetworkMappingService,
                 "templateDeployAsIsDetailsDao", mock(com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao.class));
         org.springframework.test.util.ReflectionTestUtils.setField(deployAsIsNetworkMappingService, "networkModel", networkModel);
-        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+        VmDeployRequestResolutionService deployRequestResolutionService = new VmDeployRequestResolutionService();
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "accountService", accountService);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "entityMgr", entityManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "accountMgr", accountManager);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "snapshotDao", snapshotDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "volFactory", volumeDataFactory);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService, "vmCreationValidator", creationValidator);
+        org.springframework.test.util.ReflectionTestUtils.setField(deployRequestResolutionService,
                 "vmDeployAsIsNetworkMappingService", deployAsIsNetworkMappingService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmDeployRequestResolutionService", deployRequestResolutionService);
         VmInitialDetailsServiceImpl initialDetailsService = new VmInitialDetailsServiceImpl();
         org.springframework.test.util.ReflectionTestUtils.setField(initialDetailsService, "configDao", configDao);
         org.springframework.test.util.ReflectionTestUtils.setField(initialDetailsService,

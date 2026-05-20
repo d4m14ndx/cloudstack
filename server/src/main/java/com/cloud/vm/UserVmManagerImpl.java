@@ -73,8 +73,6 @@ import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationSer
 import org.apache.cloudstack.engine.service.api.OrchestrationService;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
 import org.apache.cloudstack.extension.ExtensionHelper;
 import org.apache.cloudstack.framework.config.ConfigKey;
@@ -178,9 +176,7 @@ import com.cloud.service.dao.ServiceOfferingDetailsDao;
 import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
-import com.cloud.storage.ScopeType;
 import com.cloud.storage.Snapshot;
-import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StoragePool;
@@ -191,7 +187,6 @@ import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
-import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.SnapshotPolicyDao;
 import com.cloud.storage.dao.VMTemplateDao;
 import com.cloud.storage.dao.VolumeDao;
@@ -286,8 +281,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private UserDao _userDao;
     @Inject
-    private SnapshotDao _snapshotDao;
-    @Inject
     private GuestOSDao _guestOSDao;
     @Inject
     private HighAvailabilityManager _haMgr;
@@ -354,8 +347,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VolumeService _volService;
     @Inject
-    private VolumeDataFactory volFactory;
-    @Inject
     private UUIDManager _uuidMgr;
     @Inject
     private VolumeApiService _volumeService;
@@ -373,8 +364,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private NicExtraDhcpOptionDao _nicExtraDhcpOptionDao;
     @Inject
     private ConfigurationDao _configDao;
-    @Inject
-    private VmDeployAsIsNetworkMappingService vmDeployAsIsNetworkMappingService;
     @Inject
     private VmInitialDetailsService vmInitialDetailsService;
     @Inject
@@ -432,6 +421,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
     @Inject
     private VmCredentialResetService vmCredentialResetService;
+    @Inject
+    private VmDeployRequestResolutionService vmDeployRequestResolutionService;
     @Inject
     private VmUsageEventPublisher vmUsageEventPublisher;
     @Inject
@@ -2019,104 +2010,12 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     public UserVm createVirtualMachine(DeployVMCmd cmd) throws InsufficientCapacityException, ResourceUnavailableException, ConcurrentOperationException,
     StorageUnavailableException, ResourceAllocationException {
-        //Verify that all objects exist before passing them to the service
-        Account owner = _accountService.getActiveAccountById(cmd.getEntityOwnerId());
+        VmDeployRequestResolution resolution = vmDeployRequestResolutionService.resolve(cmd, this::getDefaultNetwork);
 
-        verifyDetails(cmd.getDetails());
-
-        Long zoneId = cmd.getZoneId();
-
-        DataCenter zone = _entityMgr.findById(DataCenter.class, zoneId);
-        if (zone == null) {
-            throw new InvalidParameterValueException("Unable to find zone by id=" + zoneId);
-        }
-
-        Long serviceOfferingId = cmd.getServiceOfferingId();
-        if (serviceOfferingId == null) {
-            throw new InvalidParameterValueException("Unable to execute API command deployvirtualmachine due to missing parameter serviceofferingid");
-        }
-        Long overrideDiskOfferingId = cmd.getOverrideDiskOfferingId();
-
-        ServiceOffering serviceOffering = _entityMgr.findById(ServiceOffering.class, serviceOfferingId);
-        if (serviceOffering == null) {
-            throw new InvalidParameterValueException("Unable to find service offering: " + serviceOffering.getId());
-        }
-        verifyServiceOffering(cmd, serviceOffering);
-
-        Account caller = CallContext.current().getCallingAccount();
-        Long callerId = caller.getId();
-
-        Long templateId = cmd.getTemplateId();
-        VolumeInfo volume = null;
-        SnapshotVO snapshot = null;
-
-        if (cmd.getVolumeId() != null) {
-            volume = getVolume(cmd.getVolumeId(), templateId, false);
-            if (volume == null) {
-                throw new InvalidParameterValueException("Could not find volume with id=" + cmd.getVolumeId());
-            }
-            _accountMgr.checkAccess(caller, null, true, volume);
-            templateId = volume.getTemplateId();
-        } else if (cmd.getSnapshotId() != null) {
-            snapshot = _snapshotDao.findById(cmd.getSnapshotId());
-            if (snapshot == null) {
-                throw new InvalidParameterValueException("Could not find snapshot with id=" + cmd.getSnapshotId());
-            }
-            _accountMgr.checkAccess(caller, null, true, snapshot);
-            VolumeInfo volumeOfSnapshot = getVolume(snapshot.getVolumeId(), templateId, true);
-            templateId = volumeOfSnapshot.getTemplateId();
-        }
-
-        VirtualMachineTemplate template = null;
-        if (volume != null || snapshot != null) {
-            template = _entityMgr.findByIdIncludingRemoved(VirtualMachineTemplate.class, templateId);
-        } else {
-            template = _entityMgr.findById(VirtualMachineTemplate.class, templateId);
-        }
-        if (cmd.isVolumeOrSnapshotProvided() &&
-                (!(HypervisorType.KVM.equals(template.getHypervisorType()) || HypervisorType.KVM.equals(cmd.getHypervisor())))) {
-            throw new InvalidParameterValueException("Deploying a virtual machine with existing volume/snapshot is supported only from KVM hypervisors");
-        }
-        // Make sure a valid template ID was specified
-        if (template == null) {
-            throw new InvalidParameterValueException("Unable to use template " + templateId);
-        }
-        verifyTemplate(cmd, template, serviceOfferingId);
-
-        Long diskOfferingId = cmd.getDiskOfferingId();
-        DiskOffering diskOffering = null;
-        if (diskOfferingId != null) {
-            diskOffering = _entityMgr.findById(DiskOffering.class, diskOfferingId);
-            if (diskOffering == null) {
-                throw new InvalidParameterValueException("Unable to find disk offering " + diskOfferingId);
-            }
-            if (diskOffering.isComputeOnly()) {
-                throw new InvalidParameterValueException(String.format("The disk offering %s provided is directly mapped to a service offering, please provide an individual disk offering", diskOffering));
-            }
-        }
-
-        List<VmDiskInfo> dataDiskInfoList = cmd.getDataDiskInfoList();
-        if (dataDiskInfoList != null && diskOfferingId != null) {
-            new InvalidParameterValueException("Cannot specify both disk offering id and data disk offering details");
-        }
-
-        if (!zone.isLocalStorageEnabled()) {
-            DiskOffering diskOfferingMappedInServiceOffering = _entityMgr.findById(DiskOffering.class, serviceOffering.getDiskOfferingId());
-            if (diskOfferingMappedInServiceOffering.isUseLocalStorage()) {
-                throw new InvalidParameterValueException("Zone is not configured to use local storage but disk offering " + diskOfferingMappedInServiceOffering.getName() + " mapped in service offering uses it");
-            }
-            if (diskOffering != null && diskOffering.isUseLocalStorage()) {
-                throw new InvalidParameterValueException("Zone is not configured to use local storage but disk offering " + diskOffering.getName() + " uses it");
-            }
-        }
-
-        List<Long> networkIds = cmd.getNetworkIds();
-        LinkedHashMap<Integer, Long> userVmNetworkMap = getDeployAsIsVmNetworkMapping(zone, owner, template, cmd.getVmNetworkMap());
-        if (MapUtils.isNotEmpty(userVmNetworkMap)) {
-            networkIds = new ArrayList<>(userVmNetworkMap.values());
-        }
-
-        return createVirtualMachine(cmd, zone, owner, serviceOffering, template, cmd.getHypervisor(), diskOfferingId, cmd.getSize(), overrideDiskOfferingId, dataDiskInfoList, networkIds, cmd.getIpToNetworkMap(), volume, snapshot);
+        return createVirtualMachine(cmd, resolution.getZone(), resolution.getOwner(), resolution.getServiceOffering(),
+                resolution.getTemplate(), cmd.getHypervisor(), resolution.getDiskOfferingId(), resolution.getSize(),
+                resolution.getOverrideDiskOfferingId(), resolution.getDataDiskInfoList(), resolution.getNetworkIds(),
+                resolution.getIpToNetworkMap(), resolution.getVolume(), resolution.getSnapshot());
     }
 
     private UserVm createVirtualMachine(BaseDeployVMCmd cmd, DataCenter zone, Account owner, ServiceOffering serviceOffering, VirtualMachineTemplate template,
@@ -2224,30 +2123,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     protected void addLeaseDetailsForInstance(UserVm vm, Integer leaseDuration, VMLeaseManager.ExpiryAction leaseExpiryAction) {
         vmLeaseApplicationService.addLeaseDetailsForInstance(vm, leaseDuration, leaseExpiryAction);
-    }
-
-    private VolumeInfo getVolume(long id, Long templateId, boolean isSnapshot) {
-        VolumeInfo volume = volFactory.getVolume(id);
-        if (volume != null) {
-            if (volume.getDataStore() == null || !ScopeType.ZONE.equals(volume.getDataStore().getScope().getScopeType())) {
-                throw new InvalidParameterValueException("Deployment of virtual machine is supported only for Zone-wide storage pools");
-            }
-            checkIfVolumeTemplateIsTheSameAsTheProvided(volume, templateId);
-            if (volume.getInstanceId() != null && !isSnapshot) {
-                throw new InvalidParameterValueException(String.format("The volume %s is already attached to a VM %s", volume, volume.getInstanceId()));
-            }
-        }
-        return volume;
-    }
-
-    private void checkIfVolumeTemplateIsTheSameAsTheProvided(VolumeInfo volume, Long templateId) {
-        if (volume.getTemplateId() != null) {
-            if (templateId != null && !volume.getTemplateId().equals(templateId)) {
-                throw new InvalidParameterValueException(String.format("The volume's template %s is not the same as the provided one %s", volume.getTemplateId(), templateId));
-            }
-        } else {
-            throw new InvalidParameterValueException("The provided volume/snapshot doesn't have a template to deploy a VM");
-        }
     }
 
     protected void persistExtraConfigVmware(String decodedUrl, UserVm vm) {
@@ -3136,10 +3011,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 return UserVmManagerImpl.this.getDefaultNetwork(zone, owner, selectAny);
             }
         };
-    }
-
-    private LinkedHashMap<Integer, Long> getDeployAsIsVmNetworkMapping(DataCenter zone, Account owner, VirtualMachineTemplate template, Map<Integer, Long> vmNetworkMapping) throws InsufficientCapacityException, ResourceAllocationException {
-        return vmDeployAsIsNetworkMappingService.getDeployAsIsVmNetworkMapping(zone, owner, template, vmNetworkMapping, this::getDefaultNetwork);
     }
 
     private void collectVmDiskAndNetworkStatistics(Long vmId, State expectedState) {
