@@ -30,16 +30,11 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import org.apache.cloudstack.acl.ControlledEntity.ACLType;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;
-import org.apache.cloudstack.affinity.AffinityGroupService;
-import org.apache.cloudstack.affinity.AffinityGroupVO;
-import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
@@ -78,8 +73,6 @@ import org.apache.cloudstack.engine.orchestration.service.VolumeOrchestrationSer
 import org.apache.cloudstack.engine.service.api.OrchestrationService;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
@@ -90,7 +83,6 @@ import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.messagebus.MessageBus;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
-import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreDao;
 import org.apache.cloudstack.storage.template.VnfTemplateManager;
 import org.apache.cloudstack.userdata.UserDataManager;
@@ -170,7 +162,6 @@ import com.cloud.network.rules.RulesManager;
 import com.cloud.network.rules.dao.PortForwardingRulesDao;
 import com.cloud.network.security.SecurityGroup;
 import com.cloud.network.security.SecurityGroupManager;
-import com.cloud.network.security.dao.SecurityGroupDao;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.offering.DiskOffering;
 import com.cloud.offering.NetworkOffering;
@@ -194,11 +185,8 @@ import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
-import com.cloud.storage.Storage.TemplateType;
 import com.cloud.storage.StoragePool;
-import com.cloud.storage.StoragePoolStatus;
 import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.VMTemplateZoneVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeApiService;
 import com.cloud.storage.VolumeVO;
@@ -208,7 +196,6 @@ import com.cloud.storage.dao.GuestOSDao;
 import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.SnapshotPolicyDao;
 import com.cloud.storage.dao.VMTemplateDao;
-import com.cloud.storage.dao.VMTemplateZoneDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.tags.ResourceTagVO;
 import com.cloud.tags.dao.ResourceTagDao;
@@ -219,10 +206,8 @@ import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountService;
 import com.cloud.user.ResourceLimitService;
-import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
-import com.cloud.user.dao.SSHKeyPairDao;
 import com.cloud.user.dao.UserDao;
 import com.cloud.user.dao.UserDataDao;
 import com.cloud.user.dao.UserStatisticsDao;
@@ -276,8 +261,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VMTemplateDao _templateDao;
     @Inject
-    private VMTemplateZoneDao _templateZoneDao;
-    @Inject
     protected TemplateDataStoreDao _templateStoreDao;
     @Inject
     private DomainDao _domainDao;
@@ -320,8 +303,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private AccountService _accountService;
     @Inject
-    private PrimaryDataStoreDao _storagePoolDao;
-    @Inject
     private SecurityGroupManager _securityGroupMgr;
     @Inject
     private NetworkOfferingDao _networkOfferingDao;
@@ -340,11 +321,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private LoadBalancingRulesManager _lbMgr;
     @Inject
-    private SSHKeyPairDao _sshKeyPairDao;
-    @Inject
     private VMInstanceDetailsDao vmInstanceDetailsDao;
-    @Inject
-    private SecurityGroupDao _securityGroupDao;
     @Inject
     private VMInstanceDao _vmInstanceDao;
     @Inject
@@ -372,11 +349,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private AffinityGroupVMMapDao _affinityGroupVMMapDao;
     @Inject
-    private AffinityGroupDao _affinityGroupDao;
-    @Inject
     private DedicatedResourceDao _dedicatedDao;
-    @Inject
-    private AffinityGroupService _affinityGroupService;
     @Inject
     private ServiceOfferingDetailsDao serviceOfferingDetailsDao;
     @Inject
@@ -515,6 +488,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmImportFacade vmImportFacade;
     @Inject
+    private VmAllocationValidationService vmAllocationValidationService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private MessageBus messageBus;
@@ -539,9 +514,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     NsxProviderDao nsxProviderDao;
     @Inject
     NetworkService networkService;
-    @Inject
-    SnapshotDataFactory snapshotDataFactory;
-    @Inject
     private OrchestrationService _orchSrvc;
     @Inject
     private VolumeOrchestrationService volumeMgr;
@@ -1369,132 +1341,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         try {
             reserveStorageResourcesForVm(checkedReservations, owner, diskOfferingId, diskSize, dataDiskInfoList, rootDiskOfferingId, offering, volumesSize);
 
-            // verify security group ids
-            if (securityGroupIdList != null) {
-                for (Long securityGroupId : securityGroupIdList) {
-                    SecurityGroup sg = _securityGroupDao.findById(securityGroupId);
-                    if (sg == null) {
-                        throw new InvalidParameterValueException("Unable to find security group by id " + securityGroupId);
-                    } else {
-                        // verify permissions
-                        _accountMgr.checkAccess(caller, null, true, owner, sg);
-                    }
-                }
-            }
-
-            if (datadiskTemplateToDiskOfferringMap != null && !datadiskTemplateToDiskOfferringMap.isEmpty()) {
-                for (Entry<Long, DiskOffering> datadiskTemplateToDiskOffering : datadiskTemplateToDiskOfferringMap.entrySet()) {
-                    VMTemplateVO dataDiskTemplate = _templateDao.findById(datadiskTemplateToDiskOffering.getKey());
-                    DiskOffering dataDiskOffering = datadiskTemplateToDiskOffering.getValue();
-
-                    if (dataDiskTemplate == null
-                            || (!dataDiskTemplate.getTemplateType().equals(TemplateType.DATADISK)) && (dataDiskTemplate.getState().equals(VirtualMachineTemplate.State.Active))) {
-                        throw new InvalidParameterValueException("Invalid Template ID specified for Datadisk Template" + datadiskTemplateToDiskOffering.getKey());
-                    }
-                    long dataDiskTemplateId = datadiskTemplateToDiskOffering.getKey();
-                    if (!dataDiskTemplate.getParentTemplateId().equals(template.getId())) {
-                        throw new InvalidParameterValueException(String.format("Invalid Datadisk Template. Specified Datadisk Template %s doesn't belong to Template %s", dataDiskTemplate, template));
-                    }
-                    if (dataDiskOffering == null) {
-                        throw new InvalidParameterValueException(String.format("Invalid disk offering %s specified for datadisk Template %s", datadiskTemplateToDiskOffering.getValue(), dataDiskTemplate));
-                    }
-                    if (dataDiskOffering.isCustomized()) {
-                        throw new InvalidParameterValueException(String.format("Invalid disk offering %s specified for datadisk Template %s. Custom Disk offerings are not supported for Datadisk Templates", dataDiskOffering, dataDiskTemplate));
-                    }
-                    if (dataDiskOffering.getDiskSize() < dataDiskTemplate.getSize()) {
-                        throw new InvalidParameterValueException(String.format("Invalid disk offering %s specified for datadisk Template %s. Disk offering size should be greater than or equal to the Template size", dataDiskOffering, dataDiskTemplate));
-                    }
-                    _templateDao.loadDetails(dataDiskTemplate);
-                }
-            }
-
-            // check that the affinity groups exist
-            if (affinityGroupIdList != null) {
-                for (Long affinityGroupId : affinityGroupIdList) {
-                    AffinityGroupVO ag = _affinityGroupDao.findById(affinityGroupId);
-                    if (ag == null) {
-                        throw new InvalidParameterValueException("Unable to find affinity group " + ag);
-                    } else if (!_affinityGroupService.isAffinityGroupProcessorAvailable(ag.getType())) {
-                        throw new InvalidParameterValueException("Affinity group type is not supported for group: " + ag + " ,type: " + ag.getType()
-                                + " , Please try again after removing the affinity group");
-                    } else {
-                        // verify permissions
-                        if (ag.getAclType() == ACLType.Domain) {
-                            _accountMgr.checkAccess(caller, null, false, owner, ag);
-                            // Root admin has access to both VM and AG by default,
-                            // but
-                            // make sure the owner of these entities is same
-                            if (caller.getId() == Account.ACCOUNT_ID_SYSTEM || _accountMgr.isRootAdmin(caller.getId())) {
-                                if (!_affinityGroupService.isAffinityGroupAvailableInDomain(ag.getId(), owner.getDomainId())) {
-                                    throw new PermissionDeniedException("Affinity Group " + ag + " does not belong to the VM's domain");
-                                }
-                            }
-                        } else {
-                            _accountMgr.checkAccess(caller, null, true, owner, ag);
-                            // Root admin has access to both VM and AG by default,
-                            // but
-                            // make sure the owner of these entities is same
-                            if (caller.getId() == Account.ACCOUNT_ID_SYSTEM || _accountMgr.isRootAdmin(caller.getId())) {
-                                if (ag.getAccountId() != owner.getAccountId()) {
-                                    throw new PermissionDeniedException("Affinity Group " + ag + " does not belong to the VM's account");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (hypervisorType != HypervisorType.BareMetal && hypervisorType != HypervisorType.External) {
-                // check if we have available pools for vm deployment
-                long availablePools = _storagePoolDao.countPoolsByStatus(StoragePoolStatus.Up);
-                if (availablePools < 1) {
-                    throw new StorageUnavailableException("There are no available pools in the UP state for vm deployment", -1);
-                }
-            }
-
-            if (TemplateType.SYSTEM.equals(template.getTemplateType()) && !CKS_NODE.equals(vmType) && !SHAREDFSVM.equals(vmType)) {
-                throw new InvalidParameterValueException(String.format("Unable to use system template %s to deploy a user vm", template));
-            }
-
-            if (volume != null) {
-                if (zone.getId() != volume.getDataCenterId()) {
-                    throw new InvalidParameterValueException(String.format("The volume's zone [%s] is not the same as the provided zone [%s]", volume.getDataCenterId(), zone.getId()));
-                }
-            } else if (snapshot != null) {
-                List<SnapshotInfo> snapshotsOnZone = snapshotDataFactory.getSnapshots(snapshot.getId(), zone.getId());
-                if (CollectionUtils.isEmpty(snapshotsOnZone)) {
-                    throw new InvalidParameterValueException("The snapshot does not exist on zone " + zone.getId());
-                }
-            } else {
-                List<VMTemplateZoneVO> listZoneTemplate = _templateZoneDao.listByZoneTemplate(zone.getId(), template.getId());
-                if (listZoneTemplate == null || listZoneTemplate.isEmpty()) {
-                    throw new InvalidParameterValueException("The template " + template.getId() + " is not available for use");
-                }
-            }
-
-            if (isIso && !template.isBootable()) {
-                throw new InvalidParameterValueException(String.format("Installing from ISO requires an ISO that is bootable: %s", template));
-            }
-
-            // Check templates permissions
-            _accountMgr.checkAccess(owner, AccessType.UseEntry, false, template);
+            vmAllocationValidationService.validatePrePersistenceInputs(zone, owner, caller, securityGroupIdList, affinityGroupIdList,
+                    datadiskTemplateToDiskOfferringMap, template, hypervisorType, vmType, isIso, volume, snapshot);
 
             // check if the user data is correct
             userData = userDataManager.validateUserData(userData, httpmethod);
 
             // Find an SSH public key corresponding to the key pair name, if one is
             // given
-            String sshPublicKeys = "";
-            String keypairnames = "";
-            if (!sshKeyPairs.isEmpty()) {
-                List<SSHKeyPairVO> pairs = _sshKeyPairDao.findByNames(owner.getAccountId(), owner.getDomainId(), sshKeyPairs);
-                if (pairs == null || pairs.size() != sshKeyPairs.size()) {
-                    throw new InvalidParameterValueException("Not all specified keypairs exist");
-                }
-
-                sshPublicKeys = pairs.stream().map(p -> p.getPublicKey()).collect(Collectors.joining("\n"));
-                keypairnames = String.join(",", sshKeyPairs);
-            }
+            VmAllocationValidationService.ResolvedSshKeyPairs resolvedSshKeyPairs = vmAllocationValidationService.resolveSshKeyPairs(owner, sshKeyPairs);
+            String sshPublicKeys = resolvedSshKeyPairs.getPublicKeys();
+            String keypairnames = resolvedSshKeyPairs.getNames();
 
             LinkedHashMap<String, List<NicProfile>> networkNicMap = new LinkedHashMap<>();
 
