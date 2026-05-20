@@ -83,6 +83,7 @@ import org.apache.cloudstack.backup.BackupManager;
 import org.apache.cloudstack.backup.dao.BackupScheduleDao;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
+import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
@@ -478,6 +479,9 @@ public class UserVmManagerImplTest {
     @Mock
     private UUIDManager uuidMgr;
 
+    @Mock
+    private ConfigurationDao configDao;
+
 
     @Mock
     private SnapshotPolicyDao snapshotPolicyDao;
@@ -775,6 +779,14 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(deployAsIsNetworkMappingService, "networkModel", networkModel);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmDeployAsIsNetworkMappingService", deployAsIsNetworkMappingService);
+        VmInitialDetailsServiceImpl initialDetailsService = new VmInitialDetailsServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(initialDetailsService, "configDao", configDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(initialDetailsService,
+                "templateDeployAsIsDetailsDao", mock(com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(initialDetailsService,
+                "userVmDeployAsIsDetailsDao", mock(com.cloud.deployasis.dao.UserVmDeployAsIsDetailsDao.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmInitialDetailsService", initialDetailsService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmMigrationDedicationService", vmMigrationDedicationService);
         VmLiveMigrationOrchestrationServiceImpl liveMigrationOrchestrationService = new VmLiveMigrationOrchestrationServiceImpl();

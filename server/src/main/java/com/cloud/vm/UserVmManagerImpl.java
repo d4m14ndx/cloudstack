@@ -111,7 +111,6 @@ import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.GetVmIpAddressCommand;
 import com.cloud.agent.api.VolumeStatsEntry;
-import com.cloud.agent.api.to.deployasis.OVFPropertyTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
 import com.cloud.api.query.dao.ServiceOfferingJoinDao;
@@ -130,9 +129,6 @@ import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
 import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deploy.DeploymentPlanner;
-import com.cloud.deployasis.UserVmDeployAsIsDetailVO;
-import com.cloud.deployasis.dao.TemplateDeployAsIsDetailsDao;
-import com.cloud.deployasis.dao.UserVmDeployAsIsDetailsDao;
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
@@ -248,7 +244,6 @@ import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
-import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.GlobalLock;
@@ -429,11 +424,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private ResourceTagDao resourceTagDao;
     @Inject
-    private TemplateDeployAsIsDetailsDao templateDeployAsIsDetailsDao;
-    @Inject
-    private UserVmDeployAsIsDetailsDao userVmDeployAsIsDetailsDao;
-    @Inject
     private VmDeployAsIsNetworkMappingService vmDeployAsIsNetworkMappingService;
+    @Inject
+    private VmInitialDetailsService vmInitialDetailsService;
     @Inject
     private DataStoreProviderManager _dataStoreProviderMgr;
     @Inject
@@ -2062,7 +2055,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         long guestOSCategoryId = guestOS.getCategoryId();
         GuestOSCategoryVO guestOSCategory = _guestOSCategoryDao.findById(guestOSCategoryId);
         if (hypervisorType.equals(HypervisorType.VMware)) {
-            updateVMDiskController(vm, customParameters, guestOS);
+            vmInitialDetailsService.updateVMDiskController(vm, customParameters, guestOS);
         }
 
         Long rootDiskSize = null;
@@ -2089,7 +2082,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         setVmRequiredFieldsForImport(isImport, vm, zone, hypervisorType, host, lastHost, powerState);
 
-        setVncPasswordForKvmIfAvailable(customParameters, vm);
+        vmInitialDetailsService.setVncPasswordForKvmIfAvailable(customParameters, vm);
 
         vm.setUserVmType(vmType);
         _vmDao.persist(vm);
@@ -2128,7 +2121,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
         vm.setDetail(VmDetailConstants.DEPLOY_VM, "true");
 
-        persistVMDeployAsIsProperties(vm, userVmOVFPropertiesMap);
+        vmInitialDetailsService.persistVMDeployAsIsProperties(vm, userVmOVFPropertiesMap);
 
         List<String> hiddenDetails = new ArrayList<>();
         if (customParameters.containsKey(VmDetailConstants.NAME_ON_HYPERVISOR)) {
@@ -2225,84 +2218,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             vm.setPowerState(powerState);
             if (powerState == VirtualMachine.PowerState.PowerOn) {
                 vm.setState(State.Running);
-            }
-        }
-    }
-
-    private void updateVMDiskController(UserVmVO vm, Map<String, String> customParameters, GuestOSVO guestOS) {
-        // If hypervisor is vSphere and OS is OS X, set special settings.
-        if (guestOS.getDisplayName().toLowerCase().contains("apple mac os")) {
-            vm.setDetail(VmDetailConstants.SMC_PRESENT, "TRUE");
-            vm.setDetail(VmDetailConstants.ROOT_DISK_CONTROLLER, "scsi");
-            vm.setDetail(VmDetailConstants.DATA_DISK_CONTROLLER, "scsi");
-            vm.setDetail(VmDetailConstants.FIRMWARE, "efi");
-            logger.info("guestOS is OSX : overwrite root disk controller to scsi, use smc and efi");
-        } else {
-            String rootDiskControllerSetting = customParameters.get(VmDetailConstants.ROOT_DISK_CONTROLLER);
-            String dataDiskControllerSetting = customParameters.get(VmDetailConstants.DATA_DISK_CONTROLLER);
-            if (StringUtils.isNotEmpty(rootDiskControllerSetting)) {
-                vm.setDetail(VmDetailConstants.ROOT_DISK_CONTROLLER, rootDiskControllerSetting);
-            }
-
-            if (StringUtils.isNotEmpty(dataDiskControllerSetting)) {
-                vm.setDetail(VmDetailConstants.DATA_DISK_CONTROLLER, dataDiskControllerSetting);
-            }
-
-            // Don't override if VM already has root/data disk controller detail
-            if (vm.getDetail(VmDetailConstants.ROOT_DISK_CONTROLLER) == null) {
-                String vmwareRootDiskControllerTypeFromSetting = StringUtils.defaultIfEmpty(_configDao.getValue(Config.VmwareRootDiskControllerType.key()),
-                        Config.VmwareRootDiskControllerType.getDefaultValue());
-                vm.setDetail(VmDetailConstants.ROOT_DISK_CONTROLLER, vmwareRootDiskControllerTypeFromSetting);
-            }
-
-            if (vm.getDetail(VmDetailConstants.DATA_DISK_CONTROLLER) == null) {
-                String finalRootDiskController = vm.getDetail(VmDetailConstants.ROOT_DISK_CONTROLLER);
-                // Set the data disk controller detail same as the final scsi root disk controller if VM doesn't have data disk controller detail
-                // This is to ensure the disk controller is available for the data disks, as all the SCSI controllers are created with same controller type
-                String scsiControllerPattern = "(?i)\\b(scsi|lsilogic|lsilogicsas|lsisas1068|buslogic|pvscsi)\\b";
-                if (finalRootDiskController.matches(scsiControllerPattern)) {
-                    logger.info(String.format("Data disk controller was not defined, but root disk is using SCSI controller [%s]." +
-                            "To ensure disk controllers are available for the data disks, the data disk controller is updated to match the root disk controller.", finalRootDiskController));
-                    vm.setDetail(VmDetailConstants.DATA_DISK_CONTROLLER, finalRootDiskController);
-                } else {
-                    logger.info("Data disk controller was not defined; defaulting to 'osdefault'.");
-                    vm.setDetail(VmDetailConstants.DATA_DISK_CONTROLLER, "osdefault");
-                }
-            }
-        }
-    }
-
-    /**
-     * take the properties and set them on the vm.
-     * consider should we be complete, and make sure all default values are copied as well if known?
-     * I.E. iterate over the template details as well to copy any that are not defined yet.
-     */
-    private void persistVMDeployAsIsProperties(UserVmVO vm, Map<String, String> userVmOVFPropertiesMap) {
-        if (MapUtils.isNotEmpty(userVmOVFPropertiesMap)) {
-            for (String key : userVmOVFPropertiesMap.keySet()) {
-                String detailKey = key;
-                String value = userVmOVFPropertiesMap.get(key);
-
-                // Sanitize boolean values to expected format and encrypt passwords
-                if (StringUtils.isNotBlank(value)) {
-                    if (value.equalsIgnoreCase("True")) {
-                        value = "True";
-                    } else if (value.equalsIgnoreCase("False")) {
-                        value = "False";
-                    } else {
-                        OVFPropertyTO propertyTO = templateDeployAsIsDetailsDao.findPropertyByTemplateAndKey(vm.getTemplateId(), key);
-                        if (propertyTO != null && propertyTO.isPassword()) {
-                            value = DBEncryptionUtil.encrypt(value);
-                        }
-                    }
-                } else if (value == null) {
-                    value = "";
-                }
-                if (logger.isTraceEnabled()) {
-                    logger.trace(String.format("setting property '%s' as '%s' with value '%s'", key, detailKey, value));
-                }
-                UserVmDeployAsIsDetailVO detail = new UserVmDeployAsIsDetailVO(vm.getId(), detailKey, value);
-                userVmDeployAsIsDetailsDao.persist(detail);
             }
         }
     }
@@ -3804,10 +3719,4 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return kubernetesServiceHelpers.get(0).findByVmId(vm.getId()) != null;
     }
 
-    private void setVncPasswordForKvmIfAvailable(Map<String, String> customParameters, UserVmVO vm) {
-        if (customParameters.containsKey(VmDetailConstants.KVM_VNC_PASSWORD)
-                && StringUtils.isNotEmpty(customParameters.get(VmDetailConstants.KVM_VNC_PASSWORD))) {
-            vm.setVncPassword(customParameters.get(VmDetailConstants.KVM_VNC_PASSWORD));
-        }
-    }
 }
