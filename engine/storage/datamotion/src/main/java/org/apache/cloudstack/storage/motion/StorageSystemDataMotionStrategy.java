@@ -47,7 +47,6 @@ import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
 import org.apache.cloudstack.engine.subsystem.api.storage.HostScope;
 import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine;
-import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine.Event;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
 import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
@@ -203,6 +202,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     ResourceManager resourceManager;
     @Inject
     protected HostResolutionService hostResolutionService;
+    @Inject
+    protected KvmNonLiveStorageMigrationHandler kvmNonLiveStorageMigrationHandler;
 
     @Override
     public StrategyPriority canHandle(DataObject srcData, DataObject destData) {
@@ -424,7 +425,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                     String errMsg = String.format("Currently migrating volumes between managed storage providers is not supported on %s hypervisor", srcVolumeInfo.getHypervisorType().toString());
                     handleError(errMsg, callback);
                 } else {
-                    handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
+                    kvmNonLiveStorageMigrationHandler.handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
                 }
             } else {
                 handleVolumeMigrationFromNonManagedStorageToManagedStorage(srcVolumeInfo, destVolumeInfo, callback);
@@ -535,7 +536,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             String errMsg = String.format("Currently migrating volumes between managed storage providers is not supported on %s hypervisor", srcVolumeInfo.getHypervisorType().toString());
             handleError(errMsg, callback);
         } else {
-            handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
+            kvmNonLiveStorageMigrationHandler.handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
         }
     }
 
@@ -552,7 +553,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             HypervisorType hypervisorType = HypervisorType.KVM;
             VirtualMachine vm = srcVolumeInfo.getAttachedVM();
 
-            checkAvailableForMigration(vm);
+            kvmNonLiveStorageMigrationHandler.checkAvailableForMigration(vm);
 
             long destStoragePoolId = destVolumeInfo.getPoolId();
             StoragePoolVO destStoragePoolVO = _storagePoolDao.findById(destStoragePoolId);
@@ -569,7 +570,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             setCertainVolumeValuesNull(destVolumeInfo.getId());
 
             // migrate the volume via the hypervisor
-            String path = migrateVolumeForKVM(srcVolumeInfo, destVolumeInfo, hostVO, "Unable to migrate the volume from managed storage to non-managed storage");
+            String path = kvmNonLiveStorageMigrationHandler.migrateVolumeForKVM(srcVolumeInfo, destVolumeInfo, hostVO, "Unable to migrate the volume from managed storage to non-managed storage");
 
             updateVolumePath(destVolumeInfo.getId(), path);
         }
@@ -712,7 +713,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                 CopyCommandResult result = new CopyCommandResult(null, copyCmdAnswer);
                 callback.complete(result);
             } else {
-                handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
+                kvmNonLiveStorageMigrationHandler.handleVolumeMigrationForKVM(srcVolumeInfo, destVolumeInfo, callback);
             }
         }
         catch (Exception ex) {
@@ -832,119 +833,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         volumeVO.set_iScsiName(srcVolumeInfo.get_iScsiName());
 
         _volumeDao.update(srcVolumeInfo.getId(), volumeVO);
-    }
-
-    private void handleVolumeMigrationForKVM(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo, AsyncCompletionCallback<CopyCommandResult> callback) {
-        VirtualMachine vm = srcVolumeInfo.getAttachedVM();
-
-        checkAvailableForMigration(vm);
-
-        String errMsg = null;
-        HostVO hostVO = null;
-        try {
-            destVolumeInfo.getDataStore().getDriver().createAsync(destVolumeInfo.getDataStore(), destVolumeInfo, null);
-            VolumeVO volumeVO = _volumeDao.findById(destVolumeInfo.getId());
-            updatePathFromScsiName(volumeVO);
-            destVolumeInfo = _volumeDataFactory.getVolume(destVolumeInfo.getId(), destVolumeInfo.getDataStore());
-            hostVO = getHostOnWhichToExecuteMigrationCommand(srcVolumeInfo, destVolumeInfo);
-
-            // if managed we need to grant access
-            PrimaryDataStore pds = (PrimaryDataStore)this.dataStoreMgr.getPrimaryDataStore(destVolumeInfo.getDataStore().getUuid());
-            if (pds == null) {
-                throw new CloudRuntimeException("Unable to find primary data store driver for this volume");
-            }
-
-            // grant access (for managed volumes)
-            _volumeService.grantAccess(destVolumeInfo, hostVO, destVolumeInfo.getDataStore());
-
-            // re-retrieve volume to get any updated information from grant
-            destVolumeInfo = _volumeDataFactory.getVolume(destVolumeInfo.getId(), destVolumeInfo.getDataStore());
-
-            // migrate the volume via the hypervisor
-            String path = migrateVolumeForKVM(srcVolumeInfo, destVolumeInfo, hostVO, "Unable to migrate the volume from non-managed storage to managed storage");
-
-            updateVolumePath(destVolumeInfo.getId(), path);
-            volumeVO = _volumeDao.findById(destVolumeInfo.getId());
-            // only set this if it was not set.  default to QCOW2 for KVM
-            if (volumeVO.getFormat() == null) {
-                volumeVO.setFormat(ImageFormat.QCOW2);
-                _volumeDao.update(volumeVO.getId(), volumeVO);
-            }
-        } catch (Exception ex) {
-            errMsg = "Primary storage migration failed due to an unexpected error: " +
-                    ex.getMessage();
-            if (ex instanceof CloudRuntimeException) {
-                throw ex;
-            } else {
-                throw new CloudRuntimeException(errMsg, ex);
-            }
-        } finally {
-            // revoke access (for managed volumes)
-            if (hostVO != null) {
-                try {
-                    _volumeService.revokeAccess(destVolumeInfo, hostVO, destVolumeInfo.getDataStore());
-                } catch (Exception e) {
-                    logger.warn(String.format("Failed to revoke access for volume 'name=%s,uuid=%s' after a migration attempt", destVolumeInfo.getVolume(), destVolumeInfo.getUuid()), e);
-                }
-            }
-
-            // re-retrieve volume to get any updated information from grant
-            destVolumeInfo = _volumeDataFactory.getVolume(destVolumeInfo.getId(), destVolumeInfo.getDataStore());
-
-            CopyCmdAnswer copyCmdAnswer;
-            if (errMsg != null) {
-                copyCmdAnswer = new CopyCmdAnswer(errMsg);
-            }
-            else {
-                destVolumeInfo = _volumeDataFactory.getVolume(destVolumeInfo.getId(), destVolumeInfo.getDataStore());
-                DataTO dataTO = destVolumeInfo.getTO();
-                copyCmdAnswer = new CopyCmdAnswer(dataTO);
-            }
-
-            CopyCommandResult result = new CopyCommandResult(null, copyCmdAnswer);
-            result.setResult(errMsg);
-            callback.complete(result);
-        }
-    }
-
-    private void checkAvailableForMigration(VirtualMachine vm) {
-        if (vm != null && (vm.getState() != VirtualMachine.State.Stopped && vm.getState() != VirtualMachine.State.Migrating)) {
-            throw new CloudRuntimeException("Currently, if a volume to migrate from non-managed storage to managed storage on KVM is attached to " +
-                    "a VM, the VM must be in the Stopped or Migrating state.");
-        }
-    }
-
-    /**
-     * Only update the path from the iscsiName if the iscsiName is set.  Otherwise take no action to avoid nullifying the path
-     * with a previously set path value.
-     */
-    private void updatePathFromScsiName(VolumeVO volumeVO) {
-        if (volumeVO.get_iScsiName() != null) {
-            volumeVO.setPath(volumeVO.get_iScsiName());
-            _volumeDao.update(volumeVO.getId(), volumeVO);
-        }
-    }
-
-    private HostVO getHostOnWhichToExecuteMigrationCommand(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo) {
-        long srcStoragePoolId = srcVolumeInfo.getPoolId();
-        StoragePoolVO srcStoragePoolVO = _storagePoolDao.findById(srcStoragePoolId);
-
-        HostVO hostVO;
-
-        // if either source or destination is a HOST-scoped storage pool, the migration MUST be performed on that host
-        if (ScopeType.HOST.equals(srcVolumeInfo.getDataStore().getScope().getScopeType())) {
-            hostVO = _hostDao.findById(srcVolumeInfo.getDataStore().getScope().getScopeId());
-        } else if (ScopeType.HOST.equals(destVolumeInfo.getDataStore().getScope().getScopeType())) {
-            hostVO = _hostDao.findById(destVolumeInfo.getDataStore().getScope().getScopeId());
-        } else {
-            if (srcStoragePoolVO.getClusterId() != null) {
-                hostVO = getHostInCluster(srcStoragePoolVO);
-            } else {
-                hostVO = getHost(destVolumeInfo, HypervisorType.KVM, false);
-            }
-        }
-
-        return hostVO;
     }
 
     private VolumeInfo createTemporaryVolumeCopyOfSnapshotAdaptive(SnapshotInfo snapshotInfo) {
@@ -2921,48 +2809,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         }
 
         return leafData;
-    }
-
-    private String migrateVolumeForKVM(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo, HostVO hostVO, String errMsg) {
-        try {
-            Map<String, String> srcDetails = getVolumeDetails(srcVolumeInfo);
-            Map<String, String> destDetails = getVolumeDetails(destVolumeInfo);
-
-            _volumeService.grantAccess(srcVolumeInfo, hostVO, srcVolumeInfo.getDataStore());
-
-            MigrateVolumeCommand migrateVolumeCommand = new MigrateVolumeCommand(srcVolumeInfo.getTO(), destVolumeInfo.getTO(),
-                    srcDetails, destDetails, StorageManager.KvmStorageOfflineMigrationWait.value());
-
-            _volumeService.grantAccess(srcVolumeInfo, hostVO, srcVolumeInfo.getDataStore());
-            handleQualityOfServiceForVolumeMigration(destVolumeInfo, PrimaryDataStoreDriver.QualityOfServiceState.MIGRATION);
-            _volumeService.grantAccess(destVolumeInfo, hostVO, destVolumeInfo.getDataStore());
-
-            MigrateVolumeAnswer migrateVolumeAnswer = (MigrateVolumeAnswer)agentManager.send(hostVO.getId(), migrateVolumeCommand);
-            if (migrateVolumeAnswer == null || !migrateVolumeAnswer.getResult()) {
-                if (migrateVolumeAnswer != null && StringUtils.isNotEmpty(migrateVolumeAnswer.getDetails())) {
-                    throw new CloudRuntimeException(migrateVolumeAnswer.getDetails());
-                }
-                else {
-                    throw new CloudRuntimeException(errMsg);
-                }
-            }
-            return migrateVolumeAnswer.getVolumePath();
-        } catch (CloudRuntimeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new CloudRuntimeException("Unexpected error during volume migration: " + ex.getMessage(), ex);
-        } finally {
-            try {
-                _volumeService.revokeAccess(srcVolumeInfo, hostVO, srcVolumeInfo.getDataStore());
-                _volumeService.revokeAccess(destVolumeInfo, hostVO, destVolumeInfo.getDataStore());
-                handleQualityOfServiceForVolumeMigration(destVolumeInfo, PrimaryDataStoreDriver.QualityOfServiceState.NO_MIGRATION);
-            } catch (Throwable e) {
-                logger.warn("During cleanup post-migration and exception occured: " + e);
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Exception during post-migration cleanup.", e);
-                }
-            }
-        }
     }
 
     private String copyManagedVolumeToSecondaryStorage(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo, HostVO hostVO, String errMsg) {
