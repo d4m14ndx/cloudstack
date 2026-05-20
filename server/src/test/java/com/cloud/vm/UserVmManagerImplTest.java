@@ -826,7 +826,7 @@ public class UserVmManagerImplTest {
 
         lenient().when(_dcDao.findById(anyLong())).thenReturn(_dcMock);
 
-        Mockito.when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
+        Mockito.lenient().when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
 
         Mockito.when(callerAccount.getType()).thenReturn(Account.Type.ADMIN);
         CallContext.register(callerUser, callerAccount);
@@ -1629,32 +1629,16 @@ public class UserVmManagerImplTest {
         Mockito.verify(userVmVoMock).setState(VirtualMachine.State.Running);
     }
 
-    @Test(expected = InvalidParameterValueException.class)
-    public void testRestoreVMNoVM() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-
+    @Test
+    public void restoreVMDelegatesToVmRestoreService() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
         RestoreVMCmd cmd = Mockito.mock(RestoreVMCmd.class);
-        when(cmd.getVmId()).thenReturn(vmId);
-        when(cmd.getTemplateId()).thenReturn(2L);
-        when(userVmDao.findById(vmId)).thenReturn(null);
+        UserVm restoredVm = Mockito.mock(UserVm.class);
+        when(vmRestoreService.restoreVM(cmd)).thenReturn(restoredVm);
 
-        userVmManagerImpl.restoreVM(cmd);
-    }
+        UserVm result = userVmManagerImpl.restoreVM(cmd);
 
-    @Test(expected = CloudRuntimeException.class)
-    public void testRestoreVMWithVolumeSnapshots() throws ResourceUnavailableException, InsufficientCapacityException, ResourceAllocationException {
-        CallContext callContextMock = Mockito.mock(CallContext.class);
-        Mockito.lenient().doReturn(accountMock).when(callContextMock).getCallingAccount();
-        Mockito.lenient().doNothing().when(accountManager).checkAccess(accountMock, null, true, userVmVoMock);
-
-        RestoreVMCmd cmd = Mockito.mock(RestoreVMCmd.class);
-        when(cmd.getVmId()).thenReturn(vmId);
-        when(cmd.getTemplateId()).thenReturn(2L);
-        when(userVmDao.findById(vmId)).thenReturn(userVmVoMock);
-        Mockito.doReturn(false).when(userVmManagerImpl).isVMPartOfAnyCKSCluster(userVmVoMock);
-
-        userVmManagerImpl.restoreVM(cmd);
+        assertEquals(restoredVm, result);
+        verify(vmRestoreService).restoreVM(cmd);
     }
 
     @Test

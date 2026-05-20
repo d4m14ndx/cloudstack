@@ -18,6 +18,8 @@ package com.cloud.vm;
 
 import java.util.Map;
 
+import org.apache.cloudstack.api.command.user.vm.RestoreVMCmd;
+
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
@@ -28,6 +30,9 @@ import com.cloud.user.Account;
 import com.cloud.uservm.UserVm;
 
 public interface VmRestoreService {
+
+    UserVm restoreVM(RestoreVMCmd cmd)
+            throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException;
 
     UserVm restoreVirtualMachine(Account caller, long vmId, Long newTemplateId,
             Long rootDiskOfferingId, boolean expunge, Map<String, String> details)

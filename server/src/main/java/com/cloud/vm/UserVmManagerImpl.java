@@ -147,13 +147,11 @@ import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.exception.StorageUnavailableException;
-import com.cloud.exception.UnsupportedServiceException;
 import com.cloud.exception.VirtualMachineMigrationException;
 import com.cloud.ha.HighAvailabilityManager;
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDao;
-import com.cloud.hypervisor.Hypervisor;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.kubernetes.cluster.KubernetesServiceHelper;
 import com.cloud.network.IpAddressManager;
@@ -526,8 +524,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmCreationResourceReservationService vmCreationResourceReservationService;
     @Inject
     private VmStatsDao vmStatsDao;
-    @Inject
-    private DataCenterDao dataCenterDao;
     @Inject
     private MessageBus messageBus;
     @Inject
@@ -3314,90 +3310,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return vmAssignmentNetworkService.canAccountUseNetwork(newAccount, network);
     }
 
-    private DiskOfferingVO validateAndGetDiskOffering(Long diskOfferingId, UserVmVO vm, Account caller) {
-        DiskOfferingVO diskOffering = _diskOfferingDao.findById(diskOfferingId);
-        if (diskOffering == null) {
-            throw new InvalidParameterValueException("Cannot find disk offering with ID " + diskOfferingId);
-        }
-        DataCenterVO zone = dataCenterDao.findById(vm.getDataCenterId());
-        _accountMgr.checkAccess(caller, diskOffering, zone);
-        ServiceOfferingVO serviceOffering = serviceOfferingDao.findById(vm.getServiceOfferingId());
-        if (serviceOffering.getDiskOfferingStrictness() && !serviceOffering.getDiskOfferingId().equals(diskOfferingId)) {
-            throw new InvalidParameterValueException("VM's service offering has a strict disk offering requirement, and the specified disk offering does not match");
-        }
-        return diskOffering;
-    }
-
     @Override
     public UserVm restoreVM(RestoreVMCmd cmd) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
-        // Input validation
-        Account caller = CallContext.current().getCallingAccount();
-
-        long vmId = cmd.getVmId();
-        Long newTemplateId = cmd.getTemplateId();
-        Long rootDiskOfferingId = cmd.getRootDiskOfferingId();
-        boolean expunge = cmd.getExpungeRootDisk();
-        Map<String, String> details = cmd.getDetails();
-
-        verifyDetails(details);
-
-        UserVmVO vm = _vmDao.findById(vmId);
-        if (vm == null) {
-            InvalidParameterValueException ex = new InvalidParameterValueException("Cannot find VM with ID " + vmId);
-            ex.addProxyObject(String.valueOf(vmId), "vmId");
-            throw ex;
-        }
-        if (UserVmManager.SHAREDFSVM.equals(vm.getUserVmType())) {
-            throw new InvalidParameterValueException("Operation not supported on Shared FileSystem Instance");
-        }
-        if (Hypervisor.HypervisorType.External.equals(vm.getHypervisorType())) {
-            logger.error("Restore VM not supported for {} as it is {} hypervisor instance",
-                    vm, Hypervisor.HypervisorType.External.name());
-            throw new InvalidParameterValueException(String.format("Operation not supported for instance: %s",
-                    vm.getName()));
-        }
-        if (isVMPartOfAnyCKSCluster(vm)) {
-            throw new UnsupportedServiceException("Cannot restore VM with id = " + vm.getUuid() +
-                    " as it belongs to a CKS cluster. Please remove the VM from the CKS cluster before restoring.");
-        }
-        _accountMgr.checkAccess(caller, null, true, vm);
-
-        VMTemplateVO template;
-        if (newTemplateId != null) {
-            template = _templateDao.findById(newTemplateId);
-            if (template == null) {
-                throw new InvalidParameterValueException("Cannot find template with ID " + newTemplateId);
-            }
-        } else {
-            template = _templateDao.findById(vm.getTemplateId());
-            if (template == null) {
-                throw new InvalidParameterValueException("Cannot find template linked with VM");
-            }
-        }
-        DiskOffering diskOffering = rootDiskOfferingId != null ? validateAndGetDiskOffering(rootDiskOfferingId, vm, caller) : null;
-        if (template.getSize() != null) {
-            String rootDiskSize = details.get(VmDetailConstants.ROOT_DISK_SIZE);
-            Long templateSize = template.getSize();
-            if (StringUtils.isNumeric(rootDiskSize)) {
-                if (Long.parseLong(rootDiskSize) * GiB_TO_BYTES < templateSize) {
-                    throw new InvalidParameterValueException(String.format("Root disk size [%s] is smaller than the template size [%s]", rootDiskSize, templateSize));
-                }
-            } else if (diskOffering != null && diskOffering.getDiskSize() < templateSize) {
-                throw new InvalidParameterValueException(String.format("Disk size for selected offering [%s] is less than the template's size [%s]", diskOffering.getDiskSize(), templateSize));
-            }
-        }
-
-        if (HypervisorType.External.equals(vm.getHypervisorType())) {
-            throw new InvalidParameterValueException("Restore VM instance operation is not allowed for External hypervisor type");
-        }
-
-        //check if there are any active snapshots on volumes associated with the VM
-        logger.debug("Checking if there are any ongoing snapshots on the ROOT volumes associated with VM {}", vm);
-        if (checkStatusOfVolumeSnapshots(vm, Volume.Type.ROOT)) {
-            throw new CloudRuntimeException("There is/are unbacked up snapshot(s) on ROOT volume, Re-install VM is not permitted, please try again later.");
-        }
-        logger.debug("Found no ongoing snapshots on volume of type ROOT, for the vm {}", vm);
-        return restoreVMInternal(caller, vm, newTemplateId, rootDiskOfferingId, expunge, details);
+        return vmRestoreService.restoreVM(cmd);
     }
 
     public UserVm restoreVMInternal(Account caller, UserVmVO vm, Long newTemplateId, Long rootDiskOfferingId, boolean expunge, Map<String, String> details) throws InsufficientCapacityException, ResourceUnavailableException, ResourceAllocationException {
