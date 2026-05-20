@@ -20,11 +20,10 @@ package com.cloud.vm;
  * Callback interface that schedules an IP-fetch retry for a NIC that
  * belongs to a VM on a shared network without services or an L2 network.
  *
- * <p>The implementation (provided by {@link UserVmManagerImpl} as a lambda)
- * writes an entry into the god-class {@code vmIdCountMap} that the
- * background {@code VmIpAddrFetchTask} consumes.  Injected into
- * {@link VmRebootServiceImpl} so the extracted service does not need to
- * access the map directly.
+ * <p>The implementation writes an entry into the external DHCP IP-fetch
+ * service queue that the background task consumes.  Injected into
+ * {@link VmRebootServiceImpl} so reboot handling does not need to access the
+ * queue directly.
  */
 @FunctionalInterface
 public interface VmIpFetchScheduler {

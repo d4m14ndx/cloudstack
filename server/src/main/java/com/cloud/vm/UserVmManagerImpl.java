@@ -16,7 +16,9 @@
 // under the License.
 package com.cloud.vm;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -26,8 +28,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -43,7 +43,6 @@ import org.apache.cloudstack.affinity.AffinityGroupVO;
 import org.apache.cloudstack.affinity.dao.AffinityGroupDao;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
-import org.apache.cloudstack.api.ApiCommandResourceType;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.BaseCmd.HTTPMethod;
 import org.apache.cloudstack.api.command.admin.vm.AssignVMCmd;
@@ -100,7 +99,6 @@ import org.apache.cloudstack.userdata.UserDataManager;
 import org.apache.cloudstack.vm.lease.VMLeaseManager;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -109,7 +107,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.GetVmIpAddressCommand;
 import com.cloud.agent.api.VolumeStatsEntry;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
@@ -129,15 +126,12 @@ import com.cloud.deploy.DataCenterDeployment;
 import com.cloud.deploy.DeployDestination;
 import com.cloud.deploy.DeploymentPlan;
 import com.cloud.deploy.DeploymentPlanner;
-import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEvent;
-import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventTypes;
 import com.cloud.event.UsageEventUtils;
 import com.cloud.event.dao.UsageEventDao;
-import com.cloud.exception.AgentUnavailableException;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
@@ -157,7 +151,6 @@ import com.cloud.kubernetes.cluster.KubernetesServiceHelper;
 import com.cloud.network.IpAddressManager;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkService;
-import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.IpAddresses;
 import com.cloud.network.Network.Service;
 import com.cloud.network.NetworkModel;
@@ -229,7 +222,6 @@ import com.cloud.user.AccountManager;
 import com.cloud.user.AccountService;
 import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPairVO;
-import com.cloud.user.User;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.SSHKeyPairDao;
@@ -489,6 +481,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmStatsCollectionService vmStatsCollectionService;
     @Inject
+    private VmExternalDhcpIpFetchService vmExternalDhcpIpFetchService;
+    @Inject
     private VmVolumeStatisticsService vmVolumeStatisticsService;
     @Inject
     protected VmStorageMigrationService vmStorageMigrationService;
@@ -568,12 +562,22 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private int _expungeInterval;
     private int _expungeDelay;
     private boolean _dailyOrHourly = false;
-    private ExecutorService _vmIpFetchThreadExecutor;
     private List<KubernetesServiceHelper> kubernetesServiceHelpers;
     private String _instance;
     private boolean _instanceNameFlag;
     private int _scaleRetry;
-    private Map<Long, VmAndCountDetails> vmIdCountMap = new ConcurrentHashMap<>();
+    private Map<Long, VmAndCountDetails> vmIdCountMap = new AbstractMap<>() {
+        @Override
+        public VmAndCountDetails put(Long nicId, VmAndCountDetails details) {
+            vmExternalDhcpIpFetchService.scheduleIpFetch(nicId, details.getVmId());
+            return null;
+        }
+
+        @Override
+        public Set<Entry<Long, VmAndCountDetails>> entrySet() {
+            return Collections.emptySet();
+        }
+    };
 
     protected static long ROOT_DEVICE_ID = 0;
 
@@ -585,20 +589,10 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         this.kubernetesServiceHelpers = kubernetesServiceHelpers;
     }
 
-    private static final ConfigKey<Integer> VmIpFetchWaitInterval = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmip.retrieval.interval", "180",
-            "Wait Interval (in seconds) for shared network vm dhcp ip addr fetch for next iteration ", true);
-
-    static final ConfigKey<Integer> VmIpFetchTrialMax = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmip.max.retry", "10",
-            "The max number of retrieval times for shared network vm dhcp ip fetch, in case of failures", true);
-
-    private static final ConfigKey<Integer> VmIpFetchThreadPoolMax = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmipFetch.threadPool.max", "10",
-            "number of threads for fetching vms ip address", true);
-
-    private static final ConfigKey<Integer> VmIpFetchTaskWorkers = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmipfetchtask.workers", "10",
-            "number of worker threads for vm ip fetch task ", true);
-
     static final ConfigKey<Boolean> AllowDeployVmIfGivenHostFails = new ConfigKey<>("Advanced", Boolean.class, "allow.deploy.vm.if.deploy.on.given.host.fails", "false",
             "allow vm to deploy on different host if vm fails to deploy on the given host ", true);
+
+    static final ConfigKey<Integer> VmIpFetchTrialMax = VmExternalDhcpIpFetchService.VmIpFetchTrialMax;
 
     // Package-private so the VmExtraConfigService extracted in slice 8 can
     // resolve allow-list values without needing its own ConfigKey registration.
@@ -638,17 +632,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     public static class VmAndCountDetails {
         long vmId;
-        int  retrievalCount = VmIpFetchTrialMax.value();
+        int retrievalCount = VmIpFetchTrialMax.value();
 
         public VmAndCountDetails() {
         }
 
-        public VmAndCountDetails (long vmId, int retrievalCount) {
+        public VmAndCountDetails(long vmId, int retrievalCount) {
             this.vmId = vmId;
             this.retrievalCount = retrievalCount;
         }
 
-        public VmAndCountDetails (long vmId) {
+        public VmAndCountDetails(long vmId) {
             this.vmId = vmId;
         }
 
@@ -670,83 +664,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         public void decrementCount() {
             this.retrievalCount--;
-
-        }
-    }
-
-    private class VmIpAddrFetchThread extends ManagedContextRunnable {
-        long nicId;
-        long vmId;
-        String vmName;
-        String vmUuid;
-        boolean isWindows;
-        Long hostId;
-        String networkCidr;
-        String macAddress;
-
-        public VmIpAddrFetchThread(long vmId, String vmUuid, long nicId, String instanceName, boolean windows, Long hostId, String networkCidr, String macAddress) {
-            this.vmId = vmId;
-            this.vmUuid = vmUuid;
-            this.nicId = nicId;
-            this.vmName = instanceName;
-            this.isWindows = windows;
-            this.hostId = hostId;
-            this.networkCidr = networkCidr;
-            this.macAddress = macAddress;
-        }
-
-        @Override
-        protected void runInContext() {
-            GetVmIpAddressCommand cmd = new GetVmIpAddressCommand(vmName, networkCidr, isWindows, macAddress);
-            boolean decrementCount = true;
-
-            NicVO nic = _nicDao.findById(nicId);
-            try {
-                logger.debug("Trying IP retrieval for Instance [ID: {}, UUID: {}, name: {}], NIC {}", vmId, vmUuid, vmName, nic);
-                Answer answer = _agentMgr.send(hostId, cmd);
-                if (answer.getResult()) {
-                    String vmIp = answer.getDetails();
-                    if (vmIp == null) {
-                        // we got a valid response and the NIC does not have an IP assigned, as such we will update the database with null
-                        if (nic.getIPv4Address() != null) {
-                            nic.setIPv4Address(null);
-                            _nicDao.update(nicId, nic);
-                        }
-                    } else if (NetUtils.isValidIp4(vmIp)) {
-                        // set this vm ip addr in vm nic.
-                        if (nic != null) {
-                            nic.setIPv4Address(vmIp);
-                            _nicDao.update(nicId, nic);
-                            logger.debug("Instance [ID: {}, UUID: {}, name: {}] - IP {} retrieved successfully", vmId, vmUuid, vmName, vmIp);
-                            vmIdCountMap.remove(nicId);
-                            decrementCount = false;
-                            ActionEventUtils.onActionEvent(User.UID_SYSTEM, Account.ACCOUNT_ID_SYSTEM,
-                                    Domain.ROOT_DOMAIN, EventTypes.EVENT_NETWORK_EXTERNAL_DHCP_VM_IPFETCH,
-                                    String.format("Instance [ID: %d, UUID: %s, name: %s], NIC %s, IP address %s got fetched successfully",
-                                            vmId, vmUuid, vmName, nic, vmIp), vmId, ApiCommandResourceType.VirtualMachine.toString());
-                        }
-                    }
-                } else {
-                    // since no changes are being done, we should not decrement IP usage
-                    decrementCount = false;
-                    if (answer.getDetails() != null) {
-                        logger.debug("Failed to get Instance IP for Instance [ID: {}, UUID: {}, name: {}], details: {}",
-                                vmId, vmUuid, vmName, answer.getDetails());
-                    }
-                }
-            } catch (OperationTimedoutException e) {
-                logger.warn("Timed Out", e);
-            } catch (AgentUnavailableException e) {
-                logger.warn("Agent Unavailable ", e);
-            } finally {
-                if (decrementCount) {
-                    VmAndCountDetails vmAndCount = vmIdCountMap.get(nicId);
-                    vmAndCount.decrementCount();
-                    logger.debug("IP is not retrieved for Instance [ID: {}, UUID: {}, name: {}] NIC {} ... decremented count to {}",
-                            vmId, vmUuid, vmName, nic, vmAndCount.getRetrievalCount());
-                    vmIdCountMap.put(nicId, vmAndCount);
-                }
-            }
         }
     }
 
@@ -948,7 +865,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         _executor = Executors.newScheduledThreadPool(wrks, new NamedThreadFactory("UserVm-Scavenger"));
 
-        String vmIpWorkers = configs.get(VmIpFetchTaskWorkers.value());
+        String vmIpWorkers = configs.get(VmExternalDhcpIpFetchService.VmIpFetchTaskWorkers.value());
         int vmipwrks = NumbersUtil.parseInt(vmIpWorkers, 10);
 
         _vmIpFetchExecutor =   Executors.newScheduledThreadPool(vmipwrks, new NamedThreadFactory("UserVm-ipfetch"));
@@ -974,7 +891,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         _scaleRetry = NumbersUtil.parseInt(configs.get(Config.ScaleRetry.key()), 2);
 
-        _vmIpFetchThreadExecutor = Executors.newFixedThreadPool(VmIpFetchThreadPoolMax.value(), new NamedThreadFactory("vmIpFetchThread"));
+        vmExternalDhcpIpFetchService.configure(configs);
 
         if (vmServiceOfferingScaleService instanceof VmServiceOfferingScaleServiceImpl) {
             VmServiceOfferingScaleServiceImpl impl = (VmServiceOfferingScaleServiceImpl) vmServiceOfferingScaleService;
@@ -983,8 +900,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         if (vmRebootService instanceof VmRebootServiceImpl) {
             VmRebootServiceImpl impl = (VmRebootServiceImpl) vmRebootService;
-            impl.setIpFetchScheduler((nicId, vmId) ->
-                    vmIdCountMap.put(nicId, new VmAndCountDetails(vmId, VmIpFetchTrialMax.value())));
+            impl.setIpFetchScheduler(vmExternalDhcpIpFetchService);
             impl.setUserVmManager(this);
         }
 
@@ -1001,41 +917,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Override
     public boolean start() {
         _executor.scheduleWithFixedDelay(new ExpungeTask(), _expungeInterval, _expungeInterval, TimeUnit.SECONDS);
-        _vmIpFetchExecutor.scheduleWithFixedDelay(new VmIpFetchTask(), VmIpFetchWaitInterval.value(), VmIpFetchWaitInterval.value(), TimeUnit.SECONDS);
-        loadVmDetailsInMapForExternalDhcpIp();
+        _vmIpFetchExecutor.scheduleWithFixedDelay(vmExternalDhcpIpFetchService.getVmIpFetchTask(),
+                VmExternalDhcpIpFetchService.VmIpFetchWaitInterval.value(), VmExternalDhcpIpFetchService.VmIpFetchWaitInterval.value(), TimeUnit.SECONDS);
+        vmExternalDhcpIpFetchService.loadVmDetailsInMapForExternalDhcpIp();
         return true;
-    }
-
-    private void loadVmDetailsInMapForExternalDhcpIp() {
-
-        List<NetworkVO> networks = _networkDao.listByGuestType(Network.GuestType.Shared);
-        networks.addAll(_networkDao.listByGuestType(Network.GuestType.L2));
-
-        for (NetworkVO network: networks) {
-            if (GuestType.L2.equals(network.getGuestType()) || _networkModel.isSharedNetworkWithoutServices(network.getId())) {
-                List<NicVO> nics = _nicDao.listByNetworkId(network.getId());
-
-                for (NicVO nic : nics) {
-                    if (nic.getIPv4Address() == null) {
-                        long nicId = nic.getId();
-                        long vmId = nic.getInstanceId();
-                        VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-
-                        // only load running vms. For stopped vms get loaded on starting
-                        if (vmInstance != null && vmInstance.getState() == State.Running) {
-                            VmAndCountDetails vmAndCount = new VmAndCountDetails(vmId, VmIpFetchTrialMax.value());
-                            vmIdCountMap.put(nicId, vmAndCount);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     @Override
     public boolean stop() {
         _executor.shutdown();
         _vmIpFetchExecutor.shutdown();
+        vmExternalDhcpIpFetchService.stop();
         return true;
     }
 
@@ -1112,64 +1004,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     protected void updateVmStateForFailedVmCreation(Long vmId, Long hostId) {
         vmDeployStartService.updateVmStateForFailedVmCreation(vmId, hostId, deployStartManagerOperations());
     }
-
-
-
-    private class VmIpFetchTask extends ManagedContextRunnable {
-
-        @Override
-        protected void runInContext() {
-            GlobalLock scanLock = GlobalLock.getInternLock("vmIpFetch");
-            try {
-                if (scanLock.lock(ACQUIRE_GLOBAL_LOCK_TIMEOUT_FOR_COOPERATION)) {
-                    try {
-
-                        for (Entry<Long, VmAndCountDetails> entry:   vmIdCountMap.entrySet()) {
-                            long nicId = entry.getKey();
-                            VmAndCountDetails vmIdAndCount = entry.getValue();
-                            long vmId = vmIdAndCount.getVmId();
-
-                            if (vmIdAndCount.getRetrievalCount() <= 0) {
-                                vmIdCountMap.remove(nicId);
-                                logger.debug("Instance {} NIC {} count is zero .. removing Instance NIC from map ", vmId, nicId);
-
-                                ActionEventUtils.onActionEvent(User.UID_SYSTEM, Account.ACCOUNT_ID_SYSTEM,
-                                        Domain.ROOT_DOMAIN, EventTypes.EVENT_NETWORK_EXTERNAL_DHCP_VM_IPFETCH,
-                                        "Instance " + vmId + " NIC id "+ nicId + " IP addr fetch failed ", vmId, ApiCommandResourceType.VirtualMachine.toString());
-
-                                continue;
-                            }
-
-                            UserVm userVm = _vmDao.findById(vmId);
-                            VMInstanceVO vmInstance = _vmInstanceDao.findById(vmId);
-                            NicVO nicVo = _nicDao.findById(nicId);
-                            if (ObjectUtils.anyNull(userVm, vmInstance, nicVo)) {
-                                logger.warn("Couldn't fetch ip addr, Vm {} or nic {} doesn't exists", vmId, nicId);
-                                continue;
-                            }
-
-                            NetworkVO network = _networkDao.findById(nicVo.getNetworkId());
-                            VirtualMachineProfile vmProfile = new VirtualMachineProfileImpl(userVm);
-                            VirtualMachine vm = vmProfile.getVirtualMachine();
-                            boolean isWindows = _guestOSCategoryDao.findById(_guestOSDao.findById(vm.getGuestOSId()).getCategoryId()).getName().equalsIgnoreCase("Windows");
-
-                            _vmIpFetchThreadExecutor.execute(new VmIpAddrFetchThread(vmId, vmInstance.getUuid(), nicId, vmInstance.getInstanceName(),
-                                    isWindows, vm.getHostId(), network.getCidr(), nicVo.getMacAddress()));
-
-                        }
-                    } catch (Exception e) {
-                        logger.error("Caught the Exception in VmIpFetchTask", e);
-                    } finally {
-                        scanLock.unlock();
-                    }
-                }
-            } finally {
-                scanLock.releaseRef();
-            }
-
-        }
-    }
-
 
     private class ExpungeTask extends ManagedContextRunnable {
         public ExpungeTask() {
@@ -3357,8 +3191,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public ConfigKey<?>[] getConfigKeys() {
-        return new ConfigKey<?>[] {EnableDynamicallyScaleVm, AllowDiskOfferingChangeDuringScaleVm, AllowUserExpungeRecoverVm, VmIpFetchWaitInterval, VmIpFetchTrialMax,
-                VmIpFetchThreadPoolMax, VmIpFetchTaskWorkers, AllowDeployVmIfGivenHostFails, EnableAdditionalVmConfig, DisplayVMOVFProperties,
+        return new ConfigKey<?>[] {EnableDynamicallyScaleVm, AllowDiskOfferingChangeDuringScaleVm, AllowUserExpungeRecoverVm, VmExternalDhcpIpFetchService.VmIpFetchWaitInterval,
+                VmExternalDhcpIpFetchService.VmIpFetchTrialMax, VmExternalDhcpIpFetchService.VmIpFetchThreadPoolMax, VmExternalDhcpIpFetchService.VmIpFetchTaskWorkers,
+                AllowDeployVmIfGivenHostFails, EnableAdditionalVmConfig, DisplayVMOVFProperties,
                 KvmAdditionalConfigAllowList, XenServerAdditionalConfigAllowList, VmwareAdditionalConfigAllowList, DestroyRootVolumeOnVmDestruction,
                 EnforceStrictResourceLimitHostTagCheck, StrictHostTags, AllowUserForceStopVm, VmDistinctHostNameScope,
                 VmwareAdditionalDetailsFromOvaEnabled, VmwareAllowedAdditionalDetailsFromOva, AllowDifferentHostTagsOfferingsForVmScale};
