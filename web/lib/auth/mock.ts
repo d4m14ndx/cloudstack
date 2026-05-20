@@ -1,21 +1,7 @@
-/**
- * Mock auth for Phase 5a.
- * Phase 5b replaces this with Auth.js v5 + Authentik OIDC.
- *
- * Shape matches what the real session callback will return so the
- * call sites don't need to change in 5b.
- */
-export type Role = "USER" | "DOMAIN_ADMIN" | "ADMIN" | "ROOT";
+import type { CurrentUser, Role } from "@/lib/auth/types";
+import { roleMeetsRequirement } from "@/lib/auth/types";
 
-export type CurrentUser = {
-  id: string;
-  username: string;
-  email: string;
-  name: string;
-  role: Role;
-  domain: string;
-  domainId: string;
-};
+export type { CurrentUser, Role } from "@/lib/auth/types";
 
 export const mockUser: CurrentUser = {
   id: "mock-uuid-alex",
@@ -27,23 +13,25 @@ export const mockUser: CurrentUser = {
   domainId: "mock-uuid-domain-root",
 };
 
-/**
- * Phase 5a stub. Phase 5b: replace body with
- *   const session = await auth();
- *   return session?.user ?? null;
- */
-export function getCurrentUser(): CurrentUser {
+export function getMockCurrentUser(): CurrentUser {
   return mockUser;
 }
 
 /**
- * Phase 5a stub. Phase 5b: roles come from session callback after Authentik
- * group → CloudStack role mapping.
+ * Client-safe Phase 5a compatibility helper.
+ * Server code that needs the Auth.js session should import from
+ * "@/lib/auth/server"; client shell components keep using this mock bridge.
+ */
+export function getCurrentUser(): CurrentUser {
+  return getMockCurrentUser();
+}
+
+/**
+ * Client-safe Phase 5a compatibility helper.
+ * Server code that needs Auth.js-backed roles should import from
+ * "@/lib/auth/server".
  */
 export function hasRole(required: Role | Role[]): boolean {
   const user = getCurrentUser();
-  const set = Array.isArray(required) ? required : [required];
-  const order: Record<Role, number> = { USER: 0, DOMAIN_ADMIN: 1, ADMIN: 2, ROOT: 3 };
-  const userLevel = order[user.role];
-  return set.some((r) => userLevel >= order[r]);
+  return roleMeetsRequirement(user.role, required);
 }
