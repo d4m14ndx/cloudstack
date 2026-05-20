@@ -260,6 +260,7 @@ public class ApiConstants {
     public static final String FOR_VIRTUAL_NETWORK = "forvirtualnetwork";
     public static final String FOR_SYSTEM_VMS = "forsystemvms";
     public static final String FOR_PROVIDER = "forprovider";
+    public static final String FROM_CHECKPOINT_ID = "fromcheckpointid";
     public static final String FULL_PATH = "fullpath";
     public static final String GATEWAY = "gateway";
     public static final String IP6_GATEWAY = "ip6gateway";
@@ -332,6 +333,7 @@ public class ApiConstants {
     public static final String IS_2FA_VERIFIED = "is2faverified";
 
     public static final String IS_2FA_MANDATED = "is2famandated";
+    public static final String IS_ACTIVE = "isactive";
     public static final String IS_ASYNC = "isasync";
     public static final String IP_AVAILABLE = "ipavailable";
     public static final String IP_LIMIT = "iplimit";
@@ -606,6 +608,7 @@ public class ApiConstants {
     public static final String TIMEZONE = "timezone";
     public static final String TIMEZONEOFFSET = "timezoneoffset";
     public static final String TENANT_NAME = "tenantname";
+    public static final String TO_CHECKPOINT_ID = "tocheckpointid";
     public static final String TOTAL = "total";
     public static final String TOTAL_SUBNETS = "totalsubnets";
     public static final String TOTAL_QUOTA = "totalquota";
