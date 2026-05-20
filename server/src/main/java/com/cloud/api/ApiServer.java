@@ -108,6 +108,7 @@ import org.apache.cloudstack.api.response.CreateCmdResponse;
 import org.apache.cloudstack.api.response.ExceptionResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.LoginCmdResponse;
+import org.apache.cloudstack.api.response.UserSessionTokenResponse;
 import org.apache.cloudstack.config.ApiServiceConfiguration;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.framework.config.ConfigKey;
@@ -167,6 +168,7 @@ import com.cloud.domain.dao.DomainDao;
 import com.cloud.event.ActionEventUtils;
 import com.cloud.event.EventCategory;
 import com.cloud.event.EventTypes;
+import com.cloud.event.EventVO;
 import com.cloud.exception.AccountLimitException;
 import com.cloud.exception.CloudAuthenticationException;
 import com.cloud.exception.InsufficientCapacityException;
@@ -1190,7 +1192,14 @@ public class ApiServer extends ManagerBase implements HttpRequestHandler, ApiSer
     }
 
     private ResponseObject createLoginResponse(HttpSession session) {
-        LoginCmdResponse response = new LoginCmdResponse();
+        return createAuthenticationResponse(session, new LoginCmdResponse(), "loginresponse");
+    }
+
+    private ResponseObject createUserSessionTokenResponse(HttpSession session) {
+        return createAuthenticationResponse(session, new UserSessionTokenResponse(), "createusersessiontokenresponse");
+    }
+
+    private LoginCmdResponse createAuthenticationResponse(HttpSession session, LoginCmdResponse response, String responseName) {
         response.setTimeout(session.getMaxInactiveInterval());
 
         final String user_UUID = (String)session.getAttribute("user_UUID");
@@ -1256,7 +1265,7 @@ public class ApiServer extends ManagerBase implements HttpRequestHandler, ApiSer
                 }
             }
         }
-        response.setResponseName("loginresponse");
+        response.setResponseName(responseName);
         return response;
     }
 
@@ -1281,89 +1290,108 @@ public class ApiServer extends ManagerBase implements HttpRequestHandler, ApiSer
         }
 
         if (userAcct != null) {
-            final String timezone = userAcct.getTimezone();
-            float offsetInHrs = 0f;
-            if (timezone != null) {
-                final TimeZone t = TimeZone.getTimeZone(timezone);
-                logger.info("Current user logged in under {} timezone", timezone);
-
-                final java.util.Date date = new java.util.Date();
-                final long longDate = date.getTime();
-                final float offsetInMs = (t.getOffset(longDate));
-                offsetInHrs = offsetInMs / (1000 * 60 * 60);
-                logger.info("Timezone offset from UTC is: {}", offsetInHrs);
-            }
-
-            final Account account = accountMgr.getAccount(userAcct.getAccountId());
-
-            // set the userId and account object for everyone
-            session.setAttribute("userid", userAcct.getId());
-            final UserVO user = (UserVO)accountMgr.getActiveUser(userAcct.getId());
-            if (user.getUuid() != null) {
-                session.setAttribute("user_UUID", user.getUuid());
-            }
-
-            session.setAttribute("username", userAcct.getUsername());
-            session.setAttribute("firstname", userAcct.getFirstname());
-            session.setAttribute("lastname", userAcct.getLastname());
-            session.setAttribute("accountobj", account);
-            session.setAttribute("account", account.getAccountName());
-
-            session.setAttribute("domainid", account.getDomainId());
-            final DomainVO domain = (DomainVO)domainMgr.getDomain(account.getDomainId());
-            if (domain.getUuid() != null) {
-                session.setAttribute("domain_UUID", domain.getUuid());
-            }
-
-            session.setAttribute("type", account.getType().ordinal());
-            session.setAttribute("registrationtoken", userAcct.getRegistrationToken());
-            session.setAttribute("registered", Boolean.toString(userAcct.isRegistered()));
-
-            if (timezone != null) {
-                session.setAttribute("timezone", timezone);
-                session.setAttribute("timezoneoffset", Float.valueOf(offsetInHrs).toString());
-            }
-
-            userAcct = accountMgr.clearUserTwoFactorAuthenticationInSetupStateOnLogin(userAcct);
-            boolean is2faEnabled = false;
-            if (userAcct.isUser2faEnabled() || (Boolean.TRUE.equals(AccountManagerImpl.enableUserTwoFactorAuthentication.valueIn(userAcct.getDomainId())) && Boolean.TRUE.equals(AccountManagerImpl.mandateUserTwoFactorAuthentication.valueIn(userAcct.getDomainId())))) {
-                is2faEnabled = true;
-            }
-            String issuerFor2FA = AccountManagerImpl.userTwoFactorAuthenticationIssuer.valueIn(userAcct.getDomainId());
-            session.setAttribute(ApiConstants.IS_2FA_ENABLED, Boolean.toString(is2faEnabled));
-            if (!is2faEnabled) {
-                session.setAttribute(ApiConstants.IS_2FA_VERIFIED, true);
-            } else {
-                session.setAttribute(ApiConstants.IS_2FA_VERIFIED, false);
-            }
-            session.setAttribute(ApiConstants.PROVIDER_FOR_2FA, userAcct.getUser2faProvider());
-            session.setAttribute(ApiConstants.ISSUER_FOR_2FA, issuerFor2FA);
-
-            if (accountMgr.isRootAdmin(userAcct.getAccountId())) {
-                ManagementServerHostVO msHost = msHostDao.findByMsid(ManagementServerNode.getManagementServerId());
-                if (msHost != null && msHost.getUuid() != null) {
-                    session.setAttribute(ApiConstants.MANAGEMENT_SERVER_ID, msHost.getUuid());
-                }
-            }
-
-            // (bug 5483) generate a session key that the user must submit on every request to prevent CSRF, add that
-            // to the login response so that session-based authenticators know to send the key back
-            final SecureRandom sesssionKeyRandom = new SecureRandom();
-            final byte[] sessionKeyBytes = new byte[20];
-            sesssionKeyRandom.nextBytes(sessionKeyBytes);
-            final String sessionKey = Base64.encodeBase64URLSafeString(sessionKeyBytes);
-            session.setAttribute(ApiConstants.SESSIONKEY, sessionKey);
-
-            Map<String, String> userAccDetails = userAcct.getDetails();
-            if (MapUtils.isNotEmpty(userAccDetails)) {
-                String needPwdChangeStr = userAccDetails.get(UserDetailVO.PasswordChangeRequired);
-                if ("true".equalsIgnoreCase(needPwdChangeStr)) {
-                    session.setAttribute(PASSWORD_CHANGE_REQUIRED, true);
-                }
-            }
+            populateSessionAttributes(session, userAcct);
             return createLoginResponse(session);
         }
         throw new CloudAuthenticationException("Failed to authenticate user " + username + " in domain " + domainId + "; please provide valid credentials");
+    }
+
+    private void populateSessionAttributes(HttpSession session, UserAccount userAcct) {
+        final String timezone = userAcct.getTimezone();
+        float offsetInHrs = 0f;
+        if (timezone != null) {
+            final TimeZone t = TimeZone.getTimeZone(timezone);
+            logger.info("Current user logged in under {} timezone", timezone);
+
+            final java.util.Date date = new java.util.Date();
+            final long longDate = date.getTime();
+            final float offsetInMs = (t.getOffset(longDate));
+            offsetInHrs = offsetInMs / (1000 * 60 * 60);
+            logger.info("Timezone offset from UTC is: {}", offsetInHrs);
+        }
+
+        final Account account = accountMgr.getAccount(userAcct.getAccountId());
+
+        // set the userId and account object for everyone
+        session.setAttribute("userid", userAcct.getId());
+        final UserVO user = (UserVO)accountMgr.getActiveUser(userAcct.getId());
+        if (user.getUuid() != null) {
+            session.setAttribute("user_UUID", user.getUuid());
+        }
+
+        session.setAttribute("username", userAcct.getUsername());
+        session.setAttribute("firstname", userAcct.getFirstname());
+        session.setAttribute("lastname", userAcct.getLastname());
+        session.setAttribute("accountobj", account);
+        session.setAttribute("account", account.getAccountName());
+
+        session.setAttribute("domainid", account.getDomainId());
+        final DomainVO domain = (DomainVO)domainMgr.getDomain(account.getDomainId());
+        if (domain.getUuid() != null) {
+            session.setAttribute("domain_UUID", domain.getUuid());
+        }
+
+        session.setAttribute("type", account.getType().ordinal());
+        session.setAttribute("registrationtoken", userAcct.getRegistrationToken());
+        session.setAttribute("registered", Boolean.toString(userAcct.isRegistered()));
+
+        if (timezone != null) {
+            session.setAttribute("timezone", timezone);
+            session.setAttribute("timezoneoffset", Float.valueOf(offsetInHrs).toString());
+        }
+
+        userAcct = accountMgr.clearUserTwoFactorAuthenticationInSetupStateOnLogin(userAcct);
+        boolean is2faEnabled = false;
+        if (userAcct.isUser2faEnabled() || (Boolean.TRUE.equals(AccountManagerImpl.enableUserTwoFactorAuthentication.valueIn(userAcct.getDomainId())) && Boolean.TRUE.equals(AccountManagerImpl.mandateUserTwoFactorAuthentication.valueIn(userAcct.getDomainId())))) {
+            is2faEnabled = true;
+        }
+        String issuerFor2FA = AccountManagerImpl.userTwoFactorAuthenticationIssuer.valueIn(userAcct.getDomainId());
+        session.setAttribute(ApiConstants.IS_2FA_ENABLED, Boolean.toString(is2faEnabled));
+        if (!is2faEnabled) {
+            session.setAttribute(ApiConstants.IS_2FA_VERIFIED, true);
+        } else {
+            session.setAttribute(ApiConstants.IS_2FA_VERIFIED, false);
+        }
+        session.setAttribute(ApiConstants.PROVIDER_FOR_2FA, userAcct.getUser2faProvider());
+        session.setAttribute(ApiConstants.ISSUER_FOR_2FA, issuerFor2FA);
+
+        if (accountMgr.isRootAdmin(userAcct.getAccountId())) {
+            ManagementServerHostVO msHost = msHostDao.findByMsid(ManagementServerNode.getManagementServerId());
+            if (msHost != null && msHost.getUuid() != null) {
+                session.setAttribute(ApiConstants.MANAGEMENT_SERVER_ID, msHost.getUuid());
+            }
+        }
+
+        // (bug 5483) generate a session key that the user must submit on every request to prevent CSRF, add that
+        // to the login response so that session-based authenticators know to send the key back
+        final SecureRandom sesssionKeyRandom = new SecureRandom();
+        final byte[] sessionKeyBytes = new byte[20];
+        sesssionKeyRandom.nextBytes(sessionKeyBytes);
+        final String sessionKey = Base64.encodeBase64URLSafeString(sessionKeyBytes);
+        session.setAttribute(ApiConstants.SESSIONKEY, sessionKey);
+
+        Map<String, String> userAccDetails = userAcct.getDetails();
+        if (MapUtils.isNotEmpty(userAccDetails)) {
+            String needPwdChangeStr = userAccDetails.get(UserDetailVO.PasswordChangeRequired);
+            if ("true".equalsIgnoreCase(needPwdChangeStr)) {
+                session.setAttribute(PASSWORD_CHANGE_REQUIRED, true);
+            }
+        }
+    }
+
+    @Override
+    public ResponseObject createUserSessionToken(HttpSession session, UserAccount targetUser, InetAddress loginIpAddress,
+            Map<String, Object[]> requestParameters) throws CloudAuthenticationException {
+        if (targetUser == null || !verifyUser(targetUser.getId())) {
+            throw new CloudAuthenticationException("Target user is not active");
+        }
+
+        populateSessionAttributes(session, targetUser);
+        ActionEventUtils.onCompletedActionEvent(CallContext.current().getCallingUserId(), CallContext.current().getCallingAccountId(),
+                EventVO.LEVEL_INFO, EventTypes.EVENT_USER_IMPERSONATE,
+                String.format("Created user session token for user %s", targetUser.getUsername()),
+                targetUser.getId(), User.class.getName(), 0);
+        return createUserSessionTokenResponse(session);
     }
 
     @Override

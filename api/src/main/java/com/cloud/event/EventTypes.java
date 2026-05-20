@@ -282,6 +282,7 @@ public class EventTypes {
     // UserVO Events
     public static final String EVENT_USER_LOGIN = "USER.LOGIN";
     public static final String EVENT_USER_LOGOUT = "USER.LOGOUT";
+    public static final String EVENT_USER_IMPERSONATE = "USER.IMPERSONATE";
     public static final String EVENT_USER_CREATE = "USER.CREATE";
     public static final String EVENT_USER_DELETE = "USER.DELETE";
     public static final String EVENT_USER_DISABLE = "USER.DISABLE";

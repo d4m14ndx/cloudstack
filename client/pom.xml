@@ -198,6 +198,11 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
+            <artifactId>cloud-plugin-user-authenticator-bff-trusted-source</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-user-authenticator-oauth2</artifactId>
             <version>${project.version}</version>
         </dependency>

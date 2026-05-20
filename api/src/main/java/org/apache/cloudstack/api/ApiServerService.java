@@ -33,6 +33,9 @@ public interface ApiServerService {
     public ResponseObject loginUser(HttpSession session, String username, String password, Long domainId, String domainPath, InetAddress loginIpAddress,
             Map<String, Object[]> requestParameters) throws CloudAuthenticationException;
 
+    public ResponseObject createUserSessionToken(HttpSession session, UserAccount targetUser, InetAddress loginIpAddress,
+            Map<String, Object[]> requestParameters) throws CloudAuthenticationException;
+
     public void logoutUser(long userId);
 
     public boolean verifyUser(Long userId);

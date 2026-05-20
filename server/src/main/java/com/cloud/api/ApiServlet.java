@@ -88,6 +88,7 @@ public class ApiServlet extends HttpServlet {
     private static final HashSet<String> POST_REQUESTS_TO_DISABLE_LOGGING = new HashSet<>(Set.of(
             "login",
             "oauthlogin",
+            "createusersessiontoken",
             "createaccount",
             "createuser",
             "updateuser",
