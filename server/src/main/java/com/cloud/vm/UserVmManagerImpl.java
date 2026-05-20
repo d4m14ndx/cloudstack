@@ -2371,13 +2371,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentValidator.validateIfVmSupportsMigration(vm, vmId);
     }
 
-    /**
-     * Validates if the provided VM does not have any existing Port Forwarding, Load Balancer, Static Nat, and One to One Nat rules.
-     * If any rules exist, throws a {@link InvalidParameterValueException}.
-     * @param vm the VM to be checked for the rules.
-     * @param vmId the ID of the VM to be checked.
-     * @throws InvalidParameterValueException
-     */
     protected void validateIfVmHasNoRules(UserVmVO vm, Long vmId) throws InvalidParameterValueException {
         vmAssignmentValidator.validateIfVmHasNoRules(vm, vmId);
     }
@@ -2386,15 +2379,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentValidator.validateIfVolumesHaveNoSnapshots(volumes);
     }
 
-    /**
-     * Verifies if the CPU, RAM and volume size do not exceed the account and the primary storage limit.
-     * If any limit is exceeded, throws a {@link ResourceAllocationException}.
-     * @param account The account to check if CPU and RAM limit has been exceeded.
-     * @param vm The VM which can exceed resource limits.
-     * @param offering The service offering which can exceed resource limits.
-     * @param volumes The volumes whose total size can exceed resource limits.
-     * @throws ResourceAllocationException
-     */
     protected void verifyResourceLimitsForAccountAndStorage(Account account, UserVmVO vm, ServiceOfferingVO offering, List<VolumeVO> volumes, VirtualMachineTemplate template, List<Reserver> reservations)
             throws ResourceAllocationException {
 
@@ -2417,48 +2401,14 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentValidator.validateIfNewOwnerHasAccessToTemplate(vm, newAccount, template);
     }
 
-    /**
-     * This method will create an isolated network for the new account to allocate the virtual machine if:
-     * <ul>
-     * <li>no networks were specified to the command, AND</li>
-     * <li>the zone uses advanced networks without security groups, AND</li>
-     * <li>the VM does not belong to any shared or L2 network that the new owner can access, AND</li>
-     * <li>the new owner does not have any isolated networks</li>
-     * </ul>
-     * @return the created isolated network, or null if it was not created.
-     */
     protected Network ensureDestinationNetwork(AssignVMCmd cmd, UserVmVO vm, Account newAccount) throws InsufficientCapacityException, ResourceAllocationException {
         return vmAssignmentNetworkService.ensureDestinationNetwork(cmd, vm, newAccount);
     }
 
-    /**
-     * @return a network offering with required availability that will be used to create a new isolated network for the VM
-     * assignment process.
-     */
     protected NetworkOfferingVO getOfferingWithRequiredAvailabilityForNetworkCreation() {
         return vmAssignmentNetworkService.getOfferingWithRequiredAvailabilityForNetworkCreation();
     }
 
-    /**
-     * Executes all ownership steps necessary to assign a VM to another user:
-     * generating a destroy VM event ({@link EventTypes}),
-     * decrementing the old user resource count ({@link #resourceCountDecrement(long, Boolean, ServiceOffering, VirtualMachineTemplate)}),
-     * removing the VM from its instance group ({@link #removeInstanceFromInstanceGroup(long)}),
-     * updating the VM owner to the new account ({@link #updateVmOwner(Account, UserVmVO, Long, Long)}),
-     * updating the volumes to the new account ({@link #updateVolumesOwner(List, Account, Account, Long)}),
-     * updating the network for the VM ({@link #updateVmNetwork(AssignVMCmd, Account, UserVmVO, Account, VirtualMachineTemplate)}),
-     * incrementing the new user resource count ({@link #resourceCountIncrement(long, Boolean, ServiceOffering, VirtualMachineTemplate)}),
-     * and generating a create VM event ({@link EventTypes}).
-     * @param cmd The assignVMCmd.
-     * @param caller The account calling the assignVMCmd.
-     * @param oldAccount The old account from whom the VM will be moved.
-     * @param newAccount The new account to whom the VM will move.
-     * @param vm The VM to be moved between accounts.
-     * @param offering The service offering which will be used to decrement and increment resource counts.
-     * @param volumes The volumes of the VM which will be assigned to another user.
-     * @param template The template of the VM which will be assigned to another user.
-     * @param domainId The ID of the domain where the VM which will be assigned to another user is.
-     */
     protected void executeStepsToChangeOwnershipOfVm(AssignVMCmd cmd, Account caller, Account oldAccount, Account newAccount, UserVmVO vm, ServiceOfferingVO offering,
                                                      List<VolumeVO> volumes, VirtualMachineTemplate template, Long domainId) {
 
@@ -2504,35 +2454,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentOwnershipService.updateVolumesOwner(volumes, oldAccount, newAccount, newAccountId);
     }
 
-    /**
-     * Updates the network for a VM being assigned to a new account.
-     * If the network type for the zone is basic, calls
-     * {@link #updateBasicTypeNetworkForVm(UserVmVO, Account, VirtualMachineTemplate, VirtualMachineProfileImpl, DataCenterVO, List, List)}.
-     * If the network type for the zone is advanced, calls
-     * {@link #updateAdvancedTypeNetworkForVm(Account, UserVmVO, Account, VirtualMachineTemplate, VirtualMachineProfileImpl, DataCenterVO, List, List)}.
-     * @param cmd The assignVMCmd.
-     * @param caller The account calling the assignVMCmd.
-     * @param vm The VM to be assigned to another user, which has to have networks updated.
-     * @param newAccount The account to whom the VM will be assigned to.
-     * @param template The template of the VM which will be assigned to another account.
-     * @throws InsufficientCapacityException
-     * @throws ResourceAllocationException
-     */
     protected void updateVmNetwork(AssignVMCmd cmd, Account caller, UserVmVO vm, Account newAccount, VirtualMachineTemplate template)
             throws InsufficientCapacityException, ResourceAllocationException {
         vmAssignmentNetworkService.updateVmNetwork(cmd, caller, vm, newAccount, template);
     }
 
-    /**
-     * Validates if the old account exists, the new account exists and is not disabled, and they are different from each other.
-     * If any of the validations fail, throws a {@link InvalidParameterValueException}.
-     * @param oldAccount The old account which will be checked if exists, and if it is different from the new account.
-     * @param newAccount The new account which will be checked if exists, if it is different from the old account, and if it is not disabled.
-     * @param oldAccountId The ID of the old account to be checked.
-     * @param newAccountName The name of the new account to be checked.
-     * @param domainId The domain where to validate the conditions.
-     * @throws InvalidParameterValueException
-     */
     protected void validateOldAndNewAccounts(Account oldAccount, Account newAccount, Long oldAccountId, String newAccountName, Long domainId)
             throws InvalidParameterValueException {
         vmAssignmentValidator.validateOldAndNewAccounts(oldAccount, newAccount, oldAccountId, newAccountName, domainId);
@@ -2546,46 +2472,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return VirtualMachineManager.ResourceCountRunningVMsonly.value();
     }
 
-    /**
-     * Updates a basic type network by:
-     * cleaning up the old network ({@link #cleanupOfOldOwnerNicsForNetwork(VirtualMachineProfileImpl)}),
-     * allocating all networks ({@link #allocateNetworksForVm(UserVmVO, LinkedHashMap)}),
-     * and adding security groups to the VM ({@link #addSecurityGroupsToVm(Account, UserVmVO, VirtualMachineTemplate, List, Network)}).
-     * If the network has network IDs, throws a {@link InvalidParameterValueException}.
-     * @param vm The VM for which the networks are allocated.
-     * @param newAccount The new account to which the VM will be assigned to.
-     * @param template The template of the VM.
-     * @param vmOldProfile The VM profile.
-     * @param zone The zone where the network has to be allocated.
-     * @param networkIdList The list of network IDs provided to the assignVMCmd.
-     * @param securityGroupIdList The list of security groups provided to the assignVMCmd.
-     * @throws InsufficientCapacityException
-     */
     protected void updateBasicTypeNetworkForVm(UserVmVO vm, Account newAccount, VirtualMachineTemplate template, VirtualMachineProfileImpl vmOldProfile,
                                                DataCenterVO zone, List<Long> networkIdList, List<Long> securityGroupIdList) throws InsufficientCapacityException {
         vmAssignmentNetworkService.updateBasicTypeNetworkForVm(vm, newAccount, template, vmOldProfile, zone, networkIdList, securityGroupIdList);
     }
 
-    /**
-     * Updates an advanced type network by:
-     * adding NICs to the networks ({@link #addNicsToApplicableNetworksAndReturnDefaultNetwork(LinkedHashSet, Map, Map, LinkedHashMap)}),
-     * allocating - if security groups are enabled ({@link #allocateNetworksForVm(UserVmVO, LinkedHashMap)}) -
-     * or selecting applicable networks otherwise ({@link #selectApplicableNetworkToCreateVm(Account, DataCenterVO, Set)}),
-     * and adding security groups to the VM ({@link #addSecurityGroupsToVm(Account, UserVmVO, VirtualMachineTemplate, List, Network)}) - if enabled in the zone.
-     * If no applicable network is provided and the zone has security groups enabled, throws a {@link InvalidParameterValueException}.
-     * If security groups are not enabled, but security groups have been provided, throws a {@link InvalidParameterValueException}.
-     * @param caller The caller of the assignVMCmd.
-     * @param vm The VM for which the networks are allocated or selected.
-     * @param newAccount The new account to which the VM will be assigned to.
-     * @param template The template of the VM.
-     * @param vmOldProfile The VM profile.
-     * @param zone The zone where the network has to be allocated or selected.
-     * @param networkIdList The list of network IDs provided to the assignVMCmd.
-     * @param securityGroupIdList The list of security groups provided to the assignVMCmd.
-     * @throws InsufficientCapacityException
-     * @throws ResourceAllocationException
-     * @throws InvalidParameterValueException
-     */
     protected void updateAdvancedTypeNetworkForVm(Account caller, UserVmVO vm, Account newAccount, VirtualMachineTemplate template,
                                                   VirtualMachineProfileImpl vmOldProfile, DataCenterVO zone, List<Long> networkIdList, List<Long> securityGroupIdList)
             throws InsufficientCapacityException, ResourceAllocationException, InvalidParameterValueException {
@@ -2608,89 +2499,31 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentNetworkService.addSecurityGroupsToVm(newAccount, vm, template, securityGroupIdList, defaultNetwork);
     }
 
-    /**
-     * Adds all networks to the list of network IDs by:
-     * attempting to keep the shared network for the VM ({@link #keepOldSharedNetworkForVm(UserVmVO, Account, List, Set, Map, Map)}),
-     * adding any additional applicable networks to the VM ({@link #addAdditionalNetworksToVm(UserVmVO, Account, List, Set, Map, Map)}),
-     * @param vm The VM to add the networks to.
-     * @param newAccount The account to access the networks.
-     * @param networkIdList The network IDs which have to be added to the VM.
-     * @param applicableNetworks The applicable networks which have to be added to the VM.
-     * @param requestedIPv4ForNics All requested IPv4 for NICs.
-     * @param requestedIPv6ForNics All requested IPv6 for NICs.
-     */
     protected void addNetworksToNetworkIdList(UserVmVO vm, Account newAccount, List<Long> networkIdList, Set<NetworkVO> applicableNetworks,
                                               Map<Long, String> requestedIPv4ForNics, Map<Long, String> requestedIPv6ForNics) {
         vmAssignmentNetworkService.addNetworksToNetworkIdList(vm, newAccount, networkIdList, applicableNetworks, requestedIPv4ForNics, requestedIPv6ForNics);
     }
 
-    /**
-     * Adds NICs to the applicable networks. The first applicable network is considered the default network, and is associated to the default NIC.
-     * @param applicableNetworks The applicable networks which will be associated with NICs.
-     * @param requestedIPv4ForNics All requested IPv4 for NICs.
-     * @param requestedIPv6ForNics All requested IPv6 for NICs.
-     * @param networks The networks to which the networks and NICs have to be added.
-     * @return The default network, if it exists. Otherwise, returns null.
-     */
     @Nullable
     protected NetworkVO addNicsToApplicableNetworksAndReturnDefaultNetwork(LinkedHashSet<NetworkVO> applicableNetworks, Map<Long, String> requestedIPv4ForNics,
                                                                            Map<Long, String> requestedIPv6ForNics, LinkedHashMap<Network, List<? extends NicProfile>> networks) {
         return vmAssignmentNetworkService.addNicsToApplicableNetworksAndReturnDefaultNetwork(applicableNetworks, requestedIPv4ForNics, requestedIPv6ForNics, networks);
     }
 
-    /**
-     * Selects the default network as the applicable network to be used to create the VM. If none exists, creates a new one.
-     * If no network offerings are applicable, throws a {@link InvalidParameterValueException}.
-     * If the network offering applicable is not enabled, throws a {@link InvalidParameterValueException}.
-     * If more than one default isolated network is related to the account, throws a {@link InvalidParameterValueException}, since the ID of the network to be used has to be
-     * specified.
-     * @param newAccount The new account associated to the selected network.
-     * @param zone The zone where the network is selected.
-     * @param applicableNetworks The applicable networks to which the selected network has to be added to.
-     * @throws InsufficientCapacityException
-     * @throws ResourceAllocationException
-     */
     protected void selectApplicableNetworkToCreateVm(Account newAccount, DataCenterVO zone, Set<NetworkVO> applicableNetworks)
             throws InsufficientCapacityException, ResourceAllocationException {
         vmAssignmentNetworkService.selectApplicableNetworkToCreateVm(newAccount, zone, applicableNetworks);
     }
 
-    /**
-     * Adds the default security group to a security group ID list. If the default security group does not exist, creates a new one.
-     * @param newAccount The account to be checked for the security groups.
-     * @param securityGroupIdList The list of security group IDs.
-     */
     protected void addDefaultSecurityGroupToSecurityGroupIdList(Account newAccount, List<Long> securityGroupIdList) {
         vmAssignmentNetworkService.addDefaultSecurityGroupToSecurityGroupIdList(newAccount, securityGroupIdList);
     }
 
-    /**
-     * Attempts to keep the old shared network for the VM to be assigned to a new account by checking if:
-     * any old shared network exists,
-     * and the new account can use the old shared network.
-     * @param vm The VM to be associated to the network.
-     * @param newAccount The account which has to be able to access the old shared network.
-     * @param networkIdList The IDs of the networks to be checked for.
-     * @param applicableNetworks The applicable networks, which will contain the old shared network if applicable.
-     * @param requestedIPv4ForNics All requested IPv4 for NICs.
-     * @param requestedIPv6ForNics All requested IPv6 for NICs.
-     */
     protected void keepOldSharedNetworkForVm(UserVmVO vm, Account newAccount, List<Long> networkIdList, Set<NetworkVO> applicableNetworks, Map<Long, String> requestedIPv4ForNics,
                                              Map<Long, String> requestedIPv6ForNics) {
         vmAssignmentNetworkService.keepOldSharedNetworkForVm(vm, newAccount, networkIdList, applicableNetworks, requestedIPv4ForNics, requestedIPv6ForNics);
     }
 
-    /**
-     * Adds any additional networks used by the VM assigned to another user.
-     * If one of the networks does not exist, throws a {@link InvalidParameterValueException}.
-     * If any of the network offerings is system only, throws a {@link InvalidParameterValueException}.
-     * @param vm The VM to which the networks are associated to.
-     * @param newAccount The new account which will access the VM.
-     * @param networkIdList The list of network IDs to be checked if they can be added to the VM.
-     * @param applicableNetworks The list of applicable networks to be added to the VM.
-     * @param requestedIPv4ForNics All requested IPv4 for NICs.
-     * @param requestedIPv6ForNics All requested IPv6 for NICs.
-     */
     protected void addAdditionalNetworksToVm(UserVmVO vm, Account newAccount, List<Long> networkIdList, Set<NetworkVO> applicableNetworks, Map<Long, String> requestedIPv4ForNics,
                                              Map<Long, String> requestedIPv6ForNics) {
         vmAssignmentNetworkService.addAdditionalNetworksToVm(vm, newAccount, networkIdList, applicableNetworks, requestedIPv4ForNics, requestedIPv6ForNics);
@@ -2704,15 +2537,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         vmAssignmentOwnershipService.updateBackupScheduleOwnership(vm, newAccount);
     }
 
-    /**
-     * Attempts to create a network suitable for the creation of a VM ({@link NetworkOrchestrationService#createGuestNetwork}).
-     * If no physical network is found, throws a {@link InvalidParameterValueException}.
-     * @param newAccount The account to which the network will be created.
-     * @param zone The zone where the network will be created.
-     * @return The NetworkVO for the network created.
-     * @throws InsufficientCapacityException
-     * @throws ResourceAllocationException
-     */
     protected NetworkVO createApplicableNetworkToCreateVm(Account newAccount, DataCenterVO zone)
             throws InsufficientCapacityException, ResourceAllocationException {
         return vmAssignmentNetworkService.createApplicableNetworkToCreateVm(newAccount, zone);
