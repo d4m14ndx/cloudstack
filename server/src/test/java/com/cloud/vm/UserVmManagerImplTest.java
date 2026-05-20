@@ -529,6 +529,9 @@ public class UserVmManagerImplTest {
     @Mock
     VmUpdateOrchestrationService vmUpdateOrchestrationService;
 
+    @Mock
+    VmRuntimeLifecycleService vmRuntimeLifecycleService;
+
     private static final long vmId = 1l;
     private static final long zoneId = 2L;
     private static final long accountId = 3L;
@@ -793,6 +796,8 @@ public class UserVmManagerImplTest {
                 "vmLiveMigrationOrchestrationService", liveMigrationOrchestrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmUnmanageService", vmUnmanageService);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
+                "vmRuntimeLifecycleService", vmRuntimeLifecycleService);
 
         Mockito.lenient().when(updateVmCommand.getId()).thenReturn(vmId);
 
@@ -811,7 +816,7 @@ public class UserVmManagerImplTest {
         lenient().doNothing().when(resourceLimitMgr).incrementResourceCount(anyLong(), any(Resource.ResourceType.class));
         lenient().doNothing().when(resourceLimitMgr).decrementResourceCount(anyLong(), any(Resource.ResourceType.class), anyLong());
 
-        Mockito.when(virtualMachineProfile.getId()).thenReturn(vmId);
+        lenient().when(virtualMachineProfile.getId()).thenReturn(vmId);
     }
 
     @After
@@ -1512,17 +1517,15 @@ public class UserVmManagerImplTest {
     public void testUpdateVncPasswordIfItHasChanged() {
         String vncPassword = "12345678";
         userVmManagerImpl.updateVncPasswordIfItHasChanged(vncPassword, vncPassword, virtualMachineProfile);
-        Mockito.verify(userVmDao, Mockito.never()).update(vmId, userVmVoMock);
+        Mockito.verify(vmRuntimeLifecycleService).updateVncPasswordIfItHasChanged(vncPassword, vncPassword, virtualMachineProfile);
     }
 
     @Test
     public void testUpdateVncPasswordIfItHasChangedNewPassword() {
         String vncPassword = "12345678";
         String newPassword = "87654321";
-        Mockito.when(userVmVoMock.getId()).thenReturn(vmId);
         userVmManagerImpl.updateVncPasswordIfItHasChanged(vncPassword, newPassword, virtualMachineProfile);
-        Mockito.verify(userVmDao).findById(vmId);
-        Mockito.verify(userVmDao).update(vmId, userVmVoMock);
+        Mockito.verify(vmRuntimeLifecycleService).updateVncPasswordIfItHasChanged(vncPassword, newPassword, virtualMachineProfile);
     }
 
     @Test

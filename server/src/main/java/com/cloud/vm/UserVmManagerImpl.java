@@ -112,13 +112,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.GetVmIpAddressCommand;
-import com.cloud.agent.api.PvlanSetupCommand;
-import com.cloud.agent.api.RestoreVMSnapshotAnswer;
-import com.cloud.agent.api.RestoreVMSnapshotCommand;
-import com.cloud.agent.api.StartAnswer;
 import com.cloud.agent.api.VolumeStatsEntry;
-import com.cloud.agent.api.to.NicTO;
-import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.agent.api.to.deployasis.OVFPropertyTO;
 import com.cloud.agent.manager.Commands;
 import com.cloud.alert.AlertManager;
@@ -174,7 +168,6 @@ import com.cloud.network.Network;
 import com.cloud.network.NetworkService;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.IpAddresses;
-import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.Networks.TrafficType;
@@ -182,7 +175,6 @@ import com.cloud.network.PhysicalNetwork;
 import com.cloud.network.as.AutoScaleManager;
 import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
-import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.LoadBalancerVMMapDao;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
@@ -254,7 +246,6 @@ import com.cloud.user.ResourceLimitService;
 import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
 import com.cloud.user.UserVO;
-import com.cloud.user.VmDiskStatisticsVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.user.dao.SSHKeyPairDao;
 import com.cloud.user.dao.UserDao;
@@ -291,7 +282,6 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.vm.dao.VMInstanceDetailsDao;
 import com.cloud.vm.dao.VmStatsDao;
 import com.cloud.vm.snapshot.VMSnapshotManager;
-import com.cloud.vm.snapshot.VMSnapshotVO;
 import com.cloud.vm.snapshot.dao.VMSnapshotDao;
 
 
@@ -544,6 +534,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmDeviceBusInfoService vmDeviceBusInfoService;
     @Inject
+    private VmRuntimeLifecycleService vmRuntimeLifecycleService;
+    @Inject
     private VmStatsDao vmStatsDao;
     @Inject
     private DataCenterDao dataCenterDao;
@@ -611,7 +603,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private static final ConfigKey<Integer> VmIpFetchWaitInterval = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmip.retrieval.interval", "180",
             "Wait Interval (in seconds) for shared network vm dhcp ip addr fetch for next iteration ", true);
 
-    private static final ConfigKey<Integer> VmIpFetchTrialMax = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmip.max.retry", "10",
+    static final ConfigKey<Integer> VmIpFetchTrialMax = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmip.max.retry", "10",
             "The max number of retrieval times for shared network vm dhcp ip fetch, in case of failures", true);
 
     private static final ConfigKey<Integer> VmIpFetchThreadPoolMax = new ConfigKey<>("Advanced", Integer.class, "externaldhcp.vmipFetch.threadPool.max", "10",
@@ -659,7 +651,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-    public class VmAndCountDetails {
+    public static class VmAndCountDetails {
         long vmId;
         int  retrievalCount = VmIpFetchTrialMax.value();
 
@@ -2637,284 +2629,33 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 additonalParams, deploymentPlannerToUse, deployStartManagerOperations());
     }
 
-    private void addUserVMCmdlineArgs(Long vmId, VirtualMachineProfile profile, DeployDestination dest, StringBuilder buf) {
-        UserVmVO vm = _vmDao.findById(vmId);
-        buf.append(" template=domP");
-        buf.append(" name=").append(profile.getHostName());
-        buf.append(" type=").append(vm.getUserVmType());
-        for (NicProfile nic : profile.getNics()) {
-            int deviceId = nic.getDeviceId();
-            if (nic.getIPv4Address() == null) {
-                buf.append(" eth").append(deviceId).append("ip=").append("0.0.0.0");
-                buf.append(" eth").append(deviceId).append("mask=").append("0.0.0.0");
-            } else {
-                buf.append(" eth").append(deviceId).append("ip=").append(nic.getIPv4Address());
-                buf.append(" eth").append(deviceId).append("mask=").append(nic.getIPv4Netmask());
-            }
-
-            if (nic.isDefaultNic()) {
-                buf.append(" gateway=").append(nic.getIPv4Gateway());
-            }
-
-            if (nic.getTrafficType() == TrafficType.Management) {
-                String mgmt_cidr = _configDao.getValue(Config.ManagementNetwork.key());
-                if (NetUtils.isValidIp4Cidr(mgmt_cidr)) {
-                    buf.append(" mgmtcidr=").append(mgmt_cidr);
-                }
-                buf.append(" localgw=").append(dest.getPod().getGateway());
-            }
-        }
-        DataCenterVO dc = _dcDao.findById(profile.getVirtualMachine().getDataCenterId());
-        buf.append(" internaldns1=").append(dc.getInternalDns1());
-        if (dc.getInternalDns2() != null) {
-            buf.append(" internaldns2=").append(dc.getInternalDns2());
-        }
-        buf.append(" dns1=").append(dc.getDns1());
-        if (dc.getDns2() != null) {
-            buf.append(" dns2=").append(dc.getDns2());
-        }
-        logger.info("cmdline details: "+ buf.toString());
-    }
-
     @Override
     public boolean finalizeVirtualMachineProfile(VirtualMachineProfile profile, DeployDestination dest, ReservationContext context) {
-        UserVmVO vm = _vmDao.findById(profile.getId());
-        Map<String, String> details = vmInstanceDetailsDao.listDetailsKeyPairs(vm.getId());
-        vm.setDetails(details);
-        StringBuilder buf = profile.getBootArgsBuilder();
-        if (CKS_NODE.equals(vm.getUserVmType()) || SHAREDFSVM.equals(vm.getUserVmType())) {
-            addUserVMCmdlineArgs(vm.getId(), profile, dest, buf);
-        }
-        // add userdata info into vm profile
-        Nic defaultNic = _networkModel.getDefaultNic(vm.getId());
-        if (defaultNic != null) {
-            Network network = _networkModel.getNetwork(defaultNic.getNetworkId());
-            if (_networkModel.isSharedNetworkWithoutServices(network.getId())) {
-                final String serviceOffering = serviceOfferingDao.findByIdIncludingRemoved(vm.getId(), vm.getServiceOfferingId()).getDisplayText();
-                boolean isWindows = _guestOSCategoryDao.findById(_guestOSDao.findById(vm.getGuestOSId()).getCategoryId()).getName().equalsIgnoreCase("Windows");
-                String destHostname = VirtualMachineManager.getHypervisorHostname(dest.getHost() != null ? dest.getHost().getName() : "");
-                List<String[]> vmData = _networkModel.generateVmData(vm.getUserData(), vm.getUserDataDetails(), serviceOffering, vm.getDataCenterId(), vm.getInstanceName(), vm.getHostName(), vm.getId(),
-                        vm.getUuid(), defaultNic.getIPv4Address(), vm.getDetail(VmDetailConstants.SSH_PUBLIC_KEY), (String) profile.getParameter(VirtualMachineProfile.Param.VmPassword), isWindows, destHostname);
-                String vmName = vm.getInstanceName();
-                String configDriveIsoRootFolder = "/tmp";
-                String isoFile = configDriveIsoRootFolder + "/" + vmName + "/configDrive/" + vmName + ".iso";
-                profile.setVmData(vmData);
-                profile.setConfigDriveLabel(VirtualMachineManager.VmConfigDriveLabel.value());
-                profile.setConfigDriveIsoRootFolder(configDriveIsoRootFolder);
-                profile.setConfigDriveIsoFile(isoFile);
-            }
-        }
-
-        _templateMgr.prepareIsoForVmProfile(profile, dest);
-        return true;
+        return vmRuntimeLifecycleService.finalizeVirtualMachineProfile(profile, dest, context);
     }
 
     @Override
     public boolean setupVmForPvlan(boolean add, Long hostId, NicProfile nic) {
-        if (nic == null) {
-            logger.warn("Skipping PVLAN setup on host {} because NIC profile is null", hostId);
-            return false;
-        }
-
-        if (nic.getBroadCastUri() == null) {
-            logger.debug("Skipping PVLAN setup on host {} for NIC {} because broadcast URI is null", hostId, nic);
-            return false;
-        }
-
-        String scheme = nic.getBroadCastUri().getScheme();
-        if (!"pvlan".equalsIgnoreCase(scheme)) {
-            logger.debug("Skipping PVLAN setup on host {} for NIC {} because broadcast URI scheme is {}", hostId, nic, scheme);
-            return false;
-        }
-        String op = "add";
-        if (!add) {
-            // "delete" would remove all the rules(if using ovs) related to this vm
-            op = "delete";
-        }
-
-        Host host = _hostDao.findById(hostId);
-        if (host == null) {
-            logger.warn("Host with id {} does not exist", hostId);
-            return false;
-        }
-
-        Network network = _networkDao.findById(nic.getNetworkId());
-        String networkTag = _networkModel.getNetworkTag(host.getHypervisorType(), network);
-        PvlanSetupCommand cmd = PvlanSetupCommand.createVmSetup(op, nic.getBroadCastUri(), networkTag, nic.getMacAddress());
-        Answer answer;
-        try {
-            answer = _agentMgr.send(hostId, cmd);
-        } catch (OperationTimedoutException e) {
-            logger.warn("Timed Out", e);
-            return false;
-        } catch (AgentUnavailableException e) {
-            logger.warn("Agent Unavailable ", e);
-            return false;
-        }
-
-        boolean result = true;
-        if (answer == null || !answer.getResult()) {
-            result = false;
-        }
-        return result;
+        return vmRuntimeLifecycleService.setupVmForPvlan(add, hostId, nic);
     }
 
     @Override
     public boolean finalizeDeployment(Commands cmds, VirtualMachineProfile profile, DeployDestination dest, ReservationContext context) {
-        UserVmVO userVm = _vmDao.findById(profile.getId());
-        List<NicVO> nics = _nicDao.listByVmId(userVm.getId());
-        for (NicVO nic : nics) {
-            NetworkVO network = _networkDao.findById(nic.getNetworkId());
-            if (network.getTrafficType() == TrafficType.Guest || network.getTrafficType() == TrafficType.Public) {
-                userVm.setPrivateIpAddress(nic.getIPv4Address());
-                userVm.setPrivateMacAddress(nic.getMacAddress());
-                _vmDao.update(userVm.getId(), userVm);
-            }
-        }
-
-        List<VolumeVO> volumes = _volsDao.findByInstance(userVm.getId());
-        VmDiskStatisticsVO diskstats = null;
-        for (VolumeVO volume : volumes) {
-            diskstats = _vmDiskStatsDao.findBy(userVm.getAccountId(), userVm.getDataCenterId(), userVm.getId(), volume.getId());
-            if (diskstats == null) {
-                diskstats = new VmDiskStatisticsVO(userVm.getAccountId(), userVm.getDataCenterId(), userVm.getId(), volume.getId());
-                _vmDiskStatsDao.persist(diskstats);
-            }
-        }
-
-        finalizeCommandsOnStart(cmds, profile);
-        return true;
+        return vmRuntimeLifecycleService.finalizeDeployment(cmds, profile, dest, context);
     }
 
     @Override
     public boolean finalizeCommandsOnStart(Commands cmds, VirtualMachineProfile profile) {
-        UserVmVO vm = _vmDao.findById(profile.getId());
-        List<VMSnapshotVO> vmSnapshots = _vmSnapshotDao.findByVm(vm.getId());
-        RestoreVMSnapshotCommand command = _vmSnapshotMgr.createRestoreCommand(vm, vmSnapshots);
-        if (command != null) {
-            cmds.addCommand("restoreVMSnapshot", command);
-        }
-        return true;
+        return vmRuntimeLifecycleService.finalizeCommandsOnStart(cmds, profile);
     }
 
     @Override
     public boolean finalizeStart(VirtualMachineProfile profile, long hostId, Commands cmds, ReservationContext context) {
-        UserVmVO vm = _vmDao.findById(profile.getId());
-
-        Answer[] answersToCmds = cmds.getAnswers();
-        if (answersToCmds == null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Returning from finalizeStart() since there are no answers to read");
-            }
-            return true;
-        }
-        Answer startAnswer = cmds.getAnswer(StartAnswer.class);
-        String returnedIp = null;
-        String originalIp = null;
-        String originalVncPassword = profile.getVirtualMachine().getVncPassword();
-        String returnedVncPassword = null;
-        if (startAnswer != null) {
-            StartAnswer startAns = (StartAnswer)startAnswer;
-            VirtualMachineTO vmTO = startAns.getVirtualMachine();
-            for (NicTO nicTO : vmTO.getNics()) {
-                if (nicTO.getType() == TrafficType.Guest) {
-                    returnedIp = nicTO.getIp();
-                }
-            }
-            returnedVncPassword = vmTO.getVncPassword();
-        }
-
-        List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        NicVO guestNic = null;
-        NetworkVO guestNetwork = null;
-        for (NicVO nic : nics) {
-            NetworkVO network = _networkDao.findById(nic.getNetworkId());
-            long isDefault = (nic.isDefaultNic()) ? 1 : 0;
-            UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_ASSIGN, vm.getAccountId(), vm.getDataCenterId(), vm.getId(), Long.toString(nic.getId()),
-                    network.getNetworkOfferingId(), null, isDefault, VirtualMachine.class.getName(), vm.getUuid(), vm.isDisplay());
-            if (network.getTrafficType() == TrafficType.Guest) {
-                originalIp = nic.getIPv4Address();
-                guestNic = nic;
-                guestNetwork = network;
-                // In vmware, we will be effecting pvlan settings in portgroups in StartCommand.
-                if (profile.getHypervisorType() != HypervisorType.VMware) {
-                    if (nic.getBroadcastUri().getScheme().equals("pvlan")) {
-                        NicProfile nicProfile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), 0, false, "pvlan-nic");
-                        if (!setupVmForPvlan(true, hostId, nicProfile)) {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-        boolean ipChanged = false;
-        if (originalIp != null && !originalIp.equalsIgnoreCase(returnedIp)) {
-            if (returnedIp != null && guestNic != null) {
-                guestNic.setIPv4Address(returnedIp);
-                ipChanged = true;
-            }
-        }
-        if (returnedIp != null && !returnedIp.equalsIgnoreCase(originalIp)) {
-            if (guestNic != null) {
-                guestNic.setIPv4Address(returnedIp);
-                ipChanged = true;
-            }
-        }
-        if (ipChanged) {
-            _dcDao.findById(vm.getDataCenterId());
-            UserVmVO userVm = _vmDao.findById(profile.getId());
-            // dc.getDhcpProvider().equalsIgnoreCase(Provider.ExternalDhcpServer.getName())
-            if (_ntwkSrvcDao.canProviderSupportServiceInNetwork(guestNetwork.getId(), Service.Dhcp, Provider.ExternalDhcpServer)) {
-                _nicDao.update(guestNic.getId(), guestNic);
-                userVm.setPrivateIpAddress(guestNic.getIPv4Address());
-                _vmDao.update(userVm.getId(), userVm);
-
-                logger.info("Detected that ip changed in the answer, updated nic in the db with new ip " + returnedIp);
-            }
-        }
-
-        updateVncPasswordIfItHasChanged(originalVncPassword, returnedVncPassword, profile);
-
-        // get system ip and create static nat rule for the vm
-        try {
-            _rulesMgr.getSystemIpAndEnableStaticNatForVm(profile.getVirtualMachine(), false);
-        } catch (Exception ex) {
-            logger.warn("Failed to get system ip and enable static nat for the vm " + profile.getVirtualMachine() + " due to exception ", ex);
-            return false;
-        }
-
-        Answer answer = cmds.getAnswer("restoreVMSnapshot");
-        if (answer != null && answer instanceof RestoreVMSnapshotAnswer) {
-            RestoreVMSnapshotAnswer restoreVMSnapshotAnswer = (RestoreVMSnapshotAnswer) answer;
-            if (restoreVMSnapshotAnswer == null || !restoreVMSnapshotAnswer.getResult()) {
-                logger.warn("Unable to restore the Instance Snapshot from image file to the Instance: " + restoreVMSnapshotAnswer.getDetails());
-            }
-        }
-
-        final VirtualMachineProfile vmProfile = profile;
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(TransactionStatus status) {
-                final UserVmVO vm = _vmDao.findById(vmProfile.getId());
-                final List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-                for (NicVO nic : nics) {
-                    Network network = _networkModel.getNetwork(nic.getNetworkId());
-                    if (GuestType.L2.equals(network.getGuestType()) || _networkModel.isSharedNetworkWithoutServices(network.getId())) {
-                        vmIdCountMap.put(nic.getId(), new VmAndCountDetails(nic.getInstanceId(), VmIpFetchTrialMax.value()));
-                    }
-                }
-            }
-        });
-
-        return true;
+        return vmRuntimeLifecycleService.finalizeStart(profile, hostId, cmds, context, vmIdCountMap);
     }
 
     protected void updateVncPasswordIfItHasChanged(String originalVncPassword, String returnedVncPassword, VirtualMachineProfile profile) {
-        if (returnedVncPassword != null && !originalVncPassword.equals(returnedVncPassword)) {
-            UserVmVO userVm = _vmDao.findById(profile.getId());
-            userVm.setVncPassword(returnedVncPassword);
-            _vmDao.update(userVm.getId(), userVm);
-        }
+        vmRuntimeLifecycleService.updateVncPasswordIfItHasChanged(originalVncPassword, returnedVncPassword, profile);
     }
 
     @Override
@@ -2933,32 +2674,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public void finalizeStop(VirtualMachineProfile profile, Answer answer) {
-        VirtualMachine vm = profile.getVirtualMachine();
-        // release elastic IP here
-        IPAddressVO ip = _ipAddressDao.findByAssociatedVmId(profile.getId());
-        if (ip != null && ip.getSystem()) {
-            CallContext ctx = CallContext.current();
-            try {
-                long networkId = ip.getAssociatedWithNetworkId();
-                Network guestNetwork = _networkDao.findById(networkId);
-                NetworkOffering offering = _entityMgr.findById(NetworkOffering.class, guestNetwork.getNetworkOfferingId());
-                assert (offering.isAssociatePublicIP() == true) : "User VM should not have system owned public IP associated with it when offering configured not to associate public IP.";
-                _rulesMgr.disableStaticNat(ip.getId(), ctx.getCallingAccount(), ctx.getCallingUserId(), true);
-            } catch (Exception ex) {
-                logger.warn("Failed to disable static nat and release system ip " + ip + " as a part of vm " + profile.getVirtualMachine() + " stop due to exception ", ex);
-            }
-        }
-
-        final List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        for (final NicVO nic : nics) {
-            final NetworkVO network = _networkDao.findById(nic.getNetworkId());
-            if (network != null && network.getTrafficType() == TrafficType.Guest) {
-                if (nic.getBroadcastUri() != null && nic.getBroadcastUri().getScheme().equals("pvlan")) {
-                    NicProfile nicProfile = new NicProfile(nic, network, nic.getBroadcastUri(), nic.getIsolationUri(), 0, false, "pvlan-nic");
-                    setupVmForPvlan(false, vm.getHostId(), nicProfile);
-                }
-            }
-        }
+        vmRuntimeLifecycleService.finalizeStop(profile, answer);
     }
 
     @Override
