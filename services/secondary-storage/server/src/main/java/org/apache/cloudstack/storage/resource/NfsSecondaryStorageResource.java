@@ -25,12 +25,10 @@ import static com.cloud.network.NetworkModel.USERDATA_FILE;
 import static com.cloud.utils.storage.S3.S3Utils.putFile;
 import static java.util.Arrays.asList;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -101,7 +99,6 @@ import org.apache.logging.log4j.LogManager;
 import org.joda.time.DateTime;
 import org.joda.time.format.ISODateTimeFormat;
 
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CheckHealthAnswer;
 import com.cloud.agent.api.CheckHealthCommand;
@@ -130,9 +127,7 @@ import com.cloud.agent.api.storage.DeleteEntityDownloadURLCommand;
 import com.cloud.agent.api.storage.DownloadAnswer;
 import com.cloud.agent.api.storage.GetDatadisksAnswer;
 import com.cloud.agent.api.storage.GetDatadisksCommand;
-import com.cloud.agent.api.storage.ListTemplateAnswer;
 import com.cloud.agent.api.storage.ListTemplateCommand;
-import com.cloud.agent.api.storage.ListVolumeAnswer;
 import com.cloud.agent.api.storage.ListVolumeCommand;
 import com.cloud.agent.api.storage.OVFHelper;
 import com.cloud.agent.api.storage.UploadCommand;
@@ -257,6 +252,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final NfsSecondaryStoragePathService pathService = new NfsSecondaryStoragePathService();
     final NfsSnapshotZoneCopyService snapshotZoneCopyService = new NfsSnapshotZoneCopyService();
     final NfsSwiftTransferService swiftTransferService = new NfsSwiftTransferService(this);
+    final NfsDataStoreListingService dataStoreListingService = new NfsDataStoreListingService(this);
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
@@ -1141,16 +1137,8 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         return StringUtils.join(asList(TEMPLATE_ROOT_DIR, accountId, templateId, templateUniqueName), S3Utils.SEPARATOR);
     }
 
-    private String determineS3TemplateNameFromKey(String key) {
-        return StringUtils.substringAfterLast(StringUtils.substringBeforeLast(key, S3Utils.SEPARATOR), S3Utils.SEPARATOR);
-    }
-
     protected String determineS3VolumeDirectory(final Long accountId, final Long volId) {
         return StringUtils.join(asList(VOLUME_ROOT_DIR, accountId, volId), S3Utils.SEPARATOR);
-    }
-
-    protected Long determineS3VolumeIdFromKey(String key) {
-        return Long.parseLong(StringUtils.substringAfterLast(StringUtils.substringBeforeLast(key, S3Utils.SEPARATOR), S3Utils.SEPARATOR));
     }
 
     private String determineStorageTemplatePath(final String storagePath, String dataPath, String nfsVersion) {
@@ -1847,148 +1835,12 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         return deleteLocalFile(parent + checkpointPath);
     }
 
-    private Map<String, TemplateProp> swiftListTemplate(SwiftTO swift) {
-        String[] containers = SwiftUtil.list(swift, "", null);
-        if (containers == null) {
-            return null;
-        }
-        Map<String, TemplateProp> tmpltInfos = new HashMap<String, TemplateProp>();
-        for (String container : containers) {
-            if (container.startsWith("T-")) {
-                String[] files = SwiftUtil.list(swift, container, _tmpltpp);
-                if (files.length != 1) {
-                    continue;
-                }
-                try {
-                    File tempFile = File.createTempFile("template", ".tmp");
-                    File tmpFile = SwiftUtil.getObject(swift, tempFile, container + File.separator + _tmpltpp);
-                    if (tmpFile == null) {
-                        continue;
-                    }
-                    try (FileReader fr = new FileReader(tmpFile); BufferedReader brf = new BufferedReader(fr);) {
-                        String line = null;
-                        String uniqName = null;
-                        Long size = null;
-                        Long physicalSize = null;
-                        String name = null;
-                        while ((line = brf.readLine()) != null) {
-                            if (line.startsWith("uniquename=")) {
-                                uniqName = line.split("=")[1];
-                            } else if (line.startsWith("size=")) {
-                                physicalSize = Long.parseLong(line.split("=")[1]);
-                            } else if (line.startsWith("virtualsize=")) {
-                                size = Long.parseLong(line.split("=")[1]);
-                            } else if (line.startsWith("filename=")) {
-                                name = line.split("=")[1];
-                            }
-                        }
-
-                        //fallback
-                        if (size == null) {
-                            size = physicalSize;
-                        }
-
-                        tempFile.delete();
-                        if (uniqName != null) {
-                            TemplateProp prop = new TemplateProp(uniqName, container + File.separator + name, size, physicalSize, true, false);
-                            tmpltInfos.put(uniqName, prop);
-                        }
-                    } catch (IOException ex) {
-                        logger.debug("swiftListTemplate:Exception:" + ex.getMessage());
-                        continue;
-                    }
-                } catch (IOException e) {
-                    logger.debug("Failed to create templ file:" + e.toString());
-                    continue;
-                } catch (Exception e) {
-                    logger.debug("Failed to get properties: " + e.toString());
-                    continue;
-                }
-            }
-        }
-        return tmpltInfos;
-    }
-
-    Map<String, TemplateProp> s3ListTemplate(S3TO s3) {
-        String bucket = s3.getBucketName();
-        // List the objects in the source directory on S3
-        final List<S3ObjectSummary> objectSummaries = S3Utils.listDirectory(s3, bucket, TEMPLATE_ROOT_DIR);
-        if (objectSummaries == null) {
-            return null;
-        }
-        Map<String, TemplateProp> tmpltInfos = new HashMap<String, TemplateProp>();
-        for (S3ObjectSummary objectSummary : objectSummaries) {
-            String key = objectSummary.getKey();
-            String uniqueName = determineS3TemplateNameFromKey(key);
-            // TODO: isPublic value, where to get?
-            TemplateProp tInfo = new TemplateProp(uniqueName, key, objectSummary.getSize(), objectSummary.getSize(), true, false);
-            tmpltInfos.put(uniqueName, tInfo);
-        }
-        return tmpltInfos;
-
-    }
-
-    Map<Long, TemplateProp> s3ListVolume(S3TO s3) {
-        String bucket = s3.getBucketName();
-        // List the objects in the source directory on S3
-        final List<S3ObjectSummary> objectSummaries = S3Utils.listDirectory(s3, bucket, VOLUME_ROOT_DIR);
-        if (objectSummaries == null) {
-            return null;
-        }
-        Map<Long, TemplateProp> tmpltInfos = new HashMap<Long, TemplateProp>();
-        for (S3ObjectSummary objectSummary : objectSummaries) {
-            String key = objectSummary.getKey();
-            Long id = determineS3VolumeIdFromKey(key);
-            // TODO: how to get volume template name
-            TemplateProp tInfo = new TemplateProp(id.toString(), key, objectSummary.getSize(), objectSummary.getSize(), true, false);
-            tmpltInfos.put(id, tInfo);
-        }
-        return tmpltInfos;
-
-    }
-
     private Answer execute(ListTemplateCommand cmd) {
-        if (!_inSystemVM) {
-            return new ListTemplateAnswer(null, null);
-        }
-
-        DataStoreTO store = cmd.getDataStore();
-        if (store instanceof NfsTO) {
-            NfsTO nfs = (NfsTO)store;
-            String secUrl = nfs.getUrl();
-            String root = getRootDir(secUrl, cmd.getNfsVersion());
-            Map<String, TemplateProp> templateInfos = _dlMgr.gatherTemplateInfo(root);
-            return new ListTemplateAnswer(secUrl, templateInfos);
-        } else if (store instanceof SwiftTO) {
-            SwiftTO swift = (SwiftTO)store;
-            Map<String, TemplateProp> templateInfos = swiftListTemplate(swift);
-            return new ListTemplateAnswer(swift.toString(), templateInfos);
-        } else if (store instanceof S3TO) {
-            S3TO s3 = (S3TO)store;
-            Map<String, TemplateProp> templateInfos = s3ListTemplate(s3);
-            return new ListTemplateAnswer(s3.getBucketName(), templateInfos);
-        } else {
-            return new Answer(cmd, false, "Unsupported image data store: " + store);
-        }
+        return dataStoreListingService.execute(cmd);
     }
 
     private Answer execute(ListVolumeCommand cmd) {
-        if (!_inSystemVM) {
-            return new ListVolumeAnswer(cmd.getSecUrl(), null);
-        }
-        DataStoreTO store = cmd.getDataStore();
-        if (store instanceof NfsTO) {
-            String root = getRootDir(cmd.getSecUrl(), _nfsVersion);
-            Map<Long, TemplateProp> templateInfos = _dlMgr.gatherVolumeInfo(root);
-            return new ListVolumeAnswer(cmd.getSecUrl(), templateInfos);
-        } else if (store instanceof S3TO) {
-            S3TO s3 = (S3TO)store;
-            Map<Long, TemplateProp> templateInfos = s3ListVolume(s3);
-            return new ListVolumeAnswer(s3.getBucketName(), templateInfos);
-        } else {
-            return new Answer(cmd, false, "Unsupported image data store: " + store);
-        }
-
+        return dataStoreListingService.execute(cmd);
     }
 
     private Answer execute(SecStorageVMSetupCommand cmd) {
