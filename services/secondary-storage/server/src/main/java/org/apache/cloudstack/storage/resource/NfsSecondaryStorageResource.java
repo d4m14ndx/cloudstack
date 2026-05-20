@@ -82,7 +82,6 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
@@ -93,8 +92,6 @@ import org.apache.http.client.utils.URLEncodedUtils;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
-import org.joda.time.DateTime;
-import org.joda.time.format.ISODateTimeFormat;
 
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CheckHealthAnswer;
@@ -250,6 +247,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final NfsDataStoreListingService dataStoreListingService = new NfsDataStoreListingService(this);
     final NfsImageMetadataService imageMetadataService = new NfsImageMetadataService();
     final NfsPostUploadService postUploadService = new NfsPostUploadService();
+    final NfsPostUploadRequestValidationService postUploadRequestValidationService = new NfsPostUploadRequestValidationService();
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private String _ssvmPSK = null;
@@ -2965,67 +2963,8 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
     public void validatePostUploadRequest(String signature, String metadata, String timeout, String hostname, long contentLength, String uuid)
             throws InvalidParameterValueException {
-        // check none of the params are empty
-        if (StringUtils.isAnyEmpty(signature, metadata, timeout)) {
-            updateStateMapWithError(uuid, "signature, metadata and expires are compulsory fields.");
-            throw new InvalidParameterValueException("signature, metadata and expires are compulsory fields.");
-        }
-
-        //check that contentLength exists and is greater than zero
-        if (contentLength <= 0) {
-            throw new InvalidParameterValueException("content length is not set in the request or has invalid value.");
-        }
-
-        validatePostUploadRequestSignature(signature, hostname, uuid, metadata, timeout);
-
-        //validate timeout
-        DateTime timeoutDateTime = DateTime.parse(timeout, ISODateTimeFormat.dateTime());
-        if (timeoutDateTime.isBeforeNow()) {
-            updateStateMapWithError(uuid, "request not valid anymore.");
-            throw new InvalidParameterValueException("request not valid anymore.");
-        }
-    }
-
-    /**
-     * Validates whether the provided signature matches the signature generated from the other parameters;
-     * throws an InvalidParameterValueException if it does not.
-     */
-    protected void validatePostUploadRequestSignature(String signature, String hostname, String uuid, String metadata, String timeout) {
-        logger.trace(String.format("Validating signature [%s] for post upload request [%s].", signature, uuid));
-        String protocol = getUploadProtocol();
-        String fullUrl = String.format("%s://%s/upload/%s", protocol, hostname, uuid);
-        String data = String.format("%s%s%s", metadata, fullUrl, timeout);
-
-        String computedSignature = EncryptionUtil.generateSignature(data, getPostUploadPSK());
-        logger.debug(String.format("Computed signature for post upload request [%s] is [%s].", uuid, computedSignature));
-
-        boolean isSignatureValid = computedSignature.equals(signature);
-        if (!isSignatureValid) {
-            logger.debug(String.format("Signature for post upload request [%s] is invalid.", uuid));
-            String errorMsg = "signature validation failed.";
-            updateStateMapWithError(uuid, errorMsg);
-            throw new InvalidParameterValueException(errorMsg);
-        }
-        logger.debug(String.format("Signature for post upload request [%s] is valid.", uuid));
-    }
-
-    /**
-     * Returns the protocol used for uploads as a string.
-     */
-    protected String getUploadProtocol() {
-        if (useHttpsToUpload()) {
-            logger.debug(String.format("Param [%s] is set to true; therefore, HTTPS is being used.", USE_HTTPS_TO_UPLOAD));
-            return NetUtils.HTTPS_PROTO;
-        }
-        logger.debug(String.format("Param [%s] is set to false; therefore, HTTP is being used.", USE_HTTPS_TO_UPLOAD));
-        return NetUtils.HTTP_PROTO;
-    }
-
-    /**
-     * Retrieves the value of "useHttpsToUpload" from the params as a boolean
-     */
-    protected boolean useHttpsToUpload() {
-        return BooleanUtils.toBoolean((String) _params.get(USE_HTTPS_TO_UPLOAD));
+        postUploadRequestValidationService.validatePostUploadRequest(signature, metadata, timeout, hostname, contentLength, uuid,
+                (String)_params.get(USE_HTTPS_TO_UPLOAD), getPostUploadPSK(), postUploadService);
     }
 
     private TemplateOrVolumePostUploadCommand getTemplateOrVolumePostUploadCmd(String metadata) {
