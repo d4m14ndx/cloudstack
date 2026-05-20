@@ -50,8 +50,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import javax.naming.ConfigurationException;
 
@@ -258,6 +256,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     private final List<String> nfsIps = new ArrayList<>();
     protected String _parent = "/mnt/SecStorage";
     final NfsSecondaryStoragePathService pathService = new NfsSecondaryStoragePathService();
+    final NfsSnapshotZoneCopyService snapshotZoneCopyService = new NfsSnapshotZoneCopyService();
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
@@ -3667,28 +3666,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         SnapshotObjectTO snapshot = cmd.getSnapshot();
         String parentPath = getRootDir(snapshot.getDataStore().getUrl(), _nfsVersion);
         String path = snapshot.getPath();
-        File snapFile = new File(parentPath + File.separator + path);
-        if (snapFile.exists() && !snapFile.isDirectory()) {
-            return new QuerySnapshotZoneCopyAnswer(cmd, List.of(path));
-        }
-        int index = path.lastIndexOf(File.separator);
-        String snapDir = path.substring(0, index);
-        List<String> files = new ArrayList<>();
-        try (Stream<Path> stream = Files.list(Paths.get(parentPath + File.separator + snapDir))) {
-            List<String> fileNames = stream
-                    .filter(file -> !Files.isDirectory(file))
-                    .map(Path::getFileName)
-                    .map(Path::toString)
-                    .collect(Collectors.toList());
-            for (String file : fileNames) {
-                file = snapDir + "/" + file;
-                logger.debug(String.format("Found snapshot file %s", file));
-                files.add(file);
-            }
-        } catch (IOException ioe) {
-            logger.error("Error preparing file list for snapshot copy", ioe);
-        }
-        return new QuerySnapshotZoneCopyAnswer(cmd, files);
+        return new QuerySnapshotZoneCopyAnswer(cmd, snapshotZoneCopyService.listSnapshotFiles(parentPath, path));
     }
 
 }
