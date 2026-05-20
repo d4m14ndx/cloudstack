@@ -46,7 +46,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import javax.naming.ConfigurationException;
 
@@ -63,7 +62,6 @@ import org.apache.cloudstack.storage.command.QuerySnapshotZoneCopyAnswer;
 import org.apache.cloudstack.storage.command.QuerySnapshotZoneCopyCommand;
 import org.apache.cloudstack.storage.command.TemplateOrVolumePostUploadCommand;
 import org.apache.cloudstack.storage.command.UploadStatusAnswer;
-import org.apache.cloudstack.storage.command.UploadStatusAnswer.UploadStatus;
 import org.apache.cloudstack.storage.command.UploadStatusCommand;
 import org.apache.cloudstack.storage.command.browser.ListDataStoreObjectsCommand;
 import org.apache.cloudstack.storage.configdrive.ConfigDrive;
@@ -251,10 +249,9 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final NfsS3TransferService s3TransferService = new NfsS3TransferService(this);
     final NfsDataStoreListingService dataStoreListingService = new NfsDataStoreListingService(this);
     final NfsImageMetadataService imageMetadataService = new NfsImageMetadataService();
+    final NfsPostUploadService postUploadService = new NfsPostUploadService();
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
-    private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
-    private final Map<String, Channel> uploadChannelMap = new ConcurrentHashMap<>();
     private String _ssvmPSK = null;
     private long processTimeout;
 
@@ -1775,47 +1772,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     private UploadStatusAnswer execute(UploadStatusCommand cmd) {
-        String entityUuid = cmd.getEntityUuid();
-        if (uploadEntityStateMap.containsKey(entityUuid)) {
-            UploadEntity uploadEntity = uploadEntityStateMap.get(entityUuid);
-            if (Boolean.TRUE.equals(cmd.getAbort())) {
-                updateStateMapWithError(entityUuid, "Upload Entity aborted");
-                String errorMsg = uploadEntity.getErrorMessage();
-                if (errorMsg == null) {
-                    errorMsg = "Upload aborted by management server";
-                }
-                Channel channel = uploadChannelMap.remove(entityUuid);
-                if (channel != null && channel.isActive()) {
-                    logger.info("Closing upload channel for entity {}", entityUuid);
-                    channel.close();
-                }
-                uploadEntityStateMap.remove(entityUuid);
-                return new UploadStatusAnswer(cmd, UploadStatus.ERROR, errorMsg);
-            }
-            if (uploadEntity.getUploadState() == UploadEntity.Status.ERROR) {
-                uploadEntityStateMap.remove(entityUuid);
-                return new UploadStatusAnswer(cmd, UploadStatus.ERROR, uploadEntity.getErrorMessage());
-            } else if (uploadEntity.getUploadState() == UploadEntity.Status.COMPLETED) {
-                UploadStatusAnswer answer = new UploadStatusAnswer(cmd, UploadStatus.COMPLETED);
-                answer.setVirtualSize(uploadEntity.getVirtualSize());
-                answer.setInstallPath(uploadEntity.getTmpltPath());
-                answer.setPhysicalSize(uploadEntity.getPhysicalSize());
-                answer.setDownloadPercent(100);
-                if (uploadEntity.getOvfInformationTO() != null) {
-                    answer.setOvfInformationTO(uploadEntity.getOvfInformationTO());
-                }
-                uploadEntityStateMap.remove(entityUuid);
-                return answer;
-            } else if (uploadEntity.getUploadState() == UploadEntity.Status.IN_PROGRESS) {
-                UploadStatusAnswer answer = new UploadStatusAnswer(cmd, UploadStatus.IN_PROGRESS);
-                long downloadedSize = FileUtils.sizeOfDirectory(new File(uploadEntity.getInstallPathPrefix()));
-                int downloadPercent = (int)(100 * downloadedSize / uploadEntity.getContentLength());
-                answer.setPhysicalSize(downloadedSize);
-                answer.setDownloadPercent(Math.min(downloadPercent, 100));
-                return answer;
-            }
-        }
-        return new UploadStatusAnswer(cmd, UploadStatus.UNKNOWN);
+        return postUploadService.execute(cmd);
     }
 
     protected GetStorageStatsAnswer execute(final GetStorageStatsCommand cmd) {
@@ -2736,7 +2693,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             uuid = cmd.getEntityUUID();
             processTimeout = cmd.getProcessTimeout();
             if (isOneTimePostUrlUsed(cmd)) {
-                uploadEntity = uploadEntityStateMap.get(uuid);
+                uploadEntity = postUploadService.getUploadEntity(uuid);
                 StringBuilder errorMessage = new StringBuilder("The one time post url is already used");
                 if (uploadEntity != null) {
                     errorMessage.append(" and the upload is in ").append(uploadEntity.getUploadState()).append(" state.");
@@ -2772,7 +2729,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
                 if (!_storage.exists(installPathPrefix)) {
                     _storage.mkdir(installPathPrefix);
                 }
-                uploadEntityStateMap.put(uuid, uploadEntity);
+                postUploadService.putUploadEntity(uuid, uploadEntity);
             } catch (Exception e) {
                 //upload entity will be null incase an exception occurs and the handler will not proceed.
                 logger.error("exception occurred while creating upload entity ", e);
@@ -2831,7 +2788,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     private boolean isOneTimePostUrlUsed(TemplateOrVolumePostUploadCommand cmd) {
         String uuid = cmd.getEntityUUID();
         String uploadPath = this.getRootDir(cmd.getDataTo(), cmd.getNfsVersion()) + File.separator + cmd.getAbsolutePath();
-        return uploadEntityStateMap.containsKey(uuid) || new File(uploadPath).exists();
+        return postUploadService.hasUploadEntity(uuid) || new File(uploadPath).exists();
     }
 
     private int getSizeInGB(long sizeInBytes) {
@@ -2839,7 +2796,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     public String postUpload(String uuid, String filename, long processTimeout) {
-        UploadEntity uploadEntity = uploadEntityStateMap.get(uuid);
+        UploadEntity uploadEntity = postUploadService.getUploadEntity(uuid);
         if (uploadEntity == null) {
             logger.warn("Upload entity not found for uuid: {}. Upload may have been aborted.", uuid);
             return "Upload entity not found. Upload may have been aborted.";
@@ -2979,7 +2936,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             loc.purge();
         }
         uploadEntity.setStatus(UploadEntity.Status.COMPLETED);
-        uploadEntityStateMap.put(uploadEntity.getUuid(), uploadEntity);
+        postUploadService.putUploadEntity(uploadEntity.getUuid(), uploadEntity);
         return null;
     }
 
@@ -2995,25 +2952,15 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     public void registerUploadChannel(String uuid, Channel channel) {
-        uploadChannelMap.put(uuid, channel);
+        postUploadService.registerUploadChannel(uuid, channel);
     }
 
     public void deregisterUploadChannel(String uuid) {
-        if (uuid != null) {
-            uploadChannelMap.remove(uuid);
-        }
+        postUploadService.deregisterUploadChannel(uuid);
     }
 
     public void updateStateMapWithError(String uuid, String errorMessage) {
-        UploadEntity uploadEntity = null;
-        if (uploadEntityStateMap.get(uuid) != null) {
-            uploadEntity = uploadEntityStateMap.get(uuid);
-        } else {
-            uploadEntity = new UploadEntity();
-        }
-        uploadEntity.setStatus(UploadEntity.Status.ERROR);
-        uploadEntity.setErrorMessage(errorMessage);
-        uploadEntityStateMap.put(uuid, uploadEntity);
+        postUploadService.updateStateMapWithError(uuid, errorMessage);
     }
 
     public void validatePostUploadRequest(String signature, String metadata, String timeout, String hostname, long contentLength, String uuid)
