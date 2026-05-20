@@ -120,7 +120,6 @@ import com.cloud.api.query.dao.ServiceOfferingJoinDao;
 import com.cloud.api.query.vo.ServiceOfferingJoinVO;
 import com.cloud.configuration.Config;
 import com.cloud.configuration.ConfigurationManager;
-import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenter.NetworkType;
 import com.cloud.dc.DataCenterVO;
@@ -201,7 +200,6 @@ import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
 import com.cloud.org.Cluster;
 import com.cloud.org.Grouping;
-import com.cloud.resourcelimit.CheckedReservation;
 import com.cloud.resourcelimit.ReservationHelper;
 import com.cloud.server.ManagementService;
 import com.cloud.server.ResourceTag;
@@ -535,6 +533,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     private VmDeviceBusInfoService vmDeviceBusInfoService;
     @Inject
     private VmRuntimeLifecycleService vmRuntimeLifecycleService;
+    @Inject
+    private VmCreationResourceReservationService vmCreationResourceReservationService;
     @Inject
     private VmStatsDao vmStatsDao;
     @Inject
@@ -1846,61 +1846,17 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         Map<String, String> userVmOVFPropertiesMap, boolean dynamicScalingEnabled, String vmType, VMTemplateVO template,
         HypervisorType hypervisorType, long accountId, ServiceOfferingVO offering, boolean isIso,
         Long rootDiskOfferingId, long volumesSize, Volume volume, Snapshot snapshot) throws ResourceAllocationException {
-        if (!VirtualMachineManager.ResourceCountRunningVMsonly.value()) {
-            List<String> resourceLimitHostTags = resourceLimitService.getResourceLimitHostTags(offering, template);
-            try (CheckedReservation vmReservation = new CheckedReservation(owner, ResourceType.user_vm, resourceLimitHostTags, 1l, reservationDao, resourceLimitService);
-                 CheckedReservation cpuReservation = new CheckedReservation(owner, ResourceType.cpu, resourceLimitHostTags, Long.valueOf(offering.getCpu()), reservationDao, resourceLimitService);
-                 CheckedReservation memReservation = new CheckedReservation(owner, ResourceType.memory, resourceLimitHostTags, Long.valueOf(offering.getRamSize()), reservationDao, resourceLimitService);
-                 CheckedReservation gpuReservation = offering.getGpuCount() != null && offering.getGpuCount() > 0 ?
-                         new CheckedReservation(owner, ResourceType.gpu, resourceLimitHostTags, Long.valueOf(offering.getGpuCount()), reservationDao, resourceLimitService) : null;
-            ) {
-                return getUncheckedUserVmResource(zone, hostName, displayName, owner, diskOfferingId, diskSize, dataDiskInfoList, networkList, securityGroupIdList, group, httpmethod, userData, userDataId, userDataDetails, sshKeyPairs, caller, requestedIps, defaultIps, isDisplayVm, keyboard, affinityGroupIdList, customParameters, customId, dhcpOptionMap, datadiskTemplateToDiskOfferringMap, userVmOVFPropertiesMap, dynamicScalingEnabled, vmType, template, hypervisorType, accountId, offering, isIso, rootDiskOfferingId, volumesSize, volume, snapshot);
-            } catch (ResourceAllocationException | CloudRuntimeException  e) {
-                throw e;
-            } catch (Exception e) {
-                logger.error("error during resource reservation and allocation", e);
-                throw new CloudRuntimeException(e);
-            }
-
-        } else {
-            return getUncheckedUserVmResource(zone, hostName, displayName, owner, diskOfferingId, diskSize, dataDiskInfoList, networkList, securityGroupIdList, group, httpmethod, userData, userDataId, userDataDetails, sshKeyPairs, caller, requestedIps, defaultIps, isDisplayVm, keyboard, affinityGroupIdList, customParameters, customId, dhcpOptionMap, datadiskTemplateToDiskOfferringMap, userVmOVFPropertiesMap, dynamicScalingEnabled, vmType, template, hypervisorType, accountId, offering, isIso, rootDiskOfferingId, volumesSize, volume, snapshot);
-        }
+        return vmCreationResourceReservationService.reserveComputeResources(owner, offering, template,
+                () -> getUncheckedUserVmResource(zone, hostName, displayName, owner, diskOfferingId, diskSize, dataDiskInfoList, networkList, securityGroupIdList, group, httpmethod, userData, userDataId, userDataDetails, sshKeyPairs, caller, requestedIps, defaultIps, isDisplayVm, keyboard, affinityGroupIdList, customParameters, customId, dhcpOptionMap, datadiskTemplateToDiskOfferringMap, userVmOVFPropertiesMap, dynamicScalingEnabled, vmType, template, hypervisorType, accountId, offering, isIso, rootDiskOfferingId, volumesSize, volume, snapshot));
     }
 
     protected List<String> getResourceLimitStorageTags(long diskOfferingId) {
-        DiskOfferingVO diskOfferingVO = _diskOfferingDao.findById(diskOfferingId);
-        return resourceLimitService.getResourceLimitStorageTags(diskOfferingVO);
+        return vmCreationResourceReservationService.getResourceLimitStorageTags(diskOfferingId);
     }
 
     private void reserveStorageResourcesForVm(List<Reserver> checkedReservations, Account owner, Long diskOfferingId, Long diskSize, List<VmDiskInfo> dataDiskInfoList, Long rootDiskOfferingId, ServiceOfferingVO offering, Long rootDiskSize) throws ResourceAllocationException {
-        List<String> rootResourceLimitStorageTags = getResourceLimitStorageTags(rootDiskOfferingId != null ? rootDiskOfferingId : offering.getDiskOfferingId());
-        CheckedReservation rootVolumeReservation = new CheckedReservation(owner, ResourceType.volume, rootResourceLimitStorageTags, 1L, reservationDao, resourceLimitService);
-        checkedReservations.add(rootVolumeReservation);
-        CheckedReservation rootPrimaryStorageReservation = new CheckedReservation(owner, ResourceType.primary_storage, rootResourceLimitStorageTags, rootDiskSize, reservationDao, resourceLimitService);
-        checkedReservations.add(rootPrimaryStorageReservation);
-
-        if (diskOfferingId != null) {
-            List<String> additionalResourceLimitStorageTags = getResourceLimitStorageTags(diskOfferingId);
-            DiskOfferingVO diskOffering = _diskOfferingDao.findById(diskOfferingId);
-            Long size = verifyAndGetDiskSize(diskOffering, diskSize);
-            CheckedReservation additionalVolumeReservation = new CheckedReservation(owner, ResourceType.volume, additionalResourceLimitStorageTags, 1L, reservationDao, resourceLimitService);
-            checkedReservations.add(additionalVolumeReservation);
-            CheckedReservation additionalPrimaryStorageReservation = new CheckedReservation(owner, ResourceType.primary_storage, additionalResourceLimitStorageTags, size, reservationDao, resourceLimitService);
-            checkedReservations.add(additionalPrimaryStorageReservation);
-
-        }
-
-        if (dataDiskInfoList != null) {
-            for (VmDiskInfo vmDiskInfo : dataDiskInfoList) {
-                DiskOffering diskOffering = vmDiskInfo.getDiskOffering();
-                List<String> additionalResourceLimitStorageTagsForDataDisk = getResourceLimitStorageTags(vmDiskInfo.getDiskOffering().getId());
-                Long size = verifyAndGetDiskSize(diskOffering, vmDiskInfo.getSize());
-                CheckedReservation additionalVolumeReservation = new CheckedReservation(owner, ResourceType.volume, additionalResourceLimitStorageTagsForDataDisk, 1L, reservationDao, resourceLimitService);
-                checkedReservations.add(additionalVolumeReservation);
-                CheckedReservation additionalPrimaryStorageReservation = new CheckedReservation(owner, ResourceType.primary_storage, additionalResourceLimitStorageTagsForDataDisk, size, reservationDao, resourceLimitService);
-                checkedReservations.add(additionalPrimaryStorageReservation);
-            }
-        }
+        vmCreationResourceReservationService.reserveStorageResourcesForVm(checkedReservations, owner, diskOfferingId,
+                diskSize, dataDiskInfoList, rootDiskOfferingId, offering, rootDiskSize);
     }
 
     private UserVm getUncheckedUserVmResource(DataCenter zone, String hostName, String displayName, Account owner,
@@ -3243,29 +3199,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     }
 
     protected void checkVolumesLimits(Account account, List<VolumeVO> volumes, List<Reserver> reservations) throws ResourceAllocationException {
-        Map<Long, List<String>> diskOfferingTagsMap = new HashMap<>();
-
-        for (VolumeVO volume : volumes) {
-            if (!volume.isDisplay()) {
-                continue;
-            }
-
-            Long diskOfferingId = volume.getDiskOfferingId();
-            if (!diskOfferingTagsMap.containsKey(diskOfferingId)) {
-                DiskOffering diskOffering = _diskOfferingDao.findById(diskOfferingId);
-                List<String> tagsForDiskOffering = _resourceLimitMgr.getResourceLimitStorageTags(diskOffering);
-                diskOfferingTagsMap.put(diskOfferingId, tagsForDiskOffering);
-            }
-
-            List<String> tags = diskOfferingTagsMap.get(diskOfferingId);
-
-            CheckedReservation volumeReservation = new CheckedReservation(account, ResourceType.volume, tags, 1L, reservationDao, resourceLimitService);
-            reservations.add(volumeReservation);
-
-            long size = ObjectUtils.defaultIfNull(volume.getSize(), 0L);
-            CheckedReservation primaryStorageReservation = new CheckedReservation(account, ResourceType.primary_storage, tags, size, reservationDao, resourceLimitService);
-            reservations.add(primaryStorageReservation);
-        }
+        vmCreationResourceReservationService.checkVolumesLimits(account, volumes, reservations);
     }
 
     @DB

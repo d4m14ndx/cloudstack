@@ -590,6 +590,12 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "volumeService", volumeApiService);
         org.springframework.test.util.ReflectionTestUtils.setField(rootDiskValidator, "templateDao", templateDao);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmRootDiskValidator", rootDiskValidator);
+        VmCreationResourceReservationServiceImpl creationResourceReservationService = new VmCreationResourceReservationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(creationResourceReservationService, "diskOfferingDao", diskOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(creationResourceReservationService, "resourceLimitService", resourceLimitMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(creationResourceReservationService, "reservationDao", null);
+        org.springframework.test.util.ReflectionTestUtils.setField(creationResourceReservationService, "vmRootDiskValidator", rootDiskValidator);
+        org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmCreationResourceReservationService", creationResourceReservationService);
         // Slice 5: wire VmUpdateValidatorImpl with the test's existing mocks so the
         // update-VM input validation + service-offering detail-merging tests still
         // exercise the same logic through the manager's delegating wrappers.
