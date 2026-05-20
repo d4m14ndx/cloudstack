@@ -22,7 +22,6 @@ import static com.cloud.network.NetworkModel.PASSWORD_FILE;
 import static com.cloud.network.NetworkModel.PUBLIC_KEYS_FILE;
 import static com.cloud.network.NetworkModel.USERDATA_DIR;
 import static com.cloud.network.NetworkModel.USERDATA_FILE;
-import static com.cloud.utils.storage.S3.S3Utils.putFile;
 import static java.util.Arrays.asList;
 
 import java.io.BufferedWriter;
@@ -252,6 +251,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final NfsSecondaryStoragePathService pathService = new NfsSecondaryStoragePathService();
     final NfsSnapshotZoneCopyService snapshotZoneCopyService = new NfsSnapshotZoneCopyService();
     final NfsSwiftTransferService swiftTransferService = new NfsSwiftTransferService(this);
+    final NfsS3TransferService s3TransferService = new NfsS3TransferService(this);
     final NfsDataStoreListingService dataStoreListingService = new NfsDataStoreListingService(this);
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
@@ -814,36 +814,6 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         }
     }
 
-    protected Answer copyFromS3ToNfs(CopyCommand cmd, DataTO srcData, S3TO s3, DataTO destData, NfsTO destImageStore) {
-        final String storagePath = destImageStore.getUrl();
-        final String destPath = destData.getPath();
-
-        try {
-
-            String downloadPath = determineStorageTemplatePath(storagePath, destPath, _nfsVersion);
-            final File downloadDirectory = _storage.getFile(downloadPath);
-
-            if (downloadDirectory.exists()) {
-                logger.debug("Directory " + downloadPath + " already exists");
-            } else {
-                if (!downloadDirectory.mkdirs()) {
-                    final String errMsg = "Unable to create directory " + downloadPath + " to copy from S3 to cache.";
-                    logger.error(errMsg);
-                    return new CopyCmdAnswer(errMsg);
-                }
-            }
-            File destFile = new File(downloadDirectory, StringUtils.substringAfterLast(srcData.getPath(), S3Utils.SEPARATOR));
-            S3Utils.getFile(s3, s3.getBucketName(), srcData.getPath(), destFile).waitForCompletion();
-
-            return postProcessing(destFile, downloadPath, destPath, srcData, destData);
-        } catch (Exception e) {
-
-            final String errMsg = String.format("Failed to download" + "due to $1%s", e.getMessage());
-            logger.error(errMsg, e);
-            return new CopyCmdAnswer(errMsg);
-        }
-    }
-
     protected Answer copySnapshotToTemplateFromNfsToNfsXenserver(CopyCommand cmd, SnapshotObjectTO srcData, NfsTO srcDataStore, TemplateObjectTO destData, NfsTO destDataStore) {
         String srcMountPoint = getRootDir(srcDataStore.getUrl(), _nfsVersion);
         String snapshotPath = srcData.getPath();
@@ -1052,8 +1022,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
                 }
                 TemplateObjectTO newTemplate = (TemplateObjectTO)answer.getNewData();
                 newTemplate.setDataStore(srcDataStore);
-                CopyCommand newCpyCmd = new CopyCommand(newTemplate, destData, cmd.getWait(), cmd.executeInSequence());
-                Answer result = copyFromNfsToS3(newCpyCmd);
+                Answer result = s3TransferService.copyFromNfsToS3(new CopyCommand(newTemplate, destData, cmd.getWait(), cmd.executeInSequence()));
 
                 cleanupStagingNfs(newTemplate);
 
@@ -1082,7 +1051,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         DataStoreTO destDataStore = destData.getDataStore();
 
         if (destDataStore instanceof S3TO) {
-            return copyFromNfsToS3(cmd);
+            return s3TransferService.copyFromNfsToS3(cmd);
         } else if (destDataStore instanceof SwiftTO) {
             return swiftTransferService.copyFromNfsToSwift(cmd);
         } else {
@@ -1119,8 +1088,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         if (destDataStore instanceof NfsTO && destDataStore.getRole() == DataStoreRole.ImageCache) {
             NfsTO destImageStore = (NfsTO)destDataStore;
             if (srcDataStore instanceof S3TO) {
-                S3TO s3 = (S3TO)srcDataStore;
-                return copyFromS3ToNfs(cmd, srcData, s3, destData, destImageStore);
+                return s3TransferService.copyFromS3ToNfs(cmd, srcData, (S3TO)srcDataStore, destData, destImageStore);
             } else if (srcDataStore instanceof SwiftTO) {
                 return copyFromSwiftToNfs(cmd, srcData, (SwiftTO)srcDataStore, destData, destImageStore);
             }
@@ -1414,59 +1382,6 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             } catch (Exception e) {
                 logger.error("failed to copy file" + srcData.getPath(), e);
                 return new CopyCmdAnswer("failed to copy file" + srcData.getPath() + e.toString());
-        }
-    }
-
-    protected Answer copyFromNfsToS3(CopyCommand cmd) {
-        final DataTO srcData = cmd.getSrcTO();
-        final DataTO destData = cmd.getDestTO();
-        DataStoreTO srcDataStore = srcData.getDataStore();
-        NfsTO srcStore = (NfsTO)srcDataStore;
-        DataStoreTO destDataStore = destData.getDataStore();
-
-        final S3TO s3 = (S3TO)destDataStore;
-
-        try {
-            final String templatePath = determineStorageTemplatePath(srcStore.getUrl(), srcData.getPath(), _nfsVersion);
-
-            if (logger.isDebugEnabled()) {
-                logger.debug("Found " + srcData.getObjectType() + " from directory " + templatePath + " to upload to S3.");
-            }
-
-            final String bucket = s3.getBucketName();
-            File srcFile = findFile(templatePath);
-            if (srcFile == null) {
-                return new CopyCmdAnswer("Can't find src file:" + templatePath);
-            }
-
-            ImageFormat format = getTemplateFormat(srcFile.getName());
-            String key = destData.getPath() + S3Utils.SEPARATOR + srcFile.getName();
-
-            putFile(s3, srcFile, bucket, key).waitForCompletion();
-
-            DataTO retObj = null;
-            if (destData.getObjectType() == DataObjectType.TEMPLATE) {
-                TemplateObjectTO newTemplate = new TemplateObjectTO();
-                newTemplate.setPath(key);
-                newTemplate.setSize(getVirtualSize(srcFile, format));
-                newTemplate.setPhysicalSize(srcFile.length());
-                newTemplate.setFormat(format);
-                retObj = newTemplate;
-            } else if (destData.getObjectType() == DataObjectType.VOLUME) {
-                VolumeObjectTO newVol = new VolumeObjectTO();
-                newVol.setPath(key);
-                newVol.setSize(srcFile.length());
-                retObj = newVol;
-            } else if (destData.getObjectType() == DataObjectType.SNAPSHOT) {
-                SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
-                newSnapshot.setPath(key);
-                retObj = newSnapshot;
-            }
-
-            return new CopyCmdAnswer(retObj);
-        } catch (Exception e) {
-            logger.error("failed to upload" + srcData.getPath(), e);
-            return new CopyCmdAnswer("failed to upload" + srcData.getPath() + e.toString());
         }
     }
 
