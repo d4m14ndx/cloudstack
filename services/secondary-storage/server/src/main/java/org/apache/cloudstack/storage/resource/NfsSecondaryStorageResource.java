@@ -176,7 +176,6 @@ import com.cloud.utils.SwiftUtil;
 import com.cloud.utils.UuidUtils;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
-import com.cloud.utils.script.OutputInterpreter;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.storage.S3.S3Utils;
 import com.cloud.vm.SecondaryStorageVm;
@@ -257,6 +256,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     protected String _parent = "/mnt/SecStorage";
     final NfsSecondaryStoragePathService pathService = new NfsSecondaryStoragePathService();
     final NfsSnapshotZoneCopyService snapshotZoneCopyService = new NfsSnapshotZoneCopyService();
+    final NfsSwiftTransferService swiftTransferService = new NfsSwiftTransferService(this);
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
@@ -1042,7 +1042,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
                 TemplateObjectTO newTemplate = (TemplateObjectTO)answer.getNewData();
                 newTemplate.setDataStore(srcDataStore);
                 CopyCommand newCpyCmd = new CopyCommand(newTemplate, destData, cmd.getWait(), cmd.executeInSequence());
-                Answer result = copyFromNfsToSwift(newCpyCmd);
+                Answer result = swiftTransferService.copyFromNfsToSwift(newCpyCmd);
 
                 cleanupStagingNfs(newTemplate);
                 return result;
@@ -1088,7 +1088,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         if (destDataStore instanceof S3TO) {
             return copyFromNfsToS3(cmd);
         } else if (destDataStore instanceof SwiftTO) {
-            return copyFromNfsToSwift(cmd);
+            return swiftTransferService.copyFromNfsToSwift(cmd);
         } else {
             return new CopyCmdAnswer("unsupported ");
         }
@@ -1216,7 +1216,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             String metaFileName = uniqDir.getAbsolutePath() + File.separator + _tmpltpp;
             _storage.create(uniqDir.getAbsolutePath(), _tmpltpp);
 
-            File metaFile = swiftWriteMetadataFile(metaFileName, uniqueName, fileName, size, virtualSize);
+            File metaFile = swiftTransferService.swiftWriteMetadataFile(metaFileName, uniqueName, fileName, size, virtualSize);
 
             SwiftUtil.putObject(swiftTO, metaFile, container, _tmpltpp);
             metaFile.delete();
@@ -1252,7 +1252,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
     }
 
-    private ImageFormat getTemplateFormat(String filePath) {
+    protected ImageFormat getTemplateFormat(String filePath) {
         String ext = null;
         int extensionPos = filePath.lastIndexOf('.');
         int lastSeparator = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
@@ -1317,6 +1317,10 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             return file.length();
         }
 
+    }
+
+    String getNfsVersion() {
+        return _nfsVersion;
     }
 
     protected File findFile(String path) {
@@ -1478,269 +1482,6 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
         }
     }
 
-    /***
-     *This method will create a file using the filenName and metaFileName.
-     *That file will contain the given attributes (unique name, file name, size, and virtualSize).
-     *
-     * @param metaFileName : The path of the metadata file
-     * @param filename      :attribute:  Filename of the template
-     * @param uniqueName    :attribute:  Unique name of the template
-     * @param size          :attribute:  physical size of the template
-     * @param virtualSize   :attribute:  virtual size of the template
-     * @return File representing the metadata file
-     * @throws IOException
-     */
-
-    protected File swiftWriteMetadataFile(String metaFileName, String uniqueName, String filename, long size, long virtualSize) throws IOException {
-        File metaFile = new File(metaFileName);
-        FileWriter writer = new FileWriter(metaFile);
-        BufferedWriter bufferWriter = new BufferedWriter(writer);
-        bufferWriter.write("uniquename=" + uniqueName);
-        bufferWriter.write("\n");
-        bufferWriter.write("filename=" + filename);
-        bufferWriter.write("\n");
-        bufferWriter.write("size=" + size);
-        bufferWriter.write("\n");
-        bufferWriter.write("virtualsize=" + virtualSize);
-        bufferWriter.close();
-        writer.close();
-        return metaFile;
-    }
-
-    /**
-     * Creates a template.properties for Swift with its correct unique name
-     *
-     * @param swift  The swift object
-     * @param srcFile Source file on the staging NFS
-     * @param containerName Destination container  @return true on successful write
-     * @param uniqueName Unique name identifying the template
-     */
-    protected boolean swiftUploadMetadataFile(SwiftTO swift, File srcFile, String containerName, String uniqueName) throws IOException {
-
-        File uniqDir = _storage.createUniqDir();
-        String metaFileName = uniqDir.getAbsolutePath() + File.separator + _tmpltpp;
-        _storage.create(uniqDir.getAbsolutePath(), _tmpltpp);
-
-        long virtualSize = getVirtualSize(srcFile, getTemplateFormat(srcFile.getName()));
-
-        File metaFile = swiftWriteMetadataFile(metaFileName, uniqueName, srcFile.getName(), srcFile.length(), virtualSize);
-
-        SwiftUtil.putObject(swift, metaFile, containerName, _tmpltpp);
-        metaFile.delete();
-        uniqDir.delete();
-
-        return true;
-    }
-
-    /**
-     * Copies data from NFS and uploads it into a Swift container
-     *
-     * @param cmd CopyComand
-     * @return CopyCmdAnswer
-     */
-    protected Answer copyFromNfsToSwift(CopyCommand cmd) {
-
-        final DataTO srcData = cmd.getSrcTO();
-        final DataTO destData = cmd.getDestTO();
-
-        DataStoreTO srcDataStore = srcData.getDataStore();
-        NfsTO srcStore = (NfsTO)srcDataStore;
-        DataStoreTO destDataStore = destData.getDataStore();
-        File srcFile = getFile(srcData.getPath(), srcStore.getUrl(), _nfsVersion);
-
-        SwiftTO swift = (SwiftTO)destDataStore;
-        long pathId = destData.getId();
-
-        try {
-
-            if (destData instanceof SnapshotObjectTO) {
-                pathId = ((SnapshotObjectTO)destData).getVolume().getId();
-            }
-
-            String containerName = SwiftUtil.getContainerName(destData.getObjectType().toString(), pathId);
-            String swiftPath = SwiftUtil.putObject(swift, srcFile, containerName, srcFile.getName());
-
-            DataTO retObj = null;
-            if (destData.getObjectType() == DataObjectType.TEMPLATE) {
-                TemplateObjectTO destTemplateData = (TemplateObjectTO)destData;
-                String uniqueName = destTemplateData.getName();
-                swiftUploadMetadataFile(swift, srcFile, containerName, uniqueName);
-                TemplateObjectTO newTemplate = new TemplateObjectTO();
-                newTemplate.setPath(swiftPath);
-                newTemplate.setSize(getVirtualSize(srcFile, getTemplateFormat(srcFile.getName())));
-                newTemplate.setPhysicalSize(srcFile.length());
-                newTemplate.setFormat(getTemplateFormat(srcFile.getName()));
-                retObj = newTemplate;
-            } else if (destData.getObjectType() == DataObjectType.VOLUME) {
-                VolumeObjectTO newVol = new VolumeObjectTO();
-                newVol.setPath(containerName);
-                newVol.setSize(getVirtualSize(srcFile, getTemplateFormat(srcFile.getName())));
-                retObj = newVol;
-            } else if (destData.getObjectType() == DataObjectType.SNAPSHOT) {
-                SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
-                newSnapshot.setPath(containerName + File.separator + srcFile.getName());
-                retObj = newSnapshot;
-            }
-
-            return new CopyCmdAnswer(retObj);
-
-        } catch (Exception e) {
-            logger.error("failed to upload " + srcData.getPath(), e);
-            return new CopyCmdAnswer("failed to upload " + srcData.getPath() + e.toString());
-        }
-    }
-
-    String swiftDownload(SwiftTO swift, String container, String rfilename, String lFullPath) {
-        Script command = new Script("/bin/bash", logger);
-        command.add("-c");
-        command.add("/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":" + swift.getUserName()
-        + " -K " + swift.getKey() + " download " + container + " " + rfilename + " -o " + lFullPath);
-        OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-        String result = command.execute(parser);
-        if (result != null) {
-            String errMsg = "swiftDownload failed  err=" + result;
-            logger.warn(errMsg);
-            return errMsg;
-        }
-        if (parser.getLines() != null) {
-            String[] lines = parser.getLines().split("\\n");
-            for (String line : lines) {
-                if (line.contains("Errno") || line.contains("failed")) {
-                    String errMsg = "swiftDownload failed , err=" + parser.getLines();
-                    logger.warn(errMsg);
-                    return errMsg;
-                }
-            }
-        }
-        return null;
-
-    }
-
-    String swiftDownloadContainer(SwiftTO swift, String container, String ldir) {
-        Script command = new Script("/bin/bash", logger);
-        command.add("-c");
-        command.add("cd " + ldir + ";/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":"
-                + swift.getUserName() + " -K " + swift.getKey() + " download " + container);
-        OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-        String result = command.execute(parser);
-        if (result != null) {
-            String errMsg = "swiftDownloadContainer failed  err=" + result;
-            logger.warn(errMsg);
-            return errMsg;
-        }
-        if (parser.getLines() != null) {
-            String[] lines = parser.getLines().split("\\n");
-            for (String line : lines) {
-                if (line.contains("Errno") || line.contains("failed")) {
-                    String errMsg = "swiftDownloadContainer failed , err=" + parser.getLines();
-                    logger.warn(errMsg);
-                    return errMsg;
-                }
-            }
-        }
-        return null;
-
-    }
-
-    String swiftUpload(SwiftTO swift, String container, String lDir, String lFilename) {
-        long SWIFT_MAX_SIZE = 5L * 1024L * 1024L * 1024L;
-        List<String> files = new ArrayList<String>();
-        if (lFilename.equals("*")) {
-            File dir = new File(lDir);
-            String[] dir_lst = dir.list();
-            if (dir_lst != null) {
-                for (String file : dir_lst) {
-                    if (file.startsWith(".")) {
-                        continue;
-                    }
-                    files.add(file);
-                }
-            }
-        } else {
-            files.add(lFilename);
-        }
-
-        for (String file : files) {
-            File f = new File(lDir + "/" + file);
-            long size = f.length();
-            Script command = new Script("/bin/bash", logger);
-            command.add("-c");
-            if (size <= SWIFT_MAX_SIZE) {
-                command.add("cd " + lDir + ";/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":"
-                        + swift.getUserName() + " -K " + swift.getKey() + " upload " + container + " " + file);
-            } else {
-                command.add("cd " + lDir + ";/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":"
-                        + swift.getUserName() + " -K " + swift.getKey() + " upload -S " + SWIFT_MAX_SIZE + " " + container + " " + file);
-            }
-            OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-            String result = command.execute(parser);
-            if (result != null) {
-                String errMsg = "swiftUpload failed , err=" + result;
-                logger.warn(errMsg);
-                return errMsg;
-            }
-            if (parser.getLines() != null) {
-                String[] lines = parser.getLines().split("\\n");
-                for (String line : lines) {
-                    if (line.contains("Errno") || line.contains("failed")) {
-                        String errMsg = "swiftUpload failed , err=" + parser.getLines();
-                        logger.warn(errMsg);
-                        return errMsg;
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-
-    String[] swiftList(SwiftTO swift, String container, String rFilename) {
-        Script command = new Script("/bin/bash", logger);
-        command.add("-c");
-        command.add("/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":" + swift.getUserName()
-        + " -K " + swift.getKey() + " list " + container + " " + rFilename);
-        OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-        String result = command.execute(parser);
-        if (result == null && parser.getLines() != null) {
-            String[] lines = parser.getLines().split("\\n");
-            return lines;
-        } else {
-            if (result != null) {
-                String errMsg = "swiftList failed , err=" + result;
-                logger.warn(errMsg);
-            } else {
-                String errMsg = "swiftList failed, no lines returns";
-                logger.warn(errMsg);
-            }
-        }
-        return null;
-    }
-
-    String swiftDelete(SwiftTO swift, String container, String object) {
-        Script command = new Script("/bin/bash", logger);
-        command.add("-c");
-        command.add("/usr/bin/python /usr/local/cloud/systemvm/scripts/storage/secondary/swift -A " + swift.getUrl() + " -U " + swift.getAccount() + ":" + swift.getUserName()
-        + " -K " + swift.getKey() + " delete " + container + " " + object);
-        OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-        String result = command.execute(parser);
-        if (result != null) {
-            String errMsg = "swiftDelete failed , err=" + result;
-            logger.warn(errMsg);
-            return errMsg;
-        }
-        if (parser.getLines() != null) {
-            String[] lines = parser.getLines().split("\\n");
-            for (String line : lines) {
-                if (line.contains("Errno") || line.contains("failed")) {
-                    String errMsg = "swiftDelete failed , err=" + parser.getLines();
-                    logger.warn(errMsg);
-                    return errMsg;
-                }
-            }
-        }
-        return null;
-    }
-
     public Answer execute(DeleteSnapshotsDirCommand cmd) {
         DataStoreTO dstore = cmd.getDataStore();
         if (dstore instanceof NfsTO) {
@@ -1803,7 +1544,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             // in
             // the
             // path
-            String result = swiftDelete((SwiftTO)dstore, "V-" + volumeId.toString(), "");
+            String result = swiftTransferService.swiftDelete((SwiftTO)dstore, "V-" + volumeId.toString(), "");
             if (result != null) {
                 String errMsg = "Failed to delete Snapshot for volume " + volumeId + " , err=" + result;
                 logger.warn(errMsg);
@@ -2512,7 +2253,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             String object = "";
 
             try {
-                String result = swiftDelete(swift, container, object);
+                String result = swiftTransferService.swiftDelete(swift, container, object);
                 if (result != null) {
                     String errMsg = "failed to delete object " + container + "/" + object + " , err=" + result;
                     logger.warn(errMsg);
@@ -2626,7 +2367,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
             // in
             // the
             // path
-            String result = swiftDelete((SwiftTO)dstore, "V-" + volumeId.toString(), filename);
+            String result = swiftTransferService.swiftDelete((SwiftTO)dstore, "V-" + volumeId.toString(), filename);
             if (result != null) {
                 String errMsg = "failed to delete volume " + filename + " , err=" + result;
                 logger.warn(errMsg);

@@ -85,7 +85,7 @@ public class NfsSecondaryStorageResourceTest {
             long size = 1024L;
             long virtualSize = 2048L;
 
-            File metaFile = resource.swiftWriteMetadataFile(metaFileName, uniqueName, filename, size, virtualSize);
+            File metaFile = resource.swiftTransferService.swiftWriteMetadataFile(metaFileName, uniqueName, filename, size, virtualSize);
 
             Assert.assertTrue(metaFile.exists());
             Assert.assertEquals(metaFileName, metaFile.getName());
