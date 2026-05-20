@@ -82,6 +82,9 @@ public class CreateImageTransferCmd extends BaseCmd implements AdminCmd {
     }
 
     public ImageTransfer.Format getFormat() {
+        if (format == null) {
+            return ImageTransfer.Format.raw;
+        }
         return EnumUtils.getEnum(ImageTransfer.Format.class, format);
     }
 

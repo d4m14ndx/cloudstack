@@ -116,10 +116,14 @@ public class ImageTransferDaoImpl extends GenericDaoBase<ImageTransferVO, Long> 
         sb.and("dataCenterId", sb.entity().getDataCenterId(), SearchCriteria.Op.IN);
         boolean accountIdsNotEmpty = CollectionUtils.isNotEmpty(accountIds);
         boolean domainIdsNotEmpty = CollectionUtils.isNotEmpty(domainIds);
-        if (accountIdsNotEmpty || domainIdsNotEmpty) {
+        if (accountIdsNotEmpty && domainIdsNotEmpty) {
             sb.and().op("account", sb.entity().getAccountId(), SearchCriteria.Op.IN);
             sb.or("domain", sb.entity().getDomainId(), SearchCriteria.Op.IN);
             sb.cp();
+        } else if (accountIdsNotEmpty) {
+            sb.and("account", sb.entity().getAccountId(), SearchCriteria.Op.IN);
+        } else if (domainIdsNotEmpty) {
+            sb.and("domain", sb.entity().getDomainId(), SearchCriteria.Op.IN);
         }
         sb.done();
         final SearchCriteria<ImageTransferVO> sc = sb.create();

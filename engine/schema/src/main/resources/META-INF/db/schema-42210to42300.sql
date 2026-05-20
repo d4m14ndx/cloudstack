@@ -164,5 +164,10 @@ CREATE TABLE IF NOT EXISTS `cloud`.`image_transfer`(
     CONSTRAINT `fk_image_transfer__backup_id` FOREIGN KEY (`backup_id`) REFERENCES `backups`(`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_image_transfer__volume_id` FOREIGN KEY (`volume_id`) REFERENCES `volumes`(`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_image_transfer__host_id` FOREIGN KEY (`host_id`) REFERENCES `host`(`id`) ON DELETE CASCADE,
-    INDEX `i_image_transfer__backup_id`(`backup_id`)
+    INDEX `i_image_transfer__backup_id`(`backup_id`),
+    INDEX `i_image_transfer__volume_id`(`volume_id`),
+    INDEX `i_image_transfer__volume_id__phase`(`volume_id`, `phase`),
+    INDEX `i_image_transfer__phase__direction`(`phase`, `direction`),
+    INDEX `i_image_transfer__data_center_id__account_id`(`data_center_id`, `account_id`),
+    INDEX `i_image_transfer__data_center_id__domain_id`(`data_center_id`, `domain_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

@@ -91,7 +91,7 @@ public class FinalizeBackupCmd extends BaseAsyncCmd implements AdminCmd {
 
     @Override
     public String getEventType() {
-        return EventTypes.EVENT_VM_BACKUP_CREATE;
+        return EventTypes.EVENT_VM_BACKUP_FINALIZE;
     }
 
     @Override
