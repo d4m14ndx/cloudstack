@@ -19,6 +19,8 @@
 
 package org.apache.cloudstack.backup;
 
+import java.util.Arrays;
+
 import com.cloud.agent.api.Command;
 import com.cloud.agent.api.LogLevel;
 
@@ -72,6 +74,13 @@ public class StartNBDServerCommand extends Command {
 
     public byte[] getPassphrase() {
         return passphrase;
+    }
+
+    public void clearPassphrase() {
+        if (passphrase != null) {
+            Arrays.fill(passphrase, (byte) 0);
+            passphrase = null;
+        }
     }
 
     @Override

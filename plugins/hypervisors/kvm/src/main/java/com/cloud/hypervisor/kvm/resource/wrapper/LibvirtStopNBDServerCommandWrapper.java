@@ -17,6 +17,9 @@
 package com.cloud.hypervisor.kvm.resource.wrapper;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.apache.cloudstack.backup.StopNBDServerCommand;
 import org.apache.commons.lang3.StringUtils;
@@ -48,6 +51,7 @@ public class LibvirtStopNBDServerCommandWrapper extends CommandWrapper<StopNBDSe
             return new Answer(cmd, false, "Failed to stop qemu-nbd service.");
         }
         deleteSocketFile(LibvirtStartNBDServerCommandWrapper.socketPathFor(cmd.getTransferId()));
+        deleteManagedKeyFile(LibvirtStartNBDServerCommandWrapper.keyFilePathFor(cmd.getTransferId()));
         return new Answer(cmd, true, "Image transfer finalized.");
     }
 
@@ -61,6 +65,14 @@ public class LibvirtStopNBDServerCommandWrapper extends CommandWrapper<StopNBDSe
         File socketFile = new File(socketPath);
         if (socketFile.exists() && !socketFile.delete()) {
             logger.warn("Failed to delete qemu-nbd socket file [{}].", socketPath);
+        }
+    }
+
+    protected void deleteManagedKeyFile(Path keyFilePath) {
+        try {
+            Files.deleteIfExists(keyFilePath);
+        } catch (IOException e) {
+            logger.warn("Failed to delete qemu-nbd key file [{}].", keyFilePath, e);
         }
     }
 

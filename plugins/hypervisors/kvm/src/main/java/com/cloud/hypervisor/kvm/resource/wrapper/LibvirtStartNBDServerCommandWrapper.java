@@ -18,13 +18,18 @@ package com.cloud.hypervisor.kvm.resource.wrapper;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.apache.cloudstack.backup.StartNBDServerAnswer;
 import org.apache.cloudstack.backup.StartNBDServerCommand;
-import org.apache.cloudstack.utils.cryptsetup.KeyFile;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,6 +48,7 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
 
     private static final String SOCKET_DIR = "/tmp/imagetransfer";
     private static final Pattern SAFE_NAME = Pattern.compile("[A-Za-z0-9._-]{1,128}");
+    private static final Set<PosixFilePermission> KEY_FILE_PERMISSIONS = PosixFilePermissions.fromString("rw-------");
 
     @Override
     public Answer execute(StartNBDServerCommand cmd, LibvirtComputingResource resource) {
@@ -55,6 +61,7 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
         String safeSocket = validateSafeName(cmd.getSocket(), "socket");
         String unitName = unitNameFor(safeTransferId);
         String socketPath = socketPathFor(safeSocket);
+        Path keyFilePath = keyFilePathFor(safeTransferId);
 
         if (isNbdServiceActive(unitName)) {
             return new StartNBDServerAnswer(cmd, false, "A qemu-nbd service is already running for the transfer.");
@@ -65,18 +72,22 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
 
         List<String> command;
         try {
-            command = buildQemuNbdStartCommand(cmd, unitName, socketPath);
+            command = buildQemuNbdStartCommand(cmd, unitName, socketPath, keyFilePath);
         } catch (IOException e) {
+            deleteManagedKeyFile(keyFilePath);
             logger.error("Failed to prepare qemu-nbd command", e);
             return new StartNBDServerAnswer(cmd, false, "Failed to prepare qemu-nbd command: " + e.getMessage());
         }
 
         String result = runCommand(command);
         if (result != null) {
+            deleteManagedKeyFile(keyFilePath);
             logger.error("Failed to start qemu-nbd service [{}]: {}", unitName, result);
             return new StartNBDServerAnswer(cmd, false, "Failed to start qemu-nbd service: " + result);
         }
         if (!waitForNbdService(unitName)) {
+            stopAndResetNbdService(unitName);
+            deleteManagedKeyFile(keyFilePath);
             return new StartNBDServerAnswer(cmd, false, "qemu-nbd service failed to start.");
         }
 
@@ -123,7 +134,16 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
         return SOCKET_DIR + "/" + safeSocket + ".sock";
     }
 
+    static Path keyFilePathFor(String safeTransferId) {
+        return Path.of(SOCKET_DIR, safeTransferId + ".key");
+    }
+
     protected List<String> buildQemuNbdStartCommand(StartNBDServerCommand cmd, String unitName, String socketPath) throws IOException {
+        String safeTransferId = validateSafeName(cmd.getTransferId(), "transferId");
+        return buildQemuNbdStartCommand(cmd, unitName, socketPath, safeTransferId == null ? null : keyFilePathFor(safeTransferId));
+    }
+
+    protected List<String> buildQemuNbdStartCommand(StartNBDServerCommand cmd, String unitName, String socketPath, Path keyFilePath) throws IOException {
         List<String> args = new ArrayList<>();
         args.add("systemd-run");
         args.add("--unit=" + unitName);
@@ -132,29 +152,41 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
 
         byte[] passphrase = cmd.getPassphrase();
         String imageArg = cmd.getVolumePath();
-        if (passphrase != null && passphrase.length > 0) {
-            KeyFile srcKey = new KeyFile(passphrase);
-            args.add("--object");
-            args.add(String.format("secret,id=sec0,file=%s", srcKey));
-            args.add("--image-opts");
-            imageArg = String.format("driver=qcow2,file.driver=file,file.filename=%s,encrypt.key-secret=sec0", cmd.getVolumePath());
-        }
+        try {
+            if (passphrase != null && passphrase.length > 0) {
+                if (keyFilePath == null) {
+                    throw new IOException("Safe transfer id is required for encrypted qemu-nbd exports.");
+                }
+                createManagedKeyFile(passphrase, keyFilePath);
+                args.add("--object");
+                args.add(String.format("secret,id=sec0,file=%s", keyFilePath));
+                args.add("--image-opts");
+                imageArg = String.format("driver=qcow2,file.driver=file,file.filename=%s,encrypt.key-secret=sec0", cmd.getVolumePath());
+            }
 
-        args.add("--export-name");
-        args.add(cmd.getExportName());
-        args.add("--socket");
-        args.add(socketPath);
-        args.add("--persistent");
-        args.add("--shared=0");
-        if (StringUtils.isNotBlank(cmd.getFromCheckpointId()) && isBitmapPresentOnDisk(cmd.getVolumePath(), cmd.getFromCheckpointId())) {
-            args.add("-B");
-            args.add(cmd.getFromCheckpointId());
+            args.add("--export-name");
+            args.add(cmd.getExportName());
+            args.add("--socket");
+            args.add(socketPath);
+            args.add("--persistent");
+            args.add("--shared=0");
+            if (StringUtils.isNotBlank(cmd.getFromCheckpointId()) && isBitmapPresentOnDisk(cmd.getVolumePath(), cmd.getFromCheckpointId())) {
+                args.add("-B");
+                args.add(cmd.getFromCheckpointId());
+            }
+            if ("download".equalsIgnoreCase(cmd.getDirection())) {
+                args.add("--read-only");
+            }
+            args.add(imageArg);
+            return args;
+        } catch (IOException | RuntimeException e) {
+            if (passphrase != null && passphrase.length > 0) {
+                deleteManagedKeyFile(keyFilePath);
+            }
+            throw e;
+        } finally {
+            cmd.clearPassphrase();
         }
-        if ("download".equalsIgnoreCase(cmd.getDirection())) {
-            args.add("--read-only");
-        }
-        args.add(imageArg);
-        return args;
     }
 
     protected boolean isNbdServiceActive(String unitName) {
@@ -175,6 +207,51 @@ public class LibvirtStartNBDServerCommandWrapper extends CommandWrapper<StartNBD
     protected boolean ensureSocketDirectory() {
         File dir = new File(SOCKET_DIR);
         return dir.exists() || dir.mkdirs();
+    }
+
+    protected Path createManagedKeyFile(byte[] passphrase, Path keyFilePath) throws IOException {
+        deleteManagedKeyFile(keyFilePath);
+        try {
+            Files.createFile(keyFilePath, PosixFilePermissions.asFileAttribute(KEY_FILE_PERMISSIONS));
+        } catch (UnsupportedOperationException e) {
+            Files.createFile(keyFilePath);
+            setOwnerOnlyPermissions(keyFilePath);
+        }
+        Files.write(keyFilePath, passphrase, StandardOpenOption.WRITE);
+        setOwnerOnlyPermissions(keyFilePath);
+        return keyFilePath;
+    }
+
+    protected void setOwnerOnlyPermissions(Path keyFilePath) throws IOException {
+        try {
+            Files.setPosixFilePermissions(keyFilePath, KEY_FILE_PERMISSIONS);
+        } catch (UnsupportedOperationException e) {
+            File keyFile = keyFilePath.toFile();
+            boolean permissionsUpdated = keyFile.setReadable(false, false)
+                    && keyFile.setReadable(true, true)
+                    && keyFile.setWritable(false, false)
+                    && keyFile.setWritable(true, true)
+                    && keyFile.setExecutable(false, false);
+            if (!permissionsUpdated) {
+                throw new IOException("Failed to set owner-only permissions on qemu-nbd key file.");
+            }
+        }
+    }
+
+    protected void deleteManagedKeyFile(Path keyFilePath) {
+        if (keyFilePath == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(keyFilePath);
+        } catch (IOException e) {
+            logger.warn("Failed to delete qemu-nbd key file [{}].", keyFilePath, e);
+        }
+    }
+
+    protected void stopAndResetNbdService(String unitName) {
+        runCommand("systemctl", "stop", unitName);
+        runCommand("systemctl", "reset-failed", unitName);
     }
 
     protected String runCommand(String... args) {
