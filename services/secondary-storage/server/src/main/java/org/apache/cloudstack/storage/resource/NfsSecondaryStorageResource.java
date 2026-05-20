@@ -150,17 +150,14 @@ import com.cloud.storage.Storage;
 import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.StorageLayer;
 import com.cloud.storage.VMTemplateStorageResourceAssoc;
-import com.cloud.storage.template.OVAProcessor;
 import com.cloud.storage.template.Processor;
 import com.cloud.storage.template.Processor.FormatInfo;
 import com.cloud.storage.template.QCOW2Processor;
 import com.cloud.storage.template.RawImageProcessor;
-import com.cloud.storage.template.TARProcessor;
 import com.cloud.storage.template.TemplateConstants;
 import com.cloud.storage.template.TemplateLocation;
 import com.cloud.storage.template.TemplateProp;
 import com.cloud.storage.template.VhdProcessor;
-import com.cloud.storage.template.VmdkProcessor;
 import com.cloud.utils.EncryptionUtil;
 import com.cloud.utils.LogUtils;
 import com.cloud.utils.NumbersUtil;
@@ -253,6 +250,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     final NfsSwiftTransferService swiftTransferService = new NfsSwiftTransferService(this);
     final NfsS3TransferService s3TransferService = new NfsS3TransferService(this);
     final NfsDataStoreListingService dataStoreListingService = new NfsDataStoreListingService(this);
+    final NfsImageMetadataService imageMetadataService = new NfsImageMetadataService();
     final private String _tmpltpp = "template.properties";
     protected String createTemplateFromSnapshotXenScript;
     private final Map<String, UploadEntity> uploadEntityStateMap = new ConcurrentHashMap<>();
@@ -1209,70 +1207,11 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     protected ImageFormat getTemplateFormat(String filePath) {
-        String ext = null;
-        int extensionPos = filePath.lastIndexOf('.');
-        int lastSeparator = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-        int i = lastSeparator > extensionPos ? -1 : extensionPos;
-        if (i > 0) {
-            ext = filePath.substring(i + 1);
-        }
-        if (ext != null) {
-            if (ext.equalsIgnoreCase("vhd")) {
-                return ImageFormat.VHD;
-            } else if (ext.equalsIgnoreCase("vhdx")) {
-                return ImageFormat.VHDX;
-            } else if (ext.equalsIgnoreCase("qcow2")) {
-                return ImageFormat.QCOW2;
-            } else if (ext.equalsIgnoreCase("ova")) {
-                return ImageFormat.OVA;
-            } else if (ext.equalsIgnoreCase("tar")) {
-                return ImageFormat.TAR;
-            } else if (ext.equalsIgnoreCase("img") || ext.equalsIgnoreCase("raw")) {
-                return ImageFormat.RAW;
-            } else if (ext.equalsIgnoreCase("vmdk")) {
-                return ImageFormat.VMDK;
-            } else if (ext.equalsIgnoreCase("vdi")) {
-                return ImageFormat.VDI;
-            }
-        }
-
-        return null;
-
+        return imageMetadataService.getTemplateFormat(filePath);
     }
 
     protected long getVirtualSize(File file, ImageFormat format) {
-        Processor processor = null;
-        try {
-            if (format == null) {
-                return file.length();
-            } else if (format == ImageFormat.QCOW2) {
-                processor = new QCOW2Processor();
-            } else if (format == ImageFormat.OVA) {
-                processor = new OVAProcessor();
-            } else if (format == ImageFormat.VHD) {
-                processor = new VhdProcessor();
-            } else if (format == ImageFormat.RAW) {
-                processor = new RawImageProcessor();
-            } else if (format == ImageFormat.VMDK) {
-                processor = new VmdkProcessor();
-            }
-            if (format == ImageFormat.TAR) {
-                processor = new TARProcessor();
-            }
-
-            if (processor == null) {
-                return file.length();
-            }
-
-            Map<String, Object> params = new HashMap<String, Object>();
-            params.put(StorageLayer.InstanceConfigKey, _storage);
-            processor.configure("template processor", params);
-            return processor.getVirtualSize(file);
-        } catch (Exception e) {
-            logger.warn("Failed to get virtual size of file " + file.getPath() + ", returning file size instead: ", e);
-            return file.length();
-        }
-
+        return imageMetadataService.getVirtualSize(file, format, _storage);
     }
 
     String getNfsVersion() {
@@ -1280,24 +1219,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
     }
 
     protected File findFile(String path) {
-        File srcFile = _storage.getFile(path);
-        if (!srcFile.exists()) {
-            srcFile = _storage.getFile(path + ".qcow2");
-            if (!srcFile.exists()) {
-                srcFile = _storage.getFile(path + ".vhd");
-                if (!srcFile.exists()) {
-                    srcFile = _storage.getFile(path + ".ova");
-                    if (!srcFile.exists()) {
-                        srcFile = _storage.getFile(path + ".vmdk");
-                        if (!srcFile.exists()) {
-                            return null;
-                        }
-                    }
-                }
-            }
-        }
-
-        return srcFile;
+        return imageMetadataService.findFile(_storage, path);
     }
 
     protected Answer copyFromNfsToNfs(CopyCommand cmd) {
