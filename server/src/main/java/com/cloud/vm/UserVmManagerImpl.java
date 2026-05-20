@@ -19,7 +19,6 @@ package com.cloud.vm;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -89,7 +88,6 @@ import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.messagebus.MessageBus;
-import org.apache.cloudstack.managed.context.ManagedContextRunnable;
 import org.apache.cloudstack.reservation.dao.ReservationDao;
 import org.apache.cloudstack.resourcelimit.Reserver;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
@@ -236,7 +234,6 @@ import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
-import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallbackNoReturn;
 import com.cloud.utils.db.TransactionCallbackWithException;
@@ -465,9 +462,9 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     @Inject
     private VmDeployStartService vmDeployStartService;
     @Inject
-    private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
-    @Inject
     private VmExpungeResourceCleanupService vmExpungeResourceCleanupService;
+    @Inject
+    private VmExpungeOrchestrationService vmExpungeOrchestrationService;
     @Inject
     private VmSecurityGroupAssignmentService vmSecurityGroupAssignmentService;
     @Inject
@@ -559,8 +556,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     private ScheduledExecutorService _executor = null;
     private ScheduledExecutorService _vmIpFetchExecutor = null;
-    private int _expungeInterval;
-    private int _expungeDelay;
     private boolean _dailyOrHourly = false;
     private List<KubernetesServiceHelper> kubernetesServiceHelpers;
     private String _instance;
@@ -858,10 +853,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         String workers = configs.get("expunge.workers");
         int wrks = NumbersUtil.parseInt(workers, 10);
 
-        String time = configs.get("expunge.interval");
-        _expungeInterval = NumbersUtil.parseInt(time, 86400);
-        time = configs.get("expunge.delay");
-        _expungeDelay = NumbersUtil.parseInt(time, _expungeInterval);
+        vmExpungeOrchestrationService.configure(configs);
 
         _executor = Executors.newScheduledThreadPool(wrks, new NamedThreadFactory("UserVm-Scavenger"));
 
@@ -916,7 +908,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public boolean start() {
-        _executor.scheduleWithFixedDelay(new ExpungeTask(), _expungeInterval, _expungeInterval, TimeUnit.SECONDS);
+        vmExpungeOrchestrationService.scheduleExpungeTask(_executor, this::expungeVm);
         _vmIpFetchExecutor.scheduleWithFixedDelay(vmExternalDhcpIpFetchService.getVmIpFetchTask(),
                 VmExternalDhcpIpFetchService.VmIpFetchWaitInterval.value(), VmExternalDhcpIpFetchService.VmIpFetchWaitInterval.value(), TimeUnit.SECONDS);
         vmExternalDhcpIpFetchService.loadVmDetailsInMapForExternalDhcpIp();
@@ -937,60 +929,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
     @Override
     public boolean expunge(UserVmVO vm) {
-        vm = _vmDao.acquireInLockTable(vm.getId());
-        if (vm == null) {
-            return false;
-        }
-        try {
-
-            backupManager.checkAndRemoveBackupOfferingBeforeExpunge(vm);
-
-            autoScaleManager.removeVmFromVmGroup(vm.getId());
-
-            vmExpungeResourceCleanupService.releaseNetworkResourcesOnExpunge(vm.getId());
-
-            List<VolumeVO> rootVol = _volsDao.findByInstanceAndType(vm.getId(), Volume.Type.ROOT);
-            // expunge the vm
-            _itMgr.advanceExpunge(vm.getUuid());
-
-            // Only if vm is not expunged already, cleanup it's resources
-            if (vm.getRemoved() == null) {
-                // Cleanup vm resources - all the PF/LB/StaticNat rules
-                // associated with vm
-                logger.debug("Starting cleaning up vm " + vm + " resources...");
-                if (vmExpungeResourceCleanupService.cleanupVmResources(vm)) {
-                    logger.debug("Successfully cleaned up vm " + vm + " resources as a part of expunge process");
-                } else {
-                    logger.warn("Failed to cleanup resources as a part of vm " + vm + " expunge");
-                    return false;
-                }
-
-                if (vm.getUserDataId() != null) {
-                    vm.setUserDataId(null);
-                    _vmDao.update(vm.getId(), vm);
-                }
-
-                _vmDao.remove(vm.getId());
-            }
-
-            return true;
-
-        } catch (ResourceUnavailableException e) {
-            logger.warn("Unable to expunge  " + vm, e);
-            return false;
-        } catch (OperationTimedoutException e) {
-            logger.warn("Operation time out on expunging " + vm, e);
-            return false;
-        } catch (ConcurrentOperationException e) {
-            logger.warn("Concurrent operations on expunging " + vm, e);
-            return false;
-        } finally {
-            _vmDao.releaseFromLockTable(vm.getId());
-        }
+        return vmExpungeOrchestrationService.expunge(vm);
     }
 
     private void transitionExpungingToError(long vmId) {
-        vmExpungeFailureTransitionService.transitionExpungingToError(vmId);
+        vmExpungeOrchestrationService.transitionExpungingToError(vmId);
     }
 
     @Override
@@ -1003,43 +946,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
     // used for vm transitioning to error state
     protected void updateVmStateForFailedVmCreation(Long vmId, Long hostId) {
         vmDeployStartService.updateVmStateForFailedVmCreation(vmId, hostId, deployStartManagerOperations());
-    }
-
-    private class ExpungeTask extends ManagedContextRunnable {
-        public ExpungeTask() {
-        }
-
-        @Override
-        protected void runInContext() {
-            GlobalLock scanLock = GlobalLock.getInternLock("UserVMExpunge");
-            try {
-                if (scanLock.lock(ACQUIRE_GLOBAL_LOCK_TIMEOUT_FOR_COOPERATION)) {
-                    try {
-                        List<UserVmVO> vms = _vmDao.findDestroyedVms(new Date(System.currentTimeMillis() - ((long)_expungeDelay << 10)));
-                        if (logger.isInfoEnabled()) {
-                            if (vms.size() == 0) {
-                                logger.trace("Found " + vms.size() + " Instances to expunge.");
-                            } else {
-                                logger.info("Found " + vms.size() + " Instances to expunge.");
-                            }
-                        }
-                        for (UserVmVO vm : vms) {
-                            try {
-                                expungeVm(vm.getId());
-                            } catch (Exception e) {
-                                logger.warn("Unable to expunge " + vm, e);
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.error("Caught the following Exception", e);
-                    } finally {
-                        scanLock.unlock();
-                    }
-                }
-            } finally {
-                scanLock.releaseRef();
-            }
-        }
     }
 
     protected void verifyVmLimits(UserVmVO vmInstance, Map<String, String> details) {

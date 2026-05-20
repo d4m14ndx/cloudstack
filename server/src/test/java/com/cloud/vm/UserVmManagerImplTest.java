@@ -310,7 +310,7 @@ public class UserVmManagerImplTest {
     @Mock
     private VmBackupInstanceLifecycleService vmBackupInstanceLifecycleService;
     @Mock
-    private VmExpungeFailureTransitionService vmExpungeFailureTransitionService;
+    private VmExpungeOrchestrationService vmExpungeOrchestrationService;
     @Mock
     private VmExpungeResourceCleanupService vmExpungeResourceCleanupService;
 
@@ -688,7 +688,7 @@ public class UserVmManagerImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmStartOrchestrationService", vmStartOrchestrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl, "vmDeployStartService", vmDeployStartService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
-                "vmExpungeFailureTransitionService", vmExpungeFailureTransitionService);
+                "vmExpungeOrchestrationService", vmExpungeOrchestrationService);
         org.springframework.test.util.ReflectionTestUtils.setField(userVmManagerImpl,
                 "vmExpungeResourceCleanupService", vmExpungeResourceCleanupService);
         // Slice 14: wire VmSecurityGroupAssignmentServiceImpl so the
