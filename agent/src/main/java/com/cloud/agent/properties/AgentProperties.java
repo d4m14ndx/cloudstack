@@ -138,6 +138,13 @@ public class AgentProperties{
     public static final Property<String> IMAGE_SERVER_LISTEN_ADDRESS = new Property<>("image.server.listen.address", null, String.class);
 
     /**
+     * Path to the KVM image server Unix domain control socket.<br>
+     * Data type: String.<br>
+     * Default value: <code>/var/run/cloudstack/image-server.sock</code>
+     */
+    public static final Property<String> IMAGE_SERVER_SOCKET_PATH = new Property<>("image.server.socket.path", "/var/run/cloudstack/image-server.sock");
+
+    /**
      * Directory where Qemu sockets are placed.<br>
      * These sockets are for the Qemu Guest Agent and SSVM provisioning.<br>
      * Make sure that AppArmor or SELinux allows Libvirt to write there.<br>

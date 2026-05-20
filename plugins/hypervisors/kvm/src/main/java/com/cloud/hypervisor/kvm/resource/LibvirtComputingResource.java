@@ -405,6 +405,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     private String imageServerPath;
     private boolean imageServerTlsEnabled = false;
     private String imageServerListenAddress;
+    private String imageServerSocketPath;
     private String securityGroupPath;
     private String ovsPvlanDhcpHostPath;
     private String ovsPvlanVmPath;
@@ -831,6 +832,10 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         return imageServerListenAddress;
     }
 
+    public String getImageServerSocketPath() {
+        return imageServerSocketPath;
+    }
+
     public String getOvsPvlanDhcpHostPath() {
         return ovsPvlanDhcpHostPath;
     }
@@ -1077,6 +1082,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
 
         imageServerTlsEnabled = AgentPropertiesFileHandler.getPropertyValue(AgentProperties.IMAGE_SERVER_TLS_ENABLED);
         imageServerListenAddress = AgentPropertiesFileHandler.getPropertyValue(AgentProperties.IMAGE_SERVER_LISTEN_ADDRESS);
+        imageServerSocketPath = AgentPropertiesFileHandler.getPropertyValue(AgentProperties.IMAGE_SERVER_SOCKET_PATH);
 
         params.put("domr.scripts.dir", domrScriptsDir);
 

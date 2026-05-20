@@ -16,44 +16,47 @@
 // under the License.
 package com.cloud.hypervisor.kvm.resource;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.StandardProtocolFamily;
+import java.net.SocketTimeoutException;
+import java.net.UnixDomainSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.cloud.utils.script.OutputInterpreter;
-import com.cloud.utils.script.Script;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 /**
- * Communicates with the cloudstack-image-server control socket via socat.
+ * Communicates with the cloudstack-image-server Unix domain control socket.
  */
 public class ImageServerControlSocket {
     private static final Logger LOGGER = LogManager.getLogger(ImageServerControlSocket.class);
-    static final String CONTROL_SOCKET_PATH = "/var/run/cloudstack/image-server.sock";
+    private static final int CONTROL_SOCKET_TIMEOUT_MILLIS = 5000;
     private static final Gson GSON = new GsonBuilder().create();
 
     private ImageServerControlSocket() {
     }
 
-    static JsonObject sendMessage(Map<String, Object> message) {
-        String json = GSON.toJson(message);
-        Script script = new Script(LibvirtComputingResource.BASH_SCRIPT_PATH, LOGGER);
-        script.add("-c");
-        script.add(String.format("echo '%s' | socat -t5 - UNIX-CONNECT:%s",
-                json.replace("'", "'\\''"), CONTROL_SOCKET_PATH));
-        OutputInterpreter.AllLinesParser parser = new OutputInterpreter.AllLinesParser();
-        String result = script.execute(parser);
-        if (result != null) {
-            LOGGER.error("Control socket communication failed: {}", result);
+    static JsonObject sendMessage(String socketPath, Map<String, Object> message) {
+        String output;
+        try {
+            output = sendJson(socketPath, GSON.toJson(message));
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("Control socket communication failed for socket [{}].", socketPath, e);
             return null;
         }
-
-        String output = parser.getLines();
         if (output == null || output.trim().isEmpty()) {
             LOGGER.error("Empty response from control socket");
             return null;
@@ -67,23 +70,86 @@ public class ImageServerControlSocket {
         }
     }
 
-    public static boolean registerTransfer(String transferId, Map<String, Object> config) {
+    static String sendJson(String socketPath, String json) throws IOException {
+        UnixDomainSocketAddress socketAddress = UnixDomainSocketAddress.of(socketPath);
+        try (SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
+             Selector selector = Selector.open()) {
+            channel.configureBlocking(false);
+            long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(CONTROL_SOCKET_TIMEOUT_MILLIS);
+
+            if (!channel.connect(socketAddress)) {
+                waitFor(channel, selector, SelectionKey.OP_CONNECT, deadlineNanos);
+                channel.finishConnect();
+            }
+
+            ByteBuffer request = ByteBuffer.wrap((json + "\n").getBytes(StandardCharsets.UTF_8));
+            while (request.hasRemaining()) {
+                if (channel.write(request) == 0) {
+                    waitFor(channel, selector, SelectionKey.OP_WRITE, deadlineNanos);
+                }
+            }
+            channel.shutdownOutput();
+
+            ByteArrayOutputStream response = new ByteArrayOutputStream();
+            ByteBuffer buffer = ByteBuffer.allocate(4096);
+            while (true) {
+                int read = channel.read(buffer);
+                if (read == -1) {
+                    return response.toString(StandardCharsets.UTF_8);
+                }
+                if (read == 0) {
+                    waitFor(channel, selector, SelectionKey.OP_READ, deadlineNanos);
+                    continue;
+                }
+                buffer.flip();
+                while (buffer.hasRemaining()) {
+                    byte current = buffer.get();
+                    if (current == '\n') {
+                        return response.toString(StandardCharsets.UTF_8);
+                    }
+                    response.write(current);
+                }
+                buffer.clear();
+            }
+        }
+    }
+
+    private static void waitFor(SocketChannel channel, Selector selector, int operation, long deadlineNanos) throws IOException {
+        long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
+        if (remainingMillis <= 0) {
+            throw new SocketTimeoutException("Timed out communicating with image server control socket");
+        }
+
+        SelectionKey key = channel.keyFor(selector);
+        if (key == null) {
+            channel.register(selector, operation);
+        } else {
+            key.interestOps(operation);
+        }
+
+        if (selector.select(remainingMillis) == 0) {
+            throw new SocketTimeoutException("Timed out communicating with image server control socket");
+        }
+        selector.selectedKeys().clear();
+    }
+
+    public static boolean registerTransfer(String socketPath, String transferId, Map<String, Object> config) {
         Map<String, Object> message = new HashMap<>();
         message.put("action", "register");
         message.put("transfer_id", transferId);
         message.put("config", config);
-        JsonObject response = sendMessage(message);
+        JsonObject response = sendMessage(socketPath, message);
         if (response == null) {
             return false;
         }
         return "ok".equals(response.has("status") ? response.get("status").getAsString() : null);
     }
 
-    public static int unregisterTransfer(String transferId) {
+    public static int unregisterTransfer(String socketPath, String transferId) {
         Map<String, Object> message = new HashMap<>();
         message.put("action", "unregister");
         message.put("transfer_id", transferId);
-        JsonObject response = sendMessage(message);
+        JsonObject response = sendMessage(socketPath, message);
         if (response == null) {
             return -1;
         }
@@ -93,10 +159,10 @@ public class ImageServerControlSocket {
         return response.has("active_transfers") ? response.get("active_transfers").getAsInt() : -1;
     }
 
-    public static boolean isReady() {
+    public static boolean isReady(String socketPath) {
         Map<String, Object> message = new HashMap<>();
         message.put("action", "status");
-        JsonObject response = sendMessage(message);
+        JsonObject response = sendMessage(socketPath, message);
         if (response == null) {
             return false;
         }
