@@ -17,8 +17,10 @@
 
 package org.apache.cloudstack.backup;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -80,6 +82,8 @@ import com.cloud.vm.dao.VMInstanceDetailsDao;
 
 @Component
 public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackupExportService {
+    private static final SecureRandom TRANSFER_TOKEN_RANDOM = new SecureRandom();
+    private static final int TRANSFER_TOKEN_BYTES = 32;
 
     @Inject
     private VMInstanceDao vmInstanceDao;
@@ -446,69 +450,95 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         }
 
         String transferId = UUID.randomUUID().toString();
+        String transferToken = generateTransferAuthToken();
         String socket = backup.getUuid();
+        boolean nbdServerStarted = false;
         VMInstanceVO vm = vmInstanceDao.findById(backup.getVmId());
-        if (vm != null && VirtualMachine.State.Stopped.equals(vm.getState())) {
-            socket = transferId;
-            VolumeInfo volumeInfo = volumeDataFactory.getVolume(volume.getId());
-            startNBDServer(transferId, backup.getHostId(), volume.getUuid(), getVolumePathForFileBasedBackend(volume),
-                    ImageTransfer.Direction.download, backup.getFromCheckpointId(), volumeInfo == null ? null : volumeInfo.getPassphrase());
-        }
+        try {
+            if (vm != null && VirtualMachine.State.Stopped.equals(vm.getState())) {
+                socket = transferId;
+                VolumeInfo volumeInfo = volumeDataFactory.getVolume(volume.getId());
+                startNBDServer(transferId, backup.getHostId(), volume.getUuid(), getVolumePathForFileBasedBackend(volume),
+                        ImageTransfer.Direction.download, backup.getFromCheckpointId(), volumeInfo == null ? null : volumeInfo.getPassphrase());
+                nbdServerStarted = true;
+            }
 
-        HostVO host = hostDao.findById(backup.getHostId());
-        if (host == null) {
-            throw new CloudRuntimeException("Host not found for backup: " + backupId);
-        }
+            HostVO host = hostDao.findById(backup.getHostId());
+            if (host == null) {
+                throw new CloudRuntimeException("Host not found for backup: " + backupId);
+            }
 
-        CreateImageTransferCommand command = new CreateImageTransferCommand(transferId,
-                ImageTransfer.Direction.download.toString(), volume.getUuid(), socket,
-                backup.getFromCheckpointId(), ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()));
-        CreateImageTransferAnswer answer = send(backup.getHostId(), command, CreateImageTransferAnswer.class);
-        if (!answer.getResult()) {
-            throw new CloudRuntimeException("Failed to create image transfer: " + answer.getDetails());
-        }
+            CreateImageTransferCommand command = new CreateImageTransferCommand(transferId,
+                    ImageTransfer.Direction.download.toString(), volume.getUuid(), socket,
+                    backup.getFromCheckpointId(), ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()), transferToken);
+            CreateImageTransferAnswer answer = send(backup.getHostId(), command, CreateImageTransferAnswer.class);
+            if (!answer.getResult()) {
+                throw new CloudRuntimeException("Failed to create image transfer: " + answer.getDetails());
+            }
 
-        ImageTransferVO imageTransfer = new ImageTransferVO(transferId, backupId, volume.getId(), backup.getHostId(), socket,
-                ImageTransfer.Phase.transferring, ImageTransfer.Direction.download, backup.getAccountId(),
-                backup.getDomainId(), backup.getZoneId());
-        imageTransfer.setTransferUrl(answer.getTransferUrl());
-        imageTransfer.setSignedTicketId(answer.getImageTransferId());
-        return imageTransferDao.persist(imageTransfer);
+            ImageTransferVO imageTransfer = new ImageTransferVO(transferId, backupId, volume.getId(), backup.getHostId(), socket,
+                    ImageTransfer.Phase.transferring, ImageTransfer.Direction.download, backup.getAccountId(),
+                    backup.getDomainId(), backup.getZoneId());
+            imageTransfer.setTransferUrl(answer.getTransferUrl());
+            imageTransfer.setSignedTicketId(transferToken);
+            return imageTransferDao.persist(imageTransfer);
+        } catch (RuntimeException e) {
+            if (nbdServerStarted) {
+                stopNBDServerBestEffort(transferId, backup.getHostId(), ImageTransfer.Direction.download);
+            }
+            throw e;
+        }
     }
 
     private ImageTransferVO createUploadImageTransfer(VolumeVO volume, ImageTransfer.Backend backend) {
         StoragePoolVO storagePool = getStoragePool(volume);
         HostVO host = getHostFromStoragePool(storagePool);
         String transferId = UUID.randomUUID().toString();
+        String transferToken = generateTransferAuthToken();
         String volumePath = getVolumePathForFileBasedBackend(volume);
         ImageTransferVO imageTransfer;
         CreateImageTransferCommand command;
+        boolean nbdServerStarted = false;
 
-        if (ImageTransfer.Backend.file.equals(backend)) {
-            imageTransfer = new ImageTransferVO(transferId, volume.getId(), host.getId(), volumePath,
-                    ImageTransfer.Phase.transferring, ImageTransfer.Direction.upload, volume.getAccountId(),
-                    volume.getDomainId(), volume.getDataCenterId());
-            command = new CreateImageTransferCommand(transferId, ImageTransfer.Direction.upload.toString(),
-                    transferId, volumePath, ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()));
-        } else {
-            VolumeInfo volumeInfo = volumeDataFactory.getVolume(volume.getId());
-            startNBDServer(transferId, host.getId(), volume.getUuid(), volumePath,
-                    ImageTransfer.Direction.upload, null, volumeInfo == null ? null : volumeInfo.getPassphrase());
-            imageTransfer = new ImageTransferVO(transferId, null, volume.getId(), host.getId(), transferId,
-                    ImageTransfer.Phase.transferring, ImageTransfer.Direction.upload, volume.getAccountId(),
-                    volume.getDomainId(), volume.getDataCenterId());
-            command = new CreateImageTransferCommand(transferId, ImageTransfer.Direction.upload.toString(),
-                    volume.getUuid(), transferId, null, ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()));
+        try {
+            if (ImageTransfer.Backend.file.equals(backend)) {
+                imageTransfer = new ImageTransferVO(transferId, volume.getId(), host.getId(), volumePath,
+                        ImageTransfer.Phase.transferring, ImageTransfer.Direction.upload, volume.getAccountId(),
+                        volume.getDomainId(), volume.getDataCenterId());
+                command = new CreateImageTransferCommand(transferId, ImageTransfer.Direction.upload.toString(),
+                        transferId, volumePath, ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()), transferToken);
+            } else {
+                VolumeInfo volumeInfo = volumeDataFactory.getVolume(volume.getId());
+                startNBDServer(transferId, host.getId(), volume.getUuid(), volumePath,
+                        ImageTransfer.Direction.upload, null, volumeInfo == null ? null : volumeInfo.getPassphrase());
+                nbdServerStarted = true;
+                imageTransfer = new ImageTransferVO(transferId, null, volume.getId(), host.getId(), transferId,
+                        ImageTransfer.Phase.transferring, ImageTransfer.Direction.upload, volume.getAccountId(),
+                        volume.getDomainId(), volume.getDataCenterId());
+                command = new CreateImageTransferCommand(transferId, ImageTransfer.Direction.upload.toString(),
+                        volume.getUuid(), transferId, null, ImageTransferIdleTimeoutSeconds.valueIn(host.getDataCenterId()), transferToken);
+            }
+
+            CreateImageTransferAnswer answer = send(imageTransfer.getHostId(), command, CreateImageTransferAnswer.class);
+            if (!answer.getResult()) {
+                throw new CloudRuntimeException("Failed to create image transfer: " + answer.getDetails());
+            }
+
+            imageTransfer.setTransferUrl(answer.getTransferUrl());
+            imageTransfer.setSignedTicketId(transferToken);
+            return imageTransferDao.persist(imageTransfer);
+        } catch (RuntimeException e) {
+            if (nbdServerStarted) {
+                stopNBDServerBestEffort(transferId, host.getId(), ImageTransfer.Direction.upload);
+            }
+            throw e;
         }
+    }
 
-        CreateImageTransferAnswer answer = send(imageTransfer.getHostId(), command, CreateImageTransferAnswer.class);
-        if (!answer.getResult()) {
-            throw new CloudRuntimeException("Failed to create image transfer: " + answer.getDetails());
-        }
-
-        imageTransfer.setTransferUrl(answer.getTransferUrl());
-        imageTransfer.setSignedTicketId(answer.getImageTransferId());
-        return imageTransferDao.persist(imageTransfer);
+    protected String generateTransferAuthToken() {
+        byte[] tokenBytes = new byte[TRANSFER_TOKEN_BYTES];
+        TRANSFER_TOKEN_RANDOM.nextBytes(tokenBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
     }
 
     private void startNBDServer(String transferId, long hostId, String exportName, String volumePath,
@@ -518,6 +548,17 @@ public class KVMBackupExportServiceImpl extends ManagerBase implements KVMBackup
         StartNBDServerAnswer answer = send(hostId, command, StartNBDServerAnswer.class);
         if (!answer.getResult()) {
             throw new CloudRuntimeException("Failed to start the NBD server: " + answer.getDetails());
+        }
+    }
+
+    private void stopNBDServerBestEffort(String transferId, long hostId, ImageTransfer.Direction direction) {
+        try {
+            Answer answer = send(hostId, new StopNBDServerCommand(transferId, direction.toString()), Answer.class);
+            if (!answer.getResult()) {
+                logger.warn("Failed to clean up NBD server for image transfer [{}]: {}", transferId, answer.getDetails());
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Failed to clean up NBD server for image transfer [{}].", transferId, e);
         }
     }
 

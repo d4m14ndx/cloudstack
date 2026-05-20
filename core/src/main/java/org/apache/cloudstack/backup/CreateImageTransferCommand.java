@@ -20,6 +20,7 @@
 package org.apache.cloudstack.backup;
 
 import com.cloud.agent.api.Command;
+import com.cloud.agent.api.LogLevel;
 
 public class CreateImageTransferCommand extends Command {
     public enum Direction {
@@ -44,15 +45,22 @@ public class CreateImageTransferCommand extends Command {
     private String file;
     private Backend backend;
     private int idleTimeoutSeconds;
+    @LogLevel(LogLevel.Log4jLevel.Off)
+    private String token;
 
     public CreateImageTransferCommand() {
     }
 
     private CreateImageTransferCommand(String transferId, String direction, String socket, int idleTimeoutSeconds) {
+        this(transferId, direction, socket, idleTimeoutSeconds, null);
+    }
+
+    private CreateImageTransferCommand(String transferId, String direction, String socket, int idleTimeoutSeconds, String token) {
         this.transferId = transferId;
         this.direction = direction;
         this.socket = socket;
         this.idleTimeoutSeconds = idleTimeoutSeconds;
+        this.token = token;
     }
 
     public CreateImageTransferCommand(String transferId, String direction, String exportName, String socket,
@@ -63,8 +71,25 @@ public class CreateImageTransferCommand extends Command {
         this.checkpointId = checkpointId;
     }
 
+    public CreateImageTransferCommand(String transferId, String direction, String exportName, String socket,
+                                      String checkpointId, int idleTimeoutSeconds, String token) {
+        this(transferId, direction, socket, idleTimeoutSeconds, token);
+        this.backend = Backend.nbd;
+        this.exportName = exportName;
+        this.checkpointId = checkpointId;
+    }
+
     public CreateImageTransferCommand(String transferId, String direction, String socket, String file, int idleTimeoutSeconds) {
         this(transferId, direction, socket, idleTimeoutSeconds);
+        if (Direction.download.matches(direction)) {
+            throw new IllegalArgumentException("File backend is only supported for upload");
+        }
+        this.backend = Backend.file;
+        this.file = file;
+    }
+
+    public CreateImageTransferCommand(String transferId, String direction, String socket, String file, int idleTimeoutSeconds, String token) {
+        this(transferId, direction, socket, idleTimeoutSeconds, token);
         if (Direction.download.matches(direction)) {
             throw new IllegalArgumentException("File backend is only supported for upload");
         }
@@ -102,6 +127,10 @@ public class CreateImageTransferCommand extends Command {
 
     public int getIdleTimeoutSeconds() {
         return idleTimeoutSeconds;
+    }
+
+    public String getToken() {
+        return token;
     }
 
     @Override

@@ -19,12 +19,14 @@ package org.apache.cloudstack.backup;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -52,6 +54,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -266,10 +269,12 @@ public class KVMBackupExportServiceImplTest {
             assertEquals(CreateImageTransferCommand.Backend.file, command.getValue().getBackend());
             assertEquals("upload", command.getValue().getDirection());
             assertEquals("/mnt/pool-uuid/volume-path", command.getValue().getFile());
+            assertNotNull(command.getValue().getToken());
+            assertNotEquals(command.getValue().getTransferId(), command.getValue().getToken());
             ArgumentCaptor<ImageTransferVO> transferCaptor = ArgumentCaptor.forClass(ImageTransferVO.class);
             verify(imageTransferDao).persist(transferCaptor.capture());
             assertEquals("https://transfer.example/image", transferCaptor.getValue().getTransferUrl());
-            assertEquals("ticket-1", transferCaptor.getValue().getSignedTicketId());
+            assertEquals(command.getValue().getToken(), transferCaptor.getValue().getSignedTicketId());
             assertEquals(ImageTransfer.Phase.transferring, transferCaptor.getValue().getPhase());
             verify(imageTransferDao).findUnfinishedByVolume(VOLUME_ID);
             verify(accountService).checkAccess(user, volume);
@@ -302,6 +307,28 @@ public class KVMBackupExportServiceImplTest {
                     () -> service.createImageTransfer(VOLUME_ID, null, ImageTransfer.Direction.upload, ImageTransfer.Format.cow));
 
             verify(imageTransferDao, never()).findByVolume(anyLong());
+        }
+    }
+
+    @Test
+    public void createImageTransferStopsNbdServerWhenCreateCommandFailsAfterNbdStart() throws Exception {
+        try (MockedStatic<CallContext> callContextMock = mockStatic(CallContext.class)) {
+            stubCallContext(callContextMock);
+            stubUploadVolume();
+            when(agentManager.send(eq(HOST_ID), any(Command.class))).thenReturn(
+                    new StartNBDServerAnswer(null, true, null),
+                    new CreateImageTransferAnswer(null, false, "create failed"),
+                    new Answer(null, true, null)
+            );
+
+            assertThrows(CloudRuntimeException.class,
+                    () -> service.createImageTransfer(VOLUME_ID, null, ImageTransfer.Direction.upload, ImageTransfer.Format.raw));
+
+            InOrder inOrder = inOrder(agentManager);
+            inOrder.verify(agentManager).send(eq(HOST_ID), any(StartNBDServerCommand.class));
+            inOrder.verify(agentManager).send(eq(HOST_ID), any(CreateImageTransferCommand.class));
+            inOrder.verify(agentManager).send(eq(HOST_ID), any(StopNBDServerCommand.class));
+            verify(imageTransferDao, never()).persist(any(ImageTransferVO.class));
         }
     }
 
