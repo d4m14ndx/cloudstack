@@ -198,7 +198,6 @@ import com.cloud.utils.fsm.StateMachine2;
 import com.cloud.utils.net.Dhcp;
 import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.Nic;
-import com.cloud.vm.Nic.ReservationStrategy;
 import com.cloud.vm.NicExtraDhcpOptionVO;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.NicVO;
@@ -216,7 +215,6 @@ import com.cloud.vm.dao.NicDao;
 import com.cloud.vm.dao.NicExtraDhcpOptionDao;
 import com.cloud.vm.dao.NicIpAliasDao;
 import com.cloud.vm.dao.NicSecondaryIpDao;
-import com.cloud.vm.dao.NicSecondaryIpVO;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.googlecode.ipv6.IPv6Address;
@@ -394,6 +392,8 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     NicImportService nicImportService;
     @Inject
     NicMigrationService nicMigrationService;
+    @Inject
+    NicAuxiliaryService nicAuxiliaryService;
     @Inject
     NetworkHostSetupService networkHostSetupService;
     @Inject
@@ -1916,7 +1916,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
             _nicDao.remove(nic.getId());
         }
     }
-
     @Override
     @DB
     public Network createPrivateNetwork(final long networkOfferingId, final String name, final String displayText, final String gateway, final String cidr, final String vlanId, final boolean bypassVlanOverlapCheck, final Account owner, final PhysicalNetwork pNtwk, final Long vpcId) throws ConcurrentOperationException, InsufficientCapacityException, ResourceAllocationException {
@@ -2399,7 +2398,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     public boolean isResourceCountUpdateNeeded(NetworkOffering networkOffering) {
         return !networkOffering.isSystemOnly();
     }
-
     protected Pair<Boolean, List<VlanVO>> deleteVlansInNetwork(final NetworkVO network, final long userId, final Account callerAccount) {
         return networkVlanRangeCleanupService.deleteVlansInNetwork(network, userId, callerAccount);
     }
@@ -2743,38 +2741,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public List<? extends Nic> listVmNics(final long vmId, final Long nicId, final Long networkId, String keyword) {
-        List<NicVO> result;
-
-        if (keyword == null || keyword.isEmpty()) {
-            if (nicId == null && networkId == null) {
-                result = _nicDao.listByVmId(vmId);
-            } else {
-                result = _nicDao.listByVmIdAndNicIdAndNtwkId(vmId, nicId, networkId);
-            }
-        } else {
-            result = _nicDao.listByVmIdAndKeyword(vmId, keyword);
-        }
-
-        for (final NicVO nic : result) {
-            if (_networkModel.isProviderForNetwork(Provider.Nsx, nic.getNetworkId())) {
-                logger.info("Listing NSX logical switch and logical switch por for each nic");
-                final NetworkVO network = _networksDao.findById(nic.getNetworkId());
-                final NetworkGuru guru = AdapterBase.getAdapterByName(networkGurus, network.getGuruName());
-                final NetworkGuruAdditionalFunctions guruFunctions = (NetworkGuruAdditionalFunctions) guru;
-
-                final Map<String, ? extends Object> nsxParams = guruFunctions.listAdditionalNicParams(nic.getUuid());
-                if (nsxParams != null) {
-                    final String lswitchUuuid = nsxParams.containsKey(NetworkGuruAdditionalFunctions.NSX_LSWITCH_UUID)
-                            ? (String) nsxParams.get(NetworkGuruAdditionalFunctions.NSX_LSWITCH_UUID) : null;
-                    final String lswitchPortUuuid = nsxParams.containsKey(NetworkGuruAdditionalFunctions.NSX_LSWITCHPORT_UUID)
-                            ? (String) nsxParams.get(NetworkGuruAdditionalFunctions.NSX_LSWITCHPORT_UUID) : null;
-                    nic.setNsxLogicalSwitchUuid(lswitchUuuid);
-                    nic.setNsxLogicalSwitchPortUuid(lswitchPortUuuid);
-                }
-            }
-        }
-
-        return result;
+        return nicAuxiliaryService.listVmNics(vmId, nicId, networkId, keyword, networkGurus);
     }
 
     @DB
@@ -2952,7 +2919,6 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
     private void setStateMachine() {
         _stateMachine = Network.State.getStateMachine();
     }
-
     @Override
     public List<Provider> getProvidersForServiceInNetwork(final Network network, final Service service) {
         return networkProviderResolutionService.getProvidersForServiceInNetwork(network, service);
@@ -2977,51 +2943,24 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         final NetworkOfferingVO offering = _networkOfferingDao.findById(network.getNetworkOfferingId());
         return offering.isInline();
     }
-
     @Override
     public boolean isSecondaryIpSetForNic(final long nicId) {
-        final NicVO nic = _nicDao.findById(nicId);
-        return nic.getSecondaryIp();
+        return nicAuxiliaryService.isSecondaryIpSetForNic(nicId);
     }
 
     private boolean removeVmSecondaryIpsOfNic(final long nicId) {
-        Transaction.execute(new TransactionCallbackNoReturn() {
-            @Override
-            public void doInTransactionWithoutResult(final TransactionStatus status) {
-                final List<NicSecondaryIpVO> ipList = _nicSecondaryIpDao.listByNicId(nicId);
-                if (ipList != null) {
-                    for (final NicSecondaryIpVO ip : ipList) {
-                        _nicSecondaryIpDao.remove(ip.getId());
-                    }
-                    logger.debug("Revoving nic secondary ip entry ...");
-                }
-            }
-        });
-
-        return true;
+        return nicAuxiliaryService.removeVmSecondaryIpsOfNic(nicId);
     }
 
     @Override
     public NicVO savePlaceholderNic(final Network network, final String ip4Address, final String ip6Address, final Type vmType) {
-        return savePlaceholderNic(network, ip4Address, ip6Address, null, null, null, vmType);
+        return nicAuxiliaryService.savePlaceholderNic(network, ip4Address, ip6Address, vmType);
     }
 
     @Override
     public NicVO savePlaceholderNic(final Network network, final String ip4Address, final String ip6Address, final String ip6Cidr, final String ip6Gateway, final String reserver, final Type vmType) {
-        final NicVO nic = new NicVO(null, null, network.getId(), null);
-        nic.setIPv4Address(ip4Address);
-        nic.setIPv6Address(ip6Address);
-        nic.setIPv6Cidr(ip6Cidr);
-        nic.setIPv6Gateway(ip6Gateway);
-        nic.setReservationStrategy(ReservationStrategy.PlaceHolder);
-        if (reserver != null) {
-            nic.setReserver(reserver);
-        }
-        nic.setState(Nic.State.Reserved);
-        nic.setVmType(vmType);
-        return _nicDao.persist(nic);
+        return nicAuxiliaryService.savePlaceholderNic(network, ip4Address, ip6Address, ip6Cidr, ip6Gateway, reserver, vmType);
     }
-
     @DB
     @Override
     public Pair<NicProfile, Integer> importNic(final String macAddress, int deviceId, final Network network, final Boolean isDefaultNic, final VirtualMachine vm,
@@ -3032,33 +2971,13 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
     @Override
     public void unmanageNics(VirtualMachineProfile vm) {
-        logger.debug("Unmanaging NICs for VM: {}", vm);
-
-        VirtualMachine virtualMachine = vm.getVirtualMachine();
-        final List<NicVO> nics = _nicDao.listByVmId(vm.getId());
-        for (final NicVO nic : nics) {
-            removeNic(vm, nic);
-            NetworkVO network = _networksDao.findById(nic.getNetworkId());
-            if (virtualMachine.getState() != VirtualMachine.State.Stopped) {
-                UsageEventUtils.publishUsageEvent(EventTypes.EVENT_NETWORK_OFFERING_REMOVE, virtualMachine.getAccountId(), virtualMachine.getDataCenterId(), virtualMachine.getId(),
-                        Long.toString(nic.getId()), network.getNetworkOfferingId(), null, 0L, virtualMachine.getClass().getName(), virtualMachine.getUuid(), virtualMachine.isDisplay());
-            }
-        }
+        nicAuxiliaryService.unmanageNics(vm, this::removeNic);
     }
 
     @Override
     public void expungeLbVmRefs(List<Long> vmIds, Long batchSize) {
-        if (CollectionUtils.isEmpty(networkElements) || CollectionUtils.isEmpty(vmIds)) {
-            return;
-        }
-        for (NetworkElement element : networkElements) {
-            if (element instanceof LoadBalancingServiceProvider) {
-                LoadBalancingServiceProvider lbProvider = (LoadBalancingServiceProvider)element;
-                lbProvider.expungeLbVmRefs(vmIds, batchSize);
-            }
-        }
+        nicAuxiliaryService.expungeLbVmRefs(networkElements, vmIds, batchSize);
     }
-
     @Override
     public String getConfigComponentName() {
         return NetworkOrchestrationService.class.getSimpleName();

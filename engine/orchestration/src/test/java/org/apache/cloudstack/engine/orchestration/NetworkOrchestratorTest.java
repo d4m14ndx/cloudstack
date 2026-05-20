@@ -193,6 +193,13 @@ public class NetworkOrchestratorTest extends TestCase {
         dhcpCleanupService.networkElements = new ArrayList<>();
         testOrchestrator.nicDhcpCleanupService = dhcpCleanupService;
 
+        NicAuxiliaryServiceImpl nicAuxiliaryService = new NicAuxiliaryServiceImpl();
+        nicAuxiliaryService.nicDao = testOrchestrator._nicDao;
+        nicAuxiliaryService.nicSecondaryIpDao = testOrchestrator._nicSecondaryIpDao;
+        nicAuxiliaryService.networksDao = testOrchestrator._networksDao;
+        nicAuxiliaryService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.nicAuxiliaryService = nicAuxiliaryService;
+
         NicElementPreparationServiceImpl elementPreparationService = new NicElementPreparationServiceImpl();
         elementPreparationService.networkModel = testOrchestrator._networkModel;
         elementPreparationService.nicDhcpCleanupService = dhcpCleanupService;
