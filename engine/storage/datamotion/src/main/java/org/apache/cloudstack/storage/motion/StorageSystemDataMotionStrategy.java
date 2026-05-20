@@ -30,9 +30,6 @@ import java.util.concurrent.TimeUnit;
 
 import jakarta.inject.Inject;
 
-import com.cloud.agent.api.CheckVirtualMachineAnswer;
-import com.cloud.agent.api.CheckVirtualMachineCommand;
-import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.resource.ResourceManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.ClusterScope;
@@ -78,9 +75,7 @@ import org.apache.logging.log4j.LogManager;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.MigrateAnswer;
 import com.cloud.agent.api.MigrateCommand;
-import com.cloud.agent.api.MigrateCommand.MigrateDiskInfo;
 import com.cloud.agent.api.ModifyTargetsAnswer;
 import com.cloud.agent.api.ModifyTargetsCommand;
 import com.cloud.agent.api.PrepareForMigrationCommand;
@@ -140,7 +135,6 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.google.common.base.Preconditions;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.stream.Collectors;
 import org.apache.commons.collections.CollectionUtils;
 
 import static org.apache.cloudstack.vm.UnmanagedVMsManager.KVM_VM_IMPORT_DEFAULT_TEMPLATE_NAME;
@@ -204,6 +198,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     protected HostResolutionService hostResolutionService;
     @Inject
     protected KvmNonLiveStorageMigrationHandler kvmNonLiveStorageMigrationHandler;
+    @Inject
+    protected KvmLiveStorageMigrationHandler kvmLiveStorageMigrationHandler;
 
     @Override
     public StrategyPriority canHandle(DataObject srcData, DataObject destData) {
@@ -1822,7 +1818,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         }
     }
 
-    private void handleQualityOfServiceForVolumeMigration(VolumeInfo volumeInfo, PrimaryDataStoreDriver.QualityOfServiceState qualityOfServiceState) {
+    void handleQualityOfServiceForVolumeMigration(VolumeInfo volumeInfo, PrimaryDataStoreDriver.QualityOfServiceState qualityOfServiceState) {
         try {
             ((PrimaryDataStoreDriver)volumeInfo.getDataStore().getDriver()).handleQualityOfServiceForVolumeMigration(volumeInfo, qualityOfServiceState);
         }
@@ -1905,198 +1901,10 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
      */
     @Override
     public void copyAsync(Map<VolumeInfo, DataStore> volumeDataStoreMap, VirtualMachineTO vmTO, Host srcHost, Host destHost, AsyncCompletionCallback<CopyCommandResult> callback) {
-        String errMsg = null;
-        boolean success = false;
-        Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo = new HashMap<>();
-
-        try {
-            if (srcHost.getHypervisorType() != HypervisorType.KVM) {
-                throw new CloudRuntimeException("Invalid hypervisor type (only KVM supported for this operation at the time being)");
-            }
-
-            verifyLiveMigrationForKVM(volumeDataStoreMap);
-
-            VMInstanceVO vmInstance = _vmDao.findById(vmTO.getId());
-            vmTO.setState(vmInstance.getState());
-            List<MigrateDiskInfo> migrateDiskInfoList = new ArrayList<MigrateDiskInfo>();
-
-            Map<String, MigrateCommand.MigrateDiskInfo> migrateStorage = new HashMap<>();
-
-            boolean managedStorageDestination = false;
-            boolean migrateNonSharedInc = false;
-            for (Map.Entry<VolumeInfo, DataStore> entry : volumeDataStoreMap.entrySet()) {
-                VolumeInfo srcVolumeInfo = entry.getKey();
-                DataStore destDataStore = entry.getValue();
-
-                VolumeVO srcVolume = _volumeDao.findById(srcVolumeInfo.getId());
-                StoragePoolVO destStoragePool = _storagePoolDao.findById(destDataStore.getId());
-                StoragePoolVO sourceStoragePool = _storagePoolDao.findById(srcVolumeInfo.getPoolId());
-
-                // do not initiate migration for the same PowerFlex/ScaleIO pool
-                if (sourceStoragePool.getId() == destStoragePool.getId() && sourceStoragePool.getPoolType() == Storage.StoragePoolType.PowerFlex) {
-                    continue;
-                }
-
-                if (!shouldMigrateVolume(sourceStoragePool, destHost, destStoragePool)) {
-                    continue;
-                }
-
-                MigrationOptions.Type migrationType = decideMigrationTypeAndCopyTemplateIfNeeded(destHost, vmInstance, srcVolumeInfo, sourceStoragePool, destStoragePool, destDataStore);
-                migrateNonSharedInc = migrateNonSharedInc || MigrationOptions.Type.LinkedClone.equals(migrationType);
-
-                VolumeVO destVolume = duplicateVolumeOnAnotherStorage(srcVolume, destStoragePool);
-                VolumeInfo destVolumeInfo = _volumeDataFactory.getVolume(destVolume.getId(), destDataStore);
-
-                // move the volume from Allocated to Creating
-                destVolumeInfo.processEvent(Event.MigrationCopyRequested);
-                // move the volume from Creating to Ready
-                destVolumeInfo.processEvent(Event.MigrationCopySucceeded);
-                // move the volume from Ready to Migrating
-                destVolumeInfo.processEvent(Event.MigrationRequested);
-
-                setVolumeMigrationOptions(srcVolumeInfo, destVolumeInfo, vmTO, srcHost, destStoragePool, migrationType);
-
-                // create a volume on the destination storage
-                destDataStore.getDriver().createAsync(destDataStore, destVolumeInfo, null);
-
-                managedStorageDestination = destStoragePool.isManaged();
-                String volumeIdentifier = managedStorageDestination ? destVolumeInfo.get_iScsiName() : destVolumeInfo.getUuid();
-
-                destVolume = _volumeDao.findById(destVolume.getId());
-                destVolume.setPath(volumeIdentifier);
-
-                setVolumePath(destVolume);
-
-                _volumeDao.update(destVolume.getId(), destVolume);
-
-                postVolumeCreationActions(srcVolumeInfo, destVolumeInfo);
-
-                destVolumeInfo = _volumeDataFactory.getVolume(destVolume.getId(), destDataStore);
-
-                handleQualityOfServiceForVolumeMigration(destVolumeInfo, PrimaryDataStoreDriver.QualityOfServiceState.MIGRATION);
-
-                _volumeService.grantAccess(destVolumeInfo, destHost, destDataStore);
-
-                String destPath = generateDestPath(destHost, destStoragePool, destVolumeInfo);
-
-                MigrateCommand.MigrateDiskInfo migrateDiskInfo;
-
-                boolean isNonManagedToNfs = supportStoragePoolType(sourceStoragePool.getPoolType(), StoragePoolType.Filesystem) && destStoragePool.getPoolType() == StoragePoolType.NetworkFilesystem && !managedStorageDestination;
-                if (isNonManagedToNfs) {
-                    migrateDiskInfo = new MigrateCommand.MigrateDiskInfo(srcVolumeInfo.getPath(),
-                            MigrateCommand.MigrateDiskInfo.DiskType.FILE,
-                            MigrateCommand.MigrateDiskInfo.DriverType.QCOW2,
-                            MigrateCommand.MigrateDiskInfo.Source.FILE,
-                            connectHostToVolume(destHost, destVolumeInfo.getPoolId(), volumeIdentifier));
-                } else {
-                    String backingPath = generateBackingPath(destStoragePool, destVolumeInfo);
-                    migrateDiskInfo = configureMigrateDiskInfo(srcVolumeInfo, destPath, backingPath);
-                    migrateDiskInfo.setSourceDiskOnStorageFileSystem(isStoragePoolTypeOfFile(sourceStoragePool));
-                    migrateDiskInfoList.add(migrateDiskInfo);
-                }
-                prepareDiskWithSecretConsumerDetail(vmTO, srcVolumeInfo, destVolumeInfo.getPath());
-
-                migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
-
-                srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
-            }
-
-            PrepareForMigrationCommand pfmc = new PrepareForMigrationCommand(vmTO);
-            Answer pfma;
-
-            try {
-                pfma = agentManager.send(destHost.getId(), pfmc);
-
-                if (pfma == null || !pfma.getResult()) {
-                    String details = pfma != null ? pfma.getDetails() : "null answer returned";
-                    String msg = "Unable to prepare for migration due to the following: " + details;
-
-                    throw new AgentUnavailableException(msg, destHost.getId());
-                }
-            } catch (final OperationTimedoutException e) {
-                throw new AgentUnavailableException("Operation timed out", destHost.getId());
-            }
-
-            VMInstanceVO vm = _vmDao.findById(vmTO.getId());
-            boolean isWindows = _guestOsCategoryDao.findById(_guestOsDao.findById(vm.getGuestOSId()).getCategoryId()).getName().equalsIgnoreCase("Windows");
-
-            MigrateCommand migrateCommand = new MigrateCommand(vmTO.getName(), destHost.getPrivateIpAddress(), isWindows, vmTO, true);
-            migrateCommand.setWait(StorageManager.KvmStorageOnlineMigrationWait.value());
-            migrateCommand.setMigrateStorage(migrateStorage);
-            migrateCommand.setMigrateDiskInfoList(migrateDiskInfoList);
-            migrateCommand.setMigrateStorageManaged(managedStorageDestination);
-            migrateCommand.setMigrateNonSharedInc(migrateNonSharedInc);
-
-            Integer newVmCpuShares = ((PrepareForMigrationAnswer) pfma).getNewVmCpuShares();
-            if (newVmCpuShares != null) {
-                logger.debug(String.format("Setting CPU shares to [%d] as part of migrate VM with volumes command for VM [%s].", newVmCpuShares, vmTO));
-                migrateCommand.setNewVmCpuShares(newVmCpuShares);
-            }
-
-            boolean kvmAutoConvergence = StorageManager.KvmAutoConvergence.value();
-            migrateCommand.setAutoConvergence(kvmAutoConvergence);
-
-            MigrateAnswer migrateAnswer = null;
-            try {
-                migrateAnswer = (MigrateAnswer)agentManager.send(srcHost.getId(), migrateCommand);
-                success = migrateAnswer != null && migrateAnswer.getResult();
-            } catch (OperationTimedoutException ex) {
-                if (HypervisorType.KVM.equals(vm.getHypervisorType())) {
-                    final Answer answer = agentManager.send(destHost.getId(), new CheckVirtualMachineCommand(vm.getInstanceName()));
-                    if (answer != null && answer.getResult() && answer instanceof CheckVirtualMachineAnswer) {
-                        final CheckVirtualMachineAnswer vmAnswer = (CheckVirtualMachineAnswer)answer;
-                        if (VirtualMachine.PowerState.PowerOn.equals(vmAnswer.getState())) {
-                            logger.info(String.format("Vm %s is found on destination host %s. Migration is successful", vm, destHost));
-                            success = true;
-                        }
-                    }
-                }
-                if (!success) {
-                    throw ex;
-                }
-            }
-
-            handlePostMigration(success, srcVolumeInfoToDestVolumeInfo, vmTO, destHost);
-
-            if (!success) {
-                if (migrateAnswer == null) {
-                    throw new CloudRuntimeException("Unable to get an answer to the migrate command");
-                }
-
-                if (!migrateAnswer.getResult()) {
-                    errMsg = migrateAnswer.getDetails();
-
-                    throw new CloudRuntimeException(errMsg);
-                }
-            }
-        } catch (AgentUnavailableException | OperationTimedoutException | CloudRuntimeException ex) {
-            String volumesAndStorages = volumeDataStoreMap.entrySet().stream().map(entry -> formatEntryOfVolumesAndStoragesAsJsonToDisplayOnLog(entry)).collect(Collectors.joining(","));
-
-            errMsg = String.format("Copy volume(s) to storage(s) [%s] and VM to host [%s] failed in StorageSystemDataMotionStrategy.copyAsync. Error message: [%s].", volumesAndStorages, formatMigrationElementsAsJsonToDisplayOnLog("vm", vmTO.getId(), srcHost.getId(), destHost.getId()), ex.getMessage());
-            logger.error(errMsg, ex);
-
-            throw new CloudRuntimeException(errMsg);
-        } finally {
-            if (!success && !srcVolumeInfoToDestVolumeInfo.isEmpty()) {
-                for (VolumeInfo destVolumeInfo : srcVolumeInfoToDestVolumeInfo.values()) {
-                    logger.info(String.format("Expunging dest volume [id: %s, state: %s] as part of failed VM migration with volumes command for VM [%s].", destVolumeInfo.getId(), destVolumeInfo.getState(), vmTO.getId()));
-                    destVolumeInfo.processEvent(Event.OperationFailed);
-                    destVolumeInfo.processEvent(Event.DestroyRequested);
-                    _volumeService.expungeVolumeAsync(destVolumeInfo);
-                }
-            }
-
-            CopyCmdAnswer copyCmdAnswer = new CopyCmdAnswer(errMsg);
-
-            CopyCommandResult result = new CopyCommandResult(null, copyCmdAnswer);
-
-            result.setResult(errMsg);
-
-            callback.complete(result);
-        }
+        kvmLiveStorageMigrationHandler.handle(volumeDataStoreMap, vmTO, srcHost, destHost, callback, this);
     }
 
-    private MigrationOptions.Type decideMigrationTypeAndCopyTemplateIfNeeded(Host destHost, VMInstanceVO vmInstance, VolumeInfo srcVolumeInfo, StoragePoolVO sourceStoragePool, StoragePoolVO destStoragePool, DataStore destDataStore) {
+    MigrationOptions.Type decideMigrationTypeAndCopyTemplateIfNeeded(Host destHost, VMInstanceVO vmInstance, VolumeInfo srcVolumeInfo, StoragePoolVO sourceStoragePool, StoragePoolVO destStoragePool, DataStore destDataStore) {
         VMTemplateVO vmTemplate = _vmTemplateDao.findById(vmInstance.getTemplateId());
         String srcVolumeBackingFile = getVolumeBackingFile(srcVolumeInfo);
         if (StringUtils.isNotBlank(srcVolumeBackingFile) && supportStoragePoolType(destStoragePool.getPoolType(), StoragePoolType.Filesystem) &&
@@ -2165,7 +1973,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     }
 
     /**
-     * Configures a {@link MigrateDiskInfo} object with disk type of BLOCK, Driver type RAW and Source DEV
+     * Configures a {@link MigrateCommand.MigrateDiskInfo} object with disk type of BLOCK, Driver type RAW and Source DEV
      */
     protected MigrateCommand.MigrateDiskInfo configureMigrateDiskInfo(VolumeInfo srcVolumeInfo, String destPath, String backingPath) {
         return new MigrateCommand.MigrateDiskInfo(srcVolumeInfo.getPath(),
@@ -2205,7 +2013,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         return null;
     }
 
-    private void handlePostMigration(boolean success, Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo, VirtualMachineTO vmTO, Host destHost) {
+    void handlePostMigration(boolean success, Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo, VirtualMachineTO vmTO, Host destHost) {
         if (!success) {
             try {
                 PrepareForMigrationCommand pfmc = new PrepareForMigrationCommand(vmTO);
@@ -2309,7 +2117,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         return null;
     }
 
-    private VolumeVO duplicateVolumeOnAnotherStorage(Volume volume, StoragePoolVO storagePoolVO) {
+    VolumeVO duplicateVolumeOnAnotherStorage(Volume volume, StoragePoolVO storagePoolVO) {
         Long lastPoolId = volume.getPoolId();
 
         VolumeVO newVol = new VolumeVO(volume);
