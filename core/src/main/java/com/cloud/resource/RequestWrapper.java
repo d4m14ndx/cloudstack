@@ -140,10 +140,8 @@ public abstract class RequestWrapper {
                 continue;
             }
             try {
-                commands.put(annotation.handles(), wrapper.newInstance());
-            } catch (final InstantiationException e) {
-                logger.warn(MessageFormat.format(errorMessage, e.getLocalizedMessage(), wrapper.toString()));
-            } catch (final IllegalAccessException e) {
+                commands.put(annotation.handles(), wrapper.getDeclaredConstructor().newInstance());
+            } catch (final ReflectiveOperationException e) {
                 logger.warn(MessageFormat.format(errorMessage, e.getLocalizedMessage(), wrapper.toString()));
             }
         }

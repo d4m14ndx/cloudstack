@@ -240,13 +240,10 @@ public class ComponentContext implements ApplicationContextAware {
     public static <T> T inject(Class<T> clz) {
         T instance;
         try {
-            instance = clz.newInstance();
+            instance = clz.getDeclaredConstructor().newInstance();
             return inject(instance);
-        } catch (InstantiationException e) {
-            LOGGER.error("Unhandled InstantiationException", e);
-            throw new RuntimeException("Unable to instantiate object of class " + clz.getName() + ", make sure it has public constructor");
-        } catch (IllegalAccessException e) {
-            LOGGER.error("Unhandled IllegalAccessException", e);
+        } catch (ReflectiveOperationException e) {
+            LOGGER.error("Unhandled reflective instantiation exception", e);
             throw new RuntimeException("Unable to instantiate object of class " + clz.getName() + ", make sure it has public constructor");
         }
     }

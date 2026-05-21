@@ -60,7 +60,7 @@ public class ApiAsyncJobDispatcher extends AdapterBase implements AsyncJobDispat
         BaseAsyncCmd cmdObj = null;
         try {
             Class<?> cmdClass = Class.forName(job.getCmd());
-            cmdObj = (BaseAsyncCmd)cmdClass.newInstance();
+            cmdObj = (BaseAsyncCmd)cmdClass.getDeclaredConstructor().newInstance();
             cmdObj = ComponentContext.inject(cmdObj);
             cmdObj.configure();
             cmdObj.setJob(job);
