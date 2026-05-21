@@ -105,4 +105,25 @@ test.describe("action-heavy CloudStack pages", () => {
     expect(deleteCall?.method).toBe("POST");
     expect(deleteCall?.json).toEqual({ id: "v-1a4b" });
   });
+
+  test("volume detach failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    mockCloudStackBff.use("detachVolume", {
+      detachvolumeresponse: { id: "v-9d3a", jobid: "job-detach-denied" },
+    });
+    mockCloudStackBff.use("queryAsyncJobResult", ({ params }) => ({
+      queryasyncjobresultresponse: {
+        jobid: params.get("jobid") ?? "job-detach-denied",
+        jobstatus: 2,
+        jobresultcode: 530,
+        jobresult: { errortext: "Volume is attached to an active VM" },
+      },
+    }));
+
+    await page.goto("/volumes");
+
+    await page.getByRole("button", { name: "Detach web-prod-01-root" }).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: "Volume is attached to an active VM" })).toBeVisible();
+    expect(mockCloudStackBff.calls("detachVolume").at(-1)?.json).toEqual({ id: "v-9d3a" });
+  });
 });

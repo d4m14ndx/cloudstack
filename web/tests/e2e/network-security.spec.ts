@@ -37,6 +37,30 @@ test.describe("network and security smoke coverage", () => {
     });
   });
 
+  test("public IP acquisition failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    installNetworkMocks(mockCloudStackBff);
+    mockCloudStackBff.use("associateIpAddress", {
+      associateipaddressresponse: { jobid: "job-ip-denied", id: "ip-new" },
+    });
+    mockCloudStackBff.use("queryAsyncJobResult", ({ params }) => ({
+      queryasyncjobresultresponse: {
+        jobid: params.get("jobid") ?? "job-ip-denied",
+        jobstatus: 2,
+        jobresultcode: 530,
+        jobresult: { errortext: "Public IP pool exhausted" },
+      },
+    }));
+
+    await page.goto("/networks");
+
+    await page.getByRole("link", { name: "mgmt" }).click();
+    await page.getByRole("tab", { name: /Public IPs/ }).click();
+    await page.getByRole("button", { name: "Acquire IP" }).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: "Public IP pool exhausted" })).toBeVisible();
+    expect(mockCloudStackBff.calls("associateIpAddress").at(-1)?.json).toEqual({ networkid: "n-106" });
+  });
+
   test("authorizes and revokes security group rules", async ({ page, mockCloudStackBff }) => {
     installSecurityGroupMocks(mockCloudStackBff);
 
@@ -74,6 +98,20 @@ test.describe("network and security smoke coverage", () => {
 
     await page.getByRole("button", { name: "Revoke ingress rule sg-001-ingress-ssh" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Rule revoked." })).toBeVisible();
+    expect(mockCloudStackBff.calls("revokeSecurityGroupIngress").at(-1)?.json).toEqual({ id: "sg-001-ingress-ssh" });
+  });
+
+  test("security group revoke failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    installSecurityGroupMocks(mockCloudStackBff);
+    mockCloudStackBff.use("revokeSecurityGroupIngress", {
+      errorresponse: { errortext: "Rule is still referenced by a running VM" },
+    });
+
+    await page.goto("/security");
+
+    await page.getByRole("button", { name: "Revoke ingress rule sg-001-ingress-ssh" }).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: "Rule is still referenced by a running VM" })).toBeVisible();
     expect(mockCloudStackBff.calls("revokeSecurityGroupIngress").at(-1)?.json).toEqual({ id: "sg-001-ingress-ssh" });
   });
 });
