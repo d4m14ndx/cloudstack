@@ -89,6 +89,30 @@ export type SshKeyPair = {
   project: string | null;
 };
 
+export type SecurityGroupRule = {
+  id: string;
+  protocol: string;
+  range: string;
+  source: string;
+};
+
+export type SecurityGroup = {
+  id: string;
+  name: string;
+  description: string;
+  account: string;
+  domain: string;
+  domainId: string | null;
+  domainPath: string;
+  project: string | null;
+  projectId: string | null;
+  ingressRules: SecurityGroupRule[];
+  egressRules: SecurityGroupRule[];
+  instances: number;
+  instanceIds: string[];
+  isDefault: boolean;
+};
+
 export type TenantDomain = {
   id: string;
   name: string;
@@ -227,6 +251,68 @@ export const mockSshKeyPairs: SshKeyPair[] = [
   { id: "ssh-001", name: "platform-admin", fingerprint: "SHA256:p1atf0rmadmin", account: "platform", domain: "root", project: null },
   { id: "ssh-002", name: "engineering-ci", fingerprint: "SHA256:engineeringci", account: "engineering", domain: "root/eng", project: "ci" },
   { id: "ssh-003", name: "research-gpu", fingerprint: "SHA256:researchgpu", account: "research", domain: "root/labs", project: "ml-labs" },
+];
+
+export const mockSecurityGroups: SecurityGroup[] = [
+  {
+    id: "sg-001",
+    name: "default",
+    description: "Default account security group",
+    account: "platform",
+    domain: "root",
+    domainId: "d-root",
+    domainPath: "ROOT",
+    project: null,
+    projectId: null,
+    ingressRules: [
+      { id: "sg-001-ingress-ssh", protocol: "TCP", range: "22", source: "203.0.113.0/24" },
+      { id: "sg-001-ingress-icmp", protocol: "ICMP", range: "type 8 / code 0", source: "0.0.0.0/0" },
+    ],
+    egressRules: [
+      { id: "sg-001-egress-all", protocol: "TCP", range: "all", source: "0.0.0.0/0" },
+    ],
+    instances: 4,
+    instanceIds: ["i-9f3a2b", "i-3d1c8e", "i-7b2f4d", "i-2a6b1f"],
+    isDefault: true,
+  },
+  {
+    id: "sg-002",
+    name: "web-tier",
+    description: "Public HTTP and HTTPS ingress",
+    account: "engineering",
+    domain: "root/eng",
+    domainId: "d-eng",
+    domainPath: "ROOT/engineering",
+    project: "ci",
+    projectId: "project-ci",
+    ingressRules: [
+      { id: "sg-002-ingress-http", protocol: "TCP", range: "80-443", source: "0.0.0.0/0" },
+    ],
+    egressRules: [
+      { id: "sg-002-egress-dns", protocol: "UDP", range: "53", source: "0.0.0.0/0" },
+    ],
+    instances: 2,
+    instanceIds: ["i-6e3a9c", "i-4d7c1e"],
+    isDefault: false,
+  },
+  {
+    id: "sg-003",
+    name: "database",
+    description: "Database access from web tier",
+    account: "platform",
+    domain: "root",
+    domainId: "d-root",
+    domainPath: "ROOT",
+    project: null,
+    projectId: null,
+    ingressRules: [
+      { id: "sg-003-ingress-db", protocol: "TCP", range: "5432", source: "platform/web-tier" },
+    ],
+    egressRules: [],
+    instances: 1,
+    instanceIds: ["i-7b2f4d"],
+    isDefault: false,
+  },
 ];
 
 export const mockDomains: TenantDomain[] = [
