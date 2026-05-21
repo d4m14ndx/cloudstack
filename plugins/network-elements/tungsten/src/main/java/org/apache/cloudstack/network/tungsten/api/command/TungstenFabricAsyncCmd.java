@@ -21,7 +21,8 @@ import org.apache.cloudstack.api.response.SuccessResponse;
 
 abstract class TungstenFabricAsyncCmd extends BaseAsyncCmd {
 
-    protected void setSuccessResponse() {
-        setResponseObject(new SuccessResponse(getCommandName()));
+    @Override
+    protected SuccessResponse setSuccessResponse() {
+        return super.setSuccessResponse();
     }
 }
