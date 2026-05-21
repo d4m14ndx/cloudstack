@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
+const cloudStackMockPort = Number(process.env.PLAYWRIGHT_CLOUDSTACK_MOCK_PORT ?? port + 1000);
+
+process.env.PLAYWRIGHT_CLOUDSTACK_MOCK_PORT = String(cloudStackMockPort);
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -18,9 +21,11 @@ export default defineConfig({
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
     env: {
+      BFF_DEV_SESSION: "true",
       NEXTAUTH_SECRET: "phase5-browser-smoke-secret",
       NEXTAUTH_URL: `http://127.0.0.1:${port}`,
-      CS_URL: "http://cloudstack.e2e.invalid/client/api",
+      CS_URL: `http://127.0.0.1:${cloudStackMockPort}/client/api`,
+      PLAYWRIGHT_CLOUDSTACK_MOCK_PORT: String(cloudStackMockPort),
     },
   },
   projects: [
