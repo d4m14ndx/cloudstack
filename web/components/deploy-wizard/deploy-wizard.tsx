@@ -1,0 +1,602 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
+  Cpu,
+  Database,
+  Globe,
+  IconNetworks as Network,
+  IconSecurity as ShieldCheck,
+  IconSshKeys as Key,
+  Layers,
+  Loader2,
+} from "@/components/icons";
+import { getDeployWizardCatalogFromBff } from "@/lib/cloudstack/deploy-wizard";
+import type {
+  DeployWizardCatalog,
+  DiskOffering,
+  Network as DeployNetwork,
+  SecurityGroup,
+  ServiceOffering,
+  SshKeyPair,
+  Template,
+  Zone,
+} from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+
+const OPEN_DEPLOY_WIZARD_EVENT = "cloudstack:open-deploy-wizard";
+
+const STEPS = [
+  { key: "zone", label: "Zone & template", icon: Globe },
+  { key: "size", label: "Size", icon: Cpu },
+  { key: "network", label: "Network", icon: Network },
+  { key: "storage", label: "Storage", icon: Database },
+  { key: "access", label: "Access", icon: Key },
+  { key: "review", label: "Review", icon: Check },
+] as const;
+
+type DeployWizardProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+};
+
+type WizardForm = {
+  name: string;
+  displayName: string;
+  zoneId: string;
+  templateId: string;
+  serviceOfferingId: string;
+  networkId: string;
+  diskOfferingId: string;
+  sshKeyPairId: string;
+  securityGroupId: string;
+  userData: string;
+};
+
+const initialForm: WizardForm = {
+  name: "",
+  displayName: "",
+  zoneId: "",
+  templateId: "",
+  serviceOfferingId: "",
+  networkId: "",
+  diskOfferingId: "",
+  sshKeyPairId: "",
+  securityGroupId: "",
+  userData: "#cloud-config\npackage_update: true",
+};
+
+export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const actualOpen = open ?? internalOpen;
+  const setActualOpen = onOpenChange ?? setInternalOpen;
+  const [step, setStep] = useState(0);
+  const [catalog, setCatalog] = useState<DeployWizardCatalog | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [form, setForm] = useState<WizardForm>(initialForm);
+
+  useEffect(() => {
+    const openWizard = () => setActualOpen(true);
+    window.addEventListener(OPEN_DEPLOY_WIZARD_EVENT, openWizard);
+    return () => window.removeEventListener(OPEN_DEPLOY_WIZARD_EVENT, openWizard);
+  }, [setActualOpen]);
+
+  useEffect(() => {
+    if (!actualOpen) {
+      return;
+    }
+
+    let cancelled = false;
+    setStep(0);
+    setLoading(true);
+    setLoadError(null);
+
+    getDeployWizardCatalogFromBff()
+      .then((nextCatalog) => {
+        if (cancelled) {
+          return;
+        }
+
+        setCatalog(nextCatalog);
+        setForm((current) => applyCatalogDefaults(current, nextCatalog));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        setLoadError(error instanceof Error ? error.message : "Catalog unavailable");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actualOpen]);
+
+  const selections = useMemo(() => resolveSelections(form, catalog), [catalog, form]);
+  const canContinue = canContinueFromStep(step, form);
+
+  return (
+    <Dialog open={actualOpen} onOpenChange={setActualOpen}>
+      <DialogContent className="flex max-h-[88vh] max-w-[1060px] flex-col overflow-hidden p-0">
+        <DialogHeader className="mb-0 border-b border-[color:var(--border)] px-5 py-4">
+          <div className="flex items-start justify-between gap-4 pr-8">
+            <div>
+              <DialogTitle>Deploy instance</DialogTitle>
+              <DialogDescription>Catalog-backed preview</DialogDescription>
+            </div>
+            <Badge variant="warning">Launch disabled</Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr]">
+          <aside className="border-r border-[color:var(--border)] bg-[color:var(--surface)] p-3">
+            <div className="space-y-1">
+              {STEPS.map((item, index) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setStep(index)}
+                    className={cn(
+                      "flex h-10 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+                      index === step
+                        ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                        : "text-[color:var(--fg-muted)] hover:bg-[color:var(--surface-2)] hover:text-[color:var(--fg)]",
+                    )}
+                  >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--bg)]">
+                      <Icon size={13} strokeWidth={1.7} />
+                    </span>
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <div className="min-h-0 overflow-y-auto p-5">
+            {loading ? (
+              <CatalogLoading />
+            ) : loadError ? (
+              <CatalogError message={loadError} />
+            ) : catalog ? (
+              <StepContent
+                step={step}
+                catalog={catalog}
+                form={form}
+                selections={selections}
+                onFormChange={setForm}
+              />
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-[color:var(--border)] px-5 py-3">
+          <div className="flex items-center gap-2 text-xs text-[color:var(--fg-muted)]">
+            <Badge>Catalog preview</Badge>
+            <span>{STEPS[step]?.label}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}>
+              <ChevronLeft size={13} strokeWidth={1.7} />
+              Back
+            </Button>
+            {step < STEPS.length - 1 ? (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!catalog || !canContinue}
+                onClick={() => setStep((value) => Math.min(STEPS.length - 1, value + 1))}
+              >
+                Continue
+                <ChevronRight size={13} strokeWidth={1.7} />
+              </Button>
+            ) : (
+              <Button variant="primary" size="sm" disabled>
+                Launch disabled
+              </Button>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function openDeployWizard(): void {
+  window.dispatchEvent(new CustomEvent(OPEN_DEPLOY_WIZARD_EVENT));
+}
+
+function StepContent({
+  step,
+  catalog,
+  form,
+  selections,
+  onFormChange,
+}: {
+  step: number;
+  catalog: DeployWizardCatalog;
+  form: WizardForm;
+  selections: ResolvedSelections;
+  onFormChange: React.Dispatch<React.SetStateAction<WizardForm>>;
+}) {
+  if (step === 0) {
+    return (
+      <div className="space-y-4">
+        <FieldGrid>
+          <TextField label="Name" value={form.name} onChange={(name) => onFormChange((current) => ({ ...current, name }))} />
+          <TextField label="Display name" value={form.displayName} onChange={(displayName) => onFormChange((current) => ({ ...current, displayName }))} />
+        </FieldGrid>
+        <OptionGrid
+          title="Zone"
+          options={catalog.zones}
+          selectedId={form.zoneId}
+          onSelect={(zoneId) => onFormChange((current) => ({ ...current, zoneId }))}
+          render={(zone) => <ZoneOption zone={zone} />}
+        />
+        <OptionGrid
+          title="Template"
+          options={catalog.templates}
+          selectedId={form.templateId}
+          onSelect={(templateId) => onFormChange((current) => ({ ...current, templateId }))}
+          render={(template) => <TemplateOption template={template} />}
+        />
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    return (
+      <OptionGrid
+        title="Service offering"
+        options={catalog.serviceOfferings}
+        selectedId={form.serviceOfferingId}
+        onSelect={(serviceOfferingId) => onFormChange((current) => ({ ...current, serviceOfferingId }))}
+        render={(offering) => <ServiceOfferingOption offering={offering} />}
+      />
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <div className="space-y-4">
+        <OptionGrid
+          title="Network"
+          options={catalog.networks}
+          selectedId={form.networkId}
+          onSelect={(networkId) => onFormChange((current) => ({ ...current, networkId }))}
+          render={(network) => <NetworkOption network={network} />}
+        />
+        <OptionGrid
+          title="Security group"
+          options={catalog.securityGroups}
+          selectedId={form.securityGroupId}
+          onSelect={(securityGroupId) => onFormChange((current) => ({ ...current, securityGroupId }))}
+          render={(securityGroup) => <SecurityGroupOption securityGroup={securityGroup} />}
+        />
+      </div>
+    );
+  }
+
+  if (step === 3) {
+    return (
+      <OptionGrid
+        title="Disk offering"
+        options={catalog.diskOfferings}
+        selectedId={form.diskOfferingId}
+        onSelect={(diskOfferingId) => onFormChange((current) => ({ ...current, diskOfferingId }))}
+        render={(offering) => <DiskOfferingOption offering={offering} />}
+      />
+    );
+  }
+
+  if (step === 4) {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>SSH key</CardTitle>
+              <CardDescription>Optional access key</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Select
+              className="w-full"
+              value={form.sshKeyPairId}
+              onChange={(event) => onFormChange((current) => ({ ...current, sshKeyPairId: event.target.value }))}
+            >
+              <option value="">No SSH key</option>
+              {catalog.sshKeyPairs.map((keyPair) => (
+                <option key={keyPair.id} value={keyPair.id}>
+                  {keyPair.name}
+                </option>
+              ))}
+            </Select>
+          </CardContent>
+        </Card>
+        <label className="block text-sm font-medium text-[color:var(--fg)]">
+          User data
+          <textarea
+            value={form.userData}
+            onChange={(event) => onFormChange((current) => ({ ...current, userData: event.target.value }))}
+            className="mt-2 min-h-[180px] w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 font-mono text-xs text-[color:var(--fg)] outline-none transition-colors focus:border-[color:var(--accent)] focus:ring-[3px] focus:ring-[color:var(--accent)]/30"
+          />
+        </label>
+      </div>
+    );
+  }
+
+  return <Review selections={selections} form={form} />;
+}
+
+function OptionGrid<T extends { id: string }>({
+  title,
+  options,
+  selectedId,
+  onSelect,
+  render,
+}: {
+  title: string;
+  options: T[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  render: (option: T) => React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-[color:var(--fg)]">{title}</h3>
+        <Badge>{options.length}</Badge>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onSelect(option.id)}
+            className={cn(
+              "rounded-lg border bg-[color:var(--surface)] p-3 text-left transition-colors",
+              selectedId === option.id
+                ? "border-[color:var(--accent)] ring-2 ring-[color:var(--accent)]/20"
+                : "border-[color:var(--border)] hover:border-[color:var(--border-strong)]",
+            )}
+          >
+            {render(option)}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ZoneOption({ zone }: { zone: Zone }) {
+  return (
+    <OptionShell icon={<Globe size={15} strokeWidth={1.7} />} title={zone.name} meta={zone.region}>
+      <span>{zone.hosts} hosts</span>
+      <span>{zone.instances} VMs</span>
+      <Badge variant={zone.state === "enabled" ? "success" : "warning"}>{zone.state}</Badge>
+    </OptionShell>
+  );
+}
+
+function TemplateOption({ template }: { template: Template }) {
+  return (
+    <OptionShell icon={<Cloud size={15} strokeWidth={1.7} />} title={template.name} meta={`${template.os} / ${template.arch}`}>
+      <span>{template.size}</span>
+      <span>{template.account}</span>
+    </OptionShell>
+  );
+}
+
+function ServiceOfferingOption({ offering }: { offering: ServiceOffering }) {
+  return (
+    <OptionShell icon={<Cpu size={15} strokeWidth={1.7} />} title={offering.name} meta={offering.description}>
+      <span>{offering.cpu} vCPU</span>
+      <span>{offering.ram} GiB RAM</span>
+    </OptionShell>
+  );
+}
+
+function NetworkOption({ network }: { network: DeployNetwork }) {
+  return (
+    <OptionShell icon={<Layers size={15} strokeWidth={1.7} />} title={network.name} meta={`${network.type} / ${network.zone}`}>
+      <span>{network.cidr}</span>
+      <span>{network.instances} VMs</span>
+    </OptionShell>
+  );
+}
+
+function SecurityGroupOption({ securityGroup }: { securityGroup: SecurityGroup }) {
+  return (
+    <OptionShell icon={<ShieldCheck size={15} strokeWidth={1.7} />} title={securityGroup.name} meta={securityGroup.description}>
+      <span>{securityGroup.ingressRules.length} ingress</span>
+      <span>{securityGroup.egressRules.length} egress</span>
+    </OptionShell>
+  );
+}
+
+function DiskOfferingOption({ offering }: { offering: DiskOffering }) {
+  return (
+    <OptionShell icon={<Database size={15} strokeWidth={1.7} />} title={offering.name} meta={offering.type}>
+      <span>{offering.customized ? "Custom size" : `${offering.sizeGiB ?? 0} GiB`}</span>
+    </OptionShell>
+  );
+}
+
+function OptionShell({
+  icon,
+  title,
+  meta,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  meta: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--border)] bg-[color:var(--bg)] text-[color:var(--fg-muted)]">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-[color:var(--fg)]">{title}</div>
+          <div className="truncate text-xs text-[color:var(--fg-muted)]">{meta}</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[color:var(--fg-muted)]">{children}</div>
+    </div>
+  );
+}
+
+function Review({ selections, form }: { selections: ResolvedSelections; form: WizardForm }) {
+  const rows = [
+    ["Name", form.name],
+    ["Display name", form.displayName || form.name],
+    ["Zone", selections.zone?.name ?? "-"],
+    ["Template", selections.template?.name ?? "-"],
+    ["Service offering", selections.serviceOffering?.name ?? "-"],
+    ["Network", selections.network?.name ?? "-"],
+    ["Security group", selections.securityGroup?.name ?? "-"],
+    ["Disk offering", selections.diskOffering?.name ?? "-"],
+    ["SSH key", selections.sshKeyPair?.name ?? "None"],
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Review</CardTitle>
+          <CardDescription>No deployment request will be sent.</CardDescription>
+        </div>
+        <Badge variant="warning">Preview only</Badge>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableBody>
+            {rows.map(([label, value]) => (
+              <TableRow key={label}>
+                <TableCell className="w-44 text-xs uppercase tracking-wider text-[color:var(--fg-dim)]">{label}</TableCell>
+                <TableCell className="font-mono text-xs">{value}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FieldGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid gap-3 md:grid-cols-2">{children}</div>;
+}
+
+function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block text-sm font-medium text-[color:var(--fg)]">
+      {label}
+      <Input className="mt-2 w-full" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function CatalogLoading() {
+  return (
+    <div className="flex h-[360px] items-center justify-center text-sm text-[color:var(--fg-muted)]">
+      <Loader2 size={16} strokeWidth={1.7} className="mr-2 animate-spin" />
+      Loading catalog
+    </div>
+  );
+}
+
+function CatalogError({ message }: { message: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Catalog unavailable</CardTitle>
+        <CardDescription>{message}</CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+type ResolvedSelections = {
+  zone?: Zone;
+  template?: Template;
+  serviceOffering?: ServiceOffering;
+  network?: DeployNetwork;
+  diskOffering?: DiskOffering;
+  securityGroup?: SecurityGroup;
+  sshKeyPair?: SshKeyPair;
+};
+
+function resolveSelections(form: WizardForm, catalog: DeployWizardCatalog | null): ResolvedSelections {
+  return {
+    zone: catalog?.zones.find((zone) => zone.id === form.zoneId),
+    template: catalog?.templates.find((template) => template.id === form.templateId),
+    serviceOffering: catalog?.serviceOfferings.find((offering) => offering.id === form.serviceOfferingId),
+    network: catalog?.networks.find((network) => network.id === form.networkId),
+    diskOffering: catalog?.diskOfferings.find((offering) => offering.id === form.diskOfferingId),
+    securityGroup: catalog?.securityGroups.find((group) => group.id === form.securityGroupId),
+    sshKeyPair: catalog?.sshKeyPairs.find((keyPair) => keyPair.id === form.sshKeyPairId),
+  };
+}
+
+function applyCatalogDefaults(form: WizardForm, catalog: DeployWizardCatalog): WizardForm {
+  const generatedName = form.name || `vm-${catalog.zones[0]?.name ?? "zone"}-preview`;
+
+  return {
+    ...form,
+    name: generatedName,
+    displayName: form.displayName || generatedName,
+    zoneId: form.zoneId || catalog.zones.find((zone) => zone.state === "enabled")?.id || catalog.zones[0]?.id || "",
+    templateId: form.templateId || catalog.templates[0]?.id || "",
+    serviceOfferingId: form.serviceOfferingId || catalog.serviceOfferings[0]?.id || "",
+    networkId: form.networkId || catalog.networks[0]?.id || "",
+    diskOfferingId: form.diskOfferingId || catalog.diskOfferings[0]?.id || "",
+    securityGroupId: form.securityGroupId || catalog.securityGroups.find((group) => group.isDefault)?.id || catalog.securityGroups[0]?.id || "",
+    sshKeyPairId: form.sshKeyPairId || catalog.sshKeyPairs[0]?.id || "",
+  };
+}
+
+function canContinueFromStep(step: number, form: WizardForm): boolean {
+  switch (step) {
+    case 0:
+      return Boolean(form.name && form.zoneId && form.templateId);
+    case 1:
+      return Boolean(form.serviceOfferingId);
+    case 2:
+      return Boolean(form.networkId);
+    case 3:
+      return Boolean(form.diskOfferingId);
+    default:
+      return true;
+  }
+}

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Command as CommandPrimitive } from "cmdk";
+import { openDeployWizard } from "@/components/deploy-wizard/deploy-wizard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Search, ChevronRight } from "@/components/icons";
 import { useTweaks } from "@/lib/store/tweaks";
@@ -78,7 +79,16 @@ export function CommandPalette() {
 
               <CommandGroup heading="Actions">
                 {mockCommandActions.map((a) => (
-                  <Item key={a} value={a} onSelect={() => setOpen(false)}>
+                  <Item
+                    key={a}
+                    value={a}
+                    onSelect={() => {
+                      if (a === "Deploy instance") {
+                        openDeployWizard();
+                      }
+                      setOpen(false);
+                    }}
+                  >
                     {a}
                   </Item>
                 ))}

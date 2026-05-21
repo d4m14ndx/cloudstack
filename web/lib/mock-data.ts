@@ -223,6 +223,32 @@ export type Template = {
   account: string;
 };
 
+export type ServiceOffering = {
+  id: string;
+  name: string;
+  cpu: number;
+  ram: number;
+  description: string;
+};
+
+export type DiskOffering = {
+  id: string;
+  name: string;
+  sizeGiB: number | null;
+  customized: boolean;
+  type: string;
+};
+
+export type DeployWizardCatalog = {
+  zones: Zone[];
+  templates: Template[];
+  serviceOfferings: ServiceOffering[];
+  diskOfferings: DiskOffering[];
+  networks: Network[];
+  securityGroups: SecurityGroup[];
+  sshKeyPairs: SshKeyPair[];
+};
+
 export type KubernetesCluster = {
   id: string;
   name: string;
@@ -505,6 +531,30 @@ export const mockTemplates: Template[] = [
   { id: "t-009", name: "Ubuntu 24.04 + CUDA", os: "Ubuntu", size: "8.4 GB", arch: "x86_64", featured: false, hypervisors: ["KVM"], account: "research" },
   { id: "t-010", name: "k3s node", os: "Ubuntu", size: "2.5 GB", arch: "x86_64", featured: true, hypervisors: ["KVM"], account: "platform" },
 ];
+
+export const mockServiceOfferings: ServiceOffering[] = [
+  { id: "so-001", name: "Compute-S", cpu: 1, ram: 2, description: "1 vCPU / 2 GiB RAM" },
+  { id: "so-002", name: "Compute-M", cpu: 2, ram: 4, description: "2 vCPU / 4 GiB RAM" },
+  { id: "so-003", name: "Compute-L", cpu: 4, ram: 8, description: "4 vCPU / 8 GiB RAM" },
+  { id: "so-004", name: "Memory-L", cpu: 4, ram: 16, description: "4 vCPU / 16 GiB RAM" },
+];
+
+export const mockDiskOfferings: DiskOffering[] = [
+  { id: "do-001", name: "Root default", sizeGiB: 40, customized: false, type: "shared" },
+  { id: "do-002", name: "SSD 100", sizeGiB: 100, customized: false, type: "shared" },
+  { id: "do-003", name: "NVMe 250", sizeGiB: 250, customized: false, type: "local" },
+  { id: "do-004", name: "Custom data disk", sizeGiB: null, customized: true, type: "shared" },
+];
+
+export const mockDeployWizardCatalog: DeployWizardCatalog = {
+  zones: mockZones,
+  templates: mockTemplates,
+  serviceOfferings: mockServiceOfferings,
+  diskOfferings: mockDiskOfferings,
+  networks: mockNetworks,
+  securityGroups: mockSecurityGroups,
+  sshKeyPairs: mockSshKeyPairs,
+};
 
 export const mockKubernetesClusters: KubernetesCluster[] = [
   { id: "k-101", name: "prod-services", version: "1.30.4", zone: "syd-1", account: "platform", nodes: 7, state: "running", endpoint: "https://k8s-prod.example.internal" },

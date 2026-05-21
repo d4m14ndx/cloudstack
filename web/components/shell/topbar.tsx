@@ -3,14 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { DeployWizard } from "@/components/deploy-wizard/deploy-wizard";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Bell,
   HelpCircle,
@@ -116,27 +110,7 @@ export function Topbar() {
         </div>
       </header>
 
-      <Dialog open={deployOpen} onOpenChange={setDeployOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Deploy wizard</DialogTitle>
-            <DialogDescription>
-              Phase 5a placeholder for instance, network, and template deployment flows.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-[var(--radius-lg)] border border-dashed border-[color:var(--border)] p-6 text-sm text-[color:var(--fg-muted)]">
-            The real CloudStack deployment workflow lands with backend integration in Phase 5c. This scaffold keeps the action wired without calling a backend.
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setDeployOpen(false)}>
-              Close
-            </Button>
-            <Button asChild variant="primary" size="sm">
-              <Link href="/instances">View instances</Link>
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeployWizard open={deployOpen} onOpenChange={setDeployOpen} />
     </>
   );
 }
