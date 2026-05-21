@@ -124,8 +124,6 @@ items in this queue.
 | Area | Candidate | Evidence | Verification |
 |---|---|---|---|
 | OVM3 leftovers | `scripts/vm/hypervisor/ovm3/` | The Java OVM3 plugin is gone; only DB compatibility enum/fields should stay. | Delete scripts, run RAT/checkstyle/build. |
-| Stale Java version marker | `.java-version` | Still says `11.0` while root POM is `17`. | Update during Java 21 baseline slice. |
-| ONTAP compiler override | `plugins/storage/volume/ontap/pom.xml` source/target `11` | Conflicts with root Java version. | Align with root, run ONTAP module tests. |
 | `AnnotationManagerImpl` | private `isDomainAdminAllowedType(EntityType)` | Static search found only the definition. | Remove with annotation permission tests. |
 | `IndirectAgentLBServiceImpl` | private `getAllAgentBasedHostsInDc(long,long)` | Static search found only the definition. | Remove with agent LB tests. |
 | `OutOfBandManagementServiceImpl` | private `getOutOfBandManagementHostLock(long)` | Static search found only the definition. | Remove with OOBM sync/lock tests. |
@@ -373,12 +371,23 @@ cleaned up.
 
 Start with cohesive, low-to-medium risk helpers:
 
-1. `Ipv4RangeValidator`
-2. `ApiCommandSuccessHandler`
-3. `NetworkElementApiExecutor`
-4. `UsageDateRangeBinder`
-5. `BaseTungstenFabricCmd`
-6. `ListResponseBuilder.fromPair(...)`
+Status on 2026-05-22: the first backend refactor pass completed the planned
+low-to-medium risk helper extractions below. Follow-up slices should now
+continue from broader call-site migration, shim removal, and Java 21 idiom
+modernization rather than recreating these helpers.
+
+1. `Ipv4RangeValidator`: extracted for pod and VLAN IPv4 range checks, with
+   focused validator coverage.
+2. `BaseCmd#setSuccessResponse(...)`: added as the shared success-response path
+   for simple API commands, including dedicated-resource release commands.
+3. `NetworkElementApiExecutor`: extracted for Palo Alto and NetScaler command
+   exception mapping.
+4. `UsageDateRangeBinder`: extracted and applied across the first two usage DAO
+   batches.
+5. `TungstenFabricAsyncCmd`: extracted shared Tungsten delete-command success
+   response handling.
+6. `ListResponseBuilder`: extracted for query-service `Pair<List<T>, count>`
+   response construction across the first two query-service batches.
 
 ### E. Java 21 Idiom Passes
 
