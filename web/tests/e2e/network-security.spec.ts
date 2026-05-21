@@ -15,7 +15,7 @@ test.describe("network and security smoke coverage", () => {
 
     await expect(page.getByRole("heading", { name: "Networks" })).toBeVisible();
     await expect(page.getByRole("link", { name: "mgmt" })).toBeVisible();
-    await expect(page.getByRole("row", { name: /mgmt.*10\.0\.0\.0\/24.*syd-1.*1.*Running/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /mgmt.*10\.0\.0\.0\/24.*syd-1.*2.*Running/ })).toBeVisible();
 
     await page.getByRole("link", { name: "mgmt" }).click();
     await expect(page.getByRole("heading", { name: "mgmt" })).toBeVisible();
@@ -85,13 +85,13 @@ function installNetworkMocks(mockCloudStackBff: MockCloudStackBff): void {
       count: 1,
       network: [
         {
-          id: "net-web",
-          name: "frontend-net",
-          displaytext: "frontend-net",
+          id: "n-106",
+          name: "mgmt",
+          displaytext: "mgmt",
           type: "Isolated",
           traffictype: "Guest",
-          cidr: "10.44.0.0/24",
-          gateway: "10.44.0.1",
+          cidr: "10.0.0.0/24",
+          gateway: "10.0.0.1",
           netmask: "255.255.255.0",
           zonename: "syd-1",
           state: "Implemented",
@@ -105,8 +105,8 @@ function installNetworkMocks(mockCloudStackBff: MockCloudStackBff): void {
     listvirtualmachinesresponse: {
       count: 2,
       virtualmachine: [
-        { id: "vm-web-01", name: "web-01", nic: [{ networkid: "net-web" }] },
-        { id: "vm-web-02", name: "web-02", nic: [{ networkid: "net-web" }] },
+        { id: "vm-web-01", name: "web-01", nic: [{ networkid: "n-106" }] },
+        { id: "vm-web-02", name: "web-02", nic: [{ networkid: "n-106" }] },
       ],
     },
   });
@@ -115,20 +115,20 @@ function installNetworkMocks(mockCloudStackBff: MockCloudStackBff): void {
       count: 2,
       publicipaddress: [
         {
-          id: "ip-free",
-          ipaddress: "198.51.100.44",
+          id: "n-106-ip-1",
+          ipaddress: "203.0.113.5",
           state: "Allocated",
           issourcenat: false,
           isstaticnat: false,
-          associatednetworkname: "frontend-net",
+          associatednetworkname: "mgmt",
         },
         {
           id: "ip-static",
-          ipaddress: "198.51.100.45",
+          ipaddress: "203.0.113.6",
           state: "Allocated",
           issourcenat: false,
           isstaticnat: true,
-          associatednetworkname: "frontend-net",
+          associatednetworkname: "mgmt",
           virtualmachinename: "web-01",
         },
       ],
@@ -174,16 +174,16 @@ function installSecurityGroupMocks(mockCloudStackBff: MockCloudStackBff): void {
       count: 1,
       securitygroup: [
         {
-          id: "sg-web",
-          name: "web-smoke",
-          description: "Browser smoke security group",
+          id: "sg-001",
+          name: "default",
+          description: "Default account security group",
           account: "platform",
-          domainid: "domain-root",
+          domainid: "d-root",
           domain: "ROOT",
           virtualmachinecount: 1,
           ingressrule: [
             {
-              ruleid: "rule-ssh",
+              ruleid: "sg-001-ingress-ssh",
               protocol: "TCP",
               startport: "22",
               endport: "22",
@@ -199,7 +199,7 @@ function installSecurityGroupMocks(mockCloudStackBff: MockCloudStackBff): void {
     createsecuritygroupresponse: { securitygroup: { id: "sg-api", name: "api-smoke" } },
   });
   mockCloudStackBff.use("authorizeSecurityGroupIngress", {
-    authorizesecuritygroupingressresponse: { securitygroup: { id: "sg-web" } },
+    authorizesecuritygroupingressresponse: { securitygroup: { id: "sg-001" } },
   });
   mockCloudStackBff.use("revokeSecurityGroupIngress", {
     revokesecuritygroupingressresponse: { success: true },

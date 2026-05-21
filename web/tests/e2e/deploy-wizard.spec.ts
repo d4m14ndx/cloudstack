@@ -13,6 +13,8 @@ const catalogCommands = [
 ] as const;
 
 test("Deploy Wizard loads catalog choices and submits a valid launch", async ({ page, mockCloudStackBff }) => {
+  await page.goto("/");
+  mockCloudStackBff.reset();
   mockDeployWizardCatalog(mockCloudStackBff);
   mockCloudStackBff.use("deployVirtualMachine", async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -36,8 +38,6 @@ test("Deploy Wizard loads catalog choices and submits a valid launch", async ({ 
       },
     },
   });
-
-  await page.goto("/");
   await page.getByRole("button", { name: "Deploy", exact: true }).click();
 
   const dialog = page.getByRole("dialog", { name: "Deploy instance" });
