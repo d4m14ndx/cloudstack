@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { VolumeActions } from "@/components/volumes/volume-actions";
 import {
   Table,
   TableBody,
@@ -38,7 +39,7 @@ export default async function Page() {
       </div>
 
       <Card className="p-0">
-        <Table className="min-w-[760px]">
+        <Table className="min-w-[880px]">
           <TableHeader>
             <TableRow>
               <TableHead className="pl-4">Volume</TableHead>
@@ -46,7 +47,8 @@ export default async function Page() {
               <TableHead>Zone</TableHead>
               <TableHead>Tier</TableHead>
               <TableHead className="text-right">Size</TableHead>
-              <TableHead className="pr-4">Attached to</TableHead>
+              <TableHead>Attached to</TableHead>
+              <TableHead className="pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -65,12 +67,15 @@ export default async function Page() {
                   <TableCell>{volume.zone}</TableCell>
                   <TableCell>{volume.type}</TableCell>
                   <TableCell className="text-right tabular-nums">{volume.sizeGiB} GiB</TableCell>
-                  <TableCell className="pr-4">{volume.attachedTo ?? "-"}</TableCell>
+                  <TableCell>{volume.attachedTo ?? "-"}</TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <VolumeActions volume={volume} />
+                  </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
+                <TableCell colSpan={7} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
                   No volumes found.
                 </TableCell>
               </TableRow>
