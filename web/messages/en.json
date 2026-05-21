@@ -100,6 +100,152 @@
       }
     }
   },
+  "Compute": {
+    "pages": {
+      "instances": {
+        "metadataTitle": "Instances",
+        "title": "Instances",
+        "description": "{instances} virtual machines across your scope, {running} currently running",
+        "badges": {
+          "running": "{count} running",
+          "stopped": "{count} stopped",
+          "attention": "{count} attention"
+        },
+        "table": {
+          "instance": "Instance",
+          "state": "State",
+          "zone": "Zone",
+          "network": "Network",
+          "ip": "IP",
+          "offering": "Offering",
+          "cpu": "CPU",
+          "ram": "RAM",
+          "usage": "Usage",
+          "account": "Account",
+          "actions": "Actions"
+        },
+        "usage": {
+          "cpu": "CPU",
+          "memory": "MEM"
+        },
+        "emptyState": {
+          "title": "No instances in this scope",
+          "description": "Deploy a VM or switch scope to inspect existing workloads."
+        }
+      },
+      "instanceDetail": {
+        "metadataTitle": "Instance",
+        "metrics": {
+          "vcpu": "vCPU",
+          "memory": "Memory",
+          "memoryUsage": "Usage {usage}",
+          "network": "Network",
+          "storage": "Storage",
+          "volume": "volume",
+          "volumes": "volumes"
+        },
+        "tabs": {
+          "overview": "Overview",
+          "networking": "Networking",
+          "storage": "Storage",
+          "activity": "Activity",
+          "console": "Console"
+        },
+        "sections": {
+          "identity": "Identity",
+          "placement": "Placement",
+          "compute": "Compute",
+          "image": "Image",
+          "console": "Console",
+          "networking": "Networking",
+          "storage": "Storage",
+          "activity": "Activity"
+        },
+        "labels": {
+          "displayName": "Display name",
+          "internalName": "Internal name",
+          "account": "Account",
+          "domain": "Domain",
+          "project": "Project",
+          "created": "Created",
+          "zone": "Zone",
+          "pod": "Pod",
+          "cluster": "Cluster",
+          "host": "Host",
+          "hypervisor": "Hypervisor",
+          "ha": "HA",
+          "offering": "Offering",
+          "cpu": "CPU",
+          "cpuSpeed": "CPU speed",
+          "cpuUsage": "CPU usage",
+          "memory": "Memory",
+          "memoryUsage": "Memory usage",
+          "template": "Template",
+          "templateText": "Template text",
+          "iso": "ISO",
+          "serviceOffering": "Service offering",
+          "diskOffering": "Disk offering",
+          "securityGroups": "Security groups",
+          "instance": "Instance",
+          "state": "State"
+        },
+        "values": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "vcpu": "{count} vCPU",
+          "gib": "{value} GiB",
+          "speedMHz": "{value} MHz"
+        },
+        "networking": {
+          "table": {
+            "network": "Network",
+            "role": "Role",
+            "privateIp": "Private IP",
+            "publicIp": "Public IP",
+            "gateway": "Gateway",
+            "netmask": "Netmask",
+            "mac": "MAC"
+          },
+          "badges": {
+            "default": "Default",
+            "nic": "NIC"
+          },
+          "emptyState": {
+            "title": "No NICs attached",
+            "description": "CloudStack did not return network interfaces for this instance."
+          }
+        },
+        "storage": {
+          "table": {
+            "volume": "Volume",
+            "state": "State",
+            "zone": "Zone",
+            "tier": "Tier",
+            "size": "Size",
+            "attachedTo": "Attached to"
+          },
+          "emptyState": {
+            "title": "No volumes attached",
+            "description": "CloudStack did not return storage volumes for this instance."
+          }
+        },
+        "activity": {
+          "table": {
+            "time": "Time",
+            "level": "Level",
+            "action": "Action",
+            "target": "Target",
+            "user": "User",
+            "description": "Description"
+          },
+          "emptyState": {
+            "title": "No instance activity",
+            "description": "CloudStack did not return audit or lifecycle events for this instance."
+          }
+        }
+      }
+    }
+  },
   "Settings": {
     "pages": {
       "index": {
