@@ -82,6 +82,12 @@ Existing client shell components intentionally import `@/lib/auth/mock` for Phas
 
 Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a.
 
+## Internationalization
+
+Phase 5e starts with `next-intl` in default-English, no-locale-prefix mode so existing routes remain unchanged. Request-scoped i18n config lives in `i18n/request.ts`, English messages live in `messages/en.json`, and the root layout exposes them to client shell components with `NextIntlClientProvider`.
+
+Message namespaces should follow the owning UI surface, then a stable semantic group. For example, shell navigation uses `Navigation.sections.workspace`, `Navigation.items.instances`, and `Navigation.badges.beta`; topbar copy uses `Shell.topbar.searchPlaceholder`. New workers should add keys beside the surface they are migrating and keep route segments, API command names, CloudStack resource states, and user data out of message keys.
+
 ## BFF API proxy
 
 Phase 5b adds the server-side `/api/cs/[command]` proxy foundation. Browser code calls same-origin URLs such as `/api/cs/listVirtualMachines?listall=true`; the route strips any client-supplied `sessionkey`, forces `response=json`, attaches the server-side CloudStack session key from the BFF session, and forwards to `${CS_URL}/client/api`.

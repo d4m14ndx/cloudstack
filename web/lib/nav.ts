@@ -18,52 +18,53 @@ import {
   IconDomains,
   IconBilling,
 } from "@/components/icons";
+import {
+  NAV_SECTION_DEFINITIONS,
+  type NavIconKey,
+  type NavigationMessageKey,
+} from "@/lib/nav-data";
 import type { Role } from "@/lib/auth/mock";
 
 export type NavItem = {
   href: string;
-  label: string;
+  labelKey: NavigationMessageKey;
   icon: LucideIcon;
-  badge?: string | number;
+  badgeKey?: NavigationMessageKey;
   /** Minimum role required */
   requires?: Role;
 };
 
 export type NavSection = {
-  title: string;
+  titleKey: NavigationMessageKey;
   items: NavItem[];
   /** Minimum role required for the whole section to render */
   requires?: Role;
 };
 
-export const NAV_SECTIONS: NavSection[] = [
-  {
-    title: "Workspace",
-    items: [
-      { href: "/",             label: "Overview",   icon: IconOverview },
-      { href: "/instances",    label: "Instances",  icon: IconInstances },
-      { href: "/networks",     label: "Networks",   icon: IconNetworks },
-      { href: "/volumes",      label: "Volumes",    icon: IconVolumes },
-      { href: "/templates",    label: "Templates",  icon: IconTemplates },
-      { href: "/kubernetes",   label: "Kubernetes", icon: IconKubernetes, badge: "BETA" },
-      { href: "/events",       label: "Events",     icon: IconEvents },
-    ],
-  },
-  {
-    title: "Identity",
-    items: [
-      { href: "/accounts",  label: "Accounts",  icon: IconAccounts },
-      { href: "/ssh-keys",  label: "SSH keys",  icon: IconSshKeys },
-      { href: "/security",  label: "Security",  icon: IconSecurity },
-    ],
-  },
-  {
-    title: "Admin",
-    requires: "ADMIN",
-    items: [
-      { href: "/infrastructure", label: "Infrastructure", icon: IconInfrastructure, requires: "ADMIN" },
-      { href: "/domains",        label: "Domains",        icon: IconDomains,        requires: "ADMIN" },
-      { href: "/billing",        label: "Billing",        icon: IconBilling },
-    ],
-  },
-];
+const NAV_ICONS: Record<NavIconKey, LucideIcon> = {
+  overview: IconOverview,
+  instances: IconInstances,
+  networks: IconNetworks,
+  volumes: IconVolumes,
+  templates: IconTemplates,
+  kubernetes: IconKubernetes,
+  events: IconEvents,
+  accounts: IconAccounts,
+  sshKeys: IconSshKeys,
+  security: IconSecurity,
+  infrastructure: IconInfrastructure,
+  domains: IconDomains,
+  billing: IconBilling,
+};
+
+export const NAV_SECTIONS: NavSection[] = NAV_SECTION_DEFINITIONS.map((section) => ({
+  titleKey: section.titleKey,
+  requires: section.requires,
+  items: section.items.map((item) => ({
+    href: item.href,
+    labelKey: item.labelKey,
+    icon: NAV_ICONS[item.iconKey],
+    badgeKey: item.badgeKey,
+    requires: item.requires,
+  })),
+}));

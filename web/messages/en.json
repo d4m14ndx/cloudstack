@@ -1,0 +1,55 @@
+{
+  "Navigation": {
+    "sections": {
+      "workspace": "Workspace",
+      "identity": "Identity",
+      "admin": "Admin"
+    },
+    "items": {
+      "overview": "Overview",
+      "instances": "Instances",
+      "networks": "Networks",
+      "volumes": "Volumes",
+      "templates": "Templates",
+      "kubernetes": "Kubernetes",
+      "events": "Events",
+      "accounts": "Accounts",
+      "sshKeys": "SSH keys",
+      "security": "Security",
+      "infrastructure": "Infrastructure",
+      "domains": "Domains",
+      "billing": "Billing"
+    },
+    "badges": {
+      "beta": "BETA"
+    }
+  },
+  "Shell": {
+    "environment": {
+      "production": "prod"
+    },
+    "topbar": {
+      "breadcrumbLabel": "Breadcrumb",
+      "searchPlaceholder": "Search resources, accounts, events...",
+      "toggleTheme": "Toggle theme",
+      "notifications": "Notifications",
+      "help": "Help",
+      "openDocs": "Open Apache CloudStack docs",
+      "api": "API",
+      "openApiTokens": "Open API token settings",
+      "deploy": "Deploy"
+    },
+    "commandPalette": {
+      "title": "Command palette",
+      "label": "Command palette",
+      "searchPlaceholder": "Search resources, accounts, events...",
+      "empty": "No results found.",
+      "groups": {
+        "pages": "Pages",
+        "actions": "Actions",
+        "instances": "Instances",
+        "networks": "Networks"
+      }
+    }
+  }
+}
