@@ -22,6 +22,7 @@ export function Sidebar() {
 
   return (
     <aside
+      aria-label="CloudStack sidebar"
       className={cn(
         "row-span-2 flex flex-col border-r border-[color:var(--border)] bg-[color:var(--surface-2)]",
         "w-[var(--sidebar-w)]"
@@ -46,7 +47,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className={cn("flex-1 overflow-y-auto px-2 py-2", compact && "px-2")}>
+      <nav aria-label="Primary navigation" className={cn("flex-1 overflow-y-auto px-2 py-2", compact && "px-2")}>
         {NAV_SECTIONS.map((section) => {
           if (section.requires && !hasRole(section.requires)) return null;
           const sectionTitle = tNav(section.titleKey);
