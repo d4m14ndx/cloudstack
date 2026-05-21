@@ -8,7 +8,10 @@ import {
 } from "../mock-data.ts";
 import {
   deployWizardCatalogFromResponses,
+  deployVirtualMachineFromWizard,
   getDeployWizardCatalogFromBff,
+  queryDeployWizardJobResult,
+  buildDeployVirtualMachineParams,
   mapCloudStackDiskOfferingToDeployWizardDiskOffering,
   mapCloudStackServiceOfferingToDeployWizardServiceOffering,
 } from "./deploy-wizard.ts";
@@ -242,6 +245,179 @@ test("getDeployWizardCatalogFromBff does not call BFF in mock mode or without CS
     restoreEnv("CS_URL", previousCsUrl);
     restoreEnv("NEXT_PUBLIC_APP_ENV", previousAppEnv);
   }
+});
+
+test("buildDeployVirtualMachineParams maps wizard fields to safe CloudStack deploy parameters", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "web-01",
+    displayName: "Web 01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    networkId: "net-1",
+    diskOfferingId: "do-1",
+    securityGroupId: "sg-1",
+    sshKeyPairName: "admin-key",
+    userData: "#cloud-config\npackage_update: true",
+  });
+
+  assert.equal(params.get("name"), "web-01");
+  assert.equal(params.get("displayname"), "Web 01");
+  assert.equal(params.get("zoneid"), "zone-1");
+  assert.equal(params.get("templateid"), "tmpl-1");
+  assert.equal(params.get("serviceofferingid"), "so-1");
+  assert.equal(params.get("networkids"), "net-1");
+  assert.equal(params.get("diskofferingid"), "do-1");
+  assert.equal(params.get("sshkeypairs"), "admin-key");
+  assert.equal(params.get("startvm"), "true");
+  assert.equal(params.get("userdata"), Buffer.from("#cloud-config\npackage_update: true", "utf8").toString("base64"));
+  assert.equal(params.has("securitygroupids"), false);
+  assert.equal(params.has("sessionkey"), false);
+  assert.equal(params.has("command"), false);
+  assert.equal(params.has("response"), false);
+});
+
+test("buildDeployVirtualMachineParams sends security group only when no advanced network is selected", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "basic-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    securityGroupId: "sg-1",
+  });
+
+  assert.equal(params.get("securitygroupids"), "sg-1");
+  assert.equal(params.has("networkids"), false);
+});
+
+test("buildDeployVirtualMachineParams omits custom disk offerings until a size is supplied", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "custom-disk-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    diskOfferingId: "do-custom",
+    diskOfferingCustomized: true,
+  });
+
+  assert.equal(params.has("diskofferingid"), false);
+});
+
+test("deployVirtualMachineFromWizard posts deploy params and returns the async job id", async () => {
+  const requests: Array<{ url: string; init?: RequestInit; body: Record<string, string> }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requests.push({
+      url: String(input),
+      init,
+      body: JSON.parse(String(init?.body)) as Record<string, string>,
+    });
+    return Response.json({
+      deployvirtualmachineresponse: {
+        id: "vm-1",
+        jobid: "job-1",
+      },
+    });
+  };
+
+  const result = await deployVirtualMachineFromWizard(
+    {
+      name: "web-01",
+      zoneId: "zone-1",
+      templateId: "tmpl-1",
+      serviceOfferingId: "so-1",
+      networkId: "net-1",
+    },
+    { fetchImpl },
+  );
+
+  assert.deepEqual(result, { jobId: "job-1", virtualMachineId: "vm-1" });
+  assert.equal(requests.length, 1);
+  assert.equal(new URL(requests[0]!.url).pathname, "/api/cs/deployVirtualMachine");
+  assert.equal(requests[0]!.init?.method, "POST");
+  assert.equal((requests[0]!.init?.headers as Record<string, string>)["content-type"], "application/json");
+  assert.deepEqual(requests[0]!.body, {
+    name: "web-01",
+    zoneid: "zone-1",
+    templateid: "tmpl-1",
+    serviceofferingid: "so-1",
+    networkids: "net-1",
+    startvm: "true",
+  });
+});
+
+test("deployVirtualMachineFromWizard rejects failed or malformed deploy responses", async () => {
+  await assert.rejects(
+    deployVirtualMachineFromWizard(
+      {
+        name: "web-01",
+        zoneId: "zone-1",
+        templateId: "tmpl-1",
+        serviceOfferingId: "so-1",
+      },
+      { fetchImpl: async () => Response.json({ error: "capacity unavailable" }, { status: 503 }) },
+    ),
+    /capacity unavailable/,
+  );
+
+  await assert.rejects(
+    deployVirtualMachineFromWizard(
+      {
+        name: "web-01",
+        zoneId: "zone-1",
+        templateId: "tmpl-1",
+        serviceOfferingId: "so-1",
+      },
+      { fetchImpl: async () => Response.json({ deployvirtualmachineresponse: {} }) },
+    ),
+    /missing async job id/,
+  );
+});
+
+test("queryDeployWizardJobResult normalizes pending, success, and failed async jobs", async () => {
+  const payloads = [
+    { queryasyncjobresultresponse: { jobid: "job-1", jobstatus: 0, jobprocstatus: 40 } },
+    {
+      queryasyncjobresultresponse: {
+        jobid: "job-1",
+        jobstatus: 1,
+        jobresult: { virtualmachine: { id: "vm-1", name: "web-01", state: "Running" } },
+      },
+    },
+    {
+      queryasyncjobresultresponse: {
+        jobid: "job-2",
+        jobstatus: 2,
+        jobresultcode: 530,
+        jobresult: { errortext: "Insufficient capacity" },
+      },
+    },
+  ];
+  const urls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    urls.push(String(input));
+    return Response.json(payloads.shift());
+  };
+
+  const pending = await queryDeployWizardJobResult("job-1", { fetchImpl });
+  const success = await queryDeployWizardJobResult("job-1", { fetchImpl });
+  const failed = await queryDeployWizardJobResult("job-2", { fetchImpl });
+
+  assert.deepEqual(pending, { jobId: "job-1", status: "pending", progress: 40 });
+  assert.deepEqual(success, {
+    jobId: "job-1",
+    status: "success",
+    virtualMachineId: "vm-1",
+    virtualMachineName: "web-01",
+    virtualMachineState: "Running",
+  });
+  assert.deepEqual(failed, {
+    jobId: "job-2",
+    status: "failed",
+    resultCode: 530,
+    errorText: "Insufficient capacity",
+  });
+  assert.equal(new URL(urls[0]!).pathname, "/api/cs/queryAsyncJobResult");
+  assert.equal(new URL(urls[0]!).searchParams.get("jobid"), "job-1");
 });
 
 function restoreEnv(name: string, value: string | undefined): void {

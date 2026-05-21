@@ -83,6 +83,71 @@ type FetchOptions = {
   fetchImpl?: typeof fetch;
 };
 
+export type DeployWizardLaunchInput = {
+  name: string;
+  displayName?: string;
+  zoneId: string;
+  templateId: string;
+  serviceOfferingId: string;
+  networkId?: string;
+  diskOfferingId?: string;
+  diskOfferingCustomized?: boolean;
+  securityGroupId?: string;
+  sshKeyPairName?: string;
+  userData?: string;
+  startVm?: boolean;
+};
+
+export type DeployWizardLaunchResult = {
+  jobId: string;
+  virtualMachineId?: string;
+};
+
+export type DeployWizardJobStatus = "pending" | "success" | "failed";
+
+export type DeployWizardJobResult = {
+  jobId: string;
+  status: DeployWizardJobStatus;
+  progress?: number;
+  resultCode?: number;
+  errorText?: string;
+  virtualMachineId?: string;
+  virtualMachineName?: string;
+  virtualMachineState?: string;
+};
+
+type DeployVirtualMachineResponse = {
+  deployvirtualmachineresponse?: {
+    id?: string;
+    jobid?: string;
+  };
+  error?: string;
+  errorresponse?: {
+    errortext?: string;
+  };
+};
+
+type QueryAsyncJobResultResponse = {
+  queryasyncjobresultresponse?: {
+    jobid?: string;
+    jobstatus?: number | string;
+    jobprocstatus?: number | string;
+    jobresultcode?: number | string;
+    jobresult?: {
+      errortext?: string;
+      virtualmachine?: {
+        id?: string;
+        name?: string;
+        state?: string;
+      };
+    };
+  };
+  error?: string;
+  errorresponse?: {
+    errortext?: string;
+  };
+};
+
 const ENDPOINTS = [
   ["zones", "/api/cs/listZones"],
   ["templates", "/api/cs/listTemplates?templatefilter=executable&details=min&showunique=true"],
@@ -148,6 +213,104 @@ export function deployWizardCatalogFromResponses(responses: DeployWizardCatalogR
     sshKeyPairs: (responses.sshKeyPairs.listsshkeypairsresponse?.sshkeypair ?? []).map(
       mapCloudStackSshKeyPairToSshKeyPair,
     ),
+  };
+}
+
+export function buildDeployVirtualMachineParams(input: DeployWizardLaunchInput): URLSearchParams {
+  const params = new URLSearchParams();
+  setRequiredParam(params, "name", input.name);
+  setOptionalParam(params, "displayname", input.displayName);
+  setRequiredParam(params, "zoneid", input.zoneId);
+  setRequiredParam(params, "templateid", input.templateId);
+  setRequiredParam(params, "serviceofferingid", input.serviceOfferingId);
+  if (!input.diskOfferingCustomized) {
+    setOptionalParam(params, "diskofferingid", input.diskOfferingId);
+  }
+  setOptionalParam(params, "sshkeypairs", input.sshKeyPairName);
+  setOptionalParam(params, "userdata", encodeUserData(input.userData));
+  params.set("startvm", String(input.startVm ?? true));
+
+  if (input.networkId) {
+    params.set("networkids", input.networkId);
+  } else {
+    setOptionalParam(params, "securitygroupids", input.securityGroupId);
+  }
+
+  return params;
+}
+
+export async function deployVirtualMachineFromWizard(
+  input: DeployWizardLaunchInput,
+  { fetchImpl = fetch }: FetchOptions = {},
+): Promise<DeployWizardLaunchResult> {
+  const params = buildDeployVirtualMachineParams(input);
+  const response = await fetchImpl(`${getRequestOrigin()}/api/cs/deployVirtualMachine`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(Object.fromEntries(params.entries())),
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as DeployVirtualMachineResponse;
+  if (!response.ok) {
+    throw new Error(readErrorText(payload) ?? "CloudStack deployVirtualMachine request failed");
+  }
+
+  const deployResponse = payload.deployvirtualmachineresponse;
+  if (!deployResponse?.jobid) {
+    throw new Error("CloudStack deployVirtualMachine response is missing async job id");
+  }
+
+  return {
+    jobId: deployResponse.jobid,
+    ...(deployResponse.id ? { virtualMachineId: deployResponse.id } : {}),
+  };
+}
+
+export async function queryDeployWizardJobResult(
+  jobId: string,
+  { fetchImpl = fetch }: FetchOptions = {},
+): Promise<DeployWizardJobResult> {
+  const params = new URLSearchParams({ jobid: jobId });
+  const response = await fetchImpl(`${getRequestOrigin()}/api/cs/queryAsyncJobResult?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as QueryAsyncJobResultResponse;
+  if (!response.ok) {
+    throw new Error(readErrorText(payload) ?? "CloudStack queryAsyncJobResult request failed");
+  }
+
+  const job = payload.queryasyncjobresultresponse;
+  if (!job?.jobid) {
+    throw new Error("CloudStack queryAsyncJobResult response is missing job id");
+  }
+
+  const statusCode = readNonNegativeInteger(job.jobstatus) ?? 0;
+  const progress = readNonNegativeInteger(job.jobprocstatus) ?? undefined;
+  if (statusCode === 1) {
+    return {
+      jobId: job.jobid,
+      status: "success",
+      ...(job.jobresult?.virtualmachine?.id ? { virtualMachineId: job.jobresult.virtualmachine.id } : {}),
+      ...(job.jobresult?.virtualmachine?.name ? { virtualMachineName: job.jobresult.virtualmachine.name } : {}),
+      ...(job.jobresult?.virtualmachine?.state ? { virtualMachineState: job.jobresult.virtualmachine.state } : {}),
+    };
+  }
+
+  if (statusCode === 2) {
+    const resultCode = readNonNegativeInteger(job.jobresultcode);
+    return {
+      jobId: job.jobid,
+      status: "failed",
+      ...(resultCode !== null ? { resultCode } : {}),
+      ...(job.jobresult?.errortext ? { errorText: job.jobresult.errortext } : {}),
+    };
+  }
+
+  return {
+    jobId: job.jobid,
+    status: "pending",
+    ...(progress !== undefined ? { progress } : {}),
   };
 }
 
@@ -245,6 +408,38 @@ function readBoolean(value: boolean | string | undefined): boolean {
   }
 
   return value?.trim().toLowerCase() === "true";
+}
+
+function setRequiredParam(params: URLSearchParams, key: string, value: string): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Missing required Deploy Wizard value: ${key}`);
+  }
+  params.set(key, trimmed);
+}
+
+function setOptionalParam(params: URLSearchParams, key: string, value: string | null | undefined): void {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    params.set(key, trimmed);
+  }
+}
+
+function encodeUserData(value: string | null | undefined): string | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function readErrorText(payload: DeployVirtualMachineResponse | QueryAsyncJobResultResponse): string | undefined {
+  return payload.error ?? payload.errorresponse?.errortext;
 }
 
 function getRequestOrigin(): string {

@@ -15,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Cloud,
@@ -28,7 +30,12 @@ import {
   Layers,
   Loader2,
 } from "@/components/icons";
-import { getDeployWizardCatalogFromBff } from "@/lib/cloudstack/deploy-wizard";
+import {
+  deployVirtualMachineFromWizard,
+  getDeployWizardCatalogFromBff,
+  queryDeployWizardJobResult,
+  type DeployWizardJobResult,
+} from "@/lib/cloudstack/deploy-wizard";
 import type {
   DeployWizardCatalog,
   DiskOffering,
@@ -70,6 +77,19 @@ type WizardForm = {
   userData: string;
 };
 
+type LaunchState =
+  | { status: "idle" }
+  | { status: "submitting" }
+  | { status: "polling"; jobId: string; progress?: number }
+  | {
+      status: "success";
+      jobId: string;
+      virtualMachineId?: string;
+      virtualMachineName?: string;
+      virtualMachineState?: string;
+    }
+  | { status: "failed"; error: string; jobId?: string };
+
 const initialForm: WizardForm = {
   name: "",
   displayName: "",
@@ -92,6 +112,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<WizardForm>(initialForm);
+  const [launchState, setLaunchState] = useState<LaunchState>({ status: "idle" });
 
   useEffect(() => {
     const openWizard = () => setActualOpen(true);
@@ -108,6 +129,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
     setStep(0);
     setLoading(true);
     setLoadError(null);
+    setLaunchState({ status: "idle" });
 
     getDeployWizardCatalogFromBff()
       .then((nextCatalog) => {
@@ -138,6 +160,60 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
 
   const selections = useMemo(() => resolveSelections(form, catalog), [catalog, form]);
   const canContinue = canContinueFromStep(step, form);
+  const canLaunch = Boolean(catalog && canLaunchForm(form) && !isLaunchBusy(launchState) && launchState.status !== "success");
+
+  async function handleLaunch() {
+    if (!catalog || !canLaunch) {
+      return;
+    }
+
+    setLaunchState({ status: "submitting" });
+    try {
+      const launch = await deployVirtualMachineFromWizard({
+        name: form.name,
+        displayName: form.displayName,
+        zoneId: form.zoneId,
+        templateId: form.templateId,
+        serviceOfferingId: form.serviceOfferingId,
+        networkId: form.networkId || undefined,
+        diskOfferingId: form.diskOfferingId || undefined,
+        diskOfferingCustomized: selections.diskOffering?.customized,
+        securityGroupId: form.networkId ? undefined : form.securityGroupId || undefined,
+        sshKeyPairName: selections.sshKeyPair?.name,
+        userData: form.userData,
+      });
+      setLaunchState({ status: "polling", jobId: launch.jobId });
+
+      const job = await waitForDeployJob(launch.jobId, (pending) => {
+        setLaunchState({
+          status: "polling",
+          jobId: pending.jobId,
+          ...(pending.progress !== undefined ? { progress: pending.progress } : {}),
+        });
+      });
+
+      if (job.status === "success") {
+        setLaunchState({
+          status: "success",
+          jobId: job.jobId,
+          virtualMachineId: job.virtualMachineId ?? launch.virtualMachineId,
+          virtualMachineName: job.virtualMachineName,
+          virtualMachineState: job.virtualMachineState,
+        });
+      } else {
+        setLaunchState({
+          status: "failed",
+          jobId: job.jobId,
+          error: job.errorText ?? "CloudStack deployment job failed",
+        });
+      }
+    } catch (error) {
+      setLaunchState({
+        status: "failed",
+        error: error instanceof Error ? error.message : "CloudStack deployment request failed",
+      });
+    }
+  }
 
   return (
     <Dialog open={actualOpen} onOpenChange={setActualOpen}>
@@ -148,7 +224,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
               <DialogTitle>Deploy instance</DialogTitle>
               <DialogDescription>Catalog-backed preview</DialogDescription>
             </div>
-            <Badge variant="warning">Launch disabled</Badge>
+            <LaunchBadge state={launchState} />
           </div>
         </DialogHeader>
 
@@ -190,6 +266,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
                 catalog={catalog}
                 form={form}
                 selections={selections}
+                launchState={launchState}
                 onFormChange={setForm}
               />
             ) : null}
@@ -202,7 +279,12 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
             <span>{STEPS[step]?.label}</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={step === 0 || isLaunchBusy(launchState)}
+              onClick={() => setStep((value) => Math.max(0, value - 1))}
+            >
               <ChevronLeft size={13} strokeWidth={1.7} />
               Back
             </Button>
@@ -217,8 +299,13 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
                 <ChevronRight size={13} strokeWidth={1.7} />
               </Button>
             ) : (
-              <Button variant="primary" size="sm" disabled>
-                Launch disabled
+              <Button variant="primary" size="sm" disabled={!canLaunch} onClick={handleLaunch}>
+                {isLaunchBusy(launchState) ? (
+                  <Loader2 size={13} strokeWidth={1.7} className="animate-spin" />
+                ) : (
+                  <Cloud size={13} strokeWidth={1.7} />
+                )}
+                Launch instance
               </Button>
             )}
           </div>
@@ -237,12 +324,14 @@ function StepContent({
   catalog,
   form,
   selections,
+  launchState,
   onFormChange,
 }: {
   step: number;
   catalog: DeployWizardCatalog;
   form: WizardForm;
   selections: ResolvedSelections;
+  launchState: LaunchState;
   onFormChange: React.Dispatch<React.SetStateAction<WizardForm>>;
 }) {
   if (step === 0) {
@@ -352,7 +441,7 @@ function StepContent({
     );
   }
 
-  return <Review selections={selections} form={form} />;
+  return <Review selections={selections} form={form} launchState={launchState} />;
 }
 
 function OptionGrid<T extends { id: string }>({
@@ -476,7 +565,15 @@ function OptionShell({
   );
 }
 
-function Review({ selections, form }: { selections: ResolvedSelections; form: WizardForm }) {
+function Review({
+  selections,
+  form,
+  launchState,
+}: {
+  selections: ResolvedSelections;
+  form: WizardForm;
+  launchState: LaunchState;
+}) {
   const rows = [
     ["Name", form.name],
     ["Display name", form.displayName || form.name],
@@ -494,9 +591,9 @@ function Review({ selections, form }: { selections: ResolvedSelections; form: Wi
       <CardHeader>
         <div>
           <CardTitle>Review</CardTitle>
-          <CardDescription>No deployment request will be sent.</CardDescription>
+          <CardDescription>Ready to submit through the CloudStack BFF</CardDescription>
         </div>
-        <Badge variant="warning">Preview only</Badge>
+        <LaunchBadge state={launchState} />
       </CardHeader>
       <CardContent>
         <Table>
@@ -509,8 +606,86 @@ function Review({ selections, form }: { selections: ResolvedSelections; form: Wi
             ))}
           </TableBody>
         </Table>
+        <LaunchStatus state={launchState} />
       </CardContent>
     </Card>
+  );
+}
+
+function LaunchBadge({ state }: { state: LaunchState }) {
+  if (state.status === "success") {
+    return <Badge variant="success">Launched</Badge>;
+  }
+
+  if (state.status === "failed") {
+    return <Badge variant="danger">Failed</Badge>;
+  }
+
+  if (isLaunchBusy(state)) {
+    return <Badge variant="warning">Launching</Badge>;
+  }
+
+  return <Badge variant="success">Launch ready</Badge>;
+}
+
+function LaunchStatus({ state }: { state: LaunchState }) {
+  if (state.status === "idle") {
+    return null;
+  }
+
+  if (state.status === "submitting") {
+    return (
+      <StatusLine icon={<Loader2 size={14} strokeWidth={1.7} className="animate-spin" />} tone="muted">
+        Submitting deployment
+      </StatusLine>
+    );
+  }
+
+  if (state.status === "polling") {
+    return (
+      <StatusLine icon={<Loader2 size={14} strokeWidth={1.7} className="animate-spin" />} tone="muted">
+        Job {state.jobId}
+        {state.progress !== undefined ? ` / ${state.progress}%` : ""}
+      </StatusLine>
+    );
+  }
+
+  if (state.status === "success") {
+    return (
+      <StatusLine icon={<CheckCircle2 size={14} strokeWidth={1.7} />} tone="success">
+        {state.virtualMachineName ?? state.virtualMachineId ?? "Instance"} {state.virtualMachineState ?? "deployed"}
+      </StatusLine>
+    );
+  }
+
+  return (
+    <StatusLine icon={<AlertCircle size={14} strokeWidth={1.7} />} tone="danger">
+      {state.error}
+    </StatusLine>
+  );
+}
+
+function StatusLine({
+  icon,
+  tone,
+  children,
+}: {
+  icon: React.ReactNode;
+  tone: "muted" | "success" | "danger";
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "mt-4 flex min-h-10 items-center gap-2 rounded-md border px-3 py-2 text-sm",
+        tone === "muted" && "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--fg-muted)]",
+        tone === "success" && "border-[color:var(--success)] bg-[color:var(--success-bg)] text-[color:var(--success)]",
+        tone === "danger" && "border-[color:var(--danger)] bg-[color:var(--danger-bg)] text-[color:var(--danger)]",
+      )}
+    >
+      {icon}
+      <span className="min-w-0 break-words">{children}</span>
+    </div>
   );
 }
 
@@ -599,4 +774,33 @@ function canContinueFromStep(step: number, form: WizardForm): boolean {
     default:
       return true;
   }
+}
+
+function canLaunchForm(form: WizardForm): boolean {
+  return Boolean(form.name && form.zoneId && form.templateId && form.serviceOfferingId);
+}
+
+function isLaunchBusy(state: LaunchState): boolean {
+  return state.status === "submitting" || state.status === "polling";
+}
+
+async function waitForDeployJob(
+  jobId: string,
+  onPending: (pending: DeployWizardJobResult) => void,
+): Promise<DeployWizardJobResult> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const result = await queryDeployWizardJobResult(jobId);
+    if (result.status !== "pending") {
+      return result;
+    }
+
+    onPending(result);
+    await delay(Math.min(1_000 + attempt * 250, 3_000));
+  }
+
+  throw new Error("CloudStack deployment job did not complete before the polling timeout");
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
