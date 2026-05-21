@@ -59,3 +59,18 @@ Prefer command-specific responses in each spec when the page or action depends
 on particular state. The fixture includes only small dashboard/list defaults, so
 missing command mocks fail loudly with HTTP 501 instead of silently falling back
 to unrelated data.
+
+## Coverage Patterns
+
+Use BFF-backed page-data specs for server-rendered resource pages. These specs
+should seed distinctive CloudStack envelopes, assert rendered table/detail copy,
+and check the command/query shape captured in `mockCloudStackBff.calls(...)`.
+
+Use action specs for mutation surfaces. Prefer checking both the safe POST
+payload and the user-facing status or alert text, especially around async job
+failure paths.
+
+For App Router not-found paths, assert the visible not-found UI and BFF lookup
+shape. In the local Next dev harness, client navigations can render the
+not-found route while the initial Playwright navigation response still reports
+HTTP 200.
