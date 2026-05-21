@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -152,7 +153,11 @@ function TiersTable({ tiers }: { tiers: NetworkTier[] }) {
               </TableRow>
             ))
           ) : (
-            <EmptyRow colSpan={6} label="No tiers found." />
+            <TableEmptyState
+              colSpan={6}
+              title="No tiers in this VPC"
+              description="CloudStack did not return network tiers for this VPC."
+            />
           )}
         </TableBody>
       </Table>
@@ -199,7 +204,11 @@ function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
               </TableRow>
             ))
           ) : (
-            <EmptyRow colSpan={6} label="No public IPs found." />
+            <TableEmptyState
+              colSpan={6}
+              title="No public IPs allocated"
+              description="Acquire an address when this network needs source NAT, static NAT, or inbound access."
+            />
           )}
         </TableBody>
       </Table>
@@ -242,7 +251,11 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
                     </TableRow>
                   ))
                 ) : (
-                  <EmptyRow colSpan={7} label="No ACL rules found." />
+                  <TableEmptyState
+                    colSpan={7}
+                    title="No ACL rules in this list"
+                    description="CloudStack did not return network ACL rules for this list."
+                  />
                 )}
               </TableBody>
             </Table>
@@ -250,7 +263,11 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
         ))
       ) : (
         <Card>
-          <div className="py-8 text-center text-sm text-[color:var(--fg-muted)]">No ACLs found.</div>
+          <EmptyState
+            title="No ACL lists on this network"
+            description="CloudStack did not return network ACL lists for this network."
+            className="py-6"
+          />
         </Card>
       )}
     </section>
@@ -287,7 +304,11 @@ function ActivityTable({ events }: { events: Event[] }) {
               </TableRow>
             ))
           ) : (
-            <EmptyRow colSpan={6} label="No activity found." />
+            <TableEmptyState
+              colSpan={6}
+              title="No network activity"
+              description="CloudStack did not return audit or lifecycle events for this network."
+            />
           )}
         </TableBody>
       </Table>
@@ -333,16 +354,6 @@ function SectionTitle({ title, actions }: { title: string; actions?: React.React
       <h2 className="text-sm font-semibold text-[color:var(--fg)]">{title}</h2>
       {actions ? <div className="shrink-0">{actions}</div> : null}
     </div>
-  );
-}
-
-function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
-  return (
-    <TableRow>
-      <TableCell colSpan={colSpan} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-        {label}
-      </TableCell>
-    </TableRow>
   );
 }
 

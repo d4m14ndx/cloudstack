@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -85,11 +86,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No quota summaries found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={7}
+                title="No quota summaries in this scope"
+                description="CloudStack quotaSummary did not return any accounts or projects for the current filters."
+              />
             )}
           </TableBody>
         </Table>

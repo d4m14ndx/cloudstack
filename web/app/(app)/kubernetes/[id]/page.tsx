@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -218,11 +219,11 @@ function NodesTable({ nodes }: { nodes: KubernetesClusterNode[] }) {
               </TableRow>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-                No node inventory returned for this cluster.
-              </TableCell>
-            </TableRow>
+            <TableEmptyState
+              colSpan={7}
+              title="No node inventory"
+              description="CloudStack did not return node records for this Kubernetes cluster."
+            />
           )}
         </TableBody>
       </Table>
@@ -260,11 +261,11 @@ function ActivityTable({ events }: { events: Event[] }) {
               </TableRow>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-                No Kubernetes cluster events found.
-              </TableCell>
-            </TableRow>
+            <TableEmptyState
+              colSpan={6}
+              title="No cluster activity"
+              description="CloudStack did not return audit or lifecycle events for this Kubernetes cluster."
+            />
           )}
         </TableBody>
       </Table>
