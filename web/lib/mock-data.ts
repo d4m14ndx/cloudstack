@@ -77,6 +77,15 @@ export type Account = {
   state: AccountState;
 };
 
+export type SshKeyPair = {
+  id: string;
+  name: string;
+  fingerprint: string;
+  account: string;
+  domain: string;
+  project: string | null;
+};
+
 export type Volume = {
   id: string;
   name: string;
@@ -183,6 +192,12 @@ export const mockAccounts: Account[] = [
   { name: "data-team", domain: "root/eng", role: "User", users: 6, instances: 2, state: "active" },
   { name: "research", domain: "root/labs", role: "User", users: 3, instances: 1, state: "active" },
   { name: "qa-bots", domain: "root/eng", role: "Service", users: 1, instances: 0, state: "disabled" },
+];
+
+export const mockSshKeyPairs: SshKeyPair[] = [
+  { id: "ssh-001", name: "platform-admin", fingerprint: "SHA256:p1atf0rmadmin", account: "platform", domain: "root", project: null },
+  { id: "ssh-002", name: "engineering-ci", fingerprint: "SHA256:engineeringci", account: "engineering", domain: "root/eng", project: "ci" },
+  { id: "ssh-003", name: "research-gpu", fingerprint: "SHA256:researchgpu", account: "research", domain: "root/labs", project: "ml-labs" },
 ];
 
 export const mockVolumes: Volume[] = [
