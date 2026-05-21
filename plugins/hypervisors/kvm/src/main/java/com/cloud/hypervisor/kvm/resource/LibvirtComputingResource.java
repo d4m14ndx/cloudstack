@@ -5829,16 +5829,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         return states;
     }
 
-    /* online snapshot supported by enhanced qemu-kvm */
-    private boolean isSnapshotSupported() {
-        final String result = executeBashScript("qemu-img --help|grep convert");
-        if (result != null) {
-            return false;
-        } else {
-            return true;
-        }
-    }
-
     public Pair<Double, Double> getNicStats(final String nicName) {
         return new Pair<Double, Double>(readDouble(nicName, "rx_bytes"), readDouble(nicName, "tx_bytes"));
     }

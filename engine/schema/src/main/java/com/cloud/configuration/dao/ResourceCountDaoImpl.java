@@ -17,7 +17,6 @@
 package com.cloud.configuration.dao;
 
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -327,32 +326,6 @@ public class ResourceCountDaoImpl extends GenericDaoBase<ResourceCountVO, Long> 
             return remove(sc);
         }
         return 0;
-    }
-
-    private String baseSqlCountComputingResourceAllocatedToAccount = "Select "
-            + " SUM((CASE "
-            + "        WHEN so.%s is not null THEN so.%s "
-            + "        ELSE CONVERT(vmd.value, UNSIGNED INTEGER) "
-            + "    END)) as total "
-            + " from vm_instance vm "
-            + " join service_offering so on so.id = vm.service_offering_id "
-            + " left join vm_instance_details vmd on vmd.vm_id = vm.id and vmd.name = '%s' "
-            + " where vm.type = 'User' and state not in ('Destroyed', 'Error', 'Expunging') and display_vm = true and account_id = ? ";
-
-    private long executeSqlCountComputingResourcesForAccount(long accountId, String sqlCountComputingResourcesAllocatedToAccount) {
-        TransactionLegacy tx = TransactionLegacy.currentTxn();
-        try {
-            PreparedStatement pstmt = tx.prepareAutoCloseStatement(sqlCountComputingResourcesAllocatedToAccount);
-            pstmt.setLong(1, accountId);
-
-            ResultSet rs = pstmt.executeQuery();
-            if (!rs.next()) {
-                return 0L;
-            }
-            return rs.getLong("total");
-        } catch (SQLException e) {
-            throw new CloudRuntimeException(e);
-        }
     }
 
     @Override

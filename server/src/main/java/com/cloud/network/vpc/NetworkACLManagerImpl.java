@@ -49,7 +49,6 @@ import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.db.TransactionStatus;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.utils.net.NetUtils;
 
 public class NetworkACLManagerImpl extends ManagerBase implements NetworkACLManager {
 
@@ -77,15 +76,6 @@ public class NetworkACLManagerImpl extends ManagerBase implements NetworkACLMana
     private ResourceTagDao resourceTagDao;
 
     private List<NetworkACLServiceProvider> _networkAclElements;
-
-    private boolean containsIpv6Cidr(List<String> cidrs) {
-        for (String cidr : cidrs) {
-            if (NetUtils.isValidIp6Cidr(cidr)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     @Override
     public NetworkACL createNetworkACL(final String name, final String description, final long vpcId, final Boolean forDisplay) {

@@ -103,10 +103,6 @@ public class OutOfBandManagementServiceImpl extends ManagerBase implements OutOf
     private static Cache<Long, Long> hostAlertCache;
     private static ExecutorService backgroundSyncBlockingExecutor;
 
-    private String getOutOfBandManagementHostLock(long id) {
-        return "oobm.host." + id;
-    }
-
     private void initializeDriversMap() {
         if (outOfBandManagementDriversMap.isEmpty() && outOfBandManagementDrivers != null && outOfBandManagementDrivers.size() > 0) {
             for (final OutOfBandManagementDriver driver : outOfBandManagementDrivers) {

@@ -244,10 +244,6 @@ public final class AnnotationManagerImpl extends ManagerBase implements Annotati
         return createAnnotationResponse(annotation);
     }
 
-    private boolean isDomainAdminAllowedType(EntityType type) {
-        return type == EntityType.DOMAIN || type == EntityType.DISK_OFFERING || type == EntityType.SERVICE_OFFERING;
-    }
-
     private void checkAnnotationPermissions(EntityType type, UserVO user) {
         if (isCallingUserRole(RoleType.Admin)) {
             return;
