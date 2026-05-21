@@ -92,31 +92,28 @@ public class ZoneQueryServiceImpl extends MutualExclusiveIdsManagerBase implemen
     @Override
     public ListResponse<ZoneResponse> listDataCenters(ListZonesCmd cmd) {
         Pair<List<DataCenterJoinVO>, Integer> result = listDataCentersInternal(cmd);
-        ListResponse<ZoneResponse> response = new ListResponse<>();
 
-        ResponseView respView = ResponseView.Restricted;
-        if (cmd instanceof ListZonesCmdByAdmin || CallContext.current().getCallingAccount().getType() == Account.Type.ADMIN) {
-            respView = ResponseView.Full;
-        }
+        ResponseView respView = getZoneResponseView(cmd);
 
-        List<ZoneResponse> dcResponses = ViewResponseHelper.createDataCenterResponse(respView, cmd.getShowCapacities(), cmd.getShowIcon(), result.first().toArray(new DataCenterJoinVO[0]));
-        response.setResponses(dcResponses, result.second());
-        return response;
+        return ListResponseBuilder.fromPair(result, dataCenters -> ViewResponseHelper.createDataCenterResponse(respView,
+                cmd.getShowCapacities(), cmd.getShowIcon(), dataCenters.toArray(new DataCenterJoinVO[0])));
     }
 
     @Override
     public ListResponse<ZoneResponse> listDataCentersWithMinimalResponse(ListZonesCmd cmd) {
         Pair<List<DataCenterJoinVO>, Integer> result = listDataCentersInternal(cmd);
-        ListResponse<ZoneResponse> response = new ListResponse<>();
 
-        ResponseView respView = ResponseView.Restricted;
+        ResponseView respView = getZoneResponseView(cmd);
+
+        return ListResponseBuilder.fromPair(result, dataCenters -> ViewResponseHelper.createMinimalDataCenterResponse(respView,
+                dataCenters.toArray(new DataCenterJoinVO[0])));
+    }
+
+    private ResponseView getZoneResponseView(ListZonesCmd cmd) {
         if (cmd instanceof ListZonesCmdByAdmin || CallContext.current().getCallingAccount().getType() == Account.Type.ADMIN) {
-            respView = ResponseView.Full;
+            return ResponseView.Full;
         }
-
-        List<ZoneResponse> dcResponses = ViewResponseHelper.createMinimalDataCenterResponse(respView, result.first().toArray(new DataCenterJoinVO[0]));
-        response.setResponses(dcResponses, result.second());
-        return response;
+        return ResponseView.Restricted;
     }
 
     private Pair<List<DataCenterJoinVO>, Integer> listDataCentersInternal(ListZonesCmd cmd) {

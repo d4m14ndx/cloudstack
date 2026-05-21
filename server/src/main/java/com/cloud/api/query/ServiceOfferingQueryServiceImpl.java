@@ -147,11 +147,8 @@ public class ServiceOfferingQueryServiceImpl implements ServiceOfferingQueryServ
     @Override
     public ListResponse<ServiceOfferingResponse> searchForServiceOfferings(ListServiceOfferingsCmd cmd) {
         Pair<List<ServiceOfferingJoinVO>, Integer> result = searchForServiceOfferingsInternal(cmd);
-        result.first();
-        ListResponse<ServiceOfferingResponse> response = new ListResponse<>();
-        List<ServiceOfferingResponse> offeringResponses = ViewResponseHelper.createServiceOfferingResponse(result.first().toArray(new ServiceOfferingJoinVO[0]));
-        response.setResponses(offeringResponses, result.second());
-        return response;
+        return ListResponseBuilder.fromPair(result,
+                offerings -> ViewResponseHelper.createServiceOfferingResponse(offerings.toArray(new ServiceOfferingJoinVO[0])));
     }
 
     @Override

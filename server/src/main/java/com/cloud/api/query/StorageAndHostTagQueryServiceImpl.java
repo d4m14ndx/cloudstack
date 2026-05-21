@@ -49,12 +49,8 @@ public class StorageAndHostTagQueryServiceImpl implements StorageAndHostTagQuery
     @Override
     public ListResponse<StorageTagResponse> searchForStorageTags(ListStorageTagsCmd cmd) {
         Pair<List<StoragePoolTagVO>, Integer> result = searchForStorageTagsInternal();
-        ListResponse<StorageTagResponse> response = new ListResponse<>();
-        List<StorageTagResponse> tagResponses = ViewResponseHelper.createStorageTagResponse(result.first().toArray(new StoragePoolTagVO[0]));
-
-        response.setResponses(tagResponses, result.second());
-
-        return response;
+        return ListResponseBuilder.fromPair(result,
+                tags -> ViewResponseHelper.createStorageTagResponse(tags.toArray(new StoragePoolTagVO[0])));
     }
 
     @Override
@@ -91,12 +87,8 @@ public class StorageAndHostTagQueryServiceImpl implements StorageAndHostTagQuery
     @Override
     public ListResponse<HostTagResponse> searchForHostTags(ListHostTagsCmd cmd) {
         Pair<List<HostTagVO>, Integer> result = searchForHostTagsInternal();
-        ListResponse<HostTagResponse> response = new ListResponse<>();
-        List<HostTagResponse> tagResponses = ViewResponseHelper.createHostTagResponse(result.first().toArray(new HostTagVO[0]));
-
-        response.setResponses(tagResponses, result.second());
-
-        return response;
+        return ListResponseBuilder.fromPair(result,
+                tags -> ViewResponseHelper.createHostTagResponse(tags.toArray(new HostTagVO[0])));
     }
 
     @Override
