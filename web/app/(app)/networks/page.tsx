@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +18,16 @@ import {
 import { getNetworksFromBff } from "@/lib/cloudstack/networks";
 import type { Network } from "@/lib/mock-data";
 
-export const metadata = { title: "Networks" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.networks");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.networks");
   const networks = await getNetworksFromBff({ requestHeaders: headers() });
   const vpcs = networks.filter((network) => network.type === "VPC").length;
   const isolated = networks.length - vpcs;
@@ -29,28 +37,28 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Networks"
-        description={`${networks.length} networks, ${vpcs} VPCs, and ${instances} attached instances across your scope`}
+        title={t("title")}
+        description={t("description", { networks: networks.length, vpcs, instances })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{networks.length} total</Badge>
-        <Badge variant="accent" size="md">{vpcs} VPCs</Badge>
-        <Badge variant="default" size="md">{isolated} isolated</Badge>
-        <Badge variant={warnings > 0 ? "warning" : "success"} size="md">{warnings} warnings</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: networks.length })}</Badge>
+        <Badge variant="accent" size="md">{t("badges.vpcs", { count: vpcs })}</Badge>
+        <Badge variant="default" size="md">{t("badges.isolated", { count: isolated })}</Badge>
+        <Badge variant={warnings > 0 ? "warning" : "success"} size="md">{t("badges.warnings", { count: warnings })}</Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Network</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>CIDR</TableHead>
-              <TableHead>Gateway</TableHead>
-              <TableHead>Zone</TableHead>
-              <TableHead className="text-right">Instances</TableHead>
-              <TableHead className="pr-4">State</TableHead>
+              <TableHead className="pl-4">{t("columns.network")}</TableHead>
+              <TableHead>{t("columns.type")}</TableHead>
+              <TableHead>{t("columns.cidr")}</TableHead>
+              <TableHead>{t("columns.gateway")}</TableHead>
+              <TableHead>{t("columns.zone")}</TableHead>
+              <TableHead className="text-right">{t("columns.instances")}</TableHead>
+              <TableHead className="pr-4">{t("columns.state")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -82,7 +90,7 @@ export default async function Page() {
                   <TableCell className="text-right tabular-nums">{network.instances}</TableCell>
                   <TableCell className="pr-4">
                     <Badge variant={network.state === "running" ? "success" : "warning"}>
-                      {network.state === "running" ? "Running" : "Warning"}
+                      {network.state === "running" ? t("state.running") : t("state.warning")}
                     </Badge>
                   </TableCell>
                 </TableRow>
@@ -90,8 +98,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={7}
-                title="No networks in this scope"
-                description="Create an isolated network or VPC before attaching instances."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>

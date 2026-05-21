@@ -97,6 +97,193 @@
           "title": "No hosts in this scope",
           "description": "CloudStack did not return any routing hosts for the current zone and account filters."
         }
+      },
+      "networks": {
+        "metadataTitle": "Networks",
+        "title": "Networks",
+        "description": "{networks} networks, {vpcs} VPCs, and {instances} attached instances across your scope",
+        "badges": {
+          "total": "{count} total",
+          "vpcs": "{count} VPCs",
+          "isolated": "{count} isolated",
+          "warnings": "{count} warnings"
+        },
+        "columns": {
+          "network": "Network",
+          "type": "Type",
+          "cidr": "CIDR",
+          "gateway": "Gateway",
+          "zone": "Zone",
+          "instances": "Instances",
+          "state": "State"
+        },
+        "state": {
+          "running": "Running",
+          "warning": "Warning"
+        },
+        "emptyState": {
+          "title": "No networks in this scope",
+          "description": "Create an isolated network or VPC before attaching instances."
+        }
+      },
+      "networkDetail": {
+        "metadataTitle": "Network",
+        "metrics": {
+          "cidr": "CIDR",
+          "gatewayPerTier": "Gateway per tier",
+          "instances": "Instances",
+          "uniqueVms": "unique VMs",
+          "publicIps": "Public IPs",
+          "allocatedAddresses": "allocated addresses",
+          "tiers": "Tiers",
+          "acls": "ACLs"
+        },
+        "tabs": {
+          "overview": "Overview",
+          "tiers": "Tiers",
+          "publicIps": "Public IPs",
+          "acls": "ACLs",
+          "activity": "Activity"
+        },
+        "cards": {
+          "addressing": "Addressing",
+          "ownership": "Ownership",
+          "offering": "Offering",
+          "flags": "Flags"
+        },
+        "fields": {
+          "cidr": "CIDR",
+          "gateway": "Gateway",
+          "netmask": "Netmask",
+          "networkDomain": "Network domain",
+          "account": "Account",
+          "domain": "Domain",
+          "project": "Project",
+          "zone": "Zone",
+          "type": "Type",
+          "name": "Name",
+          "state": "State",
+          "instances": "Instances",
+          "redundant": "Redundant",
+          "distributed": "Distributed",
+          "restartRequired": "Restart required",
+          "deployable": "Deployable"
+        },
+        "tables": {
+          "tiers": {
+            "title": "Tiers",
+            "columns": {
+              "tier": "Tier",
+              "cidr": "CIDR",
+              "gateway": "Gateway",
+              "netmask": "Netmask",
+              "offering": "Offering",
+              "state": "State"
+            }
+          },
+          "publicIps": {
+            "title": "Public IPs",
+            "columns": {
+              "address": "Address",
+              "state": "State",
+              "role": "Role",
+              "network": "Network",
+              "vm": "VM",
+              "actions": "Actions"
+            }
+          },
+          "acls": {
+            "columns": {
+              "rule": "Rule",
+              "action": "Action",
+              "protocol": "Protocol",
+              "range": "Range",
+              "source": "Source",
+              "traffic": "Traffic",
+              "state": "State"
+            }
+          },
+          "activity": {
+            "title": "Activity",
+            "columns": {
+              "time": "Time",
+              "level": "Level",
+              "action": "Action",
+              "target": "Target",
+              "user": "User",
+              "description": "Description"
+            }
+          }
+        },
+        "badges": {
+          "sourceNat": "Source NAT",
+          "staticNat": "Static NAT",
+          "allocated": "Allocated"
+        },
+        "state": {
+          "running": "Running",
+          "warning": "Warning"
+        },
+        "boolean": {
+          "yes": "Yes",
+          "no": "No"
+        },
+        "emptyState": {
+          "tiers": {
+            "title": "No tiers in this VPC",
+            "description": "CloudStack did not return network tiers for this VPC."
+          },
+          "publicIps": {
+            "title": "No public IPs allocated",
+            "description": "Acquire an address when this network needs source NAT, static NAT, or inbound access."
+          },
+          "aclRules": {
+            "title": "No ACL rules in this list",
+            "description": "CloudStack did not return network ACL rules for this list."
+          },
+          "aclLists": {
+            "title": "No ACL lists on this network",
+            "description": "CloudStack did not return network ACL lists for this network."
+          },
+          "activity": {
+            "title": "No network activity",
+            "description": "CloudStack did not return audit or lifecycle events for this network."
+          }
+        }
+      },
+      "securityGroups": {
+        "metadataTitle": "Security groups",
+        "title": "Security groups",
+        "description": "{groups} security groups across {accounts} accounts and {domains} domains",
+        "badges": {
+          "total": "{count} total",
+          "accounts": "{count} accounts",
+          "domains": "{count} domains",
+          "instances": "{count} instances",
+          "default": "{count} default"
+        },
+        "columns": {
+          "group": "Group",
+          "description": "Description",
+          "scope": "Scope",
+          "ingress": "Ingress",
+          "egress": "Egress",
+          "instances": "Instances",
+          "flags": "Flags"
+        },
+        "rules": {
+          "from": "from",
+          "more": "+{count} more"
+        },
+        "flags": {
+          "default": "Default",
+          "custom": "Custom",
+          "project": "Project"
+        },
+        "emptyState": {
+          "title": "No security groups in this scope",
+          "description": "Create a group above, then add ingress or egress rules as needed."
+        }
       }
     }
   },
