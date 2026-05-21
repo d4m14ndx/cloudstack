@@ -166,7 +166,8 @@ Expected:
 
 ```text
 ## modernize-2026
-42d213d8f2 Document Phase 5j settings plan
+<doc-only Phase 5j plan commit>
+<optional doc-only Phase 5j plan clarification commit>
 436457a385 Merge Phase 5i network page i18n
 ```
 
@@ -186,7 +187,7 @@ Expected for each Phase 5j worktree:
 ## phase5j-...
 ```
 
-The existing Phase 5j worktrees may report `436457a385` rather than `42d213d8f2`; that is acceptable because `42d213d8f2` only adds this plan document and workers should not edit the plan file.
+The existing Phase 5j worktrees may report `436457a385` rather than the later doc-only plan commits; that is acceptable because those commits only add or clarify this plan document and workers should not edit the plan file.
 
 - [ ] **Step 3: If any Phase 5j worktree is missing, recreate it**
 
