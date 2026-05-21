@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { DeployWizard } from "@/components/deploy-wizard/deploy-wizard";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,12 +28,14 @@ function deriveBreadcrumbs(pathname: string): string[] {
 
 export function Topbar() {
   const pathname = usePathname();
+  const tNav = useTranslations("Navigation");
+  const t = useTranslations("Shell.topbar");
   const theme = useTweaks((s) => s.theme);
   const setTheme = useTweaks((s) => s.setTheme);
   const setCmdkOpen = useTweaks((s) => s.setCmdkOpen);
   const [deployOpen, setDeployOpen] = useState(false);
 
-  const crumbs = deriveBreadcrumbs(pathname);
+  const crumbs = pathname === "/" ? [tNav("items.overview")] : deriveBreadcrumbs(pathname);
 
   return (
     <>
@@ -43,7 +46,7 @@ export function Topbar() {
         )}
       >
         {/* Breadcrumb */}
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm text-[color:var(--fg-muted)]">
+        <nav aria-label={t("breadcrumbLabel")} className="flex items-center gap-1.5 text-sm text-[color:var(--fg-muted)]">
           {crumbs.map((c, i) => (
             <span key={i} className={cn(i === crumbs.length - 1 && "text-[color:var(--fg)] font-medium")}>
               {c}
@@ -62,7 +65,7 @@ export function Topbar() {
           )}
         >
           <Search size={14} strokeWidth={1.6} />
-          <span className="flex-1 text-left">Search resources, accounts, events...</span>
+          <span className="flex-1 text-left">{t("searchPlaceholder")}</span>
           <kbd className="flex h-5 items-center gap-0.5 rounded border border-[color:var(--border)] bg-[color:var(--surface-2)] px-1.5 font-mono text-[10px]">
             <Command size={10} strokeWidth={2} /> K
           </kbd>
@@ -74,28 +77,28 @@ export function Topbar() {
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label="Toggle theme"
+            aria-label={t("toggleTheme")}
           >
             {theme === "dark" ? <Sun size={15} strokeWidth={1.6} /> : <Moon size={15} strokeWidth={1.6} />}
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Notifications" className="relative">
+          <Button variant="ghost" size="icon" aria-label={t("notifications")} className="relative">
             <Bell size={15} strokeWidth={1.6} />
             <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[color:var(--danger)]" />
           </Button>
-          <Button asChild variant="ghost" size="icon" aria-label="Help">
+          <Button asChild variant="ghost" size="icon" aria-label={t("help")}>
             <a
               href="https://docs.cloudstack.apache.org/"
               target="_blank"
               rel="noreferrer"
-              title="Open Apache CloudStack docs"
+              title={t("openDocs")}
             >
               <HelpCircle size={15} strokeWidth={1.6} />
             </a>
           </Button>
           <Button asChild variant="ghost" size="sm" className="gap-1.5">
-            <Link href="/settings/api-tokens" title="Open API token settings">
+            <Link href="/settings/api-tokens" title={t("openApiTokens")}>
               <Code size={14} strokeWidth={1.6} />
-              API
+              {t("api")}
             </Link>
           </Button>
           <Button
@@ -105,7 +108,7 @@ export function Topbar() {
             onClick={() => setDeployOpen(true)}
           >
             <Plus size={14} strokeWidth={2} />
-            Deploy
+            {t("deploy")}
           </Button>
         </div>
       </header>

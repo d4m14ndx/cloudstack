@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { BrandMark, BrandWordmark } from "@/components/shell/brand-mark";
 import { ScopeSwitcher } from "@/components/shell/scope-switcher";
 import { UserFooter } from "@/components/shell/user-footer";
@@ -13,6 +14,8 @@ import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const tNav = useTranslations("Navigation");
+  const tShell = useTranslations("Shell.environment");
   const user = getCurrentUser();
   const sidebarStyle = useTweaks((s) => s.sidebarStyle);
   const compact = sidebarStyle === "compact";
@@ -32,7 +35,7 @@ export function Sidebar() {
         {!compact && (
           <>
             <BrandWordmark className="text-[15px] tracking-tight" />
-            <Badge variant="default" className="ml-auto text-[9.5px]">prod</Badge>
+            <Badge variant="default" className="ml-auto text-[9.5px]">{tShell("production")}</Badge>
           </>
         )}
       </div>
@@ -46,16 +49,18 @@ export function Sidebar() {
       <nav className={cn("flex-1 overflow-y-auto px-2 py-2", compact && "px-2")}>
         {NAV_SECTIONS.map((section) => {
           if (section.requires && !hasRole(section.requires)) return null;
+          const sectionTitle = tNav(section.titleKey);
           return (
-            <div key={section.title} className="mb-4">
+            <div key={section.titleKey} className="mb-4">
               {!compact && (
                 <div className="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-wider text-[color:var(--fg-dim)]">
-                  {section.title}
+                  {sectionTitle}
                 </div>
               )}
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
                   if (item.requires && !hasRole(item.requires)) return null;
+                  const itemLabel = tNav(item.labelKey);
                   const active =
                     item.href === "/"
                       ? pathname === "/"
@@ -65,8 +70,8 @@ export function Sidebar() {
                     <li key={item.href}>
                       <Link
                         href={item.href as never}
-                        aria-label={item.label}
-                        title={item.label}
+                        aria-label={itemLabel}
+                        title={itemLabel}
                         className={cn(
                           "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
                           compact && "h-10 justify-center px-0",
@@ -83,13 +88,13 @@ export function Sidebar() {
                           />
                         )}
                         <Icon size={16} strokeWidth={1.6} aria-hidden />
-                        {!compact && <span className="flex-1">{item.label}</span>}
-                        {!compact && item.badge && (
+                        {!compact && <span className="flex-1">{itemLabel}</span>}
+                        {!compact && item.badgeKey && (
                           <Badge
-                            variant={typeof item.badge === "string" ? "accent" : "default"}
+                            variant="accent"
                             className="text-[9.5px]"
                           >
-                            {item.badge}
+                            {tNav(item.badgeKey)}
                           </Badge>
                         )}
                       </Link>

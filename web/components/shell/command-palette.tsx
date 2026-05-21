@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Command as CommandPrimitive } from "cmdk";
+import { useTranslations } from "next-intl";
 import { openDeployWizard } from "@/components/deploy-wizard/deploy-wizard";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Search, ChevronRight } from "@/components/icons";
@@ -13,6 +14,8 @@ import { mockCommandActions, mockInstances, mockNetworks } from "@/lib/mock-data
 
 export function CommandPalette() {
   const router = useRouter();
+  const tNav = useTranslations("Navigation");
+  const t = useTranslations("Shell.commandPalette");
   const open = useTweaks((s) => s.cmdkOpen);
   const setOpen = useTweaks((s) => s.setCmdkOpen);
 
@@ -29,7 +32,7 @@ export function CommandPalette() {
   }, [open, setOpen]);
 
   const allPages = NAV_SECTIONS.flatMap((s) =>
-    s.items.map((i) => ({ href: i.href, label: i.label, section: s.title }))
+    s.items.map((i) => ({ href: i.href, label: tNav(i.labelKey), section: tNav(s.titleKey) }))
   );
 
   return (
@@ -38,10 +41,10 @@ export function CommandPalette() {
         hideCloseButton
         className="top-[12vh] max-w-[620px] translate-y-0 border-0 bg-transparent p-0 shadow-none"
       >
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogTitle className="sr-only">{t("title")}</DialogTitle>
         <div className="px-4">
           <CommandPrimitive
-            label="Command palette"
+            label={t("label")}
             className={cn(
               "overflow-hidden rounded-[var(--radius-xl)] border border-[color:var(--border)] bg-[color:var(--bg-elevated)] shadow-[var(--shadow-lg)]",
               "data-[state=open]:animate-in data-[state=open]:fade-in-0"
@@ -50,17 +53,17 @@ export function CommandPalette() {
             <div className="flex items-center gap-2 border-b border-[color:var(--border)] px-4">
               <Search size={16} strokeWidth={1.6} className="text-[color:var(--fg-dim)]" />
               <CommandPrimitive.Input
-                placeholder="Search resources, accounts, events…"
+                placeholder={t("searchPlaceholder")}
                 className="flex-1 bg-transparent py-4 text-sm text-[color:var(--fg)] placeholder:text-[color:var(--fg-dim)] outline-none"
               />
             </div>
 
             <CommandPrimitive.List className="max-h-[420px] overflow-y-auto p-2">
               <CommandPrimitive.Empty className="px-3 py-6 text-center text-sm text-[color:var(--fg-muted)]">
-                No results found.
+                {t("empty")}
               </CommandPrimitive.Empty>
 
-              <CommandGroup heading="Pages">
+              <CommandGroup heading={t("groups.pages")}>
                 {allPages.map((p) => (
                   <Item
                     key={p.href}
@@ -77,7 +80,7 @@ export function CommandPalette() {
                 ))}
               </CommandGroup>
 
-              <CommandGroup heading="Actions">
+              <CommandGroup heading={t("groups.actions")}>
                 {mockCommandActions.map((a) => (
                   <Item
                     key={a}
@@ -94,7 +97,7 @@ export function CommandPalette() {
                 ))}
               </CommandGroup>
 
-              <CommandGroup heading="Instances">
+              <CommandGroup heading={t("groups.instances")}>
                 {mockInstances.slice(0, 6).map((instance) => (
                   <Item
                     key={instance.id}
@@ -110,7 +113,7 @@ export function CommandPalette() {
                 ))}
               </CommandGroup>
 
-              <CommandGroup heading="Networks">
+              <CommandGroup heading={t("groups.networks")}>
                 {mockNetworks.slice(0, 3).map((network) => (
                   <Item
                     key={network.id}

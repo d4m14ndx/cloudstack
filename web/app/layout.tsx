@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
+import { NextIntlClientProvider } from "next-intl";
 import { ThemeProvider, NoFlashScript } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -25,7 +26,9 @@ export default function RootLayout({
         <NoFlashScript />
       </head>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <NextIntlClientProvider>
+          <ThemeProvider>{children}</ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
