@@ -222,6 +222,58 @@ test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint wi
   }
 });
 
+test("getDeployWizardCatalogFromBff keeps required catalog data when optional project endpoints are unavailable", async () => {
+  const previousCsUrl = process.env.CS_URL;
+  const previousNextAuthUrl = process.env.NEXTAUTH_URL;
+  const previousAppEnv = process.env.NEXT_PUBLIC_APP_ENV;
+  process.env.CS_URL = "http://cloudstack.local";
+  process.env.NEXTAUTH_URL = "https://console.example.test/";
+  delete process.env.NEXT_PUBLIC_APP_ENV;
+
+  const responsesByPath = new Map<string, unknown>([
+    ["/api/cs/listZones", { listzonesresponse: { zone: [{ id: "zone-1", name: "syd-1" }] } }],
+    [
+      "/api/cs/listTemplates",
+      { listtemplatesresponse: { template: [{ id: "tmpl-1", name: "Ubuntu", size: 1073741824 }] } },
+    ],
+    [
+      "/api/cs/listServiceOfferings",
+      { listserviceofferingsresponse: { serviceoffering: [{ id: "so-1", name: "Small", cpunumber: 1, memory: 1024 }] } },
+    ],
+    [
+      "/api/cs/listDiskOfferings",
+      { listdiskofferingsresponse: { diskoffering: [{ id: "do-1", name: "Disk", disksize: 10737418240 }] } },
+    ],
+    ["/api/cs/listNetworks", { listnetworksresponse: { network: [{ id: "net-1", name: "default" }] } }],
+    ["/api/cs/listSecurityGroups", { listsecuritygroupsresponse: { securitygroup: [{ id: "sg-1", name: "default" }] } }],
+    ["/api/cs/listSSHKeyPairs", { listsshkeypairsresponse: { sshkeypair: [{ id: "key-1", name: "admin" }] } }],
+  ]);
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    assert.equal(init?.method, "GET");
+    const url = new URL(String(input));
+    const body = responsesByPath.get(url.pathname);
+    if (!body) {
+      return new Response("{}", { status: 403 });
+    }
+
+    return Response.json(body);
+  };
+
+  try {
+    const catalog = await getDeployWizardCatalogFromBff({ fetchImpl });
+
+    assert.equal(catalog.zones[0]?.id, "zone-1");
+    assert.equal(catalog.serviceOfferings[0]?.name, "Small");
+    assert.equal(catalog.projects.length, 0);
+    assert.equal(catalog.affinityGroups.length, 0);
+  } finally {
+    restoreEnv("CS_URL", previousCsUrl);
+    restoreEnv("NEXTAUTH_URL", previousNextAuthUrl);
+    restoreEnv("NEXT_PUBLIC_APP_ENV", previousAppEnv);
+  }
+});
+
 test("getDeployWizardCatalogFromBff returns mock catalog when CloudStack is unavailable or a response is malformed", async () => {
   const previousCsUrl = process.env.CS_URL;
   const previousAppEnv = process.env.NEXT_PUBLIC_APP_ENV;

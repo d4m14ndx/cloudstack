@@ -194,15 +194,15 @@ type QueryAsyncJobResultResponse = {
 };
 
 const ENDPOINTS = [
-  ["zones", "/api/cs/listZones"],
-  ["templates", "/api/cs/listTemplates?templatefilter=executable&details=min&showunique=true"],
-  ["serviceOfferings", "/api/cs/listServiceOfferings"],
-  ["diskOfferings", "/api/cs/listDiskOfferings"],
-  ["networks", "/api/cs/listNetworks?listall=true"],
-  ["securityGroups", "/api/cs/listSecurityGroups?listall=true"],
-  ["sshKeyPairs", "/api/cs/listSSHKeyPairs"],
-  ["projects", "/api/cs/listProjects?listall=true"],
-  ["affinityGroups", "/api/cs/listAffinityGroups?listall=true"],
+  ["zones", "/api/cs/listZones", true],
+  ["templates", "/api/cs/listTemplates?templatefilter=executable&details=min&showunique=true", true],
+  ["serviceOfferings", "/api/cs/listServiceOfferings", true],
+  ["diskOfferings", "/api/cs/listDiskOfferings", true],
+  ["networks", "/api/cs/listNetworks?listall=true", true],
+  ["securityGroups", "/api/cs/listSecurityGroups?listall=true", true],
+  ["sshKeyPairs", "/api/cs/listSSHKeyPairs", true],
+  ["projects", "/api/cs/listProjects?listall=true", false],
+  ["affinityGroups", "/api/cs/listAffinityGroups?listall=true", false],
 ] as const;
 
 export async function getDeployWizardCatalogFromBff({
@@ -222,11 +222,11 @@ export async function getDeployWizardCatalogFromBff({
       ),
     );
 
-    if (responses.some((response) => !response.ok)) {
+    if (responses.some((response, index) => ENDPOINTS[index]?.[2] && !response.ok)) {
       return mockDeployWizardCatalog;
     }
 
-    const payloads = await Promise.all(responses.map((response) => response.json()));
+    const payloads = await Promise.all(responses.map((response) => (response.ok ? response.json() : {})));
     const catalogResponses = Object.fromEntries(
       ENDPOINTS.map(([key], index) => [key, payloads[index]]),
     ) as DeployWizardCatalogResponses;
