@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -57,8 +58,18 @@ export default async function Page() {
                 <TableRow key={`${cluster.id}-${cluster.name}`}>
                   <TableCell className="pl-4">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{cluster.name}</div>
-                      <div className="truncate font-mono text-xs text-[color:var(--fg-muted)]">{cluster.id}</div>
+                      <Link
+                        href={`/kubernetes/${cluster.id}`}
+                        className="truncate font-medium text-[color:var(--accent)] hover:underline"
+                      >
+                        {cluster.name}
+                      </Link>
+                      <Link
+                        href={`/kubernetes/${cluster.id}`}
+                        className="block truncate font-mono text-xs text-[color:var(--fg-muted)] hover:text-[color:var(--fg)]"
+                      >
+                        {cluster.id}
+                      </Link>
                     </div>
                   </TableCell>
                   <TableCell>{cluster.version}</TableCell>
