@@ -166,7 +166,9 @@ export function SshKeyDeleteButton({ name }: { name: string }) {
                 ? "text-[color:var(--success)]"
                 : "text-[color:var(--fg-muted)]"
           }`}
-          role="status"
+          role={status.state === "error" ? "alert" : "status"}
+          aria-live={status.state === "error" ? undefined : "polite"}
+          aria-busy={status.state === "loading" ? "true" : undefined}
           title={status.message}
         >
           {status.message}
@@ -194,7 +196,12 @@ function StatusLine({ status, className = "" }: { status: FormStatus; className?
 
   const color = status.state === "error" ? "text-[color:var(--danger)]" : "text-[color:var(--fg-muted)]";
   return (
-    <div className={`flex min-h-9 items-center gap-2 text-xs ${color} ${className}`}>
+    <div
+      role={status.state === "error" ? "alert" : "status"}
+      aria-live={status.state === "error" ? undefined : "polite"}
+      aria-busy={status.state === "loading" ? "true" : undefined}
+      className={`flex min-h-9 items-center gap-2 text-xs ${color} ${className}`}
+    >
       {status.state === "loading" && <Loader2 size={14} className="animate-spin" />}
       {status.state === "success" && <CheckCircle2 size={14} className="text-[color:var(--success)]" />}
       <span>{status.message}</span>
