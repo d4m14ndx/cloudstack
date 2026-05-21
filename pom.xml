@@ -1113,8 +1113,6 @@
                             <exclude>tools/logo/apache_cloudstack.png</exclude>
                             <exclude>tools/marvin/Marvin.egg-info/*</exclude>
                             <exclude>tools/marvin/marvin/sandbox/advanced/sandbox.cfg</exclude>
-                            <exclude>tools/ngui/static/bootstrap/*</exclude>
-                            <exclude>tools/ngui/static/js/lib/*</exclude>
                             <exclude>tools/transifex/.tx/config</exclude>
                             <exclude>ui/.*</exclude>
                             <exclude>ui/.*/**</exclude>
