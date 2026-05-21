@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { SecurityGroupActions } from "@/components/security-groups/security-group-actions";
@@ -16,10 +18,16 @@ import {
 import { getSecurityGroupsFromBff } from "@/lib/cloudstack/security-groups";
 import type { SecurityGroup, SecurityGroupRule } from "@/lib/mock-data";
 
-export const metadata = { title: "Security groups" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.securityGroups");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.securityGroups");
   const securityGroups = await getSecurityGroupsFromBff({ requestHeaders: headers() });
   const accounts = new Set(securityGroups.map((group) => group.account)).size;
   const domains = new Set(securityGroups.map((group) => group.domainPath)).size;
@@ -29,16 +37,16 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Security groups"
-        description={`${securityGroups.length} security groups across ${accounts} accounts and ${domains} domains`}
+        title={t("title")}
+        description={t("description", { groups: securityGroups.length, accounts, domains })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{securityGroups.length} total</Badge>
-        <Badge variant="accent" size="md">{accounts} accounts</Badge>
-        <Badge variant="default" size="md">{domains} domains</Badge>
-        <Badge variant={instances > 0 ? "success" : "default"} size="md">{instances} instances</Badge>
-        <Badge variant={defaultGroups > 0 ? "warning" : "default"} size="md">{defaultGroups} default</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: securityGroups.length })}</Badge>
+        <Badge variant="accent" size="md">{t("badges.accounts", { count: accounts })}</Badge>
+        <Badge variant="default" size="md">{t("badges.domains", { count: domains })}</Badge>
+        <Badge variant={instances > 0 ? "success" : "default"} size="md">{t("badges.instances", { count: instances })}</Badge>
+        <Badge variant={defaultGroups > 0 ? "warning" : "default"} size="md">{t("badges.default", { count: defaultGroups })}</Badge>
       </div>
 
       <SecurityGroupActions securityGroups={securityGroups} />
@@ -47,13 +55,13 @@ export default async function Page() {
         <Table className="min-w-[1120px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Group</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Scope</TableHead>
-              <TableHead>Ingress</TableHead>
-              <TableHead>Egress</TableHead>
-              <TableHead className="text-right">Instances</TableHead>
-              <TableHead className="pr-4">Flags</TableHead>
+              <TableHead className="pl-4">{t("columns.group")}</TableHead>
+              <TableHead>{t("columns.description")}</TableHead>
+              <TableHead>{t("columns.scope")}</TableHead>
+              <TableHead>{t("columns.ingress")}</TableHead>
+              <TableHead>{t("columns.egress")}</TableHead>
+              <TableHead className="text-right">{t("columns.instances")}</TableHead>
+              <TableHead className="pr-4">{t("columns.flags")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -71,22 +79,35 @@ export default async function Page() {
                     <Scope group={group} />
                   </TableCell>
                   <TableCell className="max-w-[220px]">
-                    <RuleSummary rules={group.ingressRules} />
+                    <RuleSummary
+                      rules={group.ingressRules}
+                      fromLabel={t("rules.from")}
+                      moreLabel={t("rules.more", { count: group.ingressRules.length - 1 })}
+                    />
                   </TableCell>
                   <TableCell className="max-w-[220px]">
-                    <RuleSummary rules={group.egressRules} />
+                    <RuleSummary
+                      rules={group.egressRules}
+                      fromLabel={t("rules.from")}
+                      moreLabel={t("rules.more", { count: group.egressRules.length - 1 })}
+                    />
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{group.instances}</TableCell>
                   <TableCell className="pr-4">
-                    <GroupFlags group={group} />
+                    <GroupFlags
+                      group={group}
+                      defaultLabel={t("flags.default")}
+                      customLabel={t("flags.custom")}
+                      projectLabel={t("flags.project")}
+                    />
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableEmptyState
                 colSpan={7}
-                title="No security groups in this scope"
-                description="Create a group above, then add ingress or egress rules as needed."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
@@ -106,7 +127,15 @@ function Scope({ group }: { group: SecurityGroup }) {
   );
 }
 
-function RuleSummary({ rules }: { rules: SecurityGroupRule[] }) {
+function RuleSummary({
+  rules,
+  fromLabel,
+  moreLabel,
+}: {
+  rules: SecurityGroupRule[];
+  fromLabel: string;
+  moreLabel: string;
+}) {
   if (rules.length === 0) {
     return <span className="text-[color:var(--fg-muted)]">-</span>;
   }
@@ -119,22 +148,32 @@ function RuleSummary({ rules }: { rules: SecurityGroupRule[] }) {
         <div className="truncate text-sm">
           <span className="font-medium">{firstRule.protocol}</span>{" "}
           <span className="font-mono text-xs">{firstRule.range}</span>
-          <span className="text-[color:var(--fg-muted)]"> from </span>
+          <span className="text-[color:var(--fg-muted)]"> {fromLabel} </span>
           <span className="font-mono text-xs">{firstRule.source}</span>
         </div>
       ) : null}
       {rules.length > 1 ? (
-        <div className="text-xs text-[color:var(--fg-muted)]">+{rules.length - 1} more</div>
+        <div className="text-xs text-[color:var(--fg-muted)]">{moreLabel}</div>
       ) : null}
     </div>
   );
 }
 
-function GroupFlags({ group }: { group: SecurityGroup }) {
+function GroupFlags({
+  group,
+  defaultLabel,
+  customLabel,
+  projectLabel,
+}: {
+  group: SecurityGroup;
+  defaultLabel: string;
+  customLabel: string;
+  projectLabel: string;
+}) {
   return (
     <div className="flex flex-wrap gap-1">
-      {group.isDefault ? <Badge variant="warning">Default</Badge> : <Badge variant="default">Custom</Badge>}
-      {group.project ? <Badge variant="accent">Project</Badge> : null}
+      {group.isDefault ? <Badge variant="warning">{defaultLabel}</Badge> : <Badge variant="default">{customLabel}</Badge>}
+      {group.project ? <Badge variant="accent">{projectLabel}</Badge> : null}
     </div>
   );
 }

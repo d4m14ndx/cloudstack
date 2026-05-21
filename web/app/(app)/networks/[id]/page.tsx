@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -18,10 +20,146 @@ import { AcquirePublicIpButton, PublicIpRowActions } from "@/components/networks
 import { getNetworkDetailFromBff } from "@/lib/cloudstack/network-detail";
 import type { Event, Network, NetworkAclList, NetworkDetail, NetworkTier } from "@/lib/mock-data";
 
-export const metadata = { title: "Network" };
 export const dynamic = "force-dynamic";
 
+type NetworkDetailLabels = ReturnType<typeof getNetworkDetailLabels>;
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.networkDetail");
+
+  return { title: t("metadataTitle") };
+}
+
+function getNetworkDetailLabels(t: Awaited<ReturnType<typeof getTranslations>>) {
+  return {
+    metrics: {
+      cidr: t("metrics.cidr"),
+      gatewayPerTier: t("metrics.gatewayPerTier"),
+      instances: t("metrics.instances"),
+      uniqueVms: t("metrics.uniqueVms"),
+      publicIps: t("metrics.publicIps"),
+      allocatedAddresses: t("metrics.allocatedAddresses"),
+      tiers: t("metrics.tiers"),
+      acls: t("metrics.acls"),
+    },
+    tabs: {
+      overview: t("tabs.overview"),
+      tiers: t("tabs.tiers"),
+      publicIps: t("tabs.publicIps"),
+      acls: t("tabs.acls"),
+      activity: t("tabs.activity"),
+    },
+    cards: {
+      addressing: t("cards.addressing"),
+      ownership: t("cards.ownership"),
+      offering: t("cards.offering"),
+      flags: t("cards.flags"),
+    },
+    fields: {
+      cidr: t("fields.cidr"),
+      gateway: t("fields.gateway"),
+      netmask: t("fields.netmask"),
+      networkDomain: t("fields.networkDomain"),
+      account: t("fields.account"),
+      domain: t("fields.domain"),
+      project: t("fields.project"),
+      zone: t("fields.zone"),
+      type: t("fields.type"),
+      name: t("fields.name"),
+      state: t("fields.state"),
+      instances: t("fields.instances"),
+      redundant: t("fields.redundant"),
+      distributed: t("fields.distributed"),
+      restartRequired: t("fields.restartRequired"),
+      deployable: t("fields.deployable"),
+    },
+    tables: {
+      tiers: {
+        title: t("tables.tiers.title"),
+        columns: {
+          tier: t("tables.tiers.columns.tier"),
+          cidr: t("tables.tiers.columns.cidr"),
+          gateway: t("tables.tiers.columns.gateway"),
+          netmask: t("tables.tiers.columns.netmask"),
+          offering: t("tables.tiers.columns.offering"),
+          state: t("tables.tiers.columns.state"),
+        },
+      },
+      publicIps: {
+        title: t("tables.publicIps.title"),
+        columns: {
+          address: t("tables.publicIps.columns.address"),
+          state: t("tables.publicIps.columns.state"),
+          role: t("tables.publicIps.columns.role"),
+          network: t("tables.publicIps.columns.network"),
+          vm: t("tables.publicIps.columns.vm"),
+          actions: t("tables.publicIps.columns.actions"),
+        },
+      },
+      acls: {
+        columns: {
+          rule: t("tables.acls.columns.rule"),
+          action: t("tables.acls.columns.action"),
+          protocol: t("tables.acls.columns.protocol"),
+          range: t("tables.acls.columns.range"),
+          source: t("tables.acls.columns.source"),
+          traffic: t("tables.acls.columns.traffic"),
+          state: t("tables.acls.columns.state"),
+        },
+      },
+      activity: {
+        title: t("tables.activity.title"),
+        columns: {
+          time: t("tables.activity.columns.time"),
+          level: t("tables.activity.columns.level"),
+          action: t("tables.activity.columns.action"),
+          target: t("tables.activity.columns.target"),
+          user: t("tables.activity.columns.user"),
+          description: t("tables.activity.columns.description"),
+        },
+      },
+    },
+    badges: {
+      sourceNat: t("badges.sourceNat"),
+      staticNat: t("badges.staticNat"),
+      allocated: t("badges.allocated"),
+    },
+    state: {
+      running: t("state.running"),
+      warning: t("state.warning"),
+    },
+    boolean: {
+      yes: t("boolean.yes"),
+      no: t("boolean.no"),
+    },
+    emptyState: {
+      tiers: {
+        title: t("emptyState.tiers.title"),
+        description: t("emptyState.tiers.description"),
+      },
+      publicIps: {
+        title: t("emptyState.publicIps.title"),
+        description: t("emptyState.publicIps.description"),
+      },
+      aclRules: {
+        title: t("emptyState.aclRules.title"),
+        description: t("emptyState.aclRules.description"),
+      },
+      aclLists: {
+        title: t("emptyState.aclLists.title"),
+        description: t("emptyState.aclLists.description"),
+      },
+      activity: {
+        title: t("emptyState.activity.title"),
+        description: t("emptyState.activity.description"),
+      },
+    },
+  };
+}
+
 export default async function Page({ params }: { params: { id: string } }) {
+  const t = await getTranslations("Core.pages.networkDetail");
+  const labels = getNetworkDetailLabels(t);
   const detail = await getNetworkDetailFromBff(params.id, { requestHeaders: headers() });
 
   if (!detail) {
@@ -36,7 +174,7 @@ export default async function Page({ params }: { params: { id: string } }) {
         actions={
           <>
             <Badge variant={detail.network.state === "running" ? "success" : "warning"} size="md">
-              {detail.network.state === "running" ? "Running" : "Warning"}
+              {detail.network.state === "running" ? labels.state.running : labels.state.warning}
             </Badge>
             <Badge variant={typeVariant(detail.kind)} size="md">{detail.kind}</Badge>
             <Badge variant="default" size="md">{detail.ownership.account}</Badge>
@@ -45,94 +183,94 @@ export default async function Page({ params }: { params: { id: string } }) {
       />
 
       <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="CIDR" value={detail.addressing.cidr} subValue={detail.addressing.gateway === "-" ? "Gateway per tier" : detail.addressing.gateway} mono />
-        <Metric label="Instances" value={String(detail.summary.instanceCount)} subValue="unique VMs" />
-        <Metric label="Public IPs" value={String(detail.summary.publicIpCount)} subValue="allocated addresses" />
-        <Metric label={detail.kind === "VPC" ? "Tiers" : "ACLs"} value={String(detail.kind === "VPC" ? detail.summary.tierCount : detail.summary.aclCount)} subValue={detail.offering.name ?? "-"} />
+        <Metric label={labels.metrics.cidr} value={detail.addressing.cidr} subValue={detail.addressing.gateway === "-" ? labels.metrics.gatewayPerTier : detail.addressing.gateway} mono />
+        <Metric label={labels.metrics.instances} value={String(detail.summary.instanceCount)} subValue={labels.metrics.uniqueVms} />
+        <Metric label={labels.metrics.publicIps} value={String(detail.summary.publicIpCount)} subValue={labels.metrics.allocatedAddresses} />
+        <Metric label={detail.kind === "VPC" ? labels.metrics.tiers : labels.metrics.acls} value={String(detail.kind === "VPC" ? detail.summary.tierCount : detail.summary.aclCount)} subValue={detail.offering.name ?? "-"} />
       </section>
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          {detail.kind === "VPC" && <TabsTrigger value="tiers" count={detail.tiers.length}>Tiers</TabsTrigger>}
-          <TabsTrigger value="public-ips" count={detail.publicIps.length}>Public IPs</TabsTrigger>
-          <TabsTrigger value="acls" count={detail.aclLists.length}>ACLs</TabsTrigger>
-          <TabsTrigger value="activity" count={detail.activity.length}>Activity</TabsTrigger>
+          <TabsTrigger value="overview">{labels.tabs.overview}</TabsTrigger>
+          {detail.kind === "VPC" && <TabsTrigger value="tiers" count={detail.tiers.length}>{labels.tabs.tiers}</TabsTrigger>}
+          <TabsTrigger value="public-ips" count={detail.publicIps.length}>{labels.tabs.publicIps}</TabsTrigger>
+          <TabsTrigger value="acls" count={detail.aclLists.length}>{labels.tabs.acls}</TabsTrigger>
+          <TabsTrigger value="activity" count={detail.activity.length}>{labels.tabs.activity}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <Overview detail={detail} />
+          <Overview detail={detail} labels={labels} />
         </TabsContent>
 
         {detail.kind === "VPC" && (
           <TabsContent value="tiers">
-            <TiersTable tiers={detail.tiers} />
+            <TiersTable tiers={detail.tiers} labels={labels} />
           </TabsContent>
         )}
 
         <TabsContent value="public-ips">
-          <PublicIpsTable detail={detail} />
+          <PublicIpsTable detail={detail} labels={labels} />
         </TabsContent>
 
         <TabsContent value="acls">
-          <AclTables aclLists={detail.aclLists} />
+          <AclTables aclLists={detail.aclLists} labels={labels} />
         </TabsContent>
 
         <TabsContent value="activity">
-          <ActivityTable events={detail.activity} />
+          <ActivityTable events={detail.activity} labels={labels} />
         </TabsContent>
       </Tabs>
     </>
   );
 }
 
-function Overview({ detail }: { detail: NetworkDetail }) {
+function Overview({ detail, labels }: { detail: NetworkDetail; labels: NetworkDetailLabels }) {
   return (
     <section className="grid gap-4 xl:grid-cols-2">
-      <DetailCard title="Addressing">
-        <KeyValue label="CIDR" value={detail.addressing.cidr} mono />
-        <KeyValue label="Gateway" value={detail.addressing.gateway} mono />
-        <KeyValue label="Netmask" value={detail.addressing.netmask ?? "-"} mono />
-        <KeyValue label="Network domain" value={detail.addressing.networkDomain ?? "-"} mono />
+      <DetailCard title={labels.cards.addressing}>
+        <KeyValue label={labels.fields.cidr} value={detail.addressing.cidr} mono />
+        <KeyValue label={labels.fields.gateway} value={detail.addressing.gateway} mono />
+        <KeyValue label={labels.fields.netmask} value={detail.addressing.netmask ?? "-"} mono />
+        <KeyValue label={labels.fields.networkDomain} value={detail.addressing.networkDomain ?? "-"} mono />
       </DetailCard>
 
-      <DetailCard title="Ownership">
-        <KeyValue label="Account" value={detail.ownership.account} />
-        <KeyValue label="Domain" value={detail.ownership.domain} />
-        <KeyValue label="Project" value={detail.ownership.project ?? "-"} />
-        <KeyValue label="Zone" value={detail.ownership.zone} />
+      <DetailCard title={labels.cards.ownership}>
+        <KeyValue label={labels.fields.account} value={detail.ownership.account} />
+        <KeyValue label={labels.fields.domain} value={detail.ownership.domain} />
+        <KeyValue label={labels.fields.project} value={detail.ownership.project ?? "-"} />
+        <KeyValue label={labels.fields.zone} value={detail.ownership.zone} />
       </DetailCard>
 
-      <DetailCard title="Offering">
-        <KeyValue label="Type" value={detail.kind} />
-        <KeyValue label="Name" value={detail.offering.name ?? "-"} />
-        <KeyValue label="State" value={detail.network.state === "running" ? "Running" : "Warning"} />
-        <KeyValue label="Instances" value={String(detail.summary.instanceCount)} />
+      <DetailCard title={labels.cards.offering}>
+        <KeyValue label={labels.fields.type} value={detail.kind} />
+        <KeyValue label={labels.fields.name} value={detail.offering.name ?? "-"} />
+        <KeyValue label={labels.fields.state} value={detail.network.state === "running" ? labels.state.running : labels.state.warning} />
+        <KeyValue label={labels.fields.instances} value={String(detail.summary.instanceCount)} />
       </DetailCard>
 
-      <DetailCard title="Flags">
-        <KeyValue label="Redundant" value={formatBoolean(detail.flags.redundant)} />
-        <KeyValue label="Distributed" value={formatBoolean(detail.flags.distributed)} />
-        <KeyValue label="Restart required" value={formatBoolean(detail.flags.restartRequired)} />
-        <KeyValue label="Deployable" value={formatBoolean(detail.flags.canUseForDeploy)} />
+      <DetailCard title={labels.cards.flags}>
+        <KeyValue label={labels.fields.redundant} value={formatBoolean(detail.flags.redundant, labels)} />
+        <KeyValue label={labels.fields.distributed} value={formatBoolean(detail.flags.distributed, labels)} />
+        <KeyValue label={labels.fields.restartRequired} value={formatBoolean(detail.flags.restartRequired, labels)} />
+        <KeyValue label={labels.fields.deployable} value={formatBoolean(detail.flags.canUseForDeploy, labels)} />
       </DetailCard>
     </section>
   );
 }
 
-function TiersTable({ tiers }: { tiers: NetworkTier[] }) {
+function TiersTable({ tiers, labels }: { tiers: NetworkTier[]; labels: NetworkDetailLabels }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Tiers" />
+      <SectionTitle title={labels.tables.tiers.title} />
       <Table className="min-w-[900px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Tier</TableHead>
-            <TableHead>CIDR</TableHead>
-            <TableHead>Gateway</TableHead>
-            <TableHead>Netmask</TableHead>
-            <TableHead>Offering</TableHead>
-            <TableHead className="pr-4">State</TableHead>
+            <TableHead className="pl-4">{labels.tables.tiers.columns.tier}</TableHead>
+            <TableHead>{labels.tables.tiers.columns.cidr}</TableHead>
+            <TableHead>{labels.tables.tiers.columns.gateway}</TableHead>
+            <TableHead>{labels.tables.tiers.columns.netmask}</TableHead>
+            <TableHead>{labels.tables.tiers.columns.offering}</TableHead>
+            <TableHead className="pr-4">{labels.tables.tiers.columns.state}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -148,15 +286,15 @@ function TiersTable({ tiers }: { tiers: NetworkTier[] }) {
                 <TableCell className="font-mono text-xs">{tier.netmask ?? "-"}</TableCell>
                 <TableCell>{tier.offering ?? "-"}</TableCell>
                 <TableCell className="pr-4">
-                  <Badge variant={tier.state === "running" ? "success" : "warning"}>{tier.state === "running" ? "Running" : "Warning"}</Badge>
+                  <Badge variant={tier.state === "running" ? "success" : "warning"}>{tier.state === "running" ? labels.state.running : labels.state.warning}</Badge>
                 </TableCell>
               </TableRow>
             ))
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No tiers in this VPC"
-              description="CloudStack did not return network tiers for this VPC."
+              title={labels.emptyState.tiers.title}
+              description={labels.emptyState.tiers.description}
             />
           )}
         </TableBody>
@@ -165,22 +303,22 @@ function TiersTable({ tiers }: { tiers: NetworkTier[] }) {
   );
 }
 
-function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
+function PublicIpsTable({ detail, labels }: { detail: NetworkDetail; labels: NetworkDetailLabels }) {
   return (
     <Card className="p-0">
       <SectionTitle
-        title="Public IPs"
+        title={labels.tables.publicIps.title}
         actions={<AcquirePublicIpButton networkId={detail.network.id} networkKind={detail.kind} />}
       />
       <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Address</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Network</TableHead>
-            <TableHead>VM</TableHead>
-            <TableHead className="pr-4 text-right">Actions</TableHead>
+            <TableHead className="pl-4">{labels.tables.publicIps.columns.address}</TableHead>
+            <TableHead>{labels.tables.publicIps.columns.state}</TableHead>
+            <TableHead>{labels.tables.publicIps.columns.role}</TableHead>
+            <TableHead>{labels.tables.publicIps.columns.network}</TableHead>
+            <TableHead>{labels.tables.publicIps.columns.vm}</TableHead>
+            <TableHead className="pr-4 text-right">{labels.tables.publicIps.columns.actions}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -191,9 +329,9 @@ function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
                 <TableCell>{publicIp.state}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-2">
-                    {publicIp.sourceNat && <Badge variant="accent">Source NAT</Badge>}
-                    {publicIp.staticNat && <Badge variant="info">Static NAT</Badge>}
-                    {!publicIp.sourceNat && !publicIp.staticNat && <Badge variant="default">Allocated</Badge>}
+                    {publicIp.sourceNat && <Badge variant="accent">{labels.badges.sourceNat}</Badge>}
+                    {publicIp.staticNat && <Badge variant="info">{labels.badges.staticNat}</Badge>}
+                    {!publicIp.sourceNat && !publicIp.staticNat && <Badge variant="default">{labels.badges.allocated}</Badge>}
                   </div>
                 </TableCell>
                 <TableCell>{publicIp.networkName ?? "-"}</TableCell>
@@ -206,8 +344,8 @@ function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No public IPs allocated"
-              description="Acquire an address when this network needs source NAT, static NAT, or inbound access."
+              title={labels.emptyState.publicIps.title}
+              description={labels.emptyState.publicIps.description}
             />
           )}
         </TableBody>
@@ -216,7 +354,7 @@ function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
   );
 }
 
-function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
+function AclTables({ aclLists, labels }: { aclLists: NetworkAclList[]; labels: NetworkDetailLabels }) {
   return (
     <section className="grid gap-4">
       {aclLists.length > 0 ? (
@@ -226,13 +364,13 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
             <Table className="min-w-[960px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-4">Rule</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Protocol</TableHead>
-                  <TableHead>Range</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Traffic</TableHead>
-                  <TableHead className="pr-4">State</TableHead>
+                  <TableHead className="pl-4">{labels.tables.acls.columns.rule}</TableHead>
+                  <TableHead>{labels.tables.acls.columns.action}</TableHead>
+                  <TableHead>{labels.tables.acls.columns.protocol}</TableHead>
+                  <TableHead>{labels.tables.acls.columns.range}</TableHead>
+                  <TableHead>{labels.tables.acls.columns.source}</TableHead>
+                  <TableHead>{labels.tables.acls.columns.traffic}</TableHead>
+                  <TableHead className="pr-4">{labels.tables.acls.columns.state}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -253,8 +391,8 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
                 ) : (
                   <TableEmptyState
                     colSpan={7}
-                    title="No ACL rules in this list"
-                    description="CloudStack did not return network ACL rules for this list."
+                    title={labels.emptyState.aclRules.title}
+                    description={labels.emptyState.aclRules.description}
                   />
                 )}
               </TableBody>
@@ -264,8 +402,8 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
       ) : (
         <Card>
           <EmptyState
-            title="No ACL lists on this network"
-            description="CloudStack did not return network ACL lists for this network."
+            title={labels.emptyState.aclLists.title}
+            description={labels.emptyState.aclLists.description}
             className="py-6"
           />
         </Card>
@@ -274,19 +412,19 @@ function AclTables({ aclLists }: { aclLists: NetworkAclList[] }) {
   );
 }
 
-function ActivityTable({ events }: { events: Event[] }) {
+function ActivityTable({ events, labels }: { events: Event[]; labels: NetworkDetailLabels }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Activity" />
+      <SectionTitle title={labels.tables.activity.title} />
       <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Time</TableHead>
-            <TableHead>Level</TableHead>
-            <TableHead>Action</TableHead>
-            <TableHead>Target</TableHead>
-            <TableHead>User</TableHead>
-            <TableHead className="pr-4">Description</TableHead>
+            <TableHead className="pl-4">{labels.tables.activity.columns.time}</TableHead>
+            <TableHead>{labels.tables.activity.columns.level}</TableHead>
+            <TableHead>{labels.tables.activity.columns.action}</TableHead>
+            <TableHead>{labels.tables.activity.columns.target}</TableHead>
+            <TableHead>{labels.tables.activity.columns.user}</TableHead>
+            <TableHead className="pr-4">{labels.tables.activity.columns.description}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -306,8 +444,8 @@ function ActivityTable({ events }: { events: Event[] }) {
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No network activity"
-              description="CloudStack did not return audit or lifecycle events for this network."
+              title={labels.emptyState.activity.title}
+              description={labels.emptyState.activity.description}
             />
           )}
         </TableBody>
@@ -376,6 +514,6 @@ function stateLabel(state: string): string {
   return state.charAt(0).toUpperCase() + state.slice(1);
 }
 
-function formatBoolean(value: boolean): string {
-  return value ? "Yes" : "No";
+function formatBoolean(value: boolean, labels: NetworkDetailLabels): string {
+  return value ? labels.boolean.yes : labels.boolean.no;
 }
