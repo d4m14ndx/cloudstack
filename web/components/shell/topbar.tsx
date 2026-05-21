@@ -40,6 +40,7 @@ export function Topbar() {
   return (
     <>
       <header
+        aria-label="Application topbar"
         className={cn(
           "col-start-2 flex items-center gap-3 border-b border-[color:var(--border)] bg-[color:var(--bg)] px-4",
           "h-14"
@@ -58,6 +59,7 @@ export function Topbar() {
         {/* Command input */}
         <button
           type="button"
+          aria-label="Open command palette"
           onClick={() => setCmdkOpen(true)}
           className={cn(
             "mx-auto flex h-8 w-full max-w-[360px] items-center gap-2 rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-3 text-sm text-[color:var(--fg-dim)] transition-colors",
