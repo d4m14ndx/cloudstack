@@ -6,12 +6,19 @@ Run from `web/`:
 npm run test:e2e
 ```
 
-The Playwright config starts `next dev` on `127.0.0.1:3000` with
-`NEXT_PUBLIC_APP_ENV=mock`, so smoke tests do not need a live CloudStack server,
-Redis, or an external identity provider. The app shell uses the existing mock
-current-user bridge, which renders `Alex Kim` as the logged-in operator.
+The Playwright config starts `next dev` on `127.0.0.1:3000` and enables a
+dev-only BFF session. It also points `CS_URL` at a tiny local CloudStack-shaped
+HTTP server started by the fixture, so smoke tests do not need a live CloudStack
+server, Redis, or an external identity provider. The app shell uses the existing
+mock current-user bridge, which renders `Alex Kim` as the logged-in operator.
 
-## Mocking `/api/cs/*`
+Use `PLAYWRIGHT_PORT` when running multiple worktrees or repeated local runs:
+
+```bash
+PLAYWRIGHT_PORT=3133 npm run test:e2e
+```
+
+## Mocking CloudStack Commands
 
 Import the local fixture instead of importing directly from `@playwright/test`:
 
@@ -32,6 +39,16 @@ test("loads instances", async ({ page, mockCloudStackBff }) => {
 });
 ```
 
+`mockCloudStackBff.use(command, handler)` feeds both paths used by the app:
+
+- browser-side `/api/cs/*` route interception for client actions
+- server-rendered page fetches that go through the real BFF route and then the
+  local CloudStack backend mock
+
+Calls from both paths are captured in `mockCloudStackBff.calls(command)`. POST
+assertions can use `call.json`; GET/backend assertions can use
+`call.params.get("name")`.
+
 Keep mocked payloads close to CloudStack response envelopes:
 
 - `/api/cs/listVirtualMachines` returns `listvirtualmachinesresponse`.
@@ -39,5 +56,6 @@ Keep mocked payloads close to CloudStack response envelopes:
 - `/api/cs/queryAsyncJobResult` should return `queryasyncjobresultresponse`.
 
 Prefer command-specific responses in each spec when the page or action depends
-on particular state. The fixture includes only small dashboard/list defaults so
-missing command mocks fail loudly with HTTP 501.
+on particular state. The fixture includes only small dashboard/list defaults, so
+missing command mocks fail loudly with HTTP 501 instead of silently falling back
+to unrelated data.
