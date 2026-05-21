@@ -51,5 +51,81 @@
         "networks": "Networks"
       }
     }
+  },
+  "Settings": {
+    "pages": {
+      "index": {
+        "metadataTitle": "Settings",
+        "title": "Settings",
+        "description": "Profile, security, API tokens, integrations.",
+        "emptyState": {
+          "title": "No settings panels available",
+          "description": "This build has no editable settings panels for the current scope."
+        }
+      },
+      "profile": {
+        "metadataTitle": "Profile settings",
+        "title": "Profile",
+        "description": "Personal details and console preferences.",
+        "emptyState": {
+          "title": "No profile controls available",
+          "description": "This build has no editable personal details or console preferences for the current account."
+        }
+      },
+      "security": {
+        "metadataTitle": "Security settings",
+        "title": "Security",
+        "description": "Password, MFA, and session controls.",
+        "emptyState": {
+          "title": "No security controls available",
+          "description": "This build has no editable password, MFA, or session controls for the current account."
+        }
+      },
+      "notifications": {
+        "metadataTitle": "Notification settings",
+        "title": "Notifications",
+        "description": "Email, event, and operational alert preferences.",
+        "emptyState": {
+          "title": "No notification preferences configured",
+          "description": "This build has no editable email, event, or operational alert preferences for the current scope."
+        }
+      },
+      "apiTokens": {
+        "metadataTitle": "API token settings",
+        "title": "API tokens",
+        "description": "CloudStack API keys and scoped automation tokens.",
+        "emptyState": {
+          "title": "No API tokens configured",
+          "description": "CloudStack did not return scoped automation tokens for the current account."
+        }
+      },
+      "integrations": {
+        "metadataTitle": "Integration settings",
+        "title": "Integrations",
+        "description": "Identity, monitoring, and automation integrations.",
+        "emptyState": {
+          "title": "No integrations configured",
+          "description": "CloudStack did not return identity, monitoring, or automation integrations for this scope."
+        }
+      },
+      "billing": {
+        "metadataTitle": "Billing settings",
+        "title": "Billing",
+        "description": "Invoices, usage exports, and payment settings.",
+        "emptyState": {
+          "title": "No billing settings available",
+          "description": "This build has no editable invoice, usage export, or payment settings for the current scope."
+        }
+      },
+      "advanced": {
+        "metadataTitle": "Advanced settings",
+        "title": "Advanced",
+        "description": "Experimental controls and low-level console settings.",
+        "emptyState": {
+          "title": "No advanced controls available",
+          "description": "This build has no editable low-level console settings for the current scope."
+        }
+      }
+    }
   }
 }

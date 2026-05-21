@@ -1,16 +1,25 @@
+import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
+
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 
-export const metadata = { title: "Profile settings" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Settings.pages.profile");
 
-export default function Page() {
+  return { title: t("metadataTitle") };
+}
+
+export default async function Page() {
+  const t = await getTranslations("Settings.pages.profile");
+
   return (
     <>
-      <PageHeader title="Profile" description="Personal details and console preferences." />
+      <PageHeader title={t("title")} description={t("description")} />
       <section className="rounded-[var(--radius-lg)] border border-dashed border-[color:var(--border)] px-6 py-10">
         <EmptyState
-          title="No profile controls available"
-          description="This build has no editable personal details or console preferences for the current account."
+          title={t("emptyState.title")}
+          description={t("emptyState.description")}
         />
       </section>
     </>
