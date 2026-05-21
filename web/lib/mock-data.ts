@@ -5,6 +5,8 @@ export type AccountState = "active" | "disabled";
 export type EventLevel = "info" | "warn" | "error";
 export type KubernetesState = "running" | "updating" | "degraded";
 export type DomainState = "active" | "inactive";
+export type BillingQuotaState = "enabled" | "disabled";
+export type BillingQuotaLifecycle = "active" | "removed";
 
 export type Instance = {
   id: string;
@@ -132,6 +134,19 @@ export type KubernetesCluster = {
   endpoint: string;
 };
 
+export type BillingQuotaSummary = {
+  id: string;
+  name: string;
+  domain: string;
+  accountState: string;
+  quotaState: BillingQuotaState;
+  lifecycle: BillingQuotaLifecycle;
+  balance: string;
+  periodUsage: string;
+  currency: string;
+  period: string;
+};
+
 export type DashboardMetric = {
   label: string;
   value: string;
@@ -249,6 +264,13 @@ export const mockKubernetesClusters: KubernetesCluster[] = [
   { id: "k-102", name: "ci-builds", version: "1.29.8", zone: "mel-1", account: "engineering", nodes: 4, state: "running", endpoint: "https://k8s-ci.example.internal" },
   { id: "k-103", name: "ml-labs", version: "1.30.4", zone: "syd-2", account: "research", nodes: 3, state: "degraded", endpoint: "https://k8s-ml.example.internal" },
   { id: "k-104", name: "staging", version: "1.31.1", zone: "syd-1", account: "engineering", nodes: 2, state: "updating", endpoint: "https://k8s-staging.example.internal" },
+];
+
+export const mockBillingQuotaSummaries: BillingQuotaSummary[] = [
+  { id: "billing-platform", name: "platform", domain: "ROOT", accountState: "active", quotaState: "enabled", lifecycle: "active", balance: "8421.3500", periodUsage: "1260.4400", currency: "AUD", period: "2026-05-01 to 2026-05-31" },
+  { id: "billing-engineering-ci", name: "Project: ci-runners", domain: "ROOT/engineering", accountState: "active", quotaState: "enabled", lifecycle: "active", balance: "2140.75", periodUsage: "318.0090", currency: "AUD", period: "2026-05-01 to 2026-05-31" },
+  { id: "billing-research", name: "research", domain: "ROOT/labs", accountState: "active", quotaState: "disabled", lifecycle: "active", balance: "0.00", periodUsage: "0.00", currency: "AUD", period: "2026-05-01 to 2026-05-31" },
+  { id: "billing-archive", name: "archive", domain: "ROOT/archive", accountState: "disabled", quotaState: "disabled", lifecycle: "removed", balance: "-48.1250", periodUsage: "12.5000", currency: "AUD", period: "2026-04-01 to 2026-04-30" },
 ];
 
 export const mockDashboardMetrics: DashboardMetric[] = [
