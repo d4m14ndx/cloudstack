@@ -77,9 +77,7 @@ public class DeleteSSHKeyPairCmd extends BaseCmd {
     @Override
     public void execute() {
         boolean result = _mgr.deleteSSHKeyPair(this);
-        SuccessResponse response = new SuccessResponse(getCommandName());
-        response.setSuccess(result);
-        setResponseObject(response);
+        setSuccessResponse(result);
     }
 
     @Override

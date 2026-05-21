@@ -39,6 +39,7 @@ import org.apache.cloudstack.acl.apikeypair.ApiKeyPairService;
 import org.apache.cloudstack.affinity.AffinityGroupService;
 import org.apache.cloudstack.alert.AlertService;
 import org.apache.cloudstack.annotation.AnnotationService;
+import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.gpu.GpuService;
 import org.apache.cloudstack.network.RoutedIpv4Manager;
@@ -318,6 +319,18 @@ public abstract class BaseCmd {
 
     public void setResponseObject(final Object responseObject) {
         _responseObject = responseObject;
+    }
+
+    protected SuccessResponse setSuccessResponse() {
+        SuccessResponse response = new SuccessResponse(getCommandName());
+        setResponseObject(response);
+        return response;
+    }
+
+    protected SuccessResponse setSuccessResponse(final boolean success) {
+        SuccessResponse response = setSuccessResponse();
+        response.setSuccess(success);
+        return response;
     }
 
     public static String getDateString(final Date date) {
