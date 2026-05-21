@@ -466,17 +466,9 @@ public class PodServiceImpl implements PodService {
             throw new InvalidParameterValueException("Unable to find pod by id " + podId);
         }
 
-        if (startIp == null || !NetUtils.isValidIp4(startIp)) {
-            throw new InvalidParameterValueException("The start address of the IP range is not a valid IP address.");
-        }
-
-        if (endIp == null || !NetUtils.isValidIp4(endIp)) {
-            throw new InvalidParameterValueException("The end address of the IP range is not a valid IP address.");
-        }
-
-        if (NetUtils.ip2Long(startIp) > NetUtils.ip2Long(endIp)) {
-            throw new InvalidParameterValueException("The start IP address must have a lower value than the end IP address.");
-        }
+        Ipv4RangeValidator.requireValidIp(startIp, "The start address of the IP range is not a valid IP address.");
+        Ipv4RangeValidator.requireValidIp(endIp, "The end address of the IP range is not a valid IP address.");
+        Ipv4RangeValidator.requireStartBeforeEnd(startIp, endIp, "The start IP address must have a lower value than the end IP address.");
 
         for (long ipAddr = NetUtils.ip2Long(startIp); ipAddr <= NetUtils.ip2Long(endIp); ipAddr++) {
             if (_privateIpAddressDao.countIpAddressUsage(NetUtils.long2Ip(ipAddr), podId, pod.getDataCenterId(), true) > 0) {
@@ -698,18 +690,10 @@ public class PodServiceImpl implements PodService {
     }
 
     protected void checkPodRangeParametersBasicsForNonEdgeZone(final String startIp, final String endIp, final String gateway, final String netmask) {
-        if (!NetUtils.isValidIp4(startIp)) {
-            throw new InvalidParameterValueException("The start IP is invalid");
-        }
-        if (endIp != null && !NetUtils.isValidIp4(endIp)) {
-            throw new InvalidParameterValueException("The end IP is invalid");
-        }
-        if (!NetUtils.isValidIp4(gateway)) {
-            throw new InvalidParameterValueException("The gateway is invalid");
-        }
-        if (!NetUtils.isValidIp4Netmask(netmask)) {
-            throw new InvalidParameterValueException("The netmask is invalid");
-        }
+        Ipv4RangeValidator.requireValidIp(startIp, "The start IP is invalid");
+        Ipv4RangeValidator.requireValidIpIfPresent(endIp, "The end IP is invalid");
+        Ipv4RangeValidator.requireValidIp(gateway, "The gateway is invalid");
+        Ipv4RangeValidator.requireValidNetmask(netmask, "The netmask is invalid");
     }
 
     protected String verifyPodIpRangeExists(long podId, String[] existingPodIpRanges, String currentStartIP,
@@ -887,28 +871,7 @@ public class PodServiceImpl implements PodService {
     }
 
     protected void checkIpRange(final String startIp, final String endIp, final String cidrAddress, final long cidrSize) {
-        //Checking not null for start IP as well. Previously we assumed to be not null always.
-        //But the check is required for the change in updatePod API.
-        if (StringUtils.isNotEmpty(startIp) && !NetUtils.isValidIp4(startIp)) {
-            throw new InvalidParameterValueException("The start address of the IP range is not a valid IP address.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && !NetUtils.isValidIp4(endIp)) {
-            throw new InvalidParameterValueException("The end address of the IP range is not a valid IP address.");
-        }
-
-        //Not null check is required for the change in updatePod API.
-        if (StringUtils.isNotEmpty(startIp) && !NetUtils.getCidrSubNet(startIp, cidrSize).equalsIgnoreCase(NetUtils.getCidrSubNet(cidrAddress, cidrSize))) {
-            throw new InvalidParameterValueException("The start address of the IP range is not in the CIDR subnet.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && !NetUtils.getCidrSubNet(endIp, cidrSize).equalsIgnoreCase(NetUtils.getCidrSubNet(cidrAddress, cidrSize))) {
-            throw new InvalidParameterValueException("The end address of the IP range is not in the CIDR subnet.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && NetUtils.ip2Long(startIp) > NetUtils.ip2Long(endIp)) {
-            throw new InvalidParameterValueException("The start IP address must have a lower value than the end IP address.");
-        }
+        Ipv4RangeValidator.validateOptionalRangeWithinCidr(startIp, endIp, cidrAddress, cidrSize);
     }
 
     protected void checkOverlapPublicIpRange(final Long zoneId, final String startIp, final String endIp) {
