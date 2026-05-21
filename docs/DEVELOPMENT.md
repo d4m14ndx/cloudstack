@@ -8,7 +8,7 @@ test, and extend this particular fork.
 
 | Tool | Version |
 |------|---------|
-| JDK | 17 (Temurin, OpenJDK) |
+| JDK | 21 (Temurin, OpenJDK) |
 | Maven | 3.9+ |
 | Python | 3.10+ (for Marvin integration tests) |
 | MySQL | 8.0+ (for DB tests and runtime) |
@@ -16,14 +16,14 @@ test, and extend this particular fork.
 On macOS:
 
 ```bash
-brew install openjdk@17 maven
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+brew install openjdk@21 maven
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 ```
 
 On Ubuntu 24.04:
 
 ```bash
-sudo apt-get install -y openjdk-17-jdk maven mysql-server python3 python3-pip
+sudo apt-get install -y openjdk-21-jdk maven mysql-server python3 python3-pip
 ```
 
 ## Build

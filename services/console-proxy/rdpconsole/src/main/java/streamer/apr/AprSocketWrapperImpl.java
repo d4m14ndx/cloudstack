@@ -19,8 +19,11 @@ package streamer.apr;
 import static streamer.debug.MockServer.Packet.PacketType.CLIENT;
 import static streamer.debug.MockServer.Packet.PacketType.SERVER;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 
 import org.apache.tomcat.jni.Address;
@@ -43,7 +46,6 @@ import streamer.SocketWrapper;
 import streamer.debug.MockServer;
 import streamer.debug.MockServer.Packet;
 import streamer.ssl.SSLState;
-import sun.security.x509.X509CertImpl;
 
 public class AprSocketWrapperImpl extends PipelineImpl implements SocketWrapper {
 
@@ -177,7 +179,9 @@ public class AprSocketWrapperImpl extends PipelineImpl implements SocketWrapper 
             try {
                 byte[] key = SSLSocket.getInfoB(socket, SSL.SSL_INFO_CLIENT_CERT);
                 //*DEBUG*/System.out.println("DEBUG: Server cert:\n"+new ByteBuffer(key).dump());
-                sslState.serverCertificateSubjectPublicKeyInfo = new X509CertImpl(key).getPublicKey().getEncoded();
+                CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+                X509Certificate certificate = (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(key));
+                sslState.serverCertificateSubjectPublicKeyInfo = certificate.getPublicKey().getEncoded();
             } catch (Exception e) {
                 throw new RuntimeException("[" + this + "] ERROR: Cannot get server public key: ", e);
             }

@@ -88,8 +88,16 @@
                         <configuration>
                             <scripts>
                                 <script><![CDATA[
-                                    File git = new File("./.git")
-                                    if (!git.exists()) {
+                                    File root = new File(project.properties['maven.multiModuleProjectDirectory'] ?: session.executionRootDirectory)
+                                    File git = new File(root, ".git")
+                                    if (git.isFile()) {
+                                        String gitDir = git.text.trim()
+                                        if (gitDir.startsWith("gitdir:")) {
+                                            git = new File(root, gitDir.substring("gitdir:".length()).trim()).canonicalFile
+                                        }
+                                    }
+                                    project.properties['storpool.dot.git.directory'] = git.absolutePath
+                                    if (!git.isDirectory()) {
                                         project.properties['storpool.skip.git.properties'] = 'true'
                                     } else {
                                         project.properties['storpool.skip.git.properties'] = 'false'
@@ -125,7 +133,7 @@
                 </executions>
                 <configuration>
                     <skip>${storpool.skip.git.properties}</skip>
-                    <dotGitDirectory>${project.basedir}/.git</dotGitDirectory>
+                    <dotGitDirectory>${storpool.dot.git.directory}</dotGitDirectory>
                     <prefix>git</prefix>
                     <verbose>false</verbose>
                     <generateGitPropertiesFile>true</generateGitPropertiesFile>

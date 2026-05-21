@@ -25,9 +25,9 @@ runs **10,741 unit tests with 0 failures and 0 errors**.
 - Maven build plugins all bumped to current major versions
 - Test libraries: Hamcrest 1.3 → 2.2, JUnit Jupiter, AssertJ, WireMock
 
-### Phase 3 — Java 17 + Jakarta + Spring 6 (3 commits)
+### Phase 3 — Java 17 + Jakarta + Spring 6; Phase 5 backend baseline to Java 21
 
-- Java target: 11 → 17
+- Java target: 11 → 17, then fork baseline lifted to 21
 - Spring Framework: 5.3 (EOL) → 6.1
 - Jetty: 9.4 (EOL) → 11.0
 - Tomcat embed → 10.0 (Jakarta)
@@ -81,7 +81,7 @@ one-liners so Mockito spies and subclass overrides still work.
 
 #### Container + Kubernetes deployment
 
-- Multi-stage `Dockerfile` (eclipse-temurin:17, non-root user, tini PID 1,
+- Multi-stage `Dockerfile` (eclipse-temurin:21, non-root user, tini PID 1,
   HEALTHCHECK)
 - `docker-compose.yml` for one-command local dev (MySQL 8 + management)
 - Helm chart at `deploy/helm/cloudstack-management/` with:
@@ -137,7 +137,7 @@ greenfield effort beyond the scope of this modernization pass.
 |--|--------|-------|
 | Lines of code (total) | ~2,151,000 | ~2,008,000 |
 | Dead plugins | 19 | 0 |
-| Java version | 11 | 17 |
+| Java version | 11 | 21 |
 | Spring | 5.3 (EOL) | 6.1 |
 | Jetty | 9.4 (EOL) | 11.0 |
 | Java EE namespace | `javax.*` | `jakarta.*` |
