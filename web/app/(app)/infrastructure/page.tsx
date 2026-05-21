@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +17,16 @@ import {
 import { getInfrastructureFromBff } from "@/lib/cloudstack/infrastructure";
 import type { Host } from "@/lib/mock-data";
 
-export const metadata = { title: "Infrastructure" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.infrastructure");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.infrastructure");
   const hosts = await getInfrastructureFromBff({ requestHeaders: headers() });
   const up = hosts.filter((host) => host.state === "up").length;
   const maintenance = hosts.filter((host) => host.state === "maintenance").length;
@@ -28,8 +36,8 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Infrastructure"
-        description={`${hosts.length} routing hosts across your scope, ${instances} instances placed`}
+        title={t("title")}
+        description={t("description", { hosts: hosts.length, instances })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -80,8 +88,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={8}
-                title="No hosts in this scope"
-                description="CloudStack did not return any routing hosts for the current zone and account filters."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>

@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +17,16 @@ import {
 import { getAccountsFromBff } from "@/lib/cloudstack/accounts";
 import type { Account } from "@/lib/mock-data";
 
-export const metadata = { title: "Accounts" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.accounts");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.accounts");
   const accounts = await getAccountsFromBff({ requestHeaders: headers() });
   const active = accounts.filter((account) => account.state === "active").length;
   const disabled = accounts.length - active;
@@ -29,8 +37,8 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Accounts"
-        description={`${accounts.length} accounts, ${users} users, and ${instances} instances across your scope`}
+        title={t("title")}
+        description={t("description", { accounts: accounts.length, users, instances })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -73,8 +81,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={6}
-                title="No accounts in this scope"
-                description="CloudStack did not return any accounts for the current domain and project filters."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
