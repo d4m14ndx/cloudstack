@@ -67,8 +67,7 @@ public class ReleaseDedicatedClusterCmd extends BaseAsyncCmd {
     public void execute() {
         boolean result = dedicatedService.releaseDedicatedResource(null, null, getClusterId(), null);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to release dedicated cluster");
         }
