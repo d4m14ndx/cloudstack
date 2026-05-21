@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 import { InstanceActions } from "@/components/instances/instance-actions";
 import { InstanceConsole } from "@/components/instances/instance-console";
@@ -19,10 +21,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getInstanceDetailFromBff, type InstanceDetail } from "@/lib/cloudstack/instance-detail";
 import type { Event, Instance, Volume } from "@/lib/mock-data";
 
-export const metadata = { title: "Instance" };
 export const dynamic = "force-dynamic";
 
+type Translator = Awaited<ReturnType<typeof getTranslations>>;
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Compute.pages.instanceDetail");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page({ params }: { params: { id: string } }) {
+  const t = await getTranslations("Compute.pages.instanceDetail");
   const detail = await getInstanceDetailFromBff(params.id, { requestHeaders: headers() });
 
   if (!detail) {
@@ -47,92 +57,109 @@ export default async function Page({ params }: { params: { id: string } }) {
       />
 
       <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="vCPU" value={String(detail.compute.cpu)} subValue={formatNullableSpeed(detail.compute.cpuSpeedMHz)} />
-        <Metric label="Memory" value={`${detail.compute.ramGiB} GiB`} subValue={`Usage ${formatPercent(detail.compute.memoryUsage)}`} />
-        <Metric label="Network" value={detail.instance.network} subValue={detail.instance.ip} />
-        <Metric label="Storage" value={`${detail.storage.length}`} subValue={pluralize("volume", detail.storage.length)} />
+        <Metric
+          label={t("metrics.vcpu")}
+          value={String(detail.compute.cpu)}
+          subValue={formatNullableSpeed(detail.compute.cpuSpeedMHz, t)}
+        />
+        <Metric
+          label={t("metrics.memory")}
+          value={t("values.gib", { value: detail.compute.ramGiB })}
+          subValue={t("metrics.memoryUsage", { usage: formatPercent(detail.compute.memoryUsage) })}
+        />
+        <Metric label={t("metrics.network")} value={detail.instance.network} subValue={detail.instance.ip} />
+        <Metric
+          label={t("metrics.storage")}
+          value={`${detail.storage.length}`}
+          subValue={formatVolumeLabel(detail.storage.length, t)}
+        />
       </section>
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="networking" count={detail.networking.length}>Networking</TabsTrigger>
-          <TabsTrigger value="storage" count={detail.storage.length}>Storage</TabsTrigger>
-          <TabsTrigger value="activity" count={detail.activity.length}>Activity</TabsTrigger>
-          <TabsTrigger value="console">Console</TabsTrigger>
+          <TabsTrigger value="overview">{t("tabs.overview")}</TabsTrigger>
+          <TabsTrigger value="networking" count={detail.networking.length}>
+            {t("tabs.networking")}
+          </TabsTrigger>
+          <TabsTrigger value="storage" count={detail.storage.length}>{t("tabs.storage")}</TabsTrigger>
+          <TabsTrigger value="activity" count={detail.activity.length}>{t("tabs.activity")}</TabsTrigger>
+          <TabsTrigger value="console">{t("tabs.console")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <Overview detail={detail} />
+          <Overview detail={detail} t={t} />
         </TabsContent>
 
         <TabsContent value="networking">
-          <NetworkingTable detail={detail} />
+          <NetworkingTable detail={detail} t={t} />
         </TabsContent>
 
         <TabsContent value="storage">
-          <StorageTable volumes={detail.storage} />
+          <StorageTable volumes={detail.storage} t={t} />
         </TabsContent>
 
         <TabsContent value="activity">
-          <ActivityTable events={detail.activity} />
+          <ActivityTable events={detail.activity} t={t} />
         </TabsContent>
 
         <TabsContent value="console">
-          <ConsolePanel detail={detail} />
+          <ConsolePanel detail={detail} t={t} />
         </TabsContent>
       </Tabs>
     </>
   );
 }
 
-function Overview({ detail }: { detail: InstanceDetail }) {
+function Overview({ detail, t }: { detail: InstanceDetail; t: Translator }) {
   return (
     <section className="grid gap-4 xl:grid-cols-2">
-      <DetailCard title="Identity">
-        <KeyValue label="Display name" value={detail.identity.displayName} />
-        <KeyValue label="Internal name" value={detail.identity.internalName} mono />
-        <KeyValue label="Account" value={detail.identity.account} />
-        <KeyValue label="Domain" value={detail.identity.domain} />
-        <KeyValue label="Project" value={detail.identity.project ?? "-"} />
-        <KeyValue label="Created" value={detail.identity.created ?? "-"} mono />
+      <DetailCard title={t("sections.identity")}>
+        <KeyValue label={t("labels.displayName")} value={detail.identity.displayName} />
+        <KeyValue label={t("labels.internalName")} value={detail.identity.internalName} mono />
+        <KeyValue label={t("labels.account")} value={detail.identity.account} />
+        <KeyValue label={t("labels.domain")} value={detail.identity.domain} />
+        <KeyValue label={t("labels.project")} value={detail.identity.project ?? "-"} />
+        <KeyValue label={t("labels.created")} value={detail.identity.created ?? "-"} mono />
       </DetailCard>
 
-      <DetailCard title="Placement">
-        <KeyValue label="Zone" value={detail.placement.zone} />
-        <KeyValue label="Pod" value={detail.placement.pod ?? "-"} />
-        <KeyValue label="Cluster" value={detail.placement.cluster ?? "-"} />
-        <KeyValue label="Host" value={detail.placement.host ?? "-"} />
-        <KeyValue label="Hypervisor" value={detail.placement.hypervisor ?? "-"} />
-        <KeyValue label="HA" value={detail.compute.haEnabled ? "Enabled" : "Disabled"} />
+      <DetailCard title={t("sections.placement")}>
+        <KeyValue label={t("labels.zone")} value={detail.placement.zone} />
+        <KeyValue label={t("labels.pod")} value={detail.placement.pod ?? "-"} />
+        <KeyValue label={t("labels.cluster")} value={detail.placement.cluster ?? "-"} />
+        <KeyValue label={t("labels.host")} value={detail.placement.host ?? "-"} />
+        <KeyValue label={t("labels.hypervisor")} value={detail.placement.hypervisor ?? "-"} />
+        <KeyValue
+          label={t("labels.ha")}
+          value={detail.compute.haEnabled ? t("values.enabled") : t("values.disabled")}
+        />
       </DetailCard>
 
-      <DetailCard title="Compute">
-        <KeyValue label="Offering" value={detail.compute.offering} />
-        <KeyValue label="CPU" value={`${detail.compute.cpu} vCPU`} />
-        <KeyValue label="CPU speed" value={formatNullableSpeed(detail.compute.cpuSpeedMHz)} />
-        <KeyValue label="CPU usage" value={formatPercent(detail.compute.cpuUsage)} />
-        <KeyValue label="Memory" value={`${detail.compute.ramGiB} GiB`} />
-        <KeyValue label="Memory usage" value={formatPercent(detail.compute.memoryUsage)} />
+      <DetailCard title={t("sections.compute")}>
+        <KeyValue label={t("labels.offering")} value={detail.compute.offering} />
+        <KeyValue label={t("labels.cpu")} value={t("values.vcpu", { count: detail.compute.cpu })} />
+        <KeyValue label={t("labels.cpuSpeed")} value={formatNullableSpeed(detail.compute.cpuSpeedMHz, t)} />
+        <KeyValue label={t("labels.cpuUsage")} value={formatPercent(detail.compute.cpuUsage)} />
+        <KeyValue label={t("labels.memory")} value={t("values.gib", { value: detail.compute.ramGiB })} />
+        <KeyValue label={t("labels.memoryUsage")} value={formatPercent(detail.compute.memoryUsage)} />
       </DetailCard>
 
-      <DetailCard title="Image">
-        <KeyValue label="Template" value={detail.image.template} />
-        <KeyValue label="Template text" value={detail.image.templateDisplayText ?? "-"} />
-        <KeyValue label="ISO" value={detail.image.iso ?? "-"} />
-        <KeyValue label="Service offering" value={detail.image.serviceOffering} />
-        <KeyValue label="Disk offering" value={detail.image.diskOffering ?? "-"} />
-        <KeyValue label="Security groups" value={formatGroups(detail.securityGroups)} />
+      <DetailCard title={t("sections.image")}>
+        <KeyValue label={t("labels.template")} value={detail.image.template} />
+        <KeyValue label={t("labels.templateText")} value={detail.image.templateDisplayText ?? "-"} />
+        <KeyValue label={t("labels.iso")} value={detail.image.iso ?? "-"} />
+        <KeyValue label={t("labels.serviceOffering")} value={detail.image.serviceOffering} />
+        <KeyValue label={t("labels.diskOffering")} value={detail.image.diskOffering ?? "-"} />
+        <KeyValue label={t("labels.securityGroups")} value={formatGroups(detail.securityGroups)} />
       </DetailCard>
     </section>
   );
 }
 
-function ConsolePanel({ detail }: { detail: InstanceDetail }) {
+function ConsolePanel({ detail, t }: { detail: InstanceDetail; t: Translator }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Console</CardTitle>
+        <CardTitle>{t("sections.console")}</CardTitle>
       </CardHeader>
       <div className="grid gap-4 text-sm">
         <InstanceConsole
@@ -144,10 +171,10 @@ function ConsolePanel({ detail }: { detail: InstanceDetail }) {
           externalUrl={detail.console.externalUrl}
         />
         <dl className="grid gap-2">
-          <KeyValue label="Instance" value={detail.identity.name} />
-          <KeyValue label="State" value={stateLabel(detail.instance.state)} />
-          <KeyValue label="Hypervisor" value={detail.placement.hypervisor ?? "-"} />
-          <KeyValue label="Host" value={detail.placement.host ?? "-"} />
+          <KeyValue label={t("labels.instance")} value={detail.identity.name} />
+          <KeyValue label={t("labels.state")} value={stateLabel(detail.instance.state)} />
+          <KeyValue label={t("labels.hypervisor")} value={detail.placement.hypervisor ?? "-"} />
+          <KeyValue label={t("labels.host")} value={detail.placement.host ?? "-"} />
         </dl>
       </div>
     </Card>
@@ -186,20 +213,20 @@ function KeyValue({ label, value, mono = false }: { label: string; value: string
   );
 }
 
-function NetworkingTable({ detail }: { detail: InstanceDetail }) {
+function NetworkingTable({ detail, t }: { detail: InstanceDetail; t: Translator }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Networking" />
+      <SectionTitle title={t("sections.networking")} />
       <Table className="min-w-[920px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Network</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Private IP</TableHead>
-            <TableHead>Public IP</TableHead>
-            <TableHead>Gateway</TableHead>
-            <TableHead>Netmask</TableHead>
-            <TableHead className="pr-4">MAC</TableHead>
+            <TableHead className="pl-4">{t("networking.table.network")}</TableHead>
+            <TableHead>{t("networking.table.role")}</TableHead>
+            <TableHead>{t("networking.table.privateIp")}</TableHead>
+            <TableHead>{t("networking.table.publicIp")}</TableHead>
+            <TableHead>{t("networking.table.gateway")}</TableHead>
+            <TableHead>{t("networking.table.netmask")}</TableHead>
+            <TableHead className="pr-4">{t("networking.table.mac")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -211,7 +238,11 @@ function NetworkingTable({ detail }: { detail: InstanceDetail }) {
                   <div className="font-mono text-xs text-[color:var(--fg-muted)]">{nic.networkId ?? nic.id}</div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={nic.isDefault ? "accent" : "default"}>{nic.isDefault ? "Default" : nic.type ?? "NIC"}</Badge>
+                  <Badge variant={nic.isDefault ? "accent" : "default"}>
+                    {nic.isDefault
+                      ? t("networking.badges.default")
+                      : nic.type ?? t("networking.badges.nic")}
+                  </Badge>
                 </TableCell>
                 <TableCell className="font-mono text-xs tabular-nums">{nic.ip}</TableCell>
                 <TableCell className="font-mono text-xs tabular-nums">{nic.publicIp ?? "-"}</TableCell>
@@ -223,8 +254,8 @@ function NetworkingTable({ detail }: { detail: InstanceDetail }) {
           ) : (
             <TableEmptyState
               colSpan={7}
-              title="No NICs attached"
-              description="CloudStack did not return network interfaces for this instance."
+              title={t("networking.emptyState.title")}
+              description={t("networking.emptyState.description")}
             />
           )}
         </TableBody>
@@ -233,19 +264,19 @@ function NetworkingTable({ detail }: { detail: InstanceDetail }) {
   );
 }
 
-function StorageTable({ volumes }: { volumes: Volume[] }) {
+function StorageTable({ volumes, t }: { volumes: Volume[]; t: Translator }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Storage" />
+      <SectionTitle title={t("sections.storage")} />
       <Table className="min-w-[760px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Volume</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Zone</TableHead>
-            <TableHead>Tier</TableHead>
-            <TableHead className="text-right">Size</TableHead>
-            <TableHead className="pr-4">Attached to</TableHead>
+            <TableHead className="pl-4">{t("storage.table.volume")}</TableHead>
+            <TableHead>{t("storage.table.state")}</TableHead>
+            <TableHead>{t("storage.table.zone")}</TableHead>
+            <TableHead>{t("storage.table.tier")}</TableHead>
+            <TableHead className="text-right">{t("storage.table.size")}</TableHead>
+            <TableHead className="pr-4">{t("storage.table.attachedTo")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -261,15 +292,17 @@ function StorageTable({ volumes }: { volumes: Volume[] }) {
                 </TableCell>
                 <TableCell>{volume.zone}</TableCell>
                 <TableCell>{volume.type}</TableCell>
-                <TableCell className="text-right tabular-nums">{volume.sizeGiB} GiB</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {t("values.gib", { value: volume.sizeGiB })}
+                </TableCell>
                 <TableCell className="pr-4">{volume.attachedTo ?? "-"}</TableCell>
               </TableRow>
             ))
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No volumes attached"
-              description="CloudStack did not return storage volumes for this instance."
+              title={t("storage.emptyState.title")}
+              description={t("storage.emptyState.description")}
             />
           )}
         </TableBody>
@@ -278,19 +311,19 @@ function StorageTable({ volumes }: { volumes: Volume[] }) {
   );
 }
 
-function ActivityTable({ events }: { events: Event[] }) {
+function ActivityTable({ events, t }: { events: Event[]; t: Translator }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Activity" />
+      <SectionTitle title={t("sections.activity")} />
       <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Time</TableHead>
-            <TableHead>Level</TableHead>
-            <TableHead>Action</TableHead>
-            <TableHead>Target</TableHead>
-            <TableHead>User</TableHead>
-            <TableHead className="pr-4">Description</TableHead>
+            <TableHead className="pl-4">{t("activity.table.time")}</TableHead>
+            <TableHead>{t("activity.table.level")}</TableHead>
+            <TableHead>{t("activity.table.action")}</TableHead>
+            <TableHead>{t("activity.table.target")}</TableHead>
+            <TableHead>{t("activity.table.user")}</TableHead>
+            <TableHead className="pr-4">{t("activity.table.description")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -310,8 +343,8 @@ function ActivityTable({ events }: { events: Event[] }) {
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No instance activity"
-              description="CloudStack did not return audit or lifecycle events for this instance."
+              title={t("activity.emptyState.title")}
+              description={t("activity.emptyState.description")}
             />
           )}
         </TableBody>
@@ -360,12 +393,12 @@ function formatPercent(value: number): string {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
-function formatNullableSpeed(value: number | null): string {
-  return value === null ? "-" : `${value} MHz`;
+function formatNullableSpeed(value: number | null, t: Translator): string {
+  return value === null ? "-" : t("values.speedMHz", { value });
 }
 
-function pluralize(label: string, count: number): string {
-  return count === 1 ? label : `${label}s`;
+function formatVolumeLabel(count: number, t: Translator): string {
+  return count === 1 ? t("metrics.volume") : t("metrics.volumes");
 }
 
 function formatGroups(groups: InstanceDetail["securityGroups"]): string {

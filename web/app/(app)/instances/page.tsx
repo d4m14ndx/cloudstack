@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { InstanceActions } from "@/components/instances/instance-actions";
 import { PageHeader } from "@/components/page-header";
@@ -16,43 +18,54 @@ import {
 import { getInstancesFromBff } from "@/lib/cloudstack/instances";
 import type { Instance } from "@/lib/mock-data";
 
-export const metadata = { title: "Instances" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Compute.pages.instances");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Compute.pages.instances");
   const instances = await getInstancesFromBff({ requestHeaders: headers() });
   const running = instances.filter((instance) => instance.state === "running").length;
   const stopped = instances.filter((instance) => instance.state === "stopped").length;
-  const attention = instances.filter((instance) => instance.state === "starting" || instance.state === "error").length;
+  const attention = instances.filter(
+    (instance) => instance.state === "starting" || instance.state === "error",
+  ).length;
+  const usageLabels = { cpu: t("usage.cpu"), memory: t("usage.memory") };
 
   return (
     <>
       <PageHeader
-        title="Instances"
-        description={`${instances.length} virtual machines across your scope, ${running} currently running`}
+        title={t("title")}
+        description={t("description", { instances: instances.length, running })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="success" size="md">{running} running</Badge>
-        <Badge variant="default" size="md">{stopped} stopped</Badge>
-        <Badge variant={attention > 0 ? "warning" : "default"} size="md">{attention} attention</Badge>
+        <Badge variant="success" size="md">{t("badges.running", { count: running })}</Badge>
+        <Badge variant="default" size="md">{t("badges.stopped", { count: stopped })}</Badge>
+        <Badge variant={attention > 0 ? "warning" : "default"} size="md">
+          {t("badges.attention", { count: attention })}
+        </Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Instance</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Zone</TableHead>
-              <TableHead>Network</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>Offering</TableHead>
-              <TableHead className="text-right">CPU</TableHead>
-              <TableHead className="text-right">RAM</TableHead>
-              <TableHead className="text-right">Usage</TableHead>
-              <TableHead className="pr-4">Account</TableHead>
-              <TableHead className="pr-4 text-right">Actions</TableHead>
+              <TableHead className="pl-4">{t("table.instance")}</TableHead>
+              <TableHead>{t("table.state")}</TableHead>
+              <TableHead>{t("table.zone")}</TableHead>
+              <TableHead>{t("table.network")}</TableHead>
+              <TableHead>{t("table.ip")}</TableHead>
+              <TableHead>{t("table.offering")}</TableHead>
+              <TableHead className="text-right">{t("table.cpu")}</TableHead>
+              <TableHead className="text-right">{t("table.ram")}</TableHead>
+              <TableHead className="text-right">{t("table.usage")}</TableHead>
+              <TableHead className="pr-4">{t("table.account")}</TableHead>
+              <TableHead className="pr-4 text-right">{t("table.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -82,7 +95,7 @@ export default async function Page() {
                   <TableCell className="text-right tabular-nums">{instance.cpu}</TableCell>
                   <TableCell className="text-right tabular-nums">{instance.ram} GiB</TableCell>
                   <TableCell className="text-right">
-                    <UsagePair instance={instance} />
+                    <UsagePair instance={instance} labels={usageLabels} />
                   </TableCell>
                   <TableCell className="pr-4">{instance.account}</TableCell>
                   <TableCell className="pr-4">
@@ -93,8 +106,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={11}
-                title="No instances in this scope"
-                description="Deploy a VM or switch scope to inspect existing workloads."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
@@ -104,11 +117,19 @@ export default async function Page() {
   );
 }
 
-function UsagePair({ instance }: { instance: Instance }) {
+function UsagePair({
+  instance,
+  labels,
+}: {
+  instance: Instance;
+  labels: { cpu: string; memory: string };
+}) {
   return (
     <div className="inline-flex min-w-20 flex-col items-end gap-0.5 font-mono text-xs tabular-nums">
-      <span>CPU {formatPercent(instance.cpuUsage)}</span>
-      <span className="text-[color:var(--fg-muted)]">MEM {formatPercent(instance.memUsage)}</span>
+      <span>{labels.cpu} {formatPercent(instance.cpuUsage)}</span>
+      <span className="text-[color:var(--fg-muted)]">
+        {labels.memory} {formatPercent(instance.memUsage)}
+      </span>
     </div>
   );
 }
