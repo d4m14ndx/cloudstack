@@ -1603,13 +1603,8 @@ public class VlanServiceImpl implements VlanService {
     }
 
     private void checkPublicIpRangeErrors(final long zoneId, final String vlanId, final String vlanGateway, final String vlanNetmask, final String startIP, final String endIP) {
-        if (!NetUtils.isValidIp4(startIP)) {
-            throw new InvalidParameterValueException("Please specify a valid start IP");
-        }
-
-        if (endIP != null && !NetUtils.isValidIp4(endIP)) {
-            throw new InvalidParameterValueException("Please specify a valid end IP");
-        }
+        Ipv4RangeValidator.requireValidIp(startIP, "Please specify a valid start IP");
+        Ipv4RangeValidator.requireValidIpIfPresent(endIP, "Please specify a valid end IP");
 
         if (endIP != null && !NetUtils.validIpRange(startIP, endIP)) {
             throw new InvalidParameterValueException("Please specify a valid IP range.");
@@ -1944,25 +1939,7 @@ public class VlanServiceImpl implements VlanService {
     // --- Helpers duplicated from ConfigurationManagerImpl ------------------
 
     protected void checkIpRange(final String startIp, final String endIp, final String cidrAddress, final long cidrSize) {
-        if (StringUtils.isNotEmpty(startIp) && !NetUtils.isValidIp4(startIp)) {
-            throw new InvalidParameterValueException("The start address of the IP range is not a valid IP address.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && !NetUtils.isValidIp4(endIp)) {
-            throw new InvalidParameterValueException("The end address of the IP range is not a valid IP address.");
-        }
-
-        if (StringUtils.isNotEmpty(startIp) && !NetUtils.getCidrSubNet(startIp, cidrSize).equalsIgnoreCase(NetUtils.getCidrSubNet(cidrAddress, cidrSize))) {
-            throw new InvalidParameterValueException("The start address of the IP range is not in the CIDR subnet.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && !NetUtils.getCidrSubNet(endIp, cidrSize).equalsIgnoreCase(NetUtils.getCidrSubNet(cidrAddress, cidrSize))) {
-            throw new InvalidParameterValueException("The end address of the IP range is not in the CIDR subnet.");
-        }
-
-        if (StringUtils.isNotEmpty(endIp) && NetUtils.ip2Long(startIp) > NetUtils.ip2Long(endIp)) {
-            throw new InvalidParameterValueException("The start IP address must have a lower value than the end IP address.");
-        }
+        Ipv4RangeValidator.validateOptionalRangeWithinCidr(startIp, endIp, cidrAddress, cidrSize);
     }
 
     protected void checkOverlapPrivateIpRange(final Long zoneId, final String startIp, final String endIp) {
