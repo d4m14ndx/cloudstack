@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,31 +18,64 @@ import {
 } from "@/components/ui/table";
 import {
   getKubernetesClusterDetailFromBff,
-  type KubernetesClusterDetail,
   type KubernetesClusterNode,
   type KubernetesNodeRole,
 } from "@/lib/cloudstack/kubernetes";
 import type { Event, KubernetesCluster } from "@/lib/mock-data";
 
-export const metadata = { title: "Kubernetes Cluster" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.kubernetesDetail");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page({ params }: { params: { id: string } }) {
+  const t = await getTranslations("Core.pages.kubernetesDetail");
   const detail = await getKubernetesClusterDetailFromBff(params.id, { requestHeaders: headers() });
 
   if (!detail) {
     notFound();
   }
 
+  const clusterStateLabels: Record<KubernetesCluster["state"], string> = {
+    running: t("states.running"),
+    updating: t("states.updating"),
+    degraded: t("states.degraded"),
+  };
+  const nodeRoleLabels: Record<KubernetesNodeRole, string> = {
+    control: t("roles.control"),
+    worker: t("roles.worker"),
+    etcd: t("roles.etcd"),
+    external: t("roles.external"),
+  };
+  const eventLevelLabels: Record<Event["level"], string> = {
+    info: t("levels.info"),
+    warn: t("levels.warn"),
+    error: t("levels.error"),
+  };
+  const scalingRange =
+    detail.autoscaling.min === null && detail.autoscaling.max === null
+      ? t("metrics.autoscaling.noRange")
+      : t("metrics.autoscaling.range", {
+          min: formatNullableNumber(detail.autoscaling.min),
+          max: formatNullableNumber(detail.autoscaling.max),
+        });
+
   return (
     <>
       <PageHeader
         title={detail.cluster.name}
-        description={`${detail.identity.account} · ${detail.placement.zone} · ${detail.cluster.id}`}
+        description={t("description", {
+          account: detail.identity.account,
+          zone: detail.placement.zone,
+          id: detail.cluster.id,
+        })}
         actions={
           <>
             <Badge variant={clusterStateVariant(detail.cluster.state)} size="md">
-              {stateLabel(detail.cluster.state)}
+              {clusterStateLabel(detail.cluster.state, clusterStateLabels)}
             </Badge>
             <Badge variant="info" size="md">{detail.version.semanticVersion ?? detail.version.name}</Badge>
             <Badge variant="default" size="md">{detail.identity.type}</Badge>
@@ -51,99 +86,157 @@ export default async function Page({ params }: { params: { id: string } }) {
       />
 
       <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Nodes" value={String(detail.nodePools.total)} subValue={formatNodePoolSummary(detail)} />
-        <Metric label="Version" value={detail.version.semanticVersion ?? detail.version.name} subValue={detail.version.kubernetesVersionId ?? "No version id"} />
-        <Metric label="Endpoint" value={detail.networking.endpoint} subValue={detail.networking.networkName ?? "No network name"} mono />
-        <Metric label="Autoscaling" value={detail.autoscaling.enabled ? "Enabled" : "Disabled"} subValue={formatScalingRange(detail)} />
+        <Metric
+          label={t("metrics.nodes.label")}
+          value={String(detail.nodePools.total)}
+          subValue={t("metrics.nodes.subValue", {
+            control: detail.nodePools.control,
+            worker: detail.nodePools.worker,
+            etcd: detail.nodePools.etcd,
+          })}
+        />
+        <Metric
+          label={t("metrics.version.label")}
+          value={detail.version.semanticVersion ?? detail.version.name}
+          subValue={detail.version.kubernetesVersionId ?? t("metrics.version.noVersionId")}
+        />
+        <Metric
+          label={t("metrics.endpoint.label")}
+          value={detail.networking.endpoint}
+          subValue={detail.networking.networkName ?? t("metrics.endpoint.noNetworkName")}
+          mono
+        />
+        <Metric
+          label={t("metrics.autoscaling.label")}
+          value={detail.autoscaling.enabled ? t("metrics.autoscaling.enabled") : t("metrics.autoscaling.disabled")}
+          subValue={scalingRange}
+        />
       </section>
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="nodes" count={detail.nodes.length}>Nodes</TabsTrigger>
-          <TabsTrigger value="networking">Networking</TabsTrigger>
-          <TabsTrigger value="scaling">Scaling</TabsTrigger>
-          <TabsTrigger value="activity" count={detail.activity.length}>Activity</TabsTrigger>
+          <TabsTrigger value="overview">{t("tabs.overview")}</TabsTrigger>
+          <TabsTrigger value="nodes" count={detail.nodes.length}>{t("tabs.nodes")}</TabsTrigger>
+          <TabsTrigger value="networking">{t("tabs.networking")}</TabsTrigger>
+          <TabsTrigger value="scaling">{t("tabs.scaling")}</TabsTrigger>
+          <TabsTrigger value="activity" count={detail.activity.length}>{t("tabs.activity")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
           <section className="grid gap-4 xl:grid-cols-2">
-            <DetailCard title="Identity">
-              <KeyValue label="Name" value={detail.summary.name} />
-              <KeyValue label="ID" value={detail.summary.id} mono />
-              <KeyValue label="Description" value={detail.summary.description ?? "-"} />
-              <KeyValue label="Account" value={detail.identity.account} />
-              <KeyValue label="Domain" value={detail.identity.domain} />
-              <KeyValue label="Project" value={detail.identity.project ?? "-"} />
-              <KeyValue label="Created" value={detail.identity.created ?? "-"} mono />
-              <KeyValue label="Type" value={detail.identity.type} />
+            <DetailCard title={t("cards.identity")}>
+              <KeyValue label={t("labels.name")} value={detail.summary.name} />
+              <KeyValue label={t("labels.id")} value={detail.summary.id} mono />
+              <KeyValue label={t("labels.description")} value={detail.summary.description ?? "-"} />
+              <KeyValue label={t("labels.account")} value={detail.identity.account} />
+              <KeyValue label={t("labels.domain")} value={detail.identity.domain} />
+              <KeyValue label={t("labels.project")} value={detail.identity.project ?? "-"} />
+              <KeyValue label={t("labels.created")} value={detail.identity.created ?? "-"} mono />
+              <KeyValue label={t("labels.type")} value={detail.identity.type} />
             </DetailCard>
 
-            <DetailCard title="Placement and Version">
-              <KeyValue label="Zone" value={detail.placement.zone} />
-              <KeyValue label="Zone ID" value={detail.placement.zoneId ?? "-"} mono />
-              <KeyValue label="Version" value={detail.version.name} />
-              <KeyValue label="Semantic" value={detail.version.semanticVersion ?? "-"} />
-              <KeyValue label="Version ID" value={detail.version.kubernetesVersionId ?? "-"} mono />
-              <KeyValue label="State" value={stateLabel(detail.cluster.state)} />
+            <DetailCard title={t("cards.placementAndVersion")}>
+              <KeyValue label={t("labels.zone")} value={detail.placement.zone} />
+              <KeyValue label={t("labels.zoneId")} value={detail.placement.zoneId ?? "-"} mono />
+              <KeyValue label={t("labels.version")} value={detail.version.name} />
+              <KeyValue label={t("labels.semantic")} value={detail.version.semanticVersion ?? "-"} />
+              <KeyValue label={t("labels.versionId")} value={detail.version.kubernetesVersionId ?? "-"} mono />
+              <KeyValue label={t("labels.state")} value={clusterStateLabel(detail.cluster.state, clusterStateLabels)} />
             </DetailCard>
 
-            <DetailCard title="Images and Offerings">
-              <KeyValue label="Service offering" value={detail.offerings.serviceOfferingName ?? "-"} />
-              <KeyValue label="Offering ID" value={detail.offerings.serviceOfferingId ?? "-"} mono />
-              <KeyValue label="Template" value={detail.offerings.templateName ?? "-"} />
-              <KeyValue label="Template ID" value={detail.offerings.templateId ?? "-"} mono />
-              <KeyValue label="SSH key" value={detail.offerings.sshKeyPair ?? "-"} />
+            <DetailCard title={t("cards.imagesAndOfferings")}>
+              <KeyValue label={t("labels.serviceOffering")} value={detail.offerings.serviceOfferingName ?? "-"} />
+              <KeyValue label={t("labels.offeringId")} value={detail.offerings.serviceOfferingId ?? "-"} mono />
+              <KeyValue label={t("labels.template")} value={detail.offerings.templateName ?? "-"} />
+              <KeyValue label={t("labels.templateId")} value={detail.offerings.templateId ?? "-"} mono />
+              <KeyValue label={t("labels.sshKey")} value={detail.offerings.sshKeyPair ?? "-"} />
             </DetailCard>
 
-            <DetailCard title="Summary">
-              <KeyValue label="Control" value={String(detail.nodePools.control)} />
-              <KeyValue label="Workers" value={String(detail.nodePools.worker)} />
-              <KeyValue label="Etcd" value={String(detail.nodePools.etcd)} />
-              <KeyValue label="External" value={String(detail.nodePools.external)} />
-              <KeyValue label="Total" value={String(detail.nodePools.total)} />
+            <DetailCard title={t("cards.summary")}>
+              <KeyValue label={t("labels.control")} value={String(detail.nodePools.control)} />
+              <KeyValue label={t("labels.workers")} value={String(detail.nodePools.worker)} />
+              <KeyValue label={t("labels.etcd")} value={String(detail.nodePools.etcd)} />
+              <KeyValue label={t("labels.external")} value={String(detail.nodePools.external)} />
+              <KeyValue label={t("labels.total")} value={String(detail.nodePools.total)} />
             </DetailCard>
           </section>
         </TabsContent>
 
         <TabsContent value="nodes">
-          <NodesTable nodes={detail.nodes} />
+          <NodesTable
+            nodes={detail.nodes}
+            labels={{
+              sectionTitle: t("sections.nodes"),
+              table: {
+                node: t("nodes.table.node"),
+                role: t("nodes.table.role"),
+                state: t("nodes.table.state"),
+                privateIp: t("nodes.table.privateIp"),
+                publicIp: t("nodes.table.publicIp"),
+                zone: t("nodes.table.zone"),
+                account: t("nodes.table.account"),
+              },
+              emptyState: {
+                title: t("nodes.emptyState.title"),
+                description: t("nodes.emptyState.description"),
+              },
+              roles: nodeRoleLabels,
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="networking">
           <section className="grid gap-4 xl:grid-cols-2">
-            <DetailCard title="Network">
-              <KeyValue label="Network" value={detail.networking.networkName ?? "-"} />
-              <KeyValue label="Network ID" value={detail.networking.networkId ?? "-"} mono />
-              <KeyValue label="Endpoint" value={detail.networking.endpoint} mono />
-              <KeyValue label="Console endpoint" value={detail.networking.consoleEndpoint ?? "-"} mono />
+            <DetailCard title={t("cards.network")}>
+              <KeyValue label={t("labels.network")} value={detail.networking.networkName ?? "-"} />
+              <KeyValue label={t("labels.networkId")} value={detail.networking.networkId ?? "-"} mono />
+              <KeyValue label={t("labels.endpoint")} value={detail.networking.endpoint} mono />
+              <KeyValue label={t("labels.consoleEndpoint")} value={detail.networking.consoleEndpoint ?? "-"} mono />
             </DetailCard>
-            <DetailCard title="Plugins">
-              <KeyValue label="CNI" value={detail.networking.cni ?? "-"} />
-              <KeyValue label="CSI" value={detail.networking.csi ?? "-"} />
+            <DetailCard title={t("cards.plugins")}>
+              <KeyValue label={t("labels.cni")} value={detail.networking.cni ?? "-"} />
+              <KeyValue label={t("labels.csi")} value={detail.networking.csi ?? "-"} />
             </DetailCard>
           </section>
         </TabsContent>
 
         <TabsContent value="scaling">
           <section className="grid gap-4 xl:grid-cols-2">
-            <DetailCard title="Autoscaling">
-              <KeyValue label="Enabled" value={detail.autoscaling.enabled ? "Yes" : "No"} />
-              <KeyValue label="Minimum" value={formatNullableNumber(detail.autoscaling.min)} />
-              <KeyValue label="Maximum" value={formatNullableNumber(detail.autoscaling.max)} />
-              <KeyValue label="Current total" value={String(detail.nodePools.total)} />
+            <DetailCard title={t("cards.autoscaling")}>
+              <KeyValue label={t("labels.enabled")} value={detail.autoscaling.enabled ? t("values.yes") : t("values.no")} />
+              <KeyValue label={t("labels.minimum")} value={formatNullableNumber(detail.autoscaling.min)} />
+              <KeyValue label={t("labels.maximum")} value={formatNullableNumber(detail.autoscaling.max)} />
+              <KeyValue label={t("labels.currentTotal")} value={String(detail.nodePools.total)} />
             </DetailCard>
-            <DetailCard title="Pool Counts">
-              <KeyValue label="Control" value={String(detail.nodePools.control)} />
-              <KeyValue label="Workers" value={String(detail.nodePools.worker)} />
-              <KeyValue label="Etcd" value={String(detail.nodePools.etcd)} />
-              <KeyValue label="External" value={String(detail.nodePools.external)} />
+            <DetailCard title={t("cards.poolCounts")}>
+              <KeyValue label={t("labels.control")} value={String(detail.nodePools.control)} />
+              <KeyValue label={t("labels.workers")} value={String(detail.nodePools.worker)} />
+              <KeyValue label={t("labels.etcd")} value={String(detail.nodePools.etcd)} />
+              <KeyValue label={t("labels.external")} value={String(detail.nodePools.external)} />
             </DetailCard>
           </section>
         </TabsContent>
 
         <TabsContent value="activity">
-          <ActivityTable events={detail.activity} />
+          <ActivityTable
+            events={detail.activity}
+            labels={{
+              sectionTitle: t("sections.activity"),
+              table: {
+                time: t("activity.table.time"),
+                level: t("activity.table.level"),
+                action: t("activity.table.action"),
+                target: t("activity.table.target"),
+                user: t("activity.table.user"),
+                description: t("activity.table.description"),
+              },
+              emptyState: {
+                title: t("activity.emptyState.title"),
+                description: t("activity.emptyState.description"),
+              },
+              levels: eventLevelLabels,
+            }}
+          />
         </TabsContent>
       </Tabs>
     </>
@@ -184,20 +277,55 @@ function KeyValue({ label, value, mono = false }: { label: string; value: string
   );
 }
 
-function NodesTable({ nodes }: { nodes: KubernetesClusterNode[] }) {
+type NodesTableLabels = {
+  sectionTitle: string;
+  table: {
+    node: string;
+    role: string;
+    state: string;
+    privateIp: string;
+    publicIp: string;
+    zone: string;
+    account: string;
+  };
+  emptyState: {
+    title: string;
+    description: string;
+  };
+  roles: Record<KubernetesNodeRole, string>;
+};
+
+type ActivityTableLabels = {
+  sectionTitle: string;
+  table: {
+    time: string;
+    level: string;
+    action: string;
+    target: string;
+    user: string;
+    description: string;
+  };
+  emptyState: {
+    title: string;
+    description: string;
+  };
+  levels: Record<Event["level"], string>;
+};
+
+function NodesTable({ nodes, labels }: { nodes: KubernetesClusterNode[]; labels: NodesTableLabels }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Nodes" />
+      <SectionTitle title={labels.sectionTitle} />
       <Table className="min-w-[900px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Node</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Private IP</TableHead>
-            <TableHead>Public IP</TableHead>
-            <TableHead>Zone</TableHead>
-            <TableHead className="pr-4">Account</TableHead>
+            <TableHead className="pl-4">{labels.table.node}</TableHead>
+            <TableHead>{labels.table.role}</TableHead>
+            <TableHead>{labels.table.state}</TableHead>
+            <TableHead>{labels.table.privateIp}</TableHead>
+            <TableHead>{labels.table.publicIp}</TableHead>
+            <TableHead>{labels.table.zone}</TableHead>
+            <TableHead className="pr-4">{labels.table.account}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -209,7 +337,7 @@ function NodesTable({ nodes }: { nodes: KubernetesClusterNode[] }) {
                   <div className="font-mono text-xs text-[color:var(--fg-muted)]">{node.id}</div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={nodeRoleVariant(node.role)}>{stateLabel(node.role)}</Badge>
+                  <Badge variant={nodeRoleVariant(node.role)}>{nodeRoleLabel(node.role, labels.roles)}</Badge>
                 </TableCell>
                 <TableCell>{node.state}</TableCell>
                 <TableCell className="font-mono text-xs tabular-nums">{node.ip}</TableCell>
@@ -221,8 +349,8 @@ function NodesTable({ nodes }: { nodes: KubernetesClusterNode[] }) {
           ) : (
             <TableEmptyState
               colSpan={7}
-              title="No node inventory"
-              description="CloudStack did not return node records for this Kubernetes cluster."
+              title={labels.emptyState.title}
+              description={labels.emptyState.description}
             />
           )}
         </TableBody>
@@ -231,19 +359,19 @@ function NodesTable({ nodes }: { nodes: KubernetesClusterNode[] }) {
   );
 }
 
-function ActivityTable({ events }: { events: Event[] }) {
+function ActivityTable({ events, labels }: { events: Event[]; labels: ActivityTableLabels }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Activity" />
+      <SectionTitle title={labels.sectionTitle} />
       <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="pl-4">Time</TableHead>
-            <TableHead>Level</TableHead>
-            <TableHead>Action</TableHead>
-            <TableHead>Target</TableHead>
-            <TableHead>User</TableHead>
-            <TableHead className="pr-4">Description</TableHead>
+            <TableHead className="pl-4">{labels.table.time}</TableHead>
+            <TableHead>{labels.table.level}</TableHead>
+            <TableHead>{labels.table.action}</TableHead>
+            <TableHead>{labels.table.target}</TableHead>
+            <TableHead>{labels.table.user}</TableHead>
+            <TableHead className="pr-4">{labels.table.description}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -252,7 +380,7 @@ function ActivityTable({ events }: { events: Event[] }) {
               <TableRow key={`${event.timestamp}-${event.action}-${index}`}>
                 <TableCell className="pl-4 font-mono text-xs tabular-nums">{event.timestamp}</TableCell>
                 <TableCell>
-                  <Badge variant={eventLevelVariant(event.level)}>{stateLabel(event.level)}</Badge>
+                  <Badge variant={eventLevelVariant(event.level)}>{eventLevelLabel(event.level, labels.levels)}</Badge>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{event.action}</TableCell>
                 <TableCell>{event.target}</TableCell>
@@ -263,8 +391,8 @@ function ActivityTable({ events }: { events: Event[] }) {
           ) : (
             <TableEmptyState
               colSpan={6}
-              title="No cluster activity"
-              description="CloudStack did not return audit or lifecycle events for this Kubernetes cluster."
+              title={labels.emptyState.title}
+              description={labels.emptyState.description}
             />
           )}
         </TableBody>
@@ -316,20 +444,19 @@ function eventLevelVariant(level: Event["level"]): "info" | "warning" | "danger"
   }
 }
 
-function stateLabel(state: string): string {
-  return state.charAt(0).toUpperCase() + state.slice(1);
+function clusterStateLabel(
+  state: KubernetesCluster["state"],
+  labels: Record<KubernetesCluster["state"], string>,
+): string {
+  return labels[state];
 }
 
-function formatNodePoolSummary(detail: KubernetesClusterDetail): string {
-  return `${detail.nodePools.control} control, ${detail.nodePools.worker} worker, ${detail.nodePools.etcd} etcd`;
+function nodeRoleLabel(role: KubernetesNodeRole, labels: Record<KubernetesNodeRole, string>): string {
+  return labels[role];
 }
 
-function formatScalingRange(detail: KubernetesClusterDetail): string {
-  if (detail.autoscaling.min === null && detail.autoscaling.max === null) {
-    return "No range reported";
-  }
-
-  return `${formatNullableNumber(detail.autoscaling.min)} min / ${formatNullableNumber(detail.autoscaling.max)} max`;
+function eventLevelLabel(level: Event["level"], labels: Record<Event["level"], string>): string {
+  return labels[level];
 }
 
 function formatNullableNumber(value: number | null): string {

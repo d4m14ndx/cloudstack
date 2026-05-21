@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -15,39 +17,50 @@ import {
 import { getEventsFromBff } from "@/lib/cloudstack/events";
 import type { Event } from "@/lib/mock-data";
 
-export const metadata = { title: "Events" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.events");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.events");
   const events = await getEventsFromBff({ requestHeaders: headers() });
   const info = events.filter((event) => event.level === "info").length;
   const warn = events.filter((event) => event.level === "warn").length;
   const error = events.filter((event) => event.level === "error").length;
+  const levelLabels: Record<Event["level"], string> = {
+    info: t("levels.info"),
+    warn: t("levels.warn"),
+    error: t("levels.error"),
+  };
 
   return (
     <>
       <PageHeader
-        title="Events"
-        description={`${events.length} audit and lifecycle events across your scope`}
+        title={t("title")}
+        description={t("description", { events: events.length })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{events.length} total</Badge>
-        <Badge variant="default" size="md">{info} info</Badge>
-        <Badge variant={warn > 0 ? "warning" : "default"} size="md">{warn} warn</Badge>
-        <Badge variant={error > 0 ? "danger" : "default"} size="md">{error} error</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: events.length })}</Badge>
+        <Badge variant="default" size="md">{t("badges.info", { count: info })}</Badge>
+        <Badge variant={warn > 0 ? "warning" : "default"} size="md">{t("badges.warn", { count: warn })}</Badge>
+        <Badge variant={error > 0 ? "danger" : "default"} size="md">{t("badges.error", { count: error })}</Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Time</TableHead>
-              <TableHead>Level</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>User</TableHead>
-              <TableHead className="pr-4">Description</TableHead>
+              <TableHead className="pl-4">{t("table.time")}</TableHead>
+              <TableHead>{t("table.level")}</TableHead>
+              <TableHead>{t("table.action")}</TableHead>
+              <TableHead>{t("table.target")}</TableHead>
+              <TableHead>{t("table.user")}</TableHead>
+              <TableHead className="pr-4">{t("table.description")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -56,7 +69,7 @@ export default async function Page() {
                 <TableRow key={`${event.timestamp}-${event.action}-${event.target}-${index}`}>
                   <TableCell className="pl-4 font-mono text-xs tabular-nums">{event.timestamp}</TableCell>
                   <TableCell>
-                    <Badge variant={levelVariant(event.level)}>{levelLabel(event.level)}</Badge>
+                    <Badge variant={levelVariant(event.level)}>{levelLabel(event.level, levelLabels)}</Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{event.action}</TableCell>
                   <TableCell>{event.target}</TableCell>
@@ -67,8 +80,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={6}
-                title="No events in this scope"
-                description="CloudStack did not return audit or lifecycle events for the current filters."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
@@ -89,6 +102,6 @@ function levelVariant(level: Event["level"]): "info" | "warning" | "danger" {
   }
 }
 
-function levelLabel(level: Event["level"]): string {
-  return level === "warn" ? "Warn" : level.charAt(0).toUpperCase() + level.slice(1);
+function levelLabel(level: Event["level"], labels: Record<Event["level"], string>): string {
+  return labels[level];
 }

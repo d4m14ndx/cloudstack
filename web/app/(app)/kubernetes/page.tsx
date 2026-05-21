@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,41 +18,52 @@ import {
 import { getKubernetesClustersFromBff } from "@/lib/cloudstack/kubernetes";
 import type { KubernetesCluster } from "@/lib/mock-data";
 
-export const metadata = { title: "Kubernetes" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.kubernetes");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.kubernetes");
   const clusters = await getKubernetesClustersFromBff({ requestHeaders: headers() });
   const running = clusters.filter((cluster) => cluster.state === "running").length;
   const updating = clusters.filter((cluster) => cluster.state === "updating").length;
   const degraded = clusters.filter((cluster) => cluster.state === "degraded").length;
   const nodes = clusters.reduce((sum, cluster) => sum + cluster.nodes, 0);
+  const stateLabels: Record<KubernetesCluster["state"], string> = {
+    running: t("states.running"),
+    updating: t("states.updating"),
+    degraded: t("states.degraded"),
+  };
 
   return (
     <>
       <PageHeader
-        title="Kubernetes"
-        description={`${clusters.length} CloudStack-managed clusters with ${nodes} nodes across your scope`}
+        title={t("title")}
+        description={t("description", { clusters: clusters.length, nodes })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{clusters.length} total</Badge>
-        <Badge variant="success" size="md">{running} running</Badge>
-        <Badge variant={updating > 0 ? "warning" : "default"} size="md">{updating} updating</Badge>
-        <Badge variant={degraded > 0 ? "danger" : "default"} size="md">{degraded} degraded</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: clusters.length })}</Badge>
+        <Badge variant="success" size="md">{t("badges.running", { count: running })}</Badge>
+        <Badge variant={updating > 0 ? "warning" : "default"} size="md">{t("badges.updating", { count: updating })}</Badge>
+        <Badge variant={degraded > 0 ? "danger" : "default"} size="md">{t("badges.degraded", { count: degraded })}</Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[960px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Cluster</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Zone</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="text-right">Nodes</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead className="pr-4">Endpoint</TableHead>
+              <TableHead className="pl-4">{t("table.cluster")}</TableHead>
+              <TableHead>{t("table.version")}</TableHead>
+              <TableHead>{t("table.zone")}</TableHead>
+              <TableHead>{t("table.account")}</TableHead>
+              <TableHead className="text-right">{t("table.nodes")}</TableHead>
+              <TableHead>{t("table.state")}</TableHead>
+              <TableHead className="pr-4">{t("table.endpoint")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -78,7 +91,7 @@ export default async function Page() {
                   <TableCell>{cluster.account}</TableCell>
                   <TableCell className="text-right tabular-nums">{cluster.nodes}</TableCell>
                   <TableCell>
-                    <Badge variant={stateVariant(cluster.state)}>{stateLabel(cluster.state)}</Badge>
+                    <Badge variant={stateVariant(cluster.state)}>{stateLabel(cluster.state, stateLabels)}</Badge>
                   </TableCell>
                   <TableCell className="pr-4 font-mono text-xs">{cluster.endpoint}</TableCell>
                 </TableRow>
@@ -86,8 +99,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={7}
-                title="No Kubernetes clusters in this scope"
-                description="CloudStack did not return any managed Kubernetes clusters for the current filters."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
@@ -108,6 +121,9 @@ function stateVariant(state: KubernetesCluster["state"]): "success" | "warning" 
   }
 }
 
-function stateLabel(state: KubernetesCluster["state"]): string {
-  return state.charAt(0).toUpperCase() + state.slice(1);
+function stateLabel(
+  state: KubernetesCluster["state"],
+  labels: Record<KubernetesCluster["state"], string>,
+): string {
+  return labels[state];
 }
