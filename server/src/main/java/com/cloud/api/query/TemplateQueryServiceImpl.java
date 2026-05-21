@@ -129,16 +129,15 @@ public class TemplateQueryServiceImpl implements TemplateQueryService {
     @Override
     public ListResponse<TemplateResponse> listTemplates(ListTemplatesCmd cmd) {
         Pair<List<TemplateJoinVO>, Integer> result = searchForTemplatesInternal(cmd);
-        ListResponse<TemplateResponse> response = new ListResponse<>();
 
         ResponseView respView = ResponseView.Restricted;
         if (cmd instanceof ListTemplatesCmdByAdmin) {
             respView = ResponseView.Full;
         }
 
-        List<TemplateResponse> templateResponses = ViewResponseHelper.createTemplateResponse(cmd.getDetails(), respView, result.first().toArray(new TemplateJoinVO[0]));
-        response.setResponses(templateResponses, result.second());
-        return response;
+        ResponseView resolvedResponseView = respView;
+        return ListResponseBuilder.fromPair(result, templates -> ViewResponseHelper.createTemplateResponse(cmd.getDetails(), resolvedResponseView,
+                templates.toArray(new TemplateJoinVO[0])));
     }
 
     private Pair<List<TemplateJoinVO>, Integer> searchForTemplatesInternal(ListTemplatesCmd cmd) {
@@ -608,16 +607,15 @@ public class TemplateQueryServiceImpl implements TemplateQueryService {
     @Override
     public ListResponse<TemplateResponse> listIsos(ListIsosCmd cmd) {
         Pair<List<TemplateJoinVO>, Integer> result = searchForIsosInternal(cmd);
-        ListResponse<TemplateResponse> response = new ListResponse<>();
 
         ResponseView respView = ResponseView.Restricted;
         if (cmd instanceof ListIsosCmdByAdmin) {
             respView = ResponseView.Full;
         }
 
-        List<TemplateResponse> templateResponses = ViewResponseHelper.createIsoResponse(respView, result.first().toArray(new TemplateJoinVO[0]));
-        response.setResponses(templateResponses, result.second());
-        return response;
+        ResponseView resolvedResponseView = respView;
+        return ListResponseBuilder.fromPair(result, templates -> ViewResponseHelper.createIsoResponse(resolvedResponseView,
+                templates.toArray(new TemplateJoinVO[0])));
     }
 
     private Pair<List<TemplateJoinVO>, Integer> searchForIsosInternal(ListIsosCmd cmd) {

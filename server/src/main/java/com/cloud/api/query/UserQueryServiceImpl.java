@@ -84,14 +84,10 @@ public class UserQueryServiceImpl implements UserQueryService {
     @Override
     public ListResponse<UserResponse> searchForUsers(ResponseView responseView, ListUsersCmd cmd) throws PermissionDeniedException {
         Pair<List<UserAccountJoinVO>, Integer> result = searchForUsersInternal(cmd);
-        ListResponse<UserResponse> response = new ListResponse<>();
-        if (CallContext.current().getCallingAccount().getType() == Account.Type.ADMIN) {
-            responseView = ResponseView.Full;
-        }
-        List<UserResponse> userResponses = ViewResponseHelper.createUserResponse(responseView, CallContext.current().getCallingAccount().getDomainId(),
-                result.first().toArray(new UserAccountJoinVO[0]));
-        response.setResponses(userResponses, result.second());
-        return response;
+        Account callingAccount = CallContext.current().getCallingAccount();
+        ResponseView resolvedResponseView = callingAccount.getType() == Account.Type.ADMIN ? ResponseView.Full : responseView;
+        return ListResponseBuilder.fromPair(result, users -> ViewResponseHelper.createUserResponse(resolvedResponseView, callingAccount.getDomainId(),
+                users.toArray(new UserAccountJoinVO[0])));
     }
 
     @Override
@@ -114,11 +110,8 @@ public class UserQueryServiceImpl implements UserQueryService {
 
         Pair<List<UserAccountJoinVO>, Integer> result = getUserListInternal(caller, permittedAccounts, listAll, id,
                 username, type, accountName, state, keyword, null, domainId, recursive, null, null);
-        ListResponse<UserResponse> response = new ListResponse<>();
-        List<UserResponse> userResponses = ViewResponseHelper.createUserResponse(ResponseView.Restricted, CallContext.current().getCallingAccount().getDomainId(),
-                result.first().toArray(new UserAccountJoinVO[0]));
-        response.setResponses(userResponses, result.second());
-        return response;
+        return ListResponseBuilder.fromPair(result, users -> ViewResponseHelper.createUserResponse(ResponseView.Restricted, caller.getDomainId(),
+                users.toArray(new UserAccountJoinVO[0])));
     }
 
     private Pair<List<UserAccountJoinVO>, Integer> searchForUsersInternal(ListUsersCmd cmd) throws PermissionDeniedException {
