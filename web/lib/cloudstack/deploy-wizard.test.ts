@@ -106,6 +106,25 @@ test("deployWizardCatalogFromResponses maps required catalog envelopes", () => {
         sshkeypair: [{ id: "key-1", name: "admin", fingerprint: "SHA256:key" }],
       },
     },
+    projects: {
+      listprojectsresponse: {
+        project: [{ id: "project-1", name: "Engineering", displaytext: "Engineering workloads", state: "Active" }],
+      },
+    },
+    affinityGroups: {
+      listaffinitygroupsresponse: {
+        affinitygroup: [
+          {
+            id: "ag-1",
+            name: "spread-web",
+            type: "host anti-affinity",
+            description: "Spread web tier instances",
+            project: "Engineering",
+            projectid: "project-1",
+          },
+        ],
+      },
+    },
   });
 
   assert.equal(catalog.zones[0]?.name, "syd-1");
@@ -115,6 +134,10 @@ test("deployWizardCatalogFromResponses maps required catalog envelopes", () => {
   assert.equal(catalog.networks[0]?.name, "default");
   assert.equal(catalog.securityGroups[0]?.name, "default");
   assert.equal(catalog.sshKeyPairs[0]?.name, "admin");
+  assert.equal(catalog.projects[0]?.name, "Engineering");
+  assert.equal(catalog.projects[0]?.displayText, "Engineering workloads");
+  assert.equal(catalog.affinityGroups[0]?.name, "spread-web");
+  assert.equal(catalog.affinityGroups[0]?.type, "host anti-affinity");
 });
 
 test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint without forwarded headers", async () => {
@@ -143,6 +166,11 @@ test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint wi
     ["/api/cs/listNetworks", { listnetworksresponse: { network: [{ id: "net-1", name: "default" }] } }],
     ["/api/cs/listSecurityGroups", { listsecuritygroupsresponse: { securitygroup: [{ id: "sg-1", name: "default" }] } }],
     ["/api/cs/listSSHKeyPairs", { listsshkeypairsresponse: { sshkeypair: [{ id: "key-1", name: "admin" }] } }],
+    ["/api/cs/listProjects", { listprojectsresponse: { project: [{ id: "project-1", name: "Engineering" }] } }],
+    [
+      "/api/cs/listAffinityGroups",
+      { listaffinitygroupsresponse: { affinitygroup: [{ id: "ag-1", name: "spread-web", type: "host anti-affinity" }] } },
+    ],
   ]);
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -160,7 +188,7 @@ test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint wi
     const urls = requests.map((request) => new URL(request.url));
 
     assert.equal(catalog.serviceOfferings[0]?.name, "Small");
-    assert.equal(requests.length, 7);
+    assert.equal(requests.length, 9);
     assert.deepEqual(
       urls.map((url) => url.pathname),
       [
@@ -171,6 +199,8 @@ test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint wi
         "/api/cs/listNetworks",
         "/api/cs/listSecurityGroups",
         "/api/cs/listSSHKeyPairs",
+        "/api/cs/listProjects",
+        "/api/cs/listAffinityGroups",
       ],
     );
     assert.equal(urls[1]?.searchParams.get("templatefilter"), "executable");
@@ -179,9 +209,11 @@ test("getDeployWizardCatalogFromBff calls each read-only BFF catalog endpoint wi
     assert.equal(urls[4]?.searchParams.get("listall"), "true");
     assert.equal(urls[5]?.searchParams.get("listall"), "true");
     assert.equal(urls[6]?.searchParams.size, 0);
+    assert.equal(urls[7]?.searchParams.get("listall"), "true");
+    assert.equal(urls[8]?.searchParams.get("listall"), "true");
     assert.deepEqual(
       requests.map((request) => request.init),
-      Array.from({ length: 7 }, () => ({ method: "GET", cache: "no-store" })),
+      Array.from({ length: 9 }, () => ({ method: "GET", cache: "no-store" })),
     );
   } finally {
     restoreEnv("CS_URL", previousCsUrl);
@@ -288,6 +320,43 @@ test("buildDeployVirtualMachineParams sends security group only when no advanced
 
   assert.equal(params.get("securitygroupids"), "sg-1");
   assert.equal(params.has("networkids"), false);
+});
+
+test("buildDeployVirtualMachineParams maps advanced project, affinity, static IP, and stopped launch options", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "advanced-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    networkId: "net-1",
+    securityGroupId: "sg-1",
+    projectId: "project-1",
+    affinityGroupIds: ["ag-1", " ", "ag-2"],
+    ipAddress: "10.0.0.25",
+    startVm: false,
+  });
+
+  assert.equal(params.get("projectid"), "project-1");
+  assert.equal(params.get("affinitygroupids"), "ag-1,ag-2");
+  assert.equal(params.get("ipaddress"), "10.0.0.25");
+  assert.equal(params.get("startvm"), "false");
+  assert.equal(params.get("networkids"), "net-1");
+  assert.equal(params.has("securitygroupids"), false);
+});
+
+test("buildDeployVirtualMachineParams ignores static IP when no explicit network is selected", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "basic-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    securityGroupId: "sg-1",
+    ipAddress: "10.0.0.25",
+  });
+
+  assert.equal(params.get("securitygroupids"), "sg-1");
+  assert.equal(params.has("networkids"), false);
+  assert.equal(params.has("ipaddress"), false);
 });
 
 test("buildDeployVirtualMachineParams sends custom disk offering id and size when the size is valid", () => {

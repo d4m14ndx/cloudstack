@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
   AlertCircle,
@@ -38,8 +39,10 @@ import {
 } from "@/lib/cloudstack/deploy-wizard";
 import type {
   DeployWizardCatalog,
+  AffinityGroup,
   DiskOffering,
   Network as DeployNetwork,
+  Project,
   SecurityGroup,
   ServiceOffering,
   SshKeyPair,
@@ -67,15 +70,19 @@ type DeployWizardProps = {
 type WizardForm = {
   name: string;
   displayName: string;
+  projectId: string;
   zoneId: string;
   templateId: string;
   serviceOfferingId: string;
   networkId: string;
+  staticIpAddress: string;
   diskOfferingId: string;
   diskOfferingSizeGiB: string;
   sshKeyPairId: string;
   securityGroupId: string;
+  affinityGroupId: string;
   userData: string;
+  startVm: boolean;
 };
 
 type LaunchState =
@@ -94,15 +101,19 @@ type LaunchState =
 const initialForm: WizardForm = {
   name: "",
   displayName: "",
+  projectId: "",
   zoneId: "",
   templateId: "",
   serviceOfferingId: "",
   networkId: "",
+  staticIpAddress: "",
   diskOfferingId: "",
   diskOfferingSizeGiB: "",
   sshKeyPairId: "",
   securityGroupId: "",
+  affinityGroupId: "",
   userData: "#cloud-config\npackage_update: true",
+  startVm: true,
 };
 
 export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
@@ -180,6 +191,9 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
         templateId: form.templateId,
         serviceOfferingId: form.serviceOfferingId,
         networkId: form.networkId || undefined,
+        projectId: form.projectId || undefined,
+        affinityGroupIds: form.affinityGroupId ? [form.affinityGroupId] : undefined,
+        ipAddress: form.networkId ? form.staticIpAddress || undefined : undefined,
         diskOfferingId: form.diskOfferingId || undefined,
         diskOfferingCustomized: selections.diskOffering?.customized,
         ...(selections.diskOffering?.customized
@@ -188,6 +202,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
         securityGroupId: form.networkId ? undefined : form.securityGroupId || undefined,
         sshKeyPairName: selections.sshKeyPair?.name,
         userData: form.userData,
+        startVm: form.startVm,
       });
       setLaunchState({ status: "polling", jobId: launch.jobId });
 
@@ -348,6 +363,30 @@ function StepContent({
           <TextField label="Name" value={form.name} onChange={(name) => onFormChange((current) => ({ ...current, name }))} />
           <TextField label="Display name" value={form.displayName} onChange={(displayName) => onFormChange((current) => ({ ...current, displayName }))} />
         </FieldGrid>
+        {catalog.projects.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Project</CardTitle>
+                <CardDescription>Optional ownership scope</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Select
+                className="w-full"
+                value={form.projectId}
+                onChange={(event) => onFormChange((current) => ({ ...current, projectId: event.target.value }))}
+              >
+                <option value="">No project</option>
+                {catalog.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </Select>
+            </CardContent>
+          </Card>
+        ) : null}
         <OptionGrid
           title="Zone"
           options={catalog.zones}
@@ -388,13 +427,23 @@ function StepContent({
           onSelect={(networkId) => onFormChange((current) => ({ ...current, networkId }))}
           render={(network) => <NetworkOption network={network} />}
         />
-        <OptionGrid
-          title="Security group"
-          options={catalog.securityGroups}
-          selectedId={form.securityGroupId}
-          onSelect={(securityGroupId) => onFormChange((current) => ({ ...current, securityGroupId }))}
-          render={(securityGroup) => <SecurityGroupOption securityGroup={securityGroup} />}
-        />
+        {form.networkId ? (
+          <div className="max-w-[260px]">
+            <TextField
+              label="Static IP"
+              value={form.staticIpAddress}
+              onChange={(staticIpAddress) => onFormChange((current) => ({ ...current, staticIpAddress }))}
+            />
+          </div>
+        ) : (
+          <OptionGrid
+            title="Security group"
+            options={catalog.securityGroups}
+            selectedId={form.securityGroupId}
+            onSelect={(securityGroupId) => onFormChange((current) => ({ ...current, securityGroupId }))}
+            render={(securityGroup) => <SecurityGroupOption securityGroup={securityGroup} />}
+          />
+        )}
       </div>
     );
   }
@@ -457,6 +506,42 @@ function StepContent({
               ))}
             </Select>
           </CardContent>
+        </Card>
+        {catalog.affinityGroups.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Affinity group</CardTitle>
+                <CardDescription>Optional placement preference</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Select
+                className="w-full"
+                value={form.affinityGroupId}
+                onChange={(event) => onFormChange((current) => ({ ...current, affinityGroupId: event.target.value }))}
+              >
+                <option value="">No affinity group</option>
+                {catalog.affinityGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name} / {group.type}
+                  </option>
+                ))}
+              </Select>
+            </CardContent>
+          </Card>
+        ) : null}
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Start after deploy</CardTitle>
+              <CardDescription>{form.startVm ? "Instance will boot after creation" : "Instance will remain stopped"}</CardDescription>
+            </div>
+            <Switch
+              checked={form.startVm}
+              onCheckedChange={(startVm) => onFormChange((current) => ({ ...current, startVm }))}
+            />
+          </CardHeader>
         </Card>
         <label className="block text-sm font-medium text-[color:var(--fg)]">
           User data
@@ -606,14 +691,18 @@ function Review({
   const rows = [
     ["Name", form.name],
     ["Display name", form.displayName || form.name],
+    ["Project", selections.project?.name ?? "None"],
     ["Zone", selections.zone?.name ?? "-"],
     ["Template", selections.template?.name ?? "-"],
     ["Service offering", selections.serviceOffering?.name ?? "-"],
     ["Network", selections.network?.name ?? "-"],
+    ["Static IP", form.networkId && form.staticIpAddress ? form.staticIpAddress : "None"],
     ["Security group", selections.securityGroup?.name ?? "-"],
     ["Disk offering", selections.diskOffering?.name ?? "-"],
     ["Disk size", readDiskSizeLabel(selections.diskOffering, form.diskOfferingSizeGiB)],
     ["SSH key", selections.sshKeyPair?.name ?? "None"],
+    ["Affinity group", selections.affinityGroup?.name ?? "None"],
+    ["Start after deploy", form.startVm ? "Yes" : "No"],
   ];
 
   return (
@@ -753,6 +842,7 @@ function CatalogError({ message }: { message: string }) {
 }
 
 type ResolvedSelections = {
+  project?: Project;
   zone?: Zone;
   template?: Template;
   serviceOffering?: ServiceOffering;
@@ -760,10 +850,12 @@ type ResolvedSelections = {
   diskOffering?: DiskOffering;
   securityGroup?: SecurityGroup;
   sshKeyPair?: SshKeyPair;
+  affinityGroup?: AffinityGroup;
 };
 
 function resolveSelections(form: WizardForm, catalog: DeployWizardCatalog | null): ResolvedSelections {
   return {
+    project: catalog?.projects.find((project) => project.id === form.projectId),
     zone: catalog?.zones.find((zone) => zone.id === form.zoneId),
     template: catalog?.templates.find((template) => template.id === form.templateId),
     serviceOffering: catalog?.serviceOfferings.find((offering) => offering.id === form.serviceOfferingId),
@@ -771,6 +863,7 @@ function resolveSelections(form: WizardForm, catalog: DeployWizardCatalog | null
     diskOffering: catalog?.diskOfferings.find((offering) => offering.id === form.diskOfferingId),
     securityGroup: catalog?.securityGroups.find((group) => group.id === form.securityGroupId),
     sshKeyPair: catalog?.sshKeyPairs.find((keyPair) => keyPair.id === form.sshKeyPairId),
+    affinityGroup: catalog?.affinityGroups.find((group) => group.id === form.affinityGroupId),
   };
 }
 

@@ -239,6 +239,26 @@ export type DiskOffering = {
   type: string;
 };
 
+export type Project = {
+  id: string;
+  name: string;
+  displayText: string;
+  account: string;
+  domain: string;
+  state: string;
+};
+
+export type AffinityGroup = {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  account: string;
+  domain: string;
+  project: string | null;
+  projectId: string | null;
+};
+
 export type DeployWizardCatalog = {
   zones: Zone[];
   templates: Template[];
@@ -247,6 +267,8 @@ export type DeployWizardCatalog = {
   networks: Network[];
   securityGroups: SecurityGroup[];
   sshKeyPairs: SshKeyPair[];
+  projects: Project[];
+  affinityGroups: AffinityGroup[];
 };
 
 export type KubernetesCluster = {
@@ -546,6 +568,34 @@ export const mockDiskOfferings: DiskOffering[] = [
   { id: "do-004", name: "Custom data disk", sizeGiB: null, customized: true, type: "shared" },
 ];
 
+export const mockProjects: Project[] = [
+  { id: "project-platform", name: "platform-core", displayText: "Platform core services", account: "platform", domain: "root", state: "Active" },
+  { id: "project-ci", name: "ci-runners", displayText: "Engineering CI runners", account: "engineering", domain: "root/eng", state: "Active" },
+];
+
+export const mockAffinityGroups: AffinityGroup[] = [
+  {
+    id: "ag-platform-spread",
+    name: "platform-spread",
+    type: "host anti-affinity",
+    description: "Spread platform instances across hosts",
+    account: "platform",
+    domain: "root",
+    project: null,
+    projectId: null,
+  },
+  {
+    id: "ag-ci-pack",
+    name: "ci-pack",
+    type: "host affinity",
+    description: "Keep CI runners near cached storage",
+    account: "engineering",
+    domain: "root/eng",
+    project: "ci-runners",
+    projectId: "project-ci",
+  },
+];
+
 export const mockDeployWizardCatalog: DeployWizardCatalog = {
   zones: mockZones,
   templates: mockTemplates,
@@ -554,6 +604,8 @@ export const mockDeployWizardCatalog: DeployWizardCatalog = {
   networks: mockNetworks,
   securityGroups: mockSecurityGroups,
   sshKeyPairs: mockSshKeyPairs,
+  projects: mockProjects,
+  affinityGroups: mockAffinityGroups,
 };
 
 export const mockKubernetesClusters: KubernetesCluster[] = [

@@ -1,7 +1,9 @@
 import {
   mockDeployWizardCatalog,
+  type AffinityGroup,
   type DeployWizardCatalog,
   type DiskOffering,
+  type Project,
   type ServiceOffering,
   type Zone,
 } from "../mock-data.ts";
@@ -48,6 +50,29 @@ export type CloudStackDiskOffering = {
   iscustomized?: boolean | string;
 };
 
+export type CloudStackProject = {
+  id?: string;
+  name?: string;
+  displaytext?: string;
+  account?: string;
+  domain?: string;
+  domainpath?: string;
+  state?: string;
+};
+
+export type CloudStackAffinityGroup = {
+  id?: string;
+  name?: string;
+  type?: string;
+  description?: string;
+  displaytext?: string;
+  account?: string;
+  domain?: string;
+  domainpath?: string;
+  project?: string;
+  projectid?: string;
+};
+
 export type ListZonesResponse = {
   listzonesresponse?: {
     count?: number | string;
@@ -69,6 +94,20 @@ export type ListDiskOfferingsResponse = {
   };
 };
 
+export type ListProjectsResponse = {
+  listprojectsresponse?: {
+    count?: number | string;
+    project?: CloudStackProject[];
+  };
+};
+
+export type ListAffinityGroupsResponse = {
+  listaffinitygroupsresponse?: {
+    count?: number | string;
+    affinitygroup?: CloudStackAffinityGroup[];
+  };
+};
+
 export type DeployWizardCatalogResponses = {
   zones: ListZonesResponse;
   templates: ListTemplatesResponse;
@@ -77,6 +116,8 @@ export type DeployWizardCatalogResponses = {
   networks: ListNetworksResponse;
   securityGroups: ListSecurityGroupsResponse;
   sshKeyPairs: ListSshKeyPairsResponse;
+  projects: ListProjectsResponse;
+  affinityGroups: ListAffinityGroupsResponse;
 };
 
 type FetchOptions = {
@@ -90,6 +131,9 @@ export type DeployWizardLaunchInput = {
   templateId: string;
   serviceOfferingId: string;
   networkId?: string;
+  projectId?: string;
+  affinityGroupIds?: string[];
+  ipAddress?: string;
   diskOfferingId?: string;
   diskOfferingCustomized?: boolean;
   diskOfferingSizeGiB?: number;
@@ -157,6 +201,8 @@ const ENDPOINTS = [
   ["networks", "/api/cs/listNetworks?listall=true"],
   ["securityGroups", "/api/cs/listSecurityGroups?listall=true"],
   ["sshKeyPairs", "/api/cs/listSSHKeyPairs"],
+  ["projects", "/api/cs/listProjects?listall=true"],
+  ["affinityGroups", "/api/cs/listAffinityGroups?listall=true"],
 ] as const;
 
 export async function getDeployWizardCatalogFromBff({
@@ -214,6 +260,10 @@ export function deployWizardCatalogFromResponses(responses: DeployWizardCatalogR
     sshKeyPairs: (responses.sshKeyPairs.listsshkeypairsresponse?.sshkeypair ?? []).map(
       mapCloudStackSshKeyPairToSshKeyPair,
     ),
+    projects: (responses.projects.listprojectsresponse?.project ?? []).map(mapCloudStackProjectToDeployWizardProject),
+    affinityGroups: (responses.affinityGroups.listaffinitygroupsresponse?.affinitygroup ?? []).map(
+      mapCloudStackAffinityGroupToDeployWizardAffinityGroup,
+    ),
   };
 }
 
@@ -224,6 +274,8 @@ export function buildDeployVirtualMachineParams(input: DeployWizardLaunchInput):
   setRequiredParam(params, "zoneid", input.zoneId);
   setRequiredParam(params, "templateid", input.templateId);
   setRequiredParam(params, "serviceofferingid", input.serviceOfferingId);
+  setOptionalParam(params, "projectid", input.projectId);
+  setOptionalCsvParam(params, "affinitygroupids", input.affinityGroupIds);
   if (input.diskOfferingCustomized) {
     setRequiredParam(params, "diskofferingid", input.diskOfferingId ?? "");
     params.set("size", String(readPositiveInteger(input.diskOfferingSizeGiB, "custom disk size")));
@@ -236,6 +288,7 @@ export function buildDeployVirtualMachineParams(input: DeployWizardLaunchInput):
 
   if (input.networkId) {
     params.set("networkids", input.networkId);
+    setOptionalParam(params, "ipaddress", input.ipAddress);
   } else {
     setOptionalParam(params, "securitygroupids", input.securityGroupId);
   }
@@ -363,6 +416,36 @@ export function mapCloudStackDiskOfferingToDeployWizardDiskOffering(
   };
 }
 
+export function mapCloudStackProjectToDeployWizardProject(project: CloudStackProject): Project {
+  const id = project.id ?? project.name ?? "unknown";
+
+  return {
+    id,
+    name: project.name ?? project.displaytext ?? id,
+    displayText: project.displaytext ?? project.name ?? id,
+    account: project.account ?? "unknown",
+    domain: project.domainpath ?? project.domain ?? "unknown",
+    state: project.state ?? "unknown",
+  };
+}
+
+export function mapCloudStackAffinityGroupToDeployWizardAffinityGroup(
+  group: CloudStackAffinityGroup,
+): AffinityGroup {
+  const id = group.id ?? group.name ?? "unknown";
+
+  return {
+    id,
+    name: group.name ?? group.displaytext ?? id,
+    type: group.type ?? "unknown",
+    description: group.description ?? group.displaytext ?? group.name ?? id,
+    account: group.account ?? "unknown",
+    domain: group.domainpath ?? group.domain ?? "unknown",
+    project: group.project ?? null,
+    projectId: group.projectid ?? null,
+  };
+}
+
 function hasRequiredEnvelopes(responses: DeployWizardCatalogResponses): boolean {
   return Boolean(
     responses.zones.listzonesresponse &&
@@ -434,6 +517,13 @@ function setOptionalParam(params: URLSearchParams, key: string, value: string | 
   const trimmed = value?.trim();
   if (trimmed) {
     params.set(key, trimmed);
+  }
+}
+
+function setOptionalCsvParam(params: URLSearchParams, key: string, values: string[] | null | undefined): void {
+  const trimmedValues = (values ?? []).map((value) => value.trim()).filter(Boolean);
+  if (trimmedValues.length > 0) {
+    params.set(key, trimmedValues.join(","));
   }
 }
 
