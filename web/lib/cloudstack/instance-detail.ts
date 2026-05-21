@@ -47,6 +47,11 @@ export type InstanceDetail = {
   activity: Event[];
   securityGroups: InstanceGroup[];
   affinityGroups: InstanceGroup[];
+  console: {
+    rawState: string | null;
+    hostControlState: string | null;
+    externalUrl: string | null;
+  };
 };
 
 export type InstanceNetwork = {
@@ -82,6 +87,8 @@ type DetailVirtualMachine = CloudStackVirtualMachine & {
   isoname?: string;
   diskofferingname?: string;
   haenable?: boolean | string;
+  hostcontrolstate?: string;
+  details?: Record<string, string | undefined> | Array<{ name?: string; value?: string }>;
   securitygroup?: Array<{ id?: string; name?: string; type?: string }>;
   affinitygroup?: Array<{ id?: string; name?: string; type?: string }>;
   nic?: Array<{
@@ -211,6 +218,11 @@ export function mapVirtualMachineToInstanceDetail(
     activity: events.map(mapCloudStackEventToEvent),
     securityGroups: (vm.securitygroup ?? []).map(mapGroup),
     affinityGroups: (vm.affinitygroup ?? []).map(mapGroup),
+    console: {
+      rawState: vm.state ?? null,
+      hostControlState: vm.hostcontrolstate ?? null,
+      externalUrl: readExternalConsoleUrl(vm.details),
+    },
   };
 }
 
@@ -273,6 +285,11 @@ function mockDetailFor(id: string): InstanceDetail | null {
     activity: mockEvents.filter((event) => event.target.includes(instance.id) || event.target.includes(instance.name)),
     securityGroups: [],
     affinityGroups: [],
+    console: {
+      rawState: instance.state,
+      hostControlState: null,
+      externalUrl: null,
+    },
   };
 }
 
@@ -318,6 +335,18 @@ function toBoolean(value: boolean | string | undefined): boolean {
   }
 
   return value?.toLowerCase() === "true";
+}
+
+function readExternalConsoleUrl(details: DetailVirtualMachine["details"]): string | null {
+  if (!details) {
+    return null;
+  }
+
+  if (Array.isArray(details)) {
+    return details.find((detail) => detail.name === "External:console_url")?.value ?? null;
+  }
+
+  return details["External:console_url"] ?? null;
 }
 
 function buildListVirtualMachinesUrl(id: string, requestHeaders?: Pick<Headers, "get">): string {

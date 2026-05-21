@@ -35,6 +35,10 @@ test("mapVirtualMachineToInstanceDetail maps a rich CloudStack VM into operation
       memorytargetkbs: 1048576,
       created: "2026-05-21T01:23:45+0000",
       haenable: true,
+      hostcontrolstate: "Enabled",
+      details: {
+        "External:console_url": "https://external-console.example.test/vm-1",
+      },
       nic: [
         {
           id: "nic-1",
@@ -99,6 +103,9 @@ test("mapVirtualMachineToInstanceDetail maps a rich CloudStack VM into operation
   assert.equal(detail.placement.hypervisor, "KVM");
   assert.equal(detail.compute.cpuSpeedMHz, 2400);
   assert.equal(detail.compute.haEnabled, true);
+  assert.equal(detail.console.rawState, "Running");
+  assert.equal(detail.console.hostControlState, "Enabled");
+  assert.equal(detail.console.externalUrl, "https://external-console.example.test/vm-1");
   assert.equal(detail.image.template, "Ubuntu 24.04 LTS");
   assert.equal(detail.image.templateDisplayText, "Ubuntu 24.04 LTS hardened");
   assert.equal(detail.networking.length, 2);
@@ -108,6 +115,20 @@ test("mapVirtualMachineToInstanceDetail maps a rich CloudStack VM into operation
   assert.equal(detail.affinityGroups[0]?.type, "host anti-affinity");
   assert.equal(detail.storage[0]?.name, "app-01-root");
   assert.equal(detail.activity[0]?.action, "VM.START");
+});
+
+test("mapVirtualMachineToInstanceDetail reads external console URLs from detail arrays", () => {
+  const detail = mapVirtualMachineToInstanceDetail({
+    id: "vm-1",
+    name: "app-01",
+    state: "Running",
+    details: [
+      { name: "other", value: "ignored" },
+      { name: "External:console_url", value: "https://external-console.example.test/vm-1" },
+    ],
+  });
+
+  assert.equal(detail.console.externalUrl, "https://external-console.example.test/vm-1");
 });
 
 test("getInstanceDetailFromBff calls all detail BFF commands with instance id and forwards cookies", async () => {
