@@ -84,13 +84,27 @@ export function VolumeActions({ volume }: VolumeActionsProps) {
   return (
     <div className="flex min-w-[148px] items-center justify-end gap-2">
       {canDetach && (
-        <Button type="button" variant="secondary" size="sm" onClick={handleDetach} disabled={busy}>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={handleDetach}
+          disabled={busy}
+          aria-label={`Detach ${volume.name}`}
+        >
           <Unplug size={14} strokeWidth={1.8} aria-hidden="true" />
           Detach
         </Button>
       )}
       {canDelete && (
-        <Button type="button" variant="danger" size="sm" onClick={handleDelete} disabled={busy}>
+        <Button
+          type="button"
+          variant="danger"
+          size="sm"
+          onClick={handleDelete}
+          disabled={busy}
+          aria-label={`Delete ${volume.name}`}
+        >
           <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
           Delete
         </Button>

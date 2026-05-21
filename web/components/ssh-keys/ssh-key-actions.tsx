@@ -102,7 +102,13 @@ export function SshKeyActions() {
               <StatusLine status={status} className="mt-2" />
             </TabsContent>
 
-            <Button type="submit" variant="primary" disabled={!canSubmit} className="lg:mt-5">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canSubmit}
+              className="lg:mt-5"
+              aria-label={mode === "create" ? "Create SSH key" : "Register SSH key"}
+            >
               {busy ? <Loader2 size={14} className="animate-spin" /> : mode === "create" ? <IconSshKeys size={14} /> : <Upload size={14} />}
               {mode === "create" ? "Create" : "Register"}
             </Button>

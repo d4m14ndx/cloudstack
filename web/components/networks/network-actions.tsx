@@ -159,16 +159,35 @@ export function PublicIpRowActions({ publicIp, networkId, networkKind }: PublicI
   return (
     <div className="flex min-w-[212px] items-center justify-end gap-1.5">
       {publicIp.staticNat ? (
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleDisableStaticNat} disabled={busy} title="Disable static NAT">
+        <Button
+          type="button"
+          aria-label={`Disable static NAT for ${publicIp.address}`}
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleDisableStaticNat}
+          disabled={busy}
+          title="Disable static NAT"
+        >
           <PowerOff size={15} strokeWidth={1.8} />
         </Button>
       ) : (
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleEnableStaticNat} disabled={busy} title="Enable static NAT">
+        <Button
+          type="button"
+          aria-label={`Enable static NAT for ${publicIp.address}`}
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleEnableStaticNat}
+          disabled={busy}
+          title="Enable static NAT"
+        >
           <Power size={15} strokeWidth={1.8} />
         </Button>
       )}
       <Button
         type="button"
+        aria-label={canRelease ? `Release IP ${publicIp.address}` : `Source NAT IP ${publicIp.address} cannot be released here`}
         variant="ghost"
         size="icon"
         className="h-8 w-8 text-[color:var(--danger)] hover:bg-[color:var(--danger)]/10"

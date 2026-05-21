@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 
+import { InstanceActions } from "@/components/instances/instance-actions";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -51,6 +52,7 @@ export default async function Page() {
               <TableHead className="text-right">RAM</TableHead>
               <TableHead className="text-right">Usage</TableHead>
               <TableHead className="pr-4">Account</TableHead>
+              <TableHead className="pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -83,11 +85,14 @@ export default async function Page() {
                     <UsagePair instance={instance} />
                   </TableCell>
                   <TableCell className="pr-4">{instance.account}</TableCell>
+                  <TableCell className="pr-4">
+                    <InstanceActions id={instance.id} name={instance.name} state={instance.state} />
+                  </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableEmptyState
-                colSpan={10}
+                colSpan={11}
                 title="No instances in this scope"
                 description="Deploy a VM or switch scope to inspect existing workloads."
               />

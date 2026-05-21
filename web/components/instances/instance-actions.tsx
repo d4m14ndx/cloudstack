@@ -93,7 +93,7 @@ export function InstanceActions({ id, name, state }: InstanceActionsProps) {
           variant={action === "destroy" ? "danger" : "secondary"}
           disabled={busy}
           title={actionLabels[action]}
-          aria-label={actionLabels[action]}
+          aria-label={`${actionLabels[action]} ${name}`}
           onClick={() => void runAction(action)}
         >
           {actionIcons[action]}
