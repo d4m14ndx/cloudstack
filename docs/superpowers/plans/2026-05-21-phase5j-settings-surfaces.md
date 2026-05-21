@@ -12,16 +12,17 @@
 
 ## Current Checkpoint
 
-- Base branch: `modernize-2026`
-- Base commit: `436457a38521bab74f235841da1d38e7d0e38c0f`
-- `origin/modernize-2026` has already been pushed at this checkpoint.
+- Current branch: `modernize-2026`
+- Initial pushed plan checkpoint: `42d213d8f2`
+- Phase 5j implementation base: `436457a38521bab74f235841da1d38e7d0e38c0f`
+- `42d213d8f2` is a doc-only commit on top of the Phase 5i code checkpoint.
 - Phase 5i completed:
   - Remaining high-traffic page i18n.
   - Action failure e2e coverage.
   - Detail not-found e2e coverage.
   - E2E coverage README updates.
 - Phase 5j was briefly started and then intentionally paused at user request.
-- These empty Phase 5j worktrees currently exist at the base commit and can be reused after verifying they remain clean:
+- These empty Phase 5j worktrees currently exist at the implementation base commit and can be reused after verifying they remain clean:
   - `.worktrees/phase5j-profile-settings`
   - `.worktrees/phase5j-api-token-settings`
   - `.worktrees/phase5j-security-settings`
@@ -165,6 +166,7 @@ Expected:
 
 ```text
 ## modernize-2026
+42d213d8f2 Document Phase 5j settings plan
 436457a385 Merge Phase 5i network page i18n
 ```
 
@@ -183,6 +185,8 @@ Expected for each Phase 5j worktree:
 ```text
 ## phase5j-...
 ```
+
+The existing Phase 5j worktrees may report `436457a385` rather than `42d213d8f2`; that is acceptable because `42d213d8f2` only adds this plan document and workers should not edit the plan file.
 
 - [ ] **Step 3: If any Phase 5j worktree is missing, recreate it**
 
