@@ -9,6 +9,7 @@ export type CloudStackBffRequest = {
   url: URL;
   params: URLSearchParams;
   postData: string | null;
+  json: Record<string, JsonValue>;
 };
 
 export type CloudStackBffCall = CloudStackBffRequest;
@@ -115,6 +116,7 @@ async function fulfillCloudStackRoute(
     url,
     params: url.searchParams,
     postData: request.postData(),
+    json: readJsonBody(request.postData()),
   };
   calls.push(bffRequest);
 
@@ -134,4 +136,21 @@ async function fulfillCloudStackRoute(
     contentType: "application/json",
     body: JSON.stringify(json),
   });
+}
+
+function readJsonBody(postData: string | null): Record<string, JsonValue> {
+  if (!postData) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(postData) as unknown;
+    return isJsonRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
