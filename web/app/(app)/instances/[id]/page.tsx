@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getInstanceDetailFromBff, type InstanceDetail } from "@/lib/cloudstack/instance-detail";
 import type { Event, Instance, Volume } from "@/lib/mock-data";
 
@@ -50,50 +51,99 @@ export default async function Page({ params }: { params: { id: string } }) {
         <Metric label="Storage" value={`${detail.storage.length}`} subValue={pluralize("volume", detail.storage.length)} />
       </section>
 
-      <section className="mb-4 grid gap-4 xl:grid-cols-2">
-        <DetailCard title="Identity">
-          <KeyValue label="Display name" value={detail.identity.displayName} />
-          <KeyValue label="Internal name" value={detail.identity.internalName} mono />
-          <KeyValue label="Account" value={detail.identity.account} />
-          <KeyValue label="Domain" value={detail.identity.domain} />
-          <KeyValue label="Project" value={detail.identity.project ?? "-"} />
-          <KeyValue label="Created" value={detail.identity.created ?? "-"} mono />
-        </DetailCard>
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="networking" count={detail.networking.length}>Networking</TabsTrigger>
+          <TabsTrigger value="storage" count={detail.storage.length}>Storage</TabsTrigger>
+          <TabsTrigger value="activity" count={detail.activity.length}>Activity</TabsTrigger>
+          <TabsTrigger value="console">Console</TabsTrigger>
+        </TabsList>
 
-        <DetailCard title="Placement">
-          <KeyValue label="Zone" value={detail.placement.zone} />
-          <KeyValue label="Pod" value={detail.placement.pod ?? "-"} />
-          <KeyValue label="Cluster" value={detail.placement.cluster ?? "-"} />
-          <KeyValue label="Host" value={detail.placement.host ?? "-"} />
-          <KeyValue label="Hypervisor" value={detail.placement.hypervisor ?? "-"} />
-          <KeyValue label="HA" value={detail.compute.haEnabled ? "Enabled" : "Disabled"} />
-        </DetailCard>
+        <TabsContent value="overview">
+          <Overview detail={detail} />
+        </TabsContent>
 
-        <DetailCard title="Compute">
-          <KeyValue label="Offering" value={detail.compute.offering} />
-          <KeyValue label="CPU" value={`${detail.compute.cpu} vCPU`} />
-          <KeyValue label="CPU speed" value={formatNullableSpeed(detail.compute.cpuSpeedMHz)} />
-          <KeyValue label="CPU usage" value={formatPercent(detail.compute.cpuUsage)} />
-          <KeyValue label="Memory" value={`${detail.compute.ramGiB} GiB`} />
-          <KeyValue label="Memory usage" value={formatPercent(detail.compute.memoryUsage)} />
-        </DetailCard>
+        <TabsContent value="networking">
+          <NetworkingTable detail={detail} />
+        </TabsContent>
 
-        <DetailCard title="Image">
-          <KeyValue label="Template" value={detail.image.template} />
-          <KeyValue label="Template text" value={detail.image.templateDisplayText ?? "-"} />
-          <KeyValue label="ISO" value={detail.image.iso ?? "-"} />
-          <KeyValue label="Service offering" value={detail.image.serviceOffering} />
-          <KeyValue label="Disk offering" value={detail.image.diskOffering ?? "-"} />
-          <KeyValue label="Security groups" value={formatGroups(detail.securityGroups)} />
-        </DetailCard>
-      </section>
+        <TabsContent value="storage">
+          <StorageTable volumes={detail.storage} />
+        </TabsContent>
 
-      <section className="grid gap-4">
-        <NetworkingTable detail={detail} />
-        <StorageTable volumes={detail.storage} />
-        <ActivityTable events={detail.activity} />
-      </section>
+        <TabsContent value="activity">
+          <ActivityTable events={detail.activity} />
+        </TabsContent>
+
+        <TabsContent value="console">
+          <ConsolePanel detail={detail} />
+        </TabsContent>
+      </Tabs>
     </>
+  );
+}
+
+function Overview({ detail }: { detail: InstanceDetail }) {
+  return (
+    <section className="grid gap-4 xl:grid-cols-2">
+      <DetailCard title="Identity">
+        <KeyValue label="Display name" value={detail.identity.displayName} />
+        <KeyValue label="Internal name" value={detail.identity.internalName} mono />
+        <KeyValue label="Account" value={detail.identity.account} />
+        <KeyValue label="Domain" value={detail.identity.domain} />
+        <KeyValue label="Project" value={detail.identity.project ?? "-"} />
+        <KeyValue label="Created" value={detail.identity.created ?? "-"} mono />
+      </DetailCard>
+
+      <DetailCard title="Placement">
+        <KeyValue label="Zone" value={detail.placement.zone} />
+        <KeyValue label="Pod" value={detail.placement.pod ?? "-"} />
+        <KeyValue label="Cluster" value={detail.placement.cluster ?? "-"} />
+        <KeyValue label="Host" value={detail.placement.host ?? "-"} />
+        <KeyValue label="Hypervisor" value={detail.placement.hypervisor ?? "-"} />
+        <KeyValue label="HA" value={detail.compute.haEnabled ? "Enabled" : "Disabled"} />
+      </DetailCard>
+
+      <DetailCard title="Compute">
+        <KeyValue label="Offering" value={detail.compute.offering} />
+        <KeyValue label="CPU" value={`${detail.compute.cpu} vCPU`} />
+        <KeyValue label="CPU speed" value={formatNullableSpeed(detail.compute.cpuSpeedMHz)} />
+        <KeyValue label="CPU usage" value={formatPercent(detail.compute.cpuUsage)} />
+        <KeyValue label="Memory" value={`${detail.compute.ramGiB} GiB`} />
+        <KeyValue label="Memory usage" value={formatPercent(detail.compute.memoryUsage)} />
+      </DetailCard>
+
+      <DetailCard title="Image">
+        <KeyValue label="Template" value={detail.image.template} />
+        <KeyValue label="Template text" value={detail.image.templateDisplayText ?? "-"} />
+        <KeyValue label="ISO" value={detail.image.iso ?? "-"} />
+        <KeyValue label="Service offering" value={detail.image.serviceOffering} />
+        <KeyValue label="Disk offering" value={detail.image.diskOffering ?? "-"} />
+        <KeyValue label="Security groups" value={formatGroups(detail.securityGroups)} />
+      </DetailCard>
+    </section>
+  );
+}
+
+function ConsolePanel({ detail }: { detail: InstanceDetail }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Console</CardTitle>
+      </CardHeader>
+      <div className="grid gap-3 text-sm">
+        <p className="text-[color:var(--fg-muted)]">
+          Console access will be issued through the BFF in a later slice so short-lived console URLs stay server-side.
+        </p>
+        <dl className="grid gap-2">
+          <KeyValue label="Instance" value={detail.identity.name} />
+          <KeyValue label="State" value={stateLabel(detail.instance.state)} />
+          <KeyValue label="Hypervisor" value={detail.placement.hypervisor ?? "-"} />
+          <KeyValue label="Host" value={detail.placement.host ?? "-"} />
+        </dl>
+      </div>
+    </Card>
   );
 }
 
