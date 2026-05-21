@@ -78,9 +78,20 @@ Existing client shell components intentionally import `@/lib/auth/mock` for Phas
 | `npm run build`    | Production build (standalone output for Docker)      |
 | `npm run start`    | Run the production build                             |
 | `npm run lint`     | ESLint (next/core-web-vitals)                        |
+| `npm run test:e2e` | Playwright browser smoke tests with mocked BFF/auth  |
 | `npm run typecheck`| `tsc --noEmit` — strict mode, no unchecked indexes   |
 
 Note: `experimental.typedRoutes` is intentionally disabled for Phase 5a.
+
+## Browser smoke tests
+
+Phase 5e browser smoke coverage lives under `tests/e2e/`. The Playwright config
+starts the app in local mock mode, so the baseline suite does not require Redis,
+an identity provider, or a live CloudStack API.
+
+Use `tests/e2e/fixtures/cloudstack-bff.ts` when a spec needs `/api/cs/<command>`
+responses, and keep payloads shaped like real CloudStack response envelopes. See
+`tests/e2e/README.md` for the worker pattern and examples.
 
 ## BFF API proxy
 
