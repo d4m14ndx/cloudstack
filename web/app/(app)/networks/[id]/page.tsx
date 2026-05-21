@@ -13,8 +13,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AcquirePublicIpButton, PublicIpRowActions } from "@/components/networks/network-actions";
 import { getNetworkDetailFromBff } from "@/lib/cloudstack/network-detail";
-import type { Event, Network, NetworkAclList, NetworkDetail, NetworkPublicIp, NetworkTier } from "@/lib/mock-data";
+import type { Event, Network, NetworkAclList, NetworkDetail, NetworkTier } from "@/lib/mock-data";
 
 export const metadata = { title: "Network" };
 export const dynamic = "force-dynamic";
@@ -69,7 +70,7 @@ export default async function Page({ params }: { params: { id: string } }) {
         )}
 
         <TabsContent value="public-ips">
-          <PublicIpsTable publicIps={detail.publicIps} />
+          <PublicIpsTable detail={detail} />
         </TabsContent>
 
         <TabsContent value="acls">
@@ -159,23 +160,27 @@ function TiersTable({ tiers }: { tiers: NetworkTier[] }) {
   );
 }
 
-function PublicIpsTable({ publicIps }: { publicIps: NetworkPublicIp[] }) {
+function PublicIpsTable({ detail }: { detail: NetworkDetail }) {
   return (
     <Card className="p-0">
-      <SectionTitle title="Public IPs" />
-      <Table className="min-w-[840px]">
+      <SectionTitle
+        title="Public IPs"
+        actions={<AcquirePublicIpButton networkId={detail.network.id} networkKind={detail.kind} />}
+      />
+      <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
             <TableHead className="pl-4">Address</TableHead>
             <TableHead>State</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Network</TableHead>
-            <TableHead className="pr-4">VM</TableHead>
+            <TableHead>VM</TableHead>
+            <TableHead className="pr-4 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {publicIps.length > 0 ? (
-            publicIps.map((publicIp) => (
+          {detail.publicIps.length > 0 ? (
+            detail.publicIps.map((publicIp) => (
               <TableRow key={publicIp.id}>
                 <TableCell className="pl-4 font-mono text-xs">{publicIp.address}</TableCell>
                 <TableCell>{publicIp.state}</TableCell>
@@ -187,11 +192,14 @@ function PublicIpsTable({ publicIps }: { publicIps: NetworkPublicIp[] }) {
                   </div>
                 </TableCell>
                 <TableCell>{publicIp.networkName ?? "-"}</TableCell>
-                <TableCell className="pr-4">{publicIp.vmName ?? "-"}</TableCell>
+                <TableCell>{publicIp.vmName ?? "-"}</TableCell>
+                <TableCell className="pr-4">
+                  <PublicIpRowActions publicIp={publicIp} networkId={detail.network.id} networkKind={detail.kind} />
+                </TableCell>
               </TableRow>
             ))
           ) : (
-            <EmptyRow colSpan={5} label="No public IPs found." />
+            <EmptyRow colSpan={6} label="No public IPs found." />
           )}
         </TableBody>
       </Table>
@@ -319,10 +327,11 @@ function KeyValue({ label, value, mono = false }: { label: string; value: string
   );
 }
 
-function SectionTitle({ title }: { title: string }) {
+function SectionTitle({ title, actions }: { title: string; actions?: React.ReactNode }) {
   return (
-    <div className="border-b border-[color:var(--border)] px-[var(--card-pad)] py-3">
+    <div className="flex min-h-14 items-center justify-between gap-3 border-b border-[color:var(--border)] px-[var(--card-pad)] py-3">
       <h2 className="text-sm font-semibold text-[color:var(--fg)]">{title}</h2>
+      {actions ? <div className="shrink-0">{actions}</div> : null}
     </div>
   );
 }
