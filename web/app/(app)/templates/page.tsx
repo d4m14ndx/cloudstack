@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { PageHeader } from "@/components/page-header";
+import { TemplateActions } from "@/components/templates/template-actions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -48,6 +49,7 @@ export default async function Page() {
               <TableHead className="text-right">Size</TableHead>
               <TableHead>Account</TableHead>
               <TableHead className="pr-4">Featured</TableHead>
+              <TableHead className="pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -74,11 +76,14 @@ export default async function Page() {
                       {template.featured ? "Yes" : "No"}
                     </Badge>
                   </TableCell>
+                  <TableCell className="pr-4">
+                    <TemplateActions template={template} />
+                  </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
+                <TableCell colSpan={8} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
                   No templates found.
                 </TableCell>
               </TableRow>
