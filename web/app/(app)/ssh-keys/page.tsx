@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { PageHeader } from "@/components/page-header";
+import { SshKeyActions, SshKeyDeleteButton } from "@/components/ssh-keys/ssh-key-actions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -37,6 +38,8 @@ export default async function Page() {
         <Badge variant={projects > 0 ? "success" : "default"} size="md">{projects} project scoped</Badge>
       </div>
 
+      <SshKeyActions />
+
       <Card className="p-0">
         <Table className="min-w-[900px]">
           <TableHeader>
@@ -45,7 +48,8 @@ export default async function Page() {
               <TableHead>Fingerprint</TableHead>
               <TableHead>Account</TableHead>
               <TableHead>Domain</TableHead>
-              <TableHead className="pr-4">Project</TableHead>
+              <TableHead>Project</TableHead>
+              <TableHead className="pr-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -63,14 +67,17 @@ export default async function Page() {
                   </TableCell>
                   <TableCell>{keyPair.account}</TableCell>
                   <TableCell>{keyPair.domain}</TableCell>
-                  <TableCell className="pr-4">
+                  <TableCell>
                     <ProjectBadge keyPair={keyPair} />
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <SshKeyDeleteButton name={keyPair.name} />
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
+                <TableCell colSpan={6} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
                   No SSH key pairs found.
                 </TableCell>
               </TableRow>

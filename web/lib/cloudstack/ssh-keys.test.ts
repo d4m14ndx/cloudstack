@@ -3,8 +3,11 @@ import test from "node:test";
 
 import { mockSshKeyPairs } from "../mock-data.ts";
 import {
+  createSshKeyPairFromBff,
+  deleteSshKeyPairFromBff,
   getSshKeyPairsFromBff,
   mapCloudStackSshKeyPairToSshKeyPair,
+  registerSshKeyPairFromBff,
   sshKeyPairsFromListSshKeyPairsResponse,
 } from "./ssh-keys.ts";
 
@@ -168,6 +171,119 @@ test("getSshKeyPairsFromBff does not call the BFF when CS_URL is absent", async 
   } finally {
     restoreEnv("CS_URL", previousCsUrl);
   }
+});
+
+test("createSshKeyPairFromBff posts only the SSH key name and returns generated key material", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    calls.push({ url: String(input), init });
+    return Response.json({
+      createsshkeypairresponse: {
+        id: "key-4",
+        name: "created-key",
+        fingerprint: "SHA256:created",
+        privatekey: "-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----",
+      },
+    });
+  };
+
+  const result = await createSshKeyPairFromBff(
+    { name: "created-key", command: "deleteSSHKeyPair" } as { name: string },
+    { fetchImpl },
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(new URL(calls[0]!.url).pathname, "/api/cs/createSSHKeyPair");
+  assert.equal(calls[0]!.init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(calls[0]!.init?.body)), { name: "created-key" });
+  assert.equal(result.name, "created-key");
+  assert.equal(result.fingerprint, "SHA256:created");
+  assert.match(result.privateKey ?? "", /BEGIN RSA PRIVATE KEY/);
+});
+
+test("registerSshKeyPairFromBff posts name and public key and maps the response envelope", async () => {
+  let body: unknown;
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    body = JSON.parse(String(init?.body));
+    return Response.json({
+      registersshkeypairresponse: {
+        id: "key-5",
+        name: "registered-key",
+        fingerprint: "SHA256:registered",
+        account: "platform",
+        domain: "ROOT",
+      },
+    });
+  };
+
+  const result = await registerSshKeyPairFromBff(
+    {
+      name: "registered-key",
+      publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC test@example",
+    },
+    { fetchImpl },
+  );
+
+  assert.deepEqual(body, {
+    name: "registered-key",
+    publickey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC test@example",
+  });
+  assert.equal(result.id, "key-5");
+  assert.equal(result.name, "registered-key");
+  assert.equal(result.account, "platform");
+});
+
+test("deleteSshKeyPairFromBff posts only the SSH key name and returns the success boolean", async () => {
+  let body: unknown;
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    body = JSON.parse(String(init?.body));
+    return Response.json({
+      deletesshkeypairresponse: {
+        success: true,
+      },
+    });
+  };
+
+  const deleted = await deleteSshKeyPairFromBff(
+    { name: "old-key", sessionkey: "client-secret" } as { name: string },
+    { fetchImpl },
+  );
+
+  assert.deepEqual(body, { name: "old-key" });
+  assert.equal(deleted, true);
+});
+
+test("deleteSshKeyPairFromBff rejects malformed delete responses", async () => {
+  await assert.rejects(
+    deleteSshKeyPairFromBff(
+      { name: "old-key" },
+      {
+        fetchImpl: async () =>
+          Response.json({
+            deletesshkeypairresponse: {
+              success: false,
+            },
+          }),
+      },
+    ),
+    /did not report success/,
+  );
+});
+
+test("SSH key mutation helpers throw CloudStack response errors", async () => {
+  await assert.rejects(
+    createSshKeyPairFromBff(
+      { name: "duplicate-key" },
+      {
+        fetchImpl: async () =>
+          Response.json(
+            { errorresponse: { errortext: "A key pair with that name already exists" } },
+            { status: 431 },
+          ),
+      },
+    ),
+    /A key pair with that name already exists/,
+  );
 });
 
 function restoreEnv(name: string, value: string | undefined): void {

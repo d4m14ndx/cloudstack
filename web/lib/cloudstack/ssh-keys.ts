@@ -18,9 +18,49 @@ export type ListSshKeyPairsResponse = {
   };
 };
 
+export type CreateSshKeyPairResponse = {
+  createsshkeypairresponse?: CloudStackSshKeyPair & {
+    privatekey?: string;
+  };
+  errorresponse?: CloudStackErrorResponse;
+};
+
+export type RegisterSshKeyPairResponse = {
+  registersshkeypairresponse?: CloudStackSshKeyPair;
+  errorresponse?: CloudStackErrorResponse;
+};
+
+export type DeleteSshKeyPairResponse = {
+  deletesshkeypairresponse?: {
+    success?: boolean | string;
+  };
+  errorresponse?: CloudStackErrorResponse;
+};
+
+export type CreateSshKeyPairResult = SshKeyPair & {
+  privateKey: string | null;
+};
+
+export type CreateSshKeyPairInput = {
+  name: string;
+};
+
+export type RegisterSshKeyPairInput = {
+  name: string;
+  publicKey: string;
+};
+
+export type DeleteSshKeyPairInput = {
+  name: string;
+};
+
 type FetchOptions = {
   fetchImpl?: typeof fetch;
   requestHeaders?: Pick<Headers, "get">;
+};
+
+type CloudStackErrorResponse = {
+  errortext?: string;
 };
 
 export async function getSshKeyPairsFromBff({
@@ -57,6 +97,60 @@ export function sshKeyPairsFromListSshKeyPairsResponse(response: ListSshKeyPairs
   return (response.listsshkeypairsresponse?.sshkeypair ?? []).map(mapCloudStackSshKeyPairToSshKeyPair);
 }
 
+export async function createSshKeyPairFromBff(
+  input: CreateSshKeyPairInput,
+  { fetchImpl = fetch }: FetchOptions = {},
+): Promise<CreateSshKeyPairResult> {
+  const payload = await postSshKeyCommand<CreateSshKeyPairResponse>(
+    "createSSHKeyPair",
+    { name: input.name },
+    fetchImpl,
+  );
+  const keyPair = payload.createsshkeypairresponse;
+  if (!keyPair) {
+    throw new Error("CloudStack createSSHKeyPair response is missing key pair details");
+  }
+
+  return {
+    ...mapCloudStackSshKeyPairToSshKeyPair(keyPair),
+    privateKey: keyPair.privatekey ?? null,
+  };
+}
+
+export async function registerSshKeyPairFromBff(
+  input: RegisterSshKeyPairInput,
+  { fetchImpl = fetch }: FetchOptions = {},
+): Promise<SshKeyPair> {
+  const payload = await postSshKeyCommand<RegisterSshKeyPairResponse>(
+    "registerSSHKeyPair",
+    { name: input.name, publickey: input.publicKey },
+    fetchImpl,
+  );
+  const keyPair = payload.registersshkeypairresponse;
+  if (!keyPair) {
+    throw new Error("CloudStack registerSSHKeyPair response is missing key pair details");
+  }
+
+  return mapCloudStackSshKeyPairToSshKeyPair(keyPair);
+}
+
+export async function deleteSshKeyPairFromBff(
+  input: DeleteSshKeyPairInput,
+  { fetchImpl = fetch }: FetchOptions = {},
+): Promise<boolean> {
+  const payload = await postSshKeyCommand<DeleteSshKeyPairResponse>(
+    "deleteSSHKeyPair",
+    { name: input.name },
+    fetchImpl,
+  );
+  const success = payload.deletesshkeypairresponse?.success;
+  if (success === true || success === "true") {
+    return true;
+  }
+
+  throw new Error("CloudStack deleteSSHKeyPair response did not report success");
+}
+
 export function mapCloudStackSshKeyPairToSshKeyPair(keyPair: CloudStackSshKeyPair): SshKeyPair {
   return {
     id: keyPair.id ?? keyPair.name ?? keyPair.fingerprint ?? "unknown",
@@ -77,6 +171,10 @@ function buildListSshKeyPairsUrl(requestHeaders?: Pick<Headers, "get">): string 
 }
 
 function getRequestOrigin(requestHeaders?: Pick<Headers, "get">): string {
+  if (!requestHeaders && typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
   if (process.env.NEXTAUTH_URL) {
     return process.env.NEXTAUTH_URL.replace(/\/$/, "");
   }
@@ -89,4 +187,27 @@ function getRequestOrigin(requestHeaders?: Pick<Headers, "get">): string {
 function buildForwardedHeaders(requestHeaders?: Pick<Headers, "get">): HeadersInit | undefined {
   const cookie = requestHeaders?.get("cookie");
   return cookie ? { cookie } : undefined;
+}
+
+async function postSshKeyCommand<T extends { errorresponse?: CloudStackErrorResponse }>(
+  command: "createSSHKeyPair" | "registerSSHKeyPair" | "deleteSSHKeyPair",
+  body: Record<string, string>,
+  fetchImpl: typeof fetch,
+): Promise<T> {
+  const response = await fetchImpl(`${getRequestOrigin()}/api/cs/${command}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as T;
+  if (!response.ok) {
+    throw new Error(readCloudStackError(payload) ?? `CloudStack ${command} request failed`);
+  }
+
+  return payload;
+}
+
+function readCloudStackError(payload: { errorresponse?: CloudStackErrorResponse }): string | null {
+  return payload.errorresponse?.errortext ?? null;
 }
