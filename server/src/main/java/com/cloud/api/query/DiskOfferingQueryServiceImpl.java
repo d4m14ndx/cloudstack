@@ -98,10 +98,8 @@ public class DiskOfferingQueryServiceImpl implements DiskOfferingQueryService {
     @Override
     public ListResponse<DiskOfferingResponse> searchForDiskOfferings(ListDiskOfferingsCmd cmd) {
         Pair<List<DiskOfferingJoinVO>, Integer> result = searchForDiskOfferingsInternal(cmd);
-        ListResponse<DiskOfferingResponse> response = new ListResponse<>();
-        List<DiskOfferingResponse> offeringResponses = ViewResponseHelper.createDiskOfferingResponses(cmd.getVirtualMachineId(), result.first());
-        response.setResponses(offeringResponses, result.second());
-        return response;
+        return ListResponseBuilder.fromPair(result,
+                offerings -> ViewResponseHelper.createDiskOfferingResponses(cmd.getVirtualMachineId(), offerings));
     }
 
     private Pair<List<DiskOfferingJoinVO>, Integer> searchForDiskOfferingsInternal(ListDiskOfferingsCmd cmd) {
