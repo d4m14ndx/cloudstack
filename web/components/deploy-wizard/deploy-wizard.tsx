@@ -474,6 +474,10 @@ function StepContent({
   }
 
   if (step === 3) {
+    const hasCustomDiskSize = Boolean(selections.diskOffering?.customized);
+    const hasInvalidCustomDiskSize = hasCustomDiskSize && parsePositiveInteger(form.diskOfferingSizeGiB) === null;
+    const diskSizeErrorId = "deploy-wizard-disk-size-error";
+
     return (
       <div className="space-y-4">
         <OptionGrid
@@ -483,7 +487,7 @@ function StepContent({
           onSelect={(diskOfferingId) => onFormChange((current) => ({ ...current, diskOfferingId }))}
           render={(offering) => <DiskOfferingOption offering={offering} />}
         />
-        {selections.diskOffering?.customized ? (
+        {hasCustomDiskSize ? (
           <div className="max-w-[220px]">
             <label className="block text-sm font-medium text-[color:var(--fg)]">
               Size
@@ -493,6 +497,8 @@ function StepContent({
                   min={1}
                   step={1}
                   inputMode="numeric"
+                  aria-describedby={hasInvalidCustomDiskSize ? diskSizeErrorId : undefined}
+                  aria-invalid={hasInvalidCustomDiskSize ? "true" : undefined}
                   value={form.diskOfferingSizeGiB}
                   onChange={(event) =>
                     onFormChange((current) => ({ ...current, diskOfferingSizeGiB: event.target.value }))
@@ -501,6 +507,11 @@ function StepContent({
                 <span className="text-xs font-medium text-[color:var(--fg-muted)]">GiB</span>
               </div>
             </label>
+            {hasInvalidCustomDiskSize ? (
+              <p id={diskSizeErrorId} className="mt-2 text-xs font-medium text-[color:var(--danger)]">
+                Enter a whole GiB size greater than 0.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
