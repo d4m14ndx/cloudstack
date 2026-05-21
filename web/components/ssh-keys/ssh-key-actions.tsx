@@ -146,7 +146,7 @@ export function SshKeyDeleteButton({ name }: { name: string }) {
       if (!deleted) {
         throw new Error("CloudStack did not delete the SSH key");
       }
-      setStatus({ state: "success", message: "Deleted" });
+      setStatus({ state: "success", message: `Deleted ${name}` });
       router.refresh();
     } catch (error) {
       setStatus({ state: "error", message: error instanceof Error ? error.message : "Delete failed" });
@@ -157,8 +157,18 @@ export function SshKeyDeleteButton({ name }: { name: string }) {
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {status.state === "error" && (
-        <span className="max-w-40 truncate text-xs text-[color:var(--danger)]" title={status.message}>
+      {status.state !== "idle" && (
+        <span
+          className={`max-w-40 truncate text-xs ${
+            status.state === "error"
+              ? "text-[color:var(--danger)]"
+              : status.state === "success"
+                ? "text-[color:var(--success)]"
+                : "text-[color:var(--fg-muted)]"
+          }`}
+          role="status"
+          title={status.message}
+        >
           {status.message}
         </span>
       )}

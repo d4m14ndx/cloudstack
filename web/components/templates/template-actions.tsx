@@ -23,14 +23,17 @@ export function TemplateActions({ template }: TemplateActionsProps) {
   const router = useRouter();
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [featured, setFeatured] = useState(template.featured);
+  const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const isPending = pendingAction !== null;
 
-  async function runAction(action: Exclude<PendingAction, null>, work: () => Promise<void>) {
+  async function runAction(action: Exclude<PendingAction, null>, successMessage: string, work: () => Promise<void>) {
     setPendingAction(action);
     setErrorText(null);
+    setStatusText(null);
     try {
       await work();
+      setStatusText(successMessage);
       router.refresh();
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : "CloudStack template action failed");
@@ -45,7 +48,7 @@ export function TemplateActions({ template }: TemplateActionsProps) {
       return;
     }
 
-    void runAction("copy", async () => {
+    void runAction("copy", "Copy queued", async () => {
       await copyTemplate({ id: template.id, destZoneId: destZoneId.trim() });
     });
   }
@@ -55,14 +58,14 @@ export function TemplateActions({ template }: TemplateActionsProps) {
       return;
     }
 
-    void runAction("delete", async () => {
+    void runAction("delete", "Delete queued", async () => {
       await deleteTemplate({ id: template.id });
     });
   }
 
   function handleFeaturedChange(nextFeatured: boolean) {
     setFeatured(nextFeatured);
-    void runAction("featured", async () => {
+    void runAction("featured", "Featured permission updated", async () => {
       try {
         await updateTemplatePermissions({ id: template.id, isFeatured: nextFeatured });
       } catch (error) {
@@ -72,8 +75,21 @@ export function TemplateActions({ template }: TemplateActionsProps) {
     });
   }
 
+  const visibleStatusText = errorText ?? statusText;
+
   return (
     <div className="flex items-center justify-end gap-1.5">
+      {visibleStatusText ? (
+        <span
+          className={`max-w-44 truncate text-xs ${
+            errorText ? "text-[color:var(--danger)]" : "text-[color:var(--success)]"
+          }`}
+          role="status"
+          title={visibleStatusText}
+        >
+          {visibleStatusText}
+        </span>
+      ) : null}
       <Switch
         size="sm"
         checked={featured}
@@ -114,11 +130,6 @@ export function TemplateActions({ template }: TemplateActionsProps) {
           <Trash2 size={15} strokeWidth={1.8} />
         )}
       </Button>
-      {errorText ? (
-        <span className="sr-only" role="status">
-          {errorText}
-        </span>
-      ) : null}
     </div>
   );
 }
