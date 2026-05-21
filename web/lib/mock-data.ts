@@ -4,6 +4,7 @@ export type HostState = "up" | "maintenance" | "alert";
 export type AccountState = "active" | "disabled";
 export type EventLevel = "info" | "warn" | "error";
 export type KubernetesState = "running" | "updating" | "degraded";
+export type DomainState = "active" | "inactive";
 
 export type Instance = {
   id: string;
@@ -84,6 +85,19 @@ export type SshKeyPair = {
   account: string;
   domain: string;
   project: string | null;
+};
+
+export type TenantDomain = {
+  id: string;
+  name: string;
+  path: string;
+  parent: string | null;
+  level: number;
+  state: DomainState;
+  hasChildren: boolean;
+  instances: number;
+  projects: number;
+  networks: number;
 };
 
 export type Volume = {
@@ -198,6 +212,13 @@ export const mockSshKeyPairs: SshKeyPair[] = [
   { id: "ssh-001", name: "platform-admin", fingerprint: "SHA256:p1atf0rmadmin", account: "platform", domain: "root", project: null },
   { id: "ssh-002", name: "engineering-ci", fingerprint: "SHA256:engineeringci", account: "engineering", domain: "root/eng", project: "ci" },
   { id: "ssh-003", name: "research-gpu", fingerprint: "SHA256:researchgpu", account: "research", domain: "root/labs", project: "ml-labs" },
+];
+
+export const mockDomains: TenantDomain[] = [
+  { id: "d-root", name: "root", path: "ROOT", parent: null, level: 0, state: "active", hasChildren: true, instances: 13, projects: 5, networks: 9 },
+  { id: "d-eng", name: "engineering", path: "ROOT/engineering", parent: "ROOT", level: 1, state: "active", hasChildren: false, instances: 3, projects: 2, networks: 3 },
+  { id: "d-labs", name: "labs", path: "ROOT/labs", parent: "ROOT", level: 1, state: "active", hasChildren: false, instances: 1, projects: 1, networks: 1 },
+  { id: "d-archive", name: "archive", path: "ROOT/archive", parent: "ROOT", level: 1, state: "inactive", hasChildren: false, instances: 0, projects: 0, networks: 0 },
 ];
 
 export const mockVolumes: Volume[] = [
