@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +18,16 @@ import {
 import { getVolumesFromBff } from "@/lib/cloudstack/volumes";
 import type { Volume } from "@/lib/mock-data";
 
-export const metadata = { title: "Volumes" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.volumes");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.volumes");
   const volumes = await getVolumesFromBff({ requestHeaders: headers() });
   const attached = volumes.filter((volume) => volume.attachedTo !== null).length;
   const unattached = volumes.length - attached;
@@ -28,28 +36,28 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Volumes"
-        description={`${volumes.length} block storage volumes across your scope, ${attached} currently attached`}
+        title={t("title")}
+        description={t("description", { volumes: volumes.length, attached })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{volumes.length} total</Badge>
-        <Badge variant="success" size="md">{attached} attached</Badge>
-        <Badge variant="default" size="md">{unattached} unattached</Badge>
-        <Badge variant={detaching > 0 ? "warning" : "default"} size="md">{detaching} detaching</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: volumes.length })}</Badge>
+        <Badge variant="success" size="md">{t("badges.attached", { count: attached })}</Badge>
+        <Badge variant="default" size="md">{t("badges.unattached", { count: unattached })}</Badge>
+        <Badge variant={detaching > 0 ? "warning" : "default"} size="md">{t("badges.detaching", { count: detaching })}</Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[880px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Volume</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Zone</TableHead>
-              <TableHead>Tier</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead>Attached to</TableHead>
-              <TableHead className="pr-4 text-right">Actions</TableHead>
+              <TableHead className="pl-4">{t("table.volume")}</TableHead>
+              <TableHead>{t("table.state")}</TableHead>
+              <TableHead>{t("table.zone")}</TableHead>
+              <TableHead>{t("table.tier")}</TableHead>
+              <TableHead className="text-right">{t("table.size")}</TableHead>
+              <TableHead>{t("table.attachedTo")}</TableHead>
+              <TableHead className="pr-4 text-right">{t("table.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -67,7 +75,7 @@ export default async function Page() {
                   </TableCell>
                   <TableCell>{volume.zone}</TableCell>
                   <TableCell>{volume.type}</TableCell>
-                  <TableCell className="text-right tabular-nums">{volume.sizeGiB} GiB</TableCell>
+                  <TableCell className="text-right tabular-nums">{volume.sizeGiB} {t("units.gib")}</TableCell>
                   <TableCell>{volume.attachedTo ?? "-"}</TableCell>
                   <TableCell className="pr-4 text-right">
                     <VolumeActions volume={volume} />
@@ -77,8 +85,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={7}
-                title="No volumes in this scope"
-                description="Create storage or switch scope to review attached and unattached volumes."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>

@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { TemplateActions } from "@/components/templates/template-actions";
@@ -16,10 +18,16 @@ import {
 import { getTemplatesFromBff } from "@/lib/cloudstack/templates";
 import type { Template } from "@/lib/mock-data";
 
-export const metadata = { title: "Templates" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.templates");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.templates");
   const templates = await getTemplatesFromBff({ requestHeaders: headers() });
   const featured = templates.filter((template) => template.featured).length;
   const arm = templates.filter((template) => template.arch === "arm64").length;
@@ -28,29 +36,29 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Templates"
-        description={`${templates.length} deployable templates across your scope, ${featured} featured`}
+        title={t("title")}
+        description={t("description", { templates: templates.length, featured })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{templates.length} total</Badge>
-        <Badge variant="accent" size="md">{featured} featured</Badge>
-        <Badge variant="default" size="md">{x86} x86_64</Badge>
-        <Badge variant="default" size="md">{arm} arm64</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: templates.length })}</Badge>
+        <Badge variant="accent" size="md">{t("badges.featured", { count: featured })}</Badge>
+        <Badge variant="default" size="md">{t("badges.x86", { count: x86 })}</Badge>
+        <Badge variant="default" size="md">{t("badges.arm", { count: arm })}</Badge>
       </div>
 
       <Card className="p-0">
         <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Template</TableHead>
-              <TableHead>OS</TableHead>
-              <TableHead>Arch</TableHead>
-              <TableHead>Hypervisors</TableHead>
-              <TableHead className="text-right">Size</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="pr-4">Featured</TableHead>
-              <TableHead className="pr-4 text-right">Actions</TableHead>
+              <TableHead className="pl-4">{t("table.template")}</TableHead>
+              <TableHead>{t("table.os")}</TableHead>
+              <TableHead>{t("table.arch")}</TableHead>
+              <TableHead>{t("table.hypervisors")}</TableHead>
+              <TableHead className="text-right">{t("table.size")}</TableHead>
+              <TableHead>{t("table.account")}</TableHead>
+              <TableHead className="pr-4">{t("table.featured")}</TableHead>
+              <TableHead className="pr-4 text-right">{t("table.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -74,7 +82,7 @@ export default async function Page() {
                   <TableCell>{template.account}</TableCell>
                   <TableCell className="pr-4">
                     <Badge variant={template.featured ? "accent" : "default"}>
-                      {template.featured ? "Yes" : "No"}
+                      {template.featured ? t("labels.featuredYes") : t("labels.featuredNo")}
                     </Badge>
                   </TableCell>
                   <TableCell className="pr-4">
@@ -85,8 +93,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={8}
-                title="No templates available"
-                description="Register or sync templates before launching new instances."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
