@@ -171,13 +171,10 @@ public class ConsoleProxy {
         try {
             Class<?> clz = Class.forName(factoryClzName);
             try {
-                ConsoleProxyServerFactory factory = (ConsoleProxyServerFactory)clz.newInstance();
+                ConsoleProxyServerFactory factory = (ConsoleProxyServerFactory)clz.getDeclaredConstructor().newInstance();
                 factory.init(ConsoleProxy.ksBits, ConsoleProxy.ksPassword);
                 return factory;
-            } catch (InstantiationException e) {
-                LOGGER.error(e.getMessage(), e);
-                return null;
-            } catch (IllegalAccessException e) {
+            } catch (ReflectiveOperationException e) {
                 LOGGER.error(e.getMessage(), e);
                 return null;
             }

@@ -2240,13 +2240,9 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
             try {
                 Class<?> clazz = Class.forName(value);
-                _storage = (StorageLayer)clazz.newInstance();
+                _storage = (StorageLayer)clazz.getDeclaredConstructor().newInstance();
                 _storage.configure("StorageLayer", params);
-            } catch (ClassNotFoundException e) {
-                throw new ConfigurationException("Unable to find class " + value);
-            } catch (InstantiationException e) {
-                throw new ConfigurationException("Unable to find class " + value);
-            } catch (IllegalAccessException e) {
+            } catch (ReflectiveOperationException e) {
                 throw new ConfigurationException("Unable to find class " + value);
             }
         }

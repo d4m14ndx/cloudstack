@@ -112,7 +112,7 @@ public class ApiAddressVlanResponseServiceImpl implements ApiAddressVlanResponse
         try {
             Long podId = ApiDBUtils.getPodIdForVlan(vlan.getId());
 
-            VlanIpRangeResponse vlanResponse = subClass.newInstance();
+            VlanIpRangeResponse vlanResponse = subClass.getDeclaredConstructor().newInstance();
             vlanResponse.setId(vlan.getUuid());
             if (vlan.getVlanType() != null) {
                 vlanResponse.setForVirtualNetwork(vlan.getVlanType().equals(VlanType.VirtualNetwork));
@@ -193,7 +193,7 @@ public class ApiAddressVlanResponseServiceImpl implements ApiAddressVlanResponse
             vlanResponse.setProvider(getProviderFromVlanDetailKey(vlan));
             vlanResponse.setObjectName("vlan");
             return vlanResponse;
-        } catch (InstantiationException | IllegalAccessException e) {
+        } catch (ReflectiveOperationException e) {
             throw new CloudRuntimeException("Failed to create Vlan IP Range response", e);
         }
     }
