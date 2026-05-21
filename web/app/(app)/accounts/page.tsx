@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -70,11 +71,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No accounts found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={6}
+                title="No accounts in this scope"
+                description="CloudStack did not return any accounts for the current domain and project filters."
+              />
             )}
           </TableBody>
         </Table>

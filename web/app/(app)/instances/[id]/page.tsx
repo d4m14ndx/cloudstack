@@ -6,6 +6,7 @@ import { InstanceConsole } from "@/components/instances/instance-console";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -220,11 +221,11 @@ function NetworkingTable({ detail }: { detail: InstanceDetail }) {
               </TableRow>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-                No NICs found.
-              </TableCell>
-            </TableRow>
+            <TableEmptyState
+              colSpan={7}
+              title="No NICs attached"
+              description="CloudStack did not return network interfaces for this instance."
+            />
           )}
         </TableBody>
       </Table>
@@ -265,11 +266,11 @@ function StorageTable({ volumes }: { volumes: Volume[] }) {
               </TableRow>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-                No volumes found.
-              </TableCell>
-            </TableRow>
+            <TableEmptyState
+              colSpan={6}
+              title="No volumes attached"
+              description="CloudStack did not return storage volumes for this instance."
+            />
           )}
         </TableBody>
       </Table>
@@ -307,11 +308,11 @@ function ActivityTable({ events }: { events: Event[] }) {
               </TableRow>
             ))
           ) : (
-            <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center text-sm text-[color:var(--fg-muted)]">
-                No activity found.
-              </TableCell>
-            </TableRow>
+            <TableEmptyState
+              colSpan={6}
+              title="No instance activity"
+              description="CloudStack did not return audit or lifecycle events for this instance."
+            />
           )}
         </TableBody>
       </Table>

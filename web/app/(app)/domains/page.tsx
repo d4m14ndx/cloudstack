@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -80,11 +81,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No domains found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={8}
+                title="No domains in this scope"
+                description="CloudStack did not return any child or accessible domains for the current filters."
+              />
             )}
           </TableBody>
         </Table>

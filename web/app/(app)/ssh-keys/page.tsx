@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { SshKeyActions, SshKeyDeleteButton } from "@/components/ssh-keys/ssh-key-actions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -76,11 +77,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No SSH key pairs found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={6}
+                title="No SSH key pairs in this scope"
+                description="Register a key pair before deploying instances that require SSH access."
+              />
             )}
           </TableBody>
         </Table>
