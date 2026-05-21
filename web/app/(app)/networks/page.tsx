@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -87,11 +88,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No networks found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={7}
+                title="No networks in this scope"
+                description="Create an isolated network or VPC before attaching instances."
+              />
             )}
           </TableBody>
         </Table>

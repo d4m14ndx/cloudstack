@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { TemplateActions } from "@/components/templates/template-actions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -82,11 +83,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={8} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No templates found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={8}
+                title="No templates available"
+                description="Register or sync templates before launching new instances."
+              />
             )}
           </TableBody>
         </Table>

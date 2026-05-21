@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -85,11 +86,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={10} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No instances found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={10}
+                title="No instances in this scope"
+                description="Deploy a VM or switch scope to inspect existing workloads."
+              />
             )}
           </TableBody>
         </Table>
