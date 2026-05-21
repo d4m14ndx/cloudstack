@@ -69,8 +69,7 @@ public class DeleteVMGroupCmd extends BaseCmd {
     public void execute() {
         boolean result = _userVmService.deleteVmGroup(this);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete Instance group");
         }
