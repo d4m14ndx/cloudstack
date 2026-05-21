@@ -84,7 +84,8 @@ export function TemplateActions({ template }: TemplateActionsProps) {
           className={`max-w-44 truncate text-xs ${
             errorText ? "text-[color:var(--danger)]" : "text-[color:var(--success)]"
           }`}
-          role="status"
+          role={errorText ? "alert" : "status"}
+          aria-live={errorText ? undefined : "polite"}
           title={visibleStatusText}
         >
           {visibleStatusText}

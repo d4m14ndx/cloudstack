@@ -64,6 +64,25 @@ test.describe("SSH key and template action surfaces", () => {
     expect(deleteCall?.json).toEqual({ name: "platform-admin" });
   });
 
+  test("SSH key creation failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    mockCloudStackBff.use("createSSHKeyPair", {
+      createsshkeypairresponse: null,
+    });
+
+    await page.goto("/ssh-keys");
+
+    await page.getByLabel("Name").fill("ops-duplicate");
+    await page.getByRole("button", { name: "Create SSH key" }).click();
+
+    const alert = page.getByRole("alert").filter({
+      hasText: "CloudStack createSSHKeyPair response is missing key pair details",
+    });
+    await expect(alert).toContainText("CloudStack createSSHKeyPair response is missing key pair details");
+    const createCall = mockCloudStackBff.calls("createSSHKeyPair").at(-1);
+    expect(createCall?.method).toBe("POST");
+    expect(createCall?.json).toEqual({ name: "ops-duplicate" });
+  });
+
   test("templates page copies, updates featured permission, and deletes with safe POST payloads", async ({
     page,
     mockCloudStackBff,
@@ -116,5 +135,28 @@ test.describe("SSH key and template action surfaces", () => {
     const deleteCall = mockCloudStackBff.calls("deleteTemplate").at(-1);
     expect(deleteCall?.method).toBe("POST");
     expect(deleteCall?.json).toEqual({ id: "t-004" });
+  });
+
+  test("template copy failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    mockCloudStackBff.use("copyTemplate", {
+      errorresponse: { errortext: "Template copy quota exceeded" },
+    });
+    page.on("dialog", async (dialog) => {
+      await dialog.accept("z-dest-failure");
+    });
+
+    await page.goto("/templates");
+
+    await page.getByRole("button", { name: "Copy Rocky Linux 9" }).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: "Template copy quota exceeded" })).toContainText(
+      "Template copy quota exceeded",
+    );
+    const copyCall = mockCloudStackBff.calls("copyTemplate").at(-1);
+    expect(copyCall?.method).toBe("POST");
+    expect(copyCall?.json).toEqual({
+      id: "t-004",
+      destzoneid: "z-dest-failure",
+    });
   });
 });
