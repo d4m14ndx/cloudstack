@@ -631,25 +631,6 @@ public class VolumeServiceImpl implements VolumeService {
 
     }
 
-    private TemplateInfo waitForTemplateDownloaded(PrimaryDataStore store, TemplateInfo template) {
-        int storagePoolMaxWaitSeconds = NumbersUtil.parseInt(configDao.getValue(Config.StoragePoolMaxWaitSeconds.key()), 3600);
-        int sleepTime = 120;
-        int tries = storagePoolMaxWaitSeconds / sleepTime;
-        while (tries > 0) {
-            TemplateInfo tmpl = store.getTemplate(template.getId(), null);
-            if (tmpl != null) {
-                return tmpl;
-            }
-            try {
-                Thread.sleep(sleepTime * 1000);
-            } catch (InterruptedException e) {
-                logger.debug("waiting for template download been interrupted: " + e);
-            }
-            tries--;
-        }
-        return null;
-    }
-
     @DB
     protected void createBaseImageAsync(VolumeInfo volume, PrimaryDataStore dataStore, TemplateInfo template, AsyncCallFuture<VolumeApiResult> future) {
         String deployAsIsConfiguration = volume.getDeployAsIsConfiguration();

@@ -201,18 +201,6 @@ public class IndirectAgentLBServiceImpl extends ComponentLifecycleBase implement
         return agentBasedHosts;
     }
 
-    private List<Host> getAllAgentBasedHostsInDc(long msId, long dcId) {
-        final List<HostVO> allHosts = hostDao.listHostsByMsAndDc(msId, dcId);
-        if (allHosts == null) {
-            return new ArrayList<>();
-        }
-        final List <Host> agentBasedHosts = new ArrayList<>();
-        for (final Host host : allHosts) {
-            conditionallyAddHost(agentBasedHosts, host);
-        }
-        return agentBasedHosts;
-    }
-
     private void conditionallyAddHost(List<Host> agentBasedHosts, Host host) {
         if (host == null) {
             if (logger.isTraceEnabled()) {
