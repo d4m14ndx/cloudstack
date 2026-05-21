@@ -97,6 +97,85 @@
           "title": "No hosts in this scope",
           "description": "CloudStack did not return any routing hosts for the current zone and account filters."
         }
+      },
+      "volumes": {
+        "metadataTitle": "Volumes",
+        "title": "Volumes",
+        "description": "{volumes} block storage volumes across your scope, {attached} currently attached",
+        "badges": {
+          "total": "{count} total",
+          "attached": "{count} attached",
+          "unattached": "{count} unattached",
+          "detaching": "{count} detaching"
+        },
+        "table": {
+          "volume": "Volume",
+          "state": "State",
+          "zone": "Zone",
+          "tier": "Tier",
+          "size": "Size",
+          "attachedTo": "Attached to",
+          "actions": "Actions"
+        },
+        "units": {
+          "gib": "GiB"
+        },
+        "emptyState": {
+          "title": "No volumes in this scope",
+          "description": "Create storage or switch scope to review attached and unattached volumes."
+        }
+      },
+      "templates": {
+        "metadataTitle": "Templates",
+        "title": "Templates",
+        "description": "{templates} deployable templates across your scope, {featured} featured",
+        "badges": {
+          "total": "{count} total",
+          "featured": "{count} featured",
+          "x86": "{count} x86_64",
+          "arm": "{count} arm64"
+        },
+        "table": {
+          "template": "Template",
+          "os": "OS",
+          "arch": "Arch",
+          "hypervisors": "Hypervisors",
+          "size": "Size",
+          "account": "Account",
+          "featured": "Featured",
+          "actions": "Actions"
+        },
+        "labels": {
+          "featuredYes": "Yes",
+          "featuredNo": "No"
+        },
+        "emptyState": {
+          "title": "No templates available",
+          "description": "Register or sync templates before launching new instances."
+        }
+      },
+      "sshKeys": {
+        "metadataTitle": "SSH keys",
+        "title": "SSH keys",
+        "description": "{keyPairs} SSH key pairs across {accounts} accounts and {domains} domains",
+        "badges": {
+          "total": "{count} total",
+          "accounts": "{count} accounts",
+          "domains": "{count} domains",
+          "projectScoped": "{count} project scoped"
+        },
+        "table": {
+          "keyPair": "Key pair",
+          "fingerprint": "Fingerprint",
+          "account": "Account",
+          "domain": "Domain",
+          "project": "Project",
+          "actions": "Actions"
+        },
+        "emptyState": {
+          "title": "No SSH key pairs in this scope",
+          "description": "Register a key pair before deploying instances that require SSH access."
+        }
       }
     }
   },

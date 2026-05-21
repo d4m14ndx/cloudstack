@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { SshKeyActions, SshKeyDeleteButton } from "@/components/ssh-keys/ssh-key-actions";
@@ -16,10 +18,16 @@ import {
 import { getSshKeyPairsFromBff } from "@/lib/cloudstack/ssh-keys";
 import type { SshKeyPair } from "@/lib/mock-data";
 
-export const metadata = { title: "SSH keys" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.sshKeys");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.sshKeys");
   const keyPairs = await getSshKeyPairsFromBff({ requestHeaders: headers() });
   const accounts = new Set(keyPairs.map((keyPair) => keyPair.account)).size;
   const domains = new Set(keyPairs.map((keyPair) => keyPair.domain)).size;
@@ -28,15 +36,15 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="SSH keys"
-        description={`${keyPairs.length} SSH key pairs across ${accounts} accounts and ${domains} domains`}
+        title={t("title")}
+        description={t("description", { keyPairs: keyPairs.length, accounts, domains })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info" size="md">{keyPairs.length} total</Badge>
-        <Badge variant="accent" size="md">{accounts} accounts</Badge>
-        <Badge variant="default" size="md">{domains} domains</Badge>
-        <Badge variant={projects > 0 ? "success" : "default"} size="md">{projects} project scoped</Badge>
+        <Badge variant="info" size="md">{t("badges.total", { count: keyPairs.length })}</Badge>
+        <Badge variant="accent" size="md">{t("badges.accounts", { count: accounts })}</Badge>
+        <Badge variant="default" size="md">{t("badges.domains", { count: domains })}</Badge>
+        <Badge variant={projects > 0 ? "success" : "default"} size="md">{t("badges.projectScoped", { count: projects })}</Badge>
       </div>
 
       <SshKeyActions />
@@ -45,12 +53,12 @@ export default async function Page() {
         <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Key pair</TableHead>
-              <TableHead>Fingerprint</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead>Domain</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead className="pr-4 text-right">Actions</TableHead>
+              <TableHead className="pl-4">{t("table.keyPair")}</TableHead>
+              <TableHead>{t("table.fingerprint")}</TableHead>
+              <TableHead>{t("table.account")}</TableHead>
+              <TableHead>{t("table.domain")}</TableHead>
+              <TableHead>{t("table.project")}</TableHead>
+              <TableHead className="pr-4 text-right">{t("table.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -79,8 +87,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={6}
-                title="No SSH key pairs in this scope"
-                description="Register a key pair before deploying instances that require SSH access."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>
