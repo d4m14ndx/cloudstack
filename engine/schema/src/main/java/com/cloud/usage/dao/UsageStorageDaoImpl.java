@@ -173,12 +173,8 @@ public class UsageStorageDaoImpl extends GenericDaoBase<UsageStorageVO, Long> im
             if (param1 != null) {
                 pstmt.setLong(i++, param1);
             }
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
+            UsageDateRangeBinder dateRangeBinder = UsageDateRangeBinder.of(startDate, endDate);
+            i = dateRangeBinder.bindStartEndPairs(pstmt, i, 3);
 
             try(ResultSet rs = pstmt.executeQuery();) {
                 while (rs.next()) {
