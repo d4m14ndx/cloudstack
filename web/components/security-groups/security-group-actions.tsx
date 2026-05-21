@@ -196,7 +196,7 @@ export function SecurityGroupActions({ securityGroups }: SecurityGroupActionsPro
           </div>
         ) : null}
       </CardHeader>
-      <CardContent className="grid gap-4 xl:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.65fr)]">
+      <CardContent className="grid gap-4 2xl:grid-cols-[minmax(380px,0.9fr)_minmax(0,1.6fr)]">
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-[1fr_1.2fr_auto] lg:grid-cols-1 xl:grid-cols-[1fr_1.2fr_auto]">
             <Input

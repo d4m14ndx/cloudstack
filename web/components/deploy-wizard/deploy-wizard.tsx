@@ -373,6 +373,7 @@ function StepContent({
             </CardHeader>
             <CardContent>
               <Select
+                aria-label="Project"
                 className="w-full"
                 value={form.projectId}
                 onChange={(event) => onFormChange((current) => ({ ...current, projectId: event.target.value }))}
@@ -494,6 +495,7 @@ function StepContent({
           </CardHeader>
           <CardContent>
             <Select
+              aria-label="SSH key"
               className="w-full"
               value={form.sshKeyPairId}
               onChange={(event) => onFormChange((current) => ({ ...current, sshKeyPairId: event.target.value }))}
@@ -517,6 +519,7 @@ function StepContent({
             </CardHeader>
             <CardContent>
               <Select
+                aria-label="Affinity group"
                 className="w-full"
                 value={form.affinityGroupId}
                 onChange={(event) => onFormChange((current) => ({ ...current, affinityGroupId: event.target.value }))}
@@ -538,6 +541,7 @@ function StepContent({
               <CardDescription>{form.startVm ? "Instance will boot after creation" : "Instance will remain stopped"}</CardDescription>
             </div>
             <Switch
+              aria-label="Start after deploy"
               checked={form.startVm}
               onCheckedChange={(startVm) => onFormChange((current) => ({ ...current, startVm }))}
             />

@@ -208,7 +208,7 @@ const ENDPOINTS = [
 export async function getDeployWizardCatalogFromBff({
   fetchImpl = fetch,
 }: FetchOptions = {}): Promise<DeployWizardCatalog> {
-  if (process.env.NEXT_PUBLIC_APP_ENV === "mock" || !process.env.CS_URL) {
+  if (process.env.NEXT_PUBLIC_APP_ENV === "mock" || (typeof window === "undefined" && !process.env.CS_URL)) {
     return mockDeployWizardCatalog;
   }
 

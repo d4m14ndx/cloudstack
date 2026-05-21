@@ -4,7 +4,8 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
@@ -19,7 +20,7 @@ export default defineConfig({
     env: {
       NEXTAUTH_SECRET: "phase5-browser-smoke-secret",
       NEXTAUTH_URL: `http://127.0.0.1:${port}`,
-      NEXT_PUBLIC_APP_ENV: "mock",
+      CS_URL: "http://cloudstack.e2e.invalid/client/api",
     },
   },
   projects: [

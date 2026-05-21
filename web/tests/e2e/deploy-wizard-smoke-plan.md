@@ -1,6 +1,6 @@
 # Deploy Wizard smoke coverage plan
 
-This branch does not contain the shared Playwright harness, test runner dependency, or BFF mocking helper yet. To avoid colliding with `phase5e-smoke-harness`, keep this file as the patch-ready contract for the harness branch to turn into `deploy-wizard.spec.ts`.
+Initial runnable coverage now lives in `web/tests/e2e/deploy-wizard.spec.ts`. Keep this plan as the deeper backlog for advanced options, guarded-launch edge cases, and async pending-progress coverage.
 
 ## Target file
 
@@ -9,13 +9,13 @@ This branch does not contain the shared Playwright harness, test runner dependen
 ## Entry point
 
 - Navigate to `/`.
-- Open the wizard with `page.getByRole("button", { name: "Deploy" }).click()`.
+- Open the wizard with `page.getByRole("button", { name: "Deploy", exact: true }).click()`.
 - Assert the dialog with `page.getByRole("dialog", { name: "Deploy instance" })`.
 - The command palette route is also available via the `cloudstack:open-deploy-wizard` event, but the topbar button is the most user-realistic smoke entry.
 
 ## Mocked BFF commands
 
-Use the shared mocked BFF helper when it lands. The helper should intercept these browser requests:
+Use the shared mocked BFF helper to intercept these browser requests:
 
 - `GET /api/cs/listZones`
 - `GET /api/cs/listTemplates?templatefilter=executable&details=min&showunique=true`
