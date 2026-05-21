@@ -18,7 +18,6 @@ package com.cloud.network;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,26 +30,21 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Component;
 
-import com.cloud.api.ApiDBUtils;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.deploy.DeployDestination;
 import com.cloud.exception.InvalidParameterValueException;
-import com.cloud.network.IpAddress.State;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Provider;
 import com.cloud.network.Network.Service;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.addr.PublicIp;
-import com.cloud.network.dao.FirewallRulesDao;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkVO;
-import com.cloud.network.rules.FirewallRule.Purpose;
-import com.cloud.network.rules.FirewallRuleVO;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.dao.VpcDao;
@@ -97,8 +91,6 @@ public class NetworkMigrationServiceImpl implements NetworkMigrationService {
     @Inject
     VlanDao _vlanDao;
     @Inject
-    FirewallRulesDao _firewallDao;
-    @Inject
     NetworkOfferingServiceMapDao _ntwkOfferingSrvcDao;
     @Inject
     ConfigurationManager _configMgr;
@@ -116,6 +108,8 @@ public class NetworkMigrationServiceImpl implements NetworkMigrationService {
     VpcManager _vpcMgr;
     @Inject
     NetworkModel _networkModel;
+    @Inject
+    NetworkOfferingIpCompatibilityService networkOfferingIpCompatibilityService;
 
     @Override
     public Network migrateGuestNetwork(long networkId, long networkOfferingId, Account callerAccount, User callerUser, boolean resume) {
@@ -458,170 +452,19 @@ public class NetworkMigrationServiceImpl implements NetworkMigrationService {
     }
 
     protected boolean canIpUsedForNonConserveService(PublicIp ip, Service service) {
-        List<PublicIp> ipList = new ArrayList<>();
-        ipList.add(ip);
-        Map<PublicIp, Set<Service>> ipToServices = getIpToServices(ipList, false, false);
-        Set<Service> services = ipToServices.get(ip);
-        if (services == null || services.isEmpty()) {
-            return true;
-        }
-        if (services.size() != 1) {
-            throw new InvalidParameterValueException("There are multiple services used IP " + ip.getAddress() + ".");
-        }
-        if (service != null && !((Service)services.toArray()[0] == service || service.equals(Service.Firewall))) {
-            throw new InvalidParameterValueException("The IP " + ip.getAddress() + " is already used as " + ((Service)services.toArray()[0]).getName() + " rather than " + service.getName());
-        }
-        return true;
+        return networkOfferingIpCompatibilityService.canIpUsedForNonConserveService(ip, service);
     }
 
     protected boolean canIpsUsedForNonConserve(List<PublicIp> publicIps) {
-        boolean result = true;
-        for (PublicIp ip : publicIps) {
-            result = canIpUsedForNonConserveService(ip, null);
-            if (!result) {
-                break;
-            }
-        }
-        return result;
+        return networkOfferingIpCompatibilityService.canIpsUsedForNonConserve(publicIps);
     }
 
     private boolean canIpsUseOffering(List<PublicIp> publicIps, long offeringId) {
-        Map<PublicIp, Set<Service>> ipToServices = getIpToServices(publicIps, false, true);
-        Map<Service, Set<Provider>> serviceToProviders = _networkModel.getNetworkOfferingServiceProvidersMap(offeringId);
-        NetworkOfferingVO offering = _networkOfferingDao.findById(offeringId);
-        if (offering.isInline()) {
-            Provider firewallProvider = null;
-            if (serviceToProviders.containsKey(Service.Firewall)) {
-                firewallProvider = (Provider)serviceToProviders.get(Service.Firewall).toArray()[0];
-            }
-            Set<Provider> p = new HashSet<>();
-            p.add(firewallProvider);
-            serviceToProviders.remove(Service.Lb);
-            serviceToProviders.put(Service.Lb, p);
-        }
-        for (PublicIp ip : ipToServices.keySet()) {
-            Set<Service> services = ipToServices.get(ip);
-            Provider provider = null;
-            for (Service service : services) {
-                Set<Provider> curProviders = serviceToProviders.get(service);
-                if (curProviders == null || curProviders.isEmpty()) {
-                    continue;
-                }
-                Provider curProvider = (Provider)curProviders.toArray()[0];
-                if (provider == null) {
-                    provider = curProvider;
-                    continue;
-                }
-                if (!provider.equals(curProvider)) {
-                    throw new InvalidParameterValueException("There would be multiple providers for IP " + ip.getAddress() + " with the new network offering!");
-                }
-            }
-        }
-        return true;
+        return networkOfferingIpCompatibilityService.canIpsUseOffering(publicIps, offeringId);
     }
 
     protected Map<PublicIp, Set<Service>> getIpToServices(List<PublicIp> publicIps, boolean rulesRevoked, boolean includingFirewall) {
-        Map<PublicIp, Set<Service>> ipToServices = new java.util.HashMap<>();
-
-        if (publicIps != null && !publicIps.isEmpty()) {
-            Set<Long> networkSNAT = new HashSet<>();
-            for (PublicIp ip : publicIps) {
-                Set<Service> services = ipToServices.get(ip);
-                if (services == null) {
-                    services = new HashSet<>();
-                }
-                if (ip.isSourceNat()) {
-                    if (!networkSNAT.contains(ip.getAssociatedWithNetworkId())) {
-                        services.add(Service.SourceNat);
-                        networkSNAT.add(ip.getAssociatedWithNetworkId());
-                    } else {
-                        CloudRuntimeException ex = new CloudRuntimeException("Multiple generic source NAT IPs provided for network");
-                        IPAddressVO ipAddr = ApiDBUtils.findIpAddressById(ip.getAssociatedWithNetworkId());
-                        String ipAddrUuid = ip.getAssociatedWithNetworkId().toString();
-                        if (ipAddr != null) {
-                            ipAddrUuid = ipAddr.getUuid();
-                        }
-                        ex.addProxyObject(ipAddrUuid, "networkId");
-                        throw ex;
-                    }
-                }
-                ipToServices.put(ip, services);
-
-                if (ip.getState() == State.Allocating) {
-                    continue;
-                }
-
-                Set<Purpose> purposes = getPublicIpPurposeInRules(ip, false, includingFirewall);
-                if (ip.isOneToOneNat() && ip.getAssociatedWithVmId() != null) {
-                    if (purposes == null) {
-                        purposes = new HashSet<>();
-                    }
-                    purposes.add(Purpose.StaticNat);
-                }
-                if (purposes == null || purposes.isEmpty()) {
-                    purposes = getPublicIpPurposeInRules(ip, true, includingFirewall);
-                    if (ip.isOneToOneNat()) {
-                        if (purposes == null) {
-                            purposes = new HashSet<>();
-                        }
-                        purposes.add(Purpose.StaticNat);
-                    }
-                    if (purposes == null || purposes.isEmpty()) {
-                        continue;
-                    } else {
-                        if (rulesRevoked) {
-                            ip.setState(State.Releasing);
-                        } else {
-                            if (ip.getState() == State.Releasing) {
-                                ip.setState(State.Allocated);
-                            }
-                        }
-                    }
-                }
-                if (purposes.contains(Purpose.StaticNat)) {
-                    services.add(Service.StaticNat);
-                }
-                if (purposes.contains(Purpose.LoadBalancing)) {
-                    services.add(Service.Lb);
-                }
-                if (purposes.contains(Purpose.PortForwarding)) {
-                    services.add(Service.PortForwarding);
-                }
-                if (purposes.contains(Purpose.Vpn)) {
-                    services.add(Service.Vpn);
-                }
-                if (purposes.contains(Purpose.Firewall)) {
-                    services.add(Service.Firewall);
-                }
-                if (services.isEmpty()) {
-                    continue;
-                }
-                ipToServices.put(ip, services);
-            }
-        }
-        return ipToServices;
-    }
-
-    private Set<Purpose> getPublicIpPurposeInRules(PublicIp ip, boolean includeRevoked, boolean includingFirewall) {
-        Set<Purpose> result = new HashSet<>();
-        List<FirewallRuleVO> rules;
-        if (includeRevoked) {
-            rules = _firewallDao.listByIp(ip.getId());
-        } else {
-            rules = _firewallDao.listByIpAndNotRevoked(ip.getId());
-        }
-
-        if (rules == null || rules.isEmpty()) {
-            return null;
-        }
-
-        for (FirewallRuleVO rule : rules) {
-            if (rule.getPurpose() != Purpose.Firewall || includingFirewall) {
-                result.add(rule.getPurpose());
-            }
-        }
-
-        return result;
+        return networkOfferingIpCompatibilityService.getIpToServices(publicIps, rulesRevoked, includingFirewall);
     }
 
     private Network getNetwork(long id) {

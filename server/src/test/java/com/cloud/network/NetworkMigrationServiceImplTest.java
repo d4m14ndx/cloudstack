@@ -96,6 +96,7 @@ public class NetworkMigrationServiceImplTest {
     @Mock AccountService _accountService;
     @Mock VpcManager _vpcMgr;
     @Mock NetworkModel _networkModel;
+    @Mock NetworkOfferingIpCompatibilityService networkOfferingIpCompatibilityService;
     @Mock Account account;
     @Mock User callerUser;
 
@@ -125,6 +126,8 @@ public class NetworkMigrationServiceImplTest {
         lenient().when(_vmDao.listNonRemovedVmsByTypeAndNetwork(anyLong(), isNull())).thenReturn(Collections.emptyList());
         lenient().when(_ipAddressDao.listByAssociatedNetwork(anyLong(), isNull())).thenReturn(Collections.emptyList());
         lenient().when(_networkModel.getNetworkOfferingServiceProvidersMap(anyLong())).thenReturn(Collections.emptyMap());
+        lenient().when(networkOfferingIpCompatibilityService.canIpsUsedForNonConserve(any())).thenReturn(true);
+        lenient().when(networkOfferingIpCompatibilityService.canIpsUseOffering(any(), anyLong())).thenReturn(true);
         lenient().when(_dcDao.findById(anyLong())).thenReturn(zone);
     }
 
