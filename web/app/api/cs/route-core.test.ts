@@ -40,6 +40,25 @@ test("GET unauthenticated with no dev session returns 401 and does not call Clou
   assert.equal(harness.client.mintCalls.length, 0);
 });
 
+test("GET unauthenticated with a stale BFF cookie expires the cookie", async () => {
+  const harness = new Harness({ authenticatedUser: null });
+  const { GET } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await GET(
+    routeRequest("https://ui.example/api/cs/listVirtualMachines", {
+      headers: { cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}` },
+    }),
+    routeContext("listVirtualMachines"),
+  );
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await jsonBody(response), { error: "Unauthenticated" });
+  assert.match(response.headers.get("set-cookie") ?? "", /^cloudstack\.session=;/);
+  assert.match(response.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  assert.equal(harness.client.proxyCalls.length, 0);
+  assert.equal(harness.client.mintCalls.length, 0);
+});
+
 test("invalid command returns 400 before CloudStack is called", async () => {
   const harness = new Harness();
   const { GET } = createCloudStackRouteHandlers(harness.deps());
@@ -48,6 +67,36 @@ test("invalid command returns 400 before CloudStack is called", async () => {
 
   assert.equal(response.status, 400);
   assert.deepEqual(await jsonBody(response), { error: "Invalid CloudStack command" });
+  assert.equal(harness.client.proxyCalls.length, 0);
+  assert.equal(harness.client.mintCalls.length, 0);
+});
+
+test("encoded invalid command returns 400 before CloudStack session exchange", async () => {
+  const harness = new Harness();
+  const { GET } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await GET(
+    routeRequest("https://ui.example/api/cs/%2E%2E%2FlistVirtualMachines"),
+    routeContext("%2E%2E%2FlistVirtualMachines"),
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await jsonBody(response), { error: "Invalid CloudStack command" });
+  assert.equal(harness.client.proxyCalls.length, 0);
+  assert.equal(harness.client.mintCalls.length, 0);
+});
+
+test("invalid GET query parameters return 400 without minting a BFF session", async () => {
+  const harness = new Harness();
+  const { GET } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await GET(
+    routeRequest("https://ui.example/api/cs/listVirtualMachines?bad%20param=value"),
+    routeContext("listVirtualMachines"),
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await jsonBody(response), { error: "Invalid CloudStack request parameters" });
   assert.equal(harness.client.proxyCalls.length, 0);
   assert.equal(harness.client.mintCalls.length, 0);
 });
@@ -152,6 +201,65 @@ test("POST combines query and JSON body params, strips unsafe overrides, and for
   ]);
 });
 
+test("POST preserves query and form body params while stripping unsafe overrides", async () => {
+  const harness = new Harness();
+  await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+  const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await POST(
+    routeRequest("https://ui.example/api/cs/updateVirtualMachine?details[0].key=owner&details[0].value=alice", {
+      method: "POST",
+      headers: {
+        cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        name: "web-01",
+        "details[1].key": "tier",
+        "details[1].value": "frontend",
+        command: "destroyVirtualMachine",
+        response: "xml",
+        sessionkey: "client-secret",
+      }),
+    }),
+    routeContext("updateVirtualMachine"),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(harness.client.proxyCalls.length, 1);
+  assert.equal(harness.client.proxyCalls[0]?.method, "POST");
+  assert.equal(harness.client.proxyCalls[0]?.cloudstackSessionkey, "stored-sessionkey");
+  assert.deepEqual(paramEntries(harness.client.proxyCalls[0]?.clientParams), [
+    ["details[0].key", "owner"],
+    ["details[0].value", "alice"],
+    ["name", "web-01"],
+    ["details[1].key", "tier"],
+    ["details[1].value", "frontend"],
+  ]);
+});
+
+test("invalid POST body returns 400 without minting a BFF session", async () => {
+  const harness = new Harness();
+  const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await POST(
+    routeRequest("https://ui.example/api/cs/deployVirtualMachine", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        serviceofferingid: "small",
+        nested: { invalid: true },
+      }),
+    }),
+    routeContext("deployVirtualMachine"),
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await jsonBody(response), { error: "Invalid CloudStack request parameters" });
+  assert.equal(harness.client.proxyCalls.length, 0);
+  assert.equal(harness.client.mintCalls.length, 0);
+});
+
 test("expiring stored CloudStack session is reminted before proxying and updates the store", async () => {
   const harness = new Harness();
   await harness.store.set(existingSessionId, bffSession("old-sessionkey", now + 30_000), sessionTtlSeconds);
@@ -213,6 +321,26 @@ test("retry 401 deletes the stored session and expires the BFF session cookie", 
   assert.equal(await harness.store.get(existingSessionId), null);
   assert.match(response.headers.get("set-cookie") ?? "", /^cloudstack\.session=;/);
   assert.match(response.headers.get("set-cookie") ?? "", /Max-Age=0/);
+});
+
+test("CloudStack session exchange failure returns 503 and expires the BFF session cookie", async () => {
+  const harness = new Harness();
+  harness.client.mintError = new Error("session exchange unavailable");
+  const { GET } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await GET(
+    routeRequest("https://ui.example/api/cs/listVirtualMachines", {
+      headers: { cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}` },
+    }),
+    routeContext("listVirtualMachines"),
+  );
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await jsonBody(response), { error: "CloudStack session exchange failed" });
+  assert.match(response.headers.get("set-cookie") ?? "", /^cloudstack\.session=;/);
+  assert.match(response.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  assert.equal(harness.client.mintCalls.length, 1);
+  assert.equal(harness.client.proxyCalls.length, 0);
 });
 
 test("unsupported content type and bad JSON return 400", async () => {
@@ -352,9 +480,14 @@ class FakeClient implements CloudStackRouteClient {
   }[] = [];
   public proxyResponses: Response[] = [jsonResponse({ ok: true })];
   public proxyError: Error | null = null;
+  public mintError: Error | null = null;
 
   public async mintUserSessionToken(input: MintCloudStackSessionInput): Promise<MintCloudStackSessionResult> {
     this.mintCalls.push(input);
+    if (this.mintError) {
+      throw this.mintError;
+    }
+
     const suffix = this.mintCalls.length;
     return {
       sessionkey: `minted-session-${suffix}`,
