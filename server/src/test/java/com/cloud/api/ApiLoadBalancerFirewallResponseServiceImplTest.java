@@ -30,9 +30,13 @@ import org.apache.cloudstack.api.response.ApplicationLoadBalancerInstanceRespons
 import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
 import org.apache.cloudstack.api.response.ApplicationLoadBalancerRuleResponse;
 import org.apache.cloudstack.api.response.FirewallResponse;
+import org.apache.cloudstack.api.response.FirewallRuleResponse;
+import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
+import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
 import org.apache.cloudstack.api.response.LBHealthCheckResponse;
 import org.apache.cloudstack.api.response.LBStickinessResponse;
 import org.apache.cloudstack.api.response.LoadBalancerResponse;
+import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.ResourceTagResponse;
 import org.apache.cloudstack.network.lb.ApplicationLoadBalancerRule;
 import org.junit.Test;
@@ -52,7 +56,12 @@ import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.HealthCheckPolicy;
 import com.cloud.network.rules.LoadBalancer;
 import com.cloud.network.rules.LoadBalancerContainer;
+import com.cloud.network.rules.PortForwardingRule;
+import com.cloud.network.rules.StaticNatRule;
 import com.cloud.network.rules.StickinessPolicy;
+import com.cloud.network.vpc.NetworkACL;
+import com.cloud.network.vpc.NetworkACLItem;
+import com.cloud.region.ha.GlobalLoadBalancerRule;
 import com.cloud.server.ResourceTag;
 import com.cloud.server.ResourceTag.ResourceObjectType;
 import com.cloud.user.Account;
@@ -91,6 +100,16 @@ public class ApiLoadBalancerFirewallResponseServiceImplTest {
     private HealthCheckPolicy healthCheckPolicy;
     @Mock
     private UserVm userVm;
+    @Mock
+    private PortForwardingRule portForwardingRule;
+    @Mock
+    private StaticNatRule staticNatRule;
+    @Mock
+    private NetworkACLItem networkAclItem;
+    @Mock
+    private NetworkACL networkAcl;
+    @Mock
+    private GlobalLoadBalancerRule globalLoadBalancerRule;
 
     @Test
     public void createLoadBalancerResponseBuildsOwnerTagsAndNetworkFields() {
@@ -300,6 +319,178 @@ public class ApiLoadBalancerFirewallResponseServiceImplTest {
             assertEquals("10.1.1.20", ReflectionTestUtils.getField(instanceResponses.get(0), "ipAddress"));
             assertEquals("vm-uuid", ReflectionTestUtils.getField(instanceResponses.get(0), "id"));
             assertEquals("i-2-3-VM", ReflectionTestUtils.getField(instanceResponses.get(0), "name"));
+        }
+    }
+
+    @Test
+    public void createPortForwardingRuleResponseBuildsPortsProtocolAndNetworkWithNullIp() {
+        when(portForwardingRule.getId()).thenReturn(111L);
+        when(portForwardingRule.getUuid()).thenReturn("pf-uuid");
+        when(portForwardingRule.getDestinationPortStart()).thenReturn(8080);
+        when(portForwardingRule.getDestinationPortEnd()).thenReturn(8080);
+        when(portForwardingRule.getProtocol()).thenReturn("tcp");
+        when(portForwardingRule.getSourcePortStart()).thenReturn(80);
+        when(portForwardingRule.getSourcePortEnd()).thenReturn(80);
+        when(portForwardingRule.getNetworkId()).thenReturn(301L);
+        when(portForwardingRule.getState()).thenReturn(FirewallRule.State.Active);
+        when(portForwardingRule.isDisplay()).thenReturn(true);
+        when(portForwardingRule.getSourceIpAddressId()).thenReturn(201L);
+        when(network.getUuid()).thenReturn("network-uuid");
+        when(network.getName()).thenReturn("test-network");
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(() -> ApiDBUtils.findFirewallSourceCidrs(111L)).thenReturn(Collections.singletonList("0.0.0.0/0"));
+            apiDBUtils.when(() -> ApiDBUtils.findNetworkById(301L)).thenReturn(network);
+            apiDBUtils.when(() -> ApiDBUtils.findIpAddressById(201L)).thenReturn(null);
+            apiDBUtils.when(() -> ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.PortForwardingRule, 111L)).thenReturn(Collections.emptyList());
+
+            FirewallRuleResponse response = service.createPortForwardingRuleResponse(portForwardingRule);
+
+            assertEquals("pf-uuid", ReflectionTestUtils.getField(response, "id"));
+            assertEquals("tcp", ReflectionTestUtils.getField(response, "protocol"));
+            assertEquals("80", ReflectionTestUtils.getField(response, "publicStartPort"));
+            assertEquals("8080", ReflectionTestUtils.getField(response, "privateStartPort"));
+            assertEquals("network-uuid", ReflectionTestUtils.getField(response, "networkId"));
+            assertEquals("portforwardingrule", response.getObjectName());
+        }
+    }
+
+    @Test
+    public void createIpForwardingRuleResponseBuildsBasicFieldsWhenIpIsNull() {
+        when(staticNatRule.getUuid()).thenReturn("snat-uuid");
+        when(staticNatRule.getProtocol()).thenReturn("any");
+        when(staticNatRule.getSourcePortStart()).thenReturn(null);
+        when(staticNatRule.getSourcePortEnd()).thenReturn(null);
+        when(staticNatRule.getState()).thenReturn(FirewallRule.State.Active);
+        when(staticNatRule.getSourceIpAddressId()).thenReturn(202L);
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(() -> ApiDBUtils.findIpAddressById(202L)).thenReturn(null);
+
+            IpForwardingRuleResponse response = service.createIpForwardingRuleResponse(staticNatRule);
+
+            assertEquals("snat-uuid", ReflectionTestUtils.getField(response, "id"));
+            assertEquals("any", ReflectionTestUtils.getField(response, "protocol"));
+            assertEquals("ipforwardingrule", response.getObjectName());
+        }
+    }
+
+    @Test
+    public void createNetworkACLItemResponseBuildsFieldsWithAclDetails() {
+        when(networkAclItem.getId()).thenReturn(113L);
+        when(networkAclItem.getUuid()).thenReturn("acl-item-uuid");
+        when(networkAclItem.getProtocol()).thenReturn("tcp");
+        when(networkAclItem.getSourcePortStart()).thenReturn(22);
+        when(networkAclItem.getSourcePortEnd()).thenReturn(22);
+        when(networkAclItem.getSourceCidrList()).thenReturn(Collections.singletonList("10.0.0.0/8"));
+        when(networkAclItem.getTrafficType()).thenReturn(NetworkACLItem.TrafficType.Ingress);
+        when(networkAclItem.getIcmpCode()).thenReturn(null);
+        when(networkAclItem.getIcmpType()).thenReturn(null);
+        when(networkAclItem.getState()).thenReturn(NetworkACLItem.State.Active);
+        when(networkAclItem.getNumber()).thenReturn(5);
+        when(networkAclItem.getAction()).thenReturn(NetworkACLItem.Action.Allow);
+        when(networkAclItem.isDisplay()).thenReturn(true);
+        when(networkAclItem.getAclId()).thenReturn(500L);
+        when(networkAclItem.getReason()).thenReturn("allow SSH");
+        when(networkAcl.getUuid()).thenReturn("acl-uuid");
+        when(networkAcl.getName()).thenReturn("default-acl");
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(() -> ApiDBUtils.findByNetworkACLId(500L)).thenReturn(networkAcl);
+            apiDBUtils.when(() -> ApiDBUtils.listByResourceTypeAndId(ResourceObjectType.NetworkACL, 113L)).thenReturn(Collections.emptyList());
+
+            NetworkACLItemResponse response = service.createNetworkACLItemResponse(networkAclItem);
+
+            assertEquals("acl-item-uuid", ReflectionTestUtils.getField(response, "id"));
+            assertEquals("tcp", ReflectionTestUtils.getField(response, "protocol"));
+            assertEquals("acl-uuid", ReflectionTestUtils.getField(response, "aclId"));
+            assertEquals("default-acl", ReflectionTestUtils.getField(response, "aclName"));
+            assertEquals("allow SSH", ReflectionTestUtils.getField(response, "reason"));
+            assertEquals("networkacl", response.getObjectName());
+        }
+    }
+
+    @Test
+    public void createGlobalLoadBalancerResponseBuildsBasicFieldsWithNoSiteLbs() {
+        when(globalLoadBalancerRule.getId()).thenReturn(120L);
+        when(globalLoadBalancerRule.getUuid()).thenReturn("glb-uuid");
+        when(globalLoadBalancerRule.getName()).thenReturn("global-lb");
+        when(globalLoadBalancerRule.getDescription()).thenReturn("global traffic");
+        when(globalLoadBalancerRule.getAlgorithm()).thenReturn("roundrobin");
+        when(globalLoadBalancerRule.getPersistence()).thenReturn("sourceip");
+        when(globalLoadBalancerRule.getServiceType()).thenReturn("HTTP");
+        when(globalLoadBalancerRule.getGslbDomain()).thenReturn("gslb");
+        when(globalLoadBalancerRule.getRegion()).thenReturn(1);
+        when(globalLoadBalancerRule.getAccountId()).thenReturn(400L);
+        when(globalLoadBalancerRule.getDomainId()).thenReturn(500L);
+        stubNormalAccountAndDomain();
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(ApiDBUtils::getDnsNameConfiguredForGslb).thenReturn("example.com");
+            apiDBUtils.when(() -> ApiDBUtils.listSiteLoadBalancers(120L)).thenReturn(Collections.emptyList());
+            apiDBUtils.when(() -> ApiDBUtils.findAccountById(400L)).thenReturn(account);
+            apiDBUtils.when(() -> ApiDBUtils.findDomainById(500L)).thenReturn(domain);
+
+            GlobalLoadBalancerResponse response = service.createGlobalLoadBalancerResponse(globalLoadBalancerRule);
+
+            assertEquals("glb-uuid", ReflectionTestUtils.getField(response, "id"));
+            assertEquals("global-lb", ReflectionTestUtils.getField(response, "name"));
+            assertEquals("roundrobin", ReflectionTestUtils.getField(response, "algorithm"));
+            assertEquals("gslb.example.com", ReflectionTestUtils.getField(response, "gslbDomainName"));
+            assertEquals("globalloadbalancer", response.getObjectName());
+        }
+    }
+
+    @Test
+    public void createLBStickinessPolicyResponseSinglePolicyBuildsResponse() {
+        when(loadBalancer.getUuid()).thenReturn("lb-uuid");
+        when(loadBalancer.getAccountId()).thenReturn(400L);
+        stubNormalAccountAndDomain();
+        when(stickinessPolicy.getUuid()).thenReturn("sp-uuid");
+        when(stickinessPolicy.getName()).thenReturn("app-cookie");
+        when(stickinessPolicy.getMethodName()).thenReturn("AppCookie");
+        when(stickinessPolicy.getParams()).thenReturn(Collections.emptyList());
+        when(stickinessPolicy.isDisplay()).thenReturn(false);
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(() -> ApiDBUtils.findAccountById(400L)).thenReturn(account);
+            apiDBUtils.when(() -> ApiDBUtils.findDomainById(500L)).thenReturn(domain);
+
+            LBStickinessResponse response = service.createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer);
+
+            assertEquals("lb-uuid", ReflectionTestUtils.getField(response, "lbRuleId"));
+            assertEquals("account-name", response.getAccountName());
+            assertEquals(1, response.getStickinessPolicies().size());
+            assertEquals("app-cookie", response.getStickinessPolicies().get(0).getName());
+            assertEquals("stickinesspolicies", response.getObjectName());
+        }
+    }
+
+    @Test
+    public void createLBHealthCheckPolicyResponseSinglePolicyBuildsResponse() {
+        when(loadBalancer.getUuid()).thenReturn("lb-uuid");
+        when(loadBalancer.getAccountId()).thenReturn(400L);
+        stubNormalAccountAndDomain();
+        when(healthCheckPolicy.getUuid()).thenReturn("hc-uuid");
+        when(healthCheckPolicy.getpingpath()).thenReturn("/ping");
+        when(healthCheckPolicy.getDescription()).thenReturn("ping check");
+        when(healthCheckPolicy.getHealthcheckInterval()).thenReturn(10);
+        when(healthCheckPolicy.getResponseTime()).thenReturn(3);
+        when(healthCheckPolicy.getHealthcheckThresshold()).thenReturn(2);
+        when(healthCheckPolicy.getUnhealthThresshold()).thenReturn(5);
+        when(healthCheckPolicy.isDisplay()).thenReturn(true);
+
+        try (MockedStatic<ApiDBUtils> apiDBUtils = Mockito.mockStatic(ApiDBUtils.class)) {
+            apiDBUtils.when(() -> ApiDBUtils.findAccountById(400L)).thenReturn(account);
+            apiDBUtils.when(() -> ApiDBUtils.findDomainById(500L)).thenReturn(domain);
+
+            LBHealthCheckResponse response = service.createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer);
+
+            assertEquals("lb-uuid", ReflectionTestUtils.getField(response, "lbRuleId"));
+            assertEquals("account-name", response.getAccountName());
+            assertEquals(1, response.getHealthCheckPolicies().size());
+            assertEquals("/ping", response.getHealthCheckPolicies().get(0).getpingpath());
+            assertEquals("healthcheckpolicies", response.getObjectName());
         }
     }
 
