@@ -97,6 +97,228 @@
           "title": "No hosts in this scope",
           "description": "CloudStack did not return any routing hosts for the current zone and account filters."
         }
+      },
+      "billing": {
+        "metadataTitle": "Billing quota summary",
+        "title": "Billing quota summary",
+        "description": "{summaries} quota summaries from CloudStack quotaSummary across active accounts and projects",
+        "badges": {
+          "summaries": "{count} summaries",
+          "quotaEnabled": "{count} quota enabled",
+          "disabled": "{count} disabled",
+          "removed": "{count} removed"
+        },
+        "table": {
+          "accountProject": "Account/project",
+          "domain": "Domain",
+          "accountState": "Account state",
+          "quotaState": "Quota state",
+          "balance": "Balance",
+          "currentPeriodUsage": "Current-period usage",
+          "period": "Period"
+        },
+        "states": {
+          "removed": "Removed",
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "unknown": "Unknown"
+        },
+        "currency": {
+          "noCurrency": "No currency",
+          "multipleCurrencies": "{count} currencies"
+        },
+        "emptyState": {
+          "title": "No quota summaries in this scope",
+          "description": "CloudStack quotaSummary did not return any accounts or projects for the current filters."
+        }
+      },
+      "events": {
+        "metadataTitle": "Events",
+        "title": "Events",
+        "description": "{events} audit and lifecycle events across your scope",
+        "badges": {
+          "total": "{count} total",
+          "info": "{count} info",
+          "warn": "{count} warn",
+          "error": "{count} error"
+        },
+        "table": {
+          "time": "Time",
+          "level": "Level",
+          "action": "Action",
+          "target": "Target",
+          "user": "User",
+          "description": "Description"
+        },
+        "levels": {
+          "info": "Info",
+          "warn": "Warn",
+          "error": "Error"
+        },
+        "emptyState": {
+          "title": "No events in this scope",
+          "description": "CloudStack did not return audit or lifecycle events for the current filters."
+        }
+      },
+      "kubernetes": {
+        "metadataTitle": "Kubernetes",
+        "title": "Kubernetes",
+        "description": "{clusters} CloudStack-managed clusters with {nodes} nodes across your scope",
+        "badges": {
+          "total": "{count} total",
+          "running": "{count} running",
+          "updating": "{count} updating",
+          "degraded": "{count} degraded"
+        },
+        "table": {
+          "cluster": "Cluster",
+          "version": "Version",
+          "zone": "Zone",
+          "account": "Account",
+          "nodes": "Nodes",
+          "state": "State",
+          "endpoint": "Endpoint"
+        },
+        "states": {
+          "running": "Running",
+          "updating": "Updating",
+          "degraded": "Degraded"
+        },
+        "emptyState": {
+          "title": "No Kubernetes clusters in this scope",
+          "description": "CloudStack did not return any managed Kubernetes clusters for the current filters."
+        }
+      },
+      "kubernetesDetail": {
+        "metadataTitle": "Kubernetes Cluster",
+        "description": "{account} · {zone} · {id}",
+        "states": {
+          "running": "Running",
+          "updating": "Updating",
+          "degraded": "Degraded"
+        },
+        "roles": {
+          "control": "Control",
+          "worker": "Worker",
+          "etcd": "Etcd",
+          "external": "External"
+        },
+        "levels": {
+          "info": "Info",
+          "warn": "Warn",
+          "error": "Error"
+        },
+        "metrics": {
+          "nodes": {
+            "label": "Nodes",
+            "subValue": "{control} control, {worker} worker, {etcd} etcd"
+          },
+          "version": {
+            "label": "Version",
+            "noVersionId": "No version id"
+          },
+          "endpoint": {
+            "label": "Endpoint",
+            "noNetworkName": "No network name"
+          },
+          "autoscaling": {
+            "label": "Autoscaling",
+            "enabled": "Enabled",
+            "disabled": "Disabled",
+            "noRange": "No range reported",
+            "range": "{min} min / {max} max"
+          }
+        },
+        "tabs": {
+          "overview": "Overview",
+          "nodes": "Nodes",
+          "networking": "Networking",
+          "scaling": "Scaling",
+          "activity": "Activity"
+        },
+        "cards": {
+          "identity": "Identity",
+          "placementAndVersion": "Placement and Version",
+          "imagesAndOfferings": "Images and Offerings",
+          "summary": "Summary",
+          "network": "Network",
+          "plugins": "Plugins",
+          "autoscaling": "Autoscaling",
+          "poolCounts": "Pool Counts"
+        },
+        "labels": {
+          "name": "Name",
+          "id": "ID",
+          "description": "Description",
+          "account": "Account",
+          "domain": "Domain",
+          "project": "Project",
+          "created": "Created",
+          "type": "Type",
+          "zone": "Zone",
+          "zoneId": "Zone ID",
+          "version": "Version",
+          "semantic": "Semantic",
+          "versionId": "Version ID",
+          "state": "State",
+          "serviceOffering": "Service offering",
+          "offeringId": "Offering ID",
+          "template": "Template",
+          "templateId": "Template ID",
+          "sshKey": "SSH key",
+          "control": "Control",
+          "workers": "Workers",
+          "etcd": "Etcd",
+          "external": "External",
+          "total": "Total",
+          "network": "Network",
+          "networkId": "Network ID",
+          "endpoint": "Endpoint",
+          "consoleEndpoint": "Console endpoint",
+          "cni": "CNI",
+          "csi": "CSI",
+          "enabled": "Enabled",
+          "minimum": "Minimum",
+          "maximum": "Maximum",
+          "currentTotal": "Current total"
+        },
+        "values": {
+          "yes": "Yes",
+          "no": "No"
+        },
+        "sections": {
+          "nodes": "Nodes",
+          "activity": "Activity"
+        },
+        "nodes": {
+          "table": {
+            "node": "Node",
+            "role": "Role",
+            "state": "State",
+            "privateIp": "Private IP",
+            "publicIp": "Public IP",
+            "zone": "Zone",
+            "account": "Account"
+          },
+          "emptyState": {
+            "title": "No node inventory",
+            "description": "CloudStack did not return node records for this Kubernetes cluster."
+          }
+        },
+        "activity": {
+          "table": {
+            "time": "Time",
+            "level": "Level",
+            "action": "Action",
+            "target": "Target",
+            "user": "User",
+            "description": "Description"
+          },
+          "emptyState": {
+            "title": "No cluster activity",
+            "description": "CloudStack did not return audit or lifecycle events for this Kubernetes cluster."
+          }
+        }
       }
     }
   },
