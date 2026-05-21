@@ -122,7 +122,7 @@ function ActionStatus({ state }: { state: ActionState }) {
 
   if (state.status === "submitting") {
     return (
-      <span aria-live="polite" className="whitespace-nowrap text-xs text-[color:var(--fg-muted)]">
+      <span role="status" aria-live="polite" aria-busy="true" className="whitespace-nowrap text-xs text-[color:var(--fg-muted)]">
         Submitting
       </span>
     );
@@ -130,7 +130,7 @@ function ActionStatus({ state }: { state: ActionState }) {
 
   if (state.status === "polling") {
     return (
-      <span aria-live="polite" className="whitespace-nowrap text-xs text-[color:var(--fg-muted)]">
+      <span role="status" aria-live="polite" aria-busy="true" className="whitespace-nowrap text-xs text-[color:var(--fg-muted)]">
         {state.progress !== undefined ? `Polling ${state.progress}%` : "Polling"}
       </span>
     );
@@ -138,7 +138,8 @@ function ActionStatus({ state }: { state: ActionState }) {
 
   return (
     <span
-      aria-live="polite"
+      role={state.status === "failed" ? "alert" : "status"}
+      aria-live={state.status === "failed" ? undefined : "polite"}
       className={
         state.status === "success"
           ? "whitespace-nowrap text-xs text-[color:var(--success)]"

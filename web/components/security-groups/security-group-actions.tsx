@@ -185,15 +185,26 @@ export function SecurityGroupActions({ securityGroups }: SecurityGroupActionsPro
         </div>
         {message ? (
           <div
+            role={message.kind === "error" ? "alert" : "status"}
+            aria-live={message.kind === "error" ? undefined : "polite"}
             className={
               message.kind === "error"
                 ? "flex max-w-full items-center gap-1 rounded-md border border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 px-2 py-1 text-xs text-[color:var(--danger)]"
                 : "flex max-w-full items-center gap-1 rounded-md border border-[color:var(--success)]/30 bg-[color:var(--success)]/10 px-2 py-1 text-xs text-[color:var(--success)]"
             }
           >
-            {message.kind === "error" ? <AlertCircle size={13} strokeWidth={1.7} /> : <RefreshCw size={13} strokeWidth={1.7} />}
+            {message.kind === "error" ? (
+              <AlertCircle size={13} strokeWidth={1.7} aria-hidden="true" />
+            ) : (
+              <RefreshCw size={13} strokeWidth={1.7} aria-hidden="true" />
+            )}
             <span className="truncate">{message.text}</span>
           </div>
+        ) : null}
+        {busyAction ? (
+          <span role="status" aria-live="polite" aria-busy="true" className="sr-only">
+            {busyActionText(busyAction)}
+          </span>
         ) : null}
       </CardHeader>
       <CardContent className="grid gap-4 2xl:grid-cols-[minmax(380px,0.9fr)_minmax(0,1.6fr)]">
@@ -377,4 +388,20 @@ function RuleList({
 
 function readError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function busyActionText(action: BusyAction): string {
+  if (action === "create") {
+    return "Creating security group";
+  }
+
+  if (action === "rule") {
+    return "Authorizing rule";
+  }
+
+  if (action === "delete") {
+    return "Deleting security group";
+  }
+
+  return "Revoking rule";
 }

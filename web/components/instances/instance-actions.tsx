@@ -102,7 +102,8 @@ export function InstanceActions({ id, name, state }: InstanceActionsProps) {
       ))}
       {status.state !== "idle" && (
         <span
-          aria-live="polite"
+          role={status.state === "failed" ? "alert" : "status"}
+          aria-live={status.state === "failed" ? undefined : "polite"}
           className={status.state === "failed" ? "max-w-[260px] truncate text-xs text-[color:var(--danger)]" : "text-xs text-[color:var(--fg-muted)]"}
           title={statusText(status)}
         >
