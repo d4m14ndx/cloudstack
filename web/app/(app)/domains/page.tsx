@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -15,10 +17,16 @@ import {
 import { getDomainsFromBff } from "@/lib/cloudstack/domains";
 import type { TenantDomain } from "@/lib/mock-data";
 
-export const metadata = { title: "Domains" };
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.domains");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function Page() {
+  const t = await getTranslations("Core.pages.domains");
   const domains = await getDomainsFromBff({ requestHeaders: headers() });
   const active = domains.filter((domain) => domain.state === "active").length;
   const inactive = domains.length - active;
@@ -30,8 +38,13 @@ export default async function Page() {
   return (
     <>
       <PageHeader
-        title="Domains"
-        description={`${domains.length} domains with ${instances} instances, ${projects} projects, and ${networks} networks`}
+        title={t("title")}
+        description={t("description", {
+          domains: domains.length,
+          instances,
+          projects,
+          networks,
+        })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -83,8 +96,8 @@ export default async function Page() {
             ) : (
               <TableEmptyState
                 colSpan={8}
-                title="No domains in this scope"
-                description="CloudStack did not return any child or accessible domains for the current filters."
+                title={t("emptyState.title")}
+                description={t("emptyState.description")}
               />
             )}
           </TableBody>

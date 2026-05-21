@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -10,24 +12,37 @@ import { getDashboardInventoryFromBff } from "@/lib/cloudstack/dashboard";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Core.pages.overview");
+
+  return { title: t("metadataTitle") };
+}
+
 export default async function OverviewPage() {
+  const t = await getTranslations("Core.pages.overview");
   const user = getCurrentUser();
   const inventory = await getDashboardInventoryFromBff({ requestHeaders: headers() });
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const greetingKey = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const greeting = t(`greeting.${greetingKey}`);
+  const firstName = user.name.split(" ")[0] ?? user.name;
 
   return (
     <>
       <PageHeader
-        title={`${greeting}, ${user.name.split(" ")[0]}`}
-        description={`${inventory.summary.onlineZones} zones online · ${inventory.summary.totalHosts} hosts · ${inventory.summary.runningInstances} instances running across your platform`}
+        title={t("title", { greeting, name: firstName })}
+        description={t("description", {
+          onlineZones: inventory.summary.onlineZones,
+          totalHosts: inventory.summary.totalHosts,
+          runningInstances: inventory.summary.runningInstances,
+        })}
         actions={
           <>
             <Button variant="secondary" size="md" className="gap-1.5">
-              <Download size={14} strokeWidth={1.6} /> Export report
+              <Download size={14} strokeWidth={1.6} /> {t("actions.exportReport")}
             </Button>
             <Button variant="primary" size="md" className="gap-1.5">
-              <Plus size={14} strokeWidth={2} /> Deploy instance
+              <Plus size={14} strokeWidth={2} /> {t("actions.deployInstance")}
             </Button>
           </>
         }
@@ -71,7 +86,7 @@ export default async function OverviewPage() {
       </div>
 
       <div className="mt-6 rounded-[var(--radius-lg)] border border-dashed border-[color:var(--border)] p-12 text-center text-sm text-[color:var(--fg-muted)]">
-        Zones, activity feed, top instances, and quick actions land in Phase 5c.
+        {t("emptyState.description")}
       </div>
     </>
   );

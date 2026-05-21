@@ -52,6 +52,54 @@
       }
     }
   },
+  "Core": {
+    "pages": {
+      "overview": {
+        "metadataTitle": "Overview",
+        "title": "{greeting}, {name}",
+        "greeting": {
+          "morning": "Good morning",
+          "afternoon": "Good afternoon",
+          "evening": "Good evening"
+        },
+        "description": "{onlineZones} zones online · {totalHosts} hosts · {runningInstances} instances running across your platform",
+        "actions": {
+          "exportReport": "Export report",
+          "deployInstance": "Deploy instance"
+        },
+        "emptyState": {
+          "description": "Zones, activity feed, top instances, and quick actions land in Phase 5c."
+        }
+      },
+      "accounts": {
+        "metadataTitle": "Accounts",
+        "title": "Accounts",
+        "description": "{accounts} accounts, {users} users, and {instances} instances across your scope",
+        "emptyState": {
+          "title": "No accounts in this scope",
+          "description": "CloudStack did not return any accounts for the current domain and project filters."
+        }
+      },
+      "domains": {
+        "metadataTitle": "Domains",
+        "title": "Domains",
+        "description": "{domains} domains with {instances} instances, {projects} projects, and {networks} networks",
+        "emptyState": {
+          "title": "No domains in this scope",
+          "description": "CloudStack did not return any child or accessible domains for the current filters."
+        }
+      },
+      "infrastructure": {
+        "metadataTitle": "Infrastructure",
+        "title": "Infrastructure",
+        "description": "{hosts} routing hosts across your scope, {instances} instances placed",
+        "emptyState": {
+          "title": "No hosts in this scope",
+          "description": "CloudStack did not return any routing hosts for the current zone and account filters."
+        }
+      }
+    }
+  },
   "Settings": {
     "pages": {
       "index": {
