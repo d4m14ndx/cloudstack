@@ -1,13 +1,18 @@
+import { headers } from "next/headers";
+
 import { PageHeader } from "@/components/page-header";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Sparkline } from "@/components/ui/sparkline";
 import { Button } from "@/components/ui/button";
 import { Download, Plus, IconInstances, Cpu, MemoryStick, Database } from "@/components/icons";
 import { getCurrentUser } from "@/lib/auth/mock";
-import { mockDashboardMetrics, mockDashboardSummary } from "@/lib/mock-data";
+import { getDashboardInventoryFromBff } from "@/lib/cloudstack/dashboard";
 
-export default function OverviewPage() {
+export const dynamic = "force-dynamic";
+
+export default async function OverviewPage() {
   const user = getCurrentUser();
+  const inventory = await getDashboardInventoryFromBff({ requestHeaders: headers() });
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
@@ -15,7 +20,7 @@ export default function OverviewPage() {
     <>
       <PageHeader
         title={`${greeting}, ${user.name.split(" ")[0]}`}
-        description={`${mockDashboardSummary.onlineZones} zones online · ${mockDashboardSummary.totalHosts} hosts · ${mockDashboardSummary.runningInstances} instances running across your platform`}
+        description={`${inventory.summary.onlineZones} zones online · ${inventory.summary.totalHosts} hosts · ${inventory.summary.runningInstances} instances running across your platform`}
         actions={
           <>
             <Button variant="secondary" size="md" className="gap-1.5">
@@ -29,7 +34,7 @@ export default function OverviewPage() {
       />
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
-        {mockDashboardMetrics.map((s) => {
+        {inventory.metrics.map((s) => {
           const Icon = s.label.startsWith("Instances")
             ? IconInstances
             : s.label.startsWith("vCPUs")
@@ -51,6 +56,7 @@ export default function OverviewPage() {
                     {s.value}
                   </span>
                   <span className="text-sm text-[color:var(--fg-dim)]">{s.denom}</span>
+                  {s.suffix && <span className="text-xs text-[color:var(--fg-dim)]">{s.suffix}</span>}
                 </div>
                 <div className="mt-2 flex items-end justify-between">
                   <span className="text-xs text-[color:var(--success)]">{s.delta}</span>
