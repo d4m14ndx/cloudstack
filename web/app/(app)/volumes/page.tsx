@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import { VolumeActions } from "@/components/volumes/volume-actions";
 import {
   Table,
@@ -74,11 +75,11 @@ export default async function Page() {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-sm text-[color:var(--fg-muted)]">
-                  No volumes found.
-                </TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={7}
+                title="No volumes in this scope"
+                description="Create storage or switch scope to review attached and unattached volumes."
+              />
             )}
           </TableBody>
         </Table>
