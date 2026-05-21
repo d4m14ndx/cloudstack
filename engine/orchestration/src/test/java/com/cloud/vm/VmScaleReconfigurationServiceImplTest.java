@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
@@ -276,6 +277,50 @@ public class VmScaleReconfigurationServiceImplTest {
         verify(userVmMgr).generateUsageEvent(vm, true, EventTypes.EVENT_VM_DYNAMIC_SCALE);
         verify(capacityMgr).releaseVmCapacity(vm, false, false, SRC_HOST_ID);
         verify(capacityMgr).allocateVmCapacity(vm, false);
+    }
+
+    @Test
+    public void findHostAndMigrateThrowsWhenVmNotFound() {
+        when(vmDao.findByUuid(VM_UUID)).thenReturn(null);
+
+        assertThrows(CloudRuntimeException.class,
+                () -> service.findHostAndMigrate(VM_UUID, NEW_OFFERING_ID, Map.of(), new DeploymentPlanner.ExcludeList()));
+    }
+
+    @Test
+    public void findHostAndMigrateThrowsWhenHostIdIsNull()
+            throws InsufficientCapacityException, ConcurrentOperationException, ResourceUnavailableException {
+        when(vmDao.findByUuid(VM_UUID)).thenReturn(vm);
+        when(vm.getHostId()).thenReturn(null);
+        when(vm.getServiceOfferingId()).thenReturn(OLD_OFFERING_ID);
+        when(offeringDao.findById(NEW_OFFERING_ID)).thenReturn(baseOffering);
+        when(baseOffering.isDynamic()).thenReturn(false);
+
+        assertThrows(CloudRuntimeException.class,
+                () -> service.findHostAndMigrate(VM_UUID, NEW_OFFERING_ID, Map.of(), new DeploymentPlanner.ExcludeList()));
+    }
+
+    @Test
+    public void reConfigureVmCreatesAndExpungesPlaceholderWhenInWorkJob() throws Exception {
+        AsyncJobExecutionContext jobContext = mock(AsyncJobExecutionContext.class);
+        VmWorkJobVO placeholder = new VmWorkJobVO("");
+        ServiceOffering oldOffering = mock(ServiceOffering.class);
+        ServiceOffering newOffering = mock(ServiceOffering.class);
+        when(jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)).thenReturn(true);
+        when(vmDao.findByUuid(VM_UUID)).thenReturn(vm);
+        when(vm.getId()).thenReturn(VM_ID);
+        when(vmWorkJobQueueService.createPlaceHolderWork(VM_ID)).thenReturn(placeholder);
+        doReturn(vm).when(service).orchestrateReConfigureVm(VM_UUID, oldOffering, newOffering, false);
+
+        try (MockedStatic<AsyncJobExecutionContext> context = mockStatic(AsyncJobExecutionContext.class)) {
+            context.when(AsyncJobExecutionContext::getCurrentExecutionContext).thenReturn(jobContext);
+
+            service.reConfigureVm(VM_UUID, oldOffering, newOffering, Map.of(), false);
+        }
+
+        verify(vmWorkJobQueueService).createPlaceHolderWork(VM_ID);
+        verify(service).orchestrateReConfigureVm(VM_UUID, oldOffering, newOffering, false);
+        verify(vmWorkJobQueueService).expungePlaceHolderWork(placeholder);
     }
 
     @Test
