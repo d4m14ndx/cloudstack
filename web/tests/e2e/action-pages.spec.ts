@@ -26,7 +26,7 @@ test.describe("action-heavy CloudStack pages", () => {
 
     await page.getByRole("button", { name: "Stop web-prod-01" }).click();
 
-    await expect(page.getByText("Stop complete · Stopped")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Stop complete · Stopped" })).toBeVisible();
     const stopCall = mockCloudStackBff.calls("stopVirtualMachine").at(-1);
     expect(stopCall?.method).toBe("POST");
     expect(stopCall?.json).toEqual({ id: "i-9f3a2b" });
@@ -52,6 +52,25 @@ test.describe("action-heavy CloudStack pages", () => {
     await expect(page.getByRole("button", { name: "Open console for web-prod-01" })).toBeEnabled();
   });
 
+  test("instance lifecycle failures are announced as alerts", async ({ page, mockCloudStackBff }) => {
+    mockCloudStackBff.use("stopVirtualMachine", {
+      stopvirtualmachineresponse: { jobid: "job-stop-denied" },
+    });
+    mockCloudStackBff.use("queryAsyncJobResult", ({ params }) => ({
+      queryasyncjobresultresponse: {
+        jobid: params.get("jobid") ?? "job-stop-denied",
+        jobstatus: 2,
+        jobresult: { errortext: "Denied by policy" },
+      },
+    }));
+
+    await page.goto("/instances");
+
+    await page.getByRole("button", { name: "Stop web-prod-01" }).click();
+
+    await expect(page.getByRole("alert").filter({ hasText: "Denied by policy" })).toBeVisible();
+  });
+
   test("volumes page covers detach and delete flows", async ({ page, mockCloudStackBff }) => {
     mockCloudStackBff.use("detachVolume", {
       detachvolumeresponse: { id: "v-9d3a", jobid: "job-detach-volume" },
@@ -75,13 +94,13 @@ test.describe("action-heavy CloudStack pages", () => {
     await expect(page.getByRole("row", { name: /backups-archive/ })).toContainText("backups-archive");
 
     await page.getByRole("button", { name: "Detach web-prod-01-root" }).click();
-    await expect(page.getByText("Detached")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Detached" })).toBeVisible();
     const detachCall = mockCloudStackBff.calls("detachVolume").at(-1);
     expect(detachCall?.method).toBe("POST");
     expect(detachCall?.json).toEqual({ id: "v-9d3a" });
 
     await page.getByRole("button", { name: "Delete backups-archive" }).click();
-    await expect(page.getByText("Deleted")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Deleted" })).toBeVisible();
     const deleteCall = mockCloudStackBff.calls("deleteVolume").at(-1);
     expect(deleteCall?.method).toBe("POST");
     expect(deleteCall?.json).toEqual({ id: "v-1a4b" });

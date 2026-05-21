@@ -25,11 +25,11 @@ test.describe("network and security smoke coverage", () => {
     await expect(page.getByRole("cell", { name: "203.0.113.5", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Acquire IP" }).click();
-    await expect(page.getByText("Acquired")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Acquired" })).toBeVisible();
     expect(mockCloudStackBff.calls("associateIpAddress").at(-1)?.json).toEqual({ networkid: "n-106" });
 
     await page.getByRole("button", { name: "Enable static NAT for 203.0.113.5" }).click();
-    await expect(page.getByText("Static NAT enabled")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Static NAT enabled" })).toBeVisible();
     expect(mockCloudStackBff.calls("enableStaticNat").at(-1)?.json).toEqual({
       ipaddressid: "n-106-ip-1",
       networkid: "n-106",
@@ -49,7 +49,7 @@ test.describe("network and security smoke coverage", () => {
     await page.getByLabel("Security group name").fill("api-smoke");
     await page.getByLabel("Security group description").fill("API ingress group");
     await page.getByRole("button", { name: "Create" }).click();
-    await expect(page.getByText("Security group created.")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Security group created." })).toBeVisible();
     expect(mockCloudStackBff.calls("createSecurityGroup").at(-1)?.json).toEqual({
       account: "platform",
       description: "API ingress group",
@@ -61,7 +61,7 @@ test.describe("network and security smoke coverage", () => {
     await page.getByLabel("Start port").fill("8443");
     await page.getByLabel("End port").fill("8443");
     await page.getByRole("button", { name: "Add" }).click();
-    await expect(page.getByText("Rule authorized.")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Rule authorized." })).toBeVisible();
     expect(mockCloudStackBff.calls("authorizeSecurityGroupIngress").at(-1)?.json).toEqual({
       account: "platform",
       cidrlist: "203.0.113.0/24",
@@ -73,7 +73,7 @@ test.describe("network and security smoke coverage", () => {
     });
 
     await page.getByRole("button", { name: "Revoke ingress rule sg-001-ingress-ssh" }).click();
-    await expect(page.getByText("Rule revoked.")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Rule revoked." })).toBeVisible();
     expect(mockCloudStackBff.calls("revokeSecurityGroupIngress").at(-1)?.json).toEqual({ id: "sg-001-ingress-ssh" });
   });
 });
