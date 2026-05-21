@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { InstanceActions } from "@/components/instances/instance-actions";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,7 @@ export default async function Page({ params }: { params: { id: string } }) {
             </Badge>
             <Badge variant="default" size="md">{detail.instance.account}</Badge>
             <Badge variant="info" size="md">{detail.instance.zone}</Badge>
+            <InstanceActions id={detail.instance.id} name={detail.instance.name} state={detail.instance.state} />
           </>
         }
       />
