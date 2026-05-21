@@ -107,3 +107,6 @@ waf-*
 
 # Claude Code per-developer settings (contains per-user auth allowlist)
 .claude/
+
+# Local linked worktrees for AI-assisted slice work
+.worktrees/
