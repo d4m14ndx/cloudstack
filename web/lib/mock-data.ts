@@ -37,6 +37,82 @@ export type Network = {
   gateway: string;
 };
 
+export type NetworkTier = {
+  id: string;
+  name: string;
+  cidr: string;
+  gateway: string;
+  netmask: string | null;
+  state: Extract<ResourceState, "running" | "warning">;
+  offering: string | null;
+  aclId: string | null;
+};
+
+export type NetworkPublicIp = {
+  id: string;
+  address: string;
+  state: string;
+  sourceNat: boolean;
+  staticNat: boolean;
+  networkName: string | null;
+  vmName: string | null;
+};
+
+export type NetworkAclRule = {
+  id: string;
+  number: string;
+  action: string;
+  protocol: string;
+  range: string;
+  source: string;
+  trafficType: string;
+  state: string;
+};
+
+export type NetworkAclList = {
+  id: string;
+  name: string;
+  description: string | null;
+  rules: NetworkAclRule[];
+};
+
+export type NetworkDetail = {
+  kind: Network["type"];
+  network: Network;
+  summary: {
+    tierCount: number;
+    publicIpCount: number;
+    aclCount: number;
+    instanceCount: number;
+  };
+  addressing: {
+    cidr: string;
+    gateway: string;
+    netmask: string | null;
+    networkDomain: string | null;
+  };
+  ownership: {
+    account: string;
+    domain: string;
+    project: string | null;
+    zone: string;
+  };
+  offering: {
+    name: string | null;
+  };
+  flags: {
+    redundant: boolean;
+    distributed: boolean;
+    restartRequired: boolean;
+    specifyIpRanges: boolean;
+    canUseForDeploy: boolean;
+  };
+  tiers: NetworkTier[];
+  publicIps: NetworkPublicIp[];
+  aclLists: NetworkAclList[];
+  activity: Event[];
+};
+
 export type Zone = {
   id: string;
   name: string;
@@ -205,6 +281,91 @@ export const mockNetworks: Network[] = [
   { id: "n-105", name: "ml-vpc", cidr: "10.5.0.0/16", type: "VPC", zone: "syd-2", instances: 1, state: "warning", gateway: "10.5.0.1" },
   { id: "n-106", name: "mgmt", cidr: "10.0.0.0/24", type: "Isolated", zone: "syd-1", instances: 1, state: "running", gateway: "10.0.0.1" },
 ];
+
+export const mockNetworkDetails: NetworkDetail[] = mockNetworks.map((network) => ({
+  kind: network.type,
+  network: {
+    ...network,
+    gateway: network.type === "VPC" ? "-" : network.gateway,
+  },
+  summary: {
+    tierCount: network.type === "VPC" ? Math.max(1, Math.min(4, Math.ceil(network.instances / 2))) : 0,
+    publicIpCount: network.type === "Isolated" || network.instances > 1 ? 1 : 0,
+    aclCount: 1,
+    instanceCount: network.instances,
+  },
+  addressing: {
+    cidr: network.cidr,
+    gateway: network.type === "VPC" ? "-" : network.gateway,
+    netmask: network.type === "VPC" ? null : "255.255.255.0",
+    networkDomain: `${network.name}.mock.local`,
+  },
+  ownership: {
+    account: network.name.includes("ci") ? "engineering" : "platform",
+    domain: "mock",
+    project: null,
+    zone: network.zone,
+  },
+  offering: {
+    name: network.type === "VPC" ? "Mock VPC offering" : "Mock isolated offering",
+  },
+  flags: {
+    redundant: network.type === "VPC",
+    distributed: false,
+    restartRequired: network.state === "warning",
+    specifyIpRanges: false,
+    canUseForDeploy: true,
+  },
+  tiers:
+    network.type === "VPC"
+      ? [
+          {
+            id: `${network.id}-tier-1`,
+            name: `${network.name}-tier`,
+            cidr: network.cidr,
+            gateway: network.gateway,
+            netmask: "255.255.255.0",
+            state: network.state,
+            offering: "Mock tier offering",
+            aclId: `${network.id}-acl`,
+          },
+        ]
+      : [],
+  publicIps:
+    network.type === "Isolated" || network.instances > 1
+      ? [
+          {
+            id: `${network.id}-ip-1`,
+            address: network.type === "Isolated" ? "203.0.113.5" : "203.0.113.41",
+            state: "Allocated",
+            sourceNat: true,
+            staticNat: false,
+            networkName: network.name,
+            vmName: null,
+          },
+        ]
+      : [],
+  aclLists: [
+    {
+      id: `${network.id}-acl`,
+      name: `${network.name}-acl`,
+      description: "Mock network ACL",
+      rules: [
+        {
+          id: `${network.id}-acl-rule-1`,
+          number: "100",
+          action: "Allow",
+          protocol: "tcp",
+          range: "443",
+          source: "0.0.0.0/0",
+          trafficType: "Ingress",
+          state: "Active",
+        },
+      ],
+    },
+  ],
+  activity: [],
+}));
 
 export const mockZones: Zone[] = [
   { id: "z-syd-1", name: "syd-1", region: "Sydney, AU", state: "enabled", hosts: 24, pods: 4, instances: 218, cpuPct: 64, memPct: 71, storagePct: 58 },

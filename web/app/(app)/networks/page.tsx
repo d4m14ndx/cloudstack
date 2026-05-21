@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -57,8 +58,18 @@ export default async function Page() {
                 <TableRow key={`${network.type}-${network.id}`}>
                   <TableCell className="pl-4">
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{network.name}</div>
-                      <div className="truncate font-mono text-xs text-[color:var(--fg-muted)]">{network.id}</div>
+                      <Link
+                        href={`/networks/${network.id}`}
+                        className="block truncate font-medium text-[color:var(--fg)] hover:text-[color:var(--accent)]"
+                      >
+                        {network.name}
+                      </Link>
+                      <Link
+                        href={`/networks/${network.id}`}
+                        className="block truncate font-mono text-xs text-[color:var(--fg-muted)] hover:text-[color:var(--accent)]"
+                      >
+                        {network.id}
+                      </Link>
                     </div>
                   </TableCell>
                   <TableCell>
