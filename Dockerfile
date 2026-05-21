@@ -26,7 +26,7 @@
 # -----------------------------------------------------------------------------
 # Build stage: compile the management server WAR + dependencies
 # -----------------------------------------------------------------------------
-FROM eclipse-temurin:17-jdk-noble AS build
+FROM eclipse-temurin:21-jdk-noble AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         maven \
@@ -46,7 +46,7 @@ RUN mvn -B -ntp install -DskipTests -P developer,systemvm -T1C
 # -----------------------------------------------------------------------------
 # Runtime stage: minimal Java image with the built jars
 # -----------------------------------------------------------------------------
-FROM eclipse-temurin:17-jre-noble
+FROM eclipse-temurin:21-jre-noble
 
 LABEL org.opencontainers.image.title="CloudStack Management Server" \
       org.opencontainers.image.description="Apache CloudStack management server (fork)" \

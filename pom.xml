@@ -57,7 +57,7 @@
         <sonar.exclusions>api/src/main/java/org/apache/cloudstack/api/response/BackupOfferingResponse.java</sonar.exclusions>
 
         <!-- Build properties -->
-        <cs.jdk.version>17</cs.jdk.version>
+        <cs.jdk.version>21</cs.jdk.version>
         <cs.target.dir>target</cs.target.dir>
         <cs.replace.properties>build/replace.properties</cs.replace.properties>
         <argLine>-Djava.security.egd=file:/dev/./urandom -noverify --add-opens=java.base/java.lang=ALL-UNNAMED --add-exports=java.base/sun.security.x509=ALL-UNNAMED --add-exports=java.base/sun.security.provider=ALL-UNNAMED --add-opens=java.base/javax.net.ssl=ALL-UNNAMED</argLine>
@@ -576,12 +576,12 @@
             <dependency>
                 <groupId>org.aspectj</groupId>
                 <artifactId>aspectjtools</artifactId>
-                <version>1.8.13</version>
+                <version>${cs.aspectjrt.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.aspectj</groupId>
                 <artifactId>aspectjweaver</artifactId>
-                <version>1.8.13</version>
+                <version>${cs.aspectjrt.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
@@ -1126,17 +1126,10 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${cs.compiler-plugin.version}</version>
                     <configuration>
-                        <source>${cs.jdk.version}</source>
-                        <target>${cs.jdk.version}</target>
+                        <release>${cs.jdk.version}</release>
                         <fork>true</fork>
                         <meminitial>128m</meminitial>
                         <maxmem>512m</maxmem>
-                        <compilerArgs>
-                            <arg>-XDignore.symbol.file=true</arg>
-                            <arg>--add-opens=java.base/java.lang=ALL-UNNAMED</arg>
-                            <arg>--add-exports=java.base/sun.security.x509=ALL-UNNAMED</arg>
-                            <arg>--add-exports=java.base/sun.security.provider=ALL-UNNAMED</arg>
-                        </compilerArgs>
                     </configuration>
                 </plugin>
                 <plugin>

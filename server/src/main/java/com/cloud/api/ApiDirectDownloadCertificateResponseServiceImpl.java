@@ -18,6 +18,7 @@ package com.cloud.api;
 
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,8 +39,6 @@ import com.cloud.host.HostVO;
 import com.cloud.utils.Pair;
 import com.cloud.utils.security.CertificateHelper;
 
-import sun.security.x509.X509CertImpl;
-
 @Component
 public class ApiDirectDownloadCertificateResponseServiceImpl implements ApiDirectDownloadCertificateResponseService {
 
@@ -49,12 +48,12 @@ public class ApiDirectDownloadCertificateResponseServiceImpl implements ApiDirec
     public void handleCertificateResponse(String certStr, DirectDownloadCertificateResponse response) {
         try {
             Certificate cert = CertificateHelper.buildCertificate(certStr);
-            if (cert instanceof X509CertImpl) {
-                X509CertImpl certificate = (X509CertImpl) cert;
+            if (cert instanceof X509Certificate) {
+                X509Certificate certificate = (X509Certificate) cert;
                 response.setVersion(String.valueOf(certificate.getVersion()));
                 response.setSubject(certificate.getSubjectDN().toString());
                 response.setIssuer(certificate.getIssuerDN().toString());
-                response.setSerialNum(certificate.getSerialNumberObject().toString());
+                response.setSerialNum(certificate.getSerialNumber().toString());
                 response.setValidity(String.format("From: [%s] - To: [%s]", certificate.getNotBefore(), certificate.getNotAfter()));
             }
         } catch (CertificateException e) {

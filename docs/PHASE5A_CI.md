@@ -20,9 +20,9 @@ the same build locally.
   management server via `ui/nginx/default.conf`.
 
 **`cloudstack-management`** — built from the root `Dockerfile`:
-- Stage 1 (`eclipse-temurin:17-jdk-noble`): full Maven build via
+- Stage 1 (`eclipse-temurin:21-jdk-noble`): full Maven build via
   `mvn -B -ntp install -DskipTests -P developer,systemvm`.
-- Stage 2 (`eclipse-temurin:17-jre-noble`): minimal JRE runtime, `tini` init,
+- Stage 2 (`eclipse-temurin:21-jre-noble`): minimal JRE runtime, `tini` init,
   drops to `cloud` (uid 1000) user, exposes 8080 + 8443.
 - **UI assets are NOT bundled** into this image — that is the whole point of
   Phase 5a.
@@ -108,7 +108,7 @@ without access to registry secrets.
 
 - Docker 24+ with BuildKit enabled (`DOCKER_BUILDKIT=1` or Docker Desktop)
 - For the UI: Node 20+ and npm 10+
-- For the API: JDK 17 + Maven 3.9 (or just Docker — the Dockerfile handles
+- For the API: JDK 21 + Maven 3.9 (or just Docker — the Dockerfile handles
   the Maven build in its own stage)
 
 ### UI image

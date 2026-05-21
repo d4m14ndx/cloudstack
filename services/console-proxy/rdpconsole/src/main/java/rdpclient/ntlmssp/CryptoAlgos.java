@@ -26,6 +26,8 @@ import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.bouncycastle.crypto.digests.MD4Digest;
+
 import rdpclient.rdp.RdpConstants;
 
 /**
@@ -169,11 +171,11 @@ public class CryptoAlgos implements NtlmConstants {
      * byte string m ([RFC1320]).
      */
     public static byte[] MD4(byte[] m) {
-        try {
-            return sun.security.provider.MD4.getInstance().digest(m);
-        } catch (Exception e) {
-            throw new RuntimeException("Cannot calculate MD5.", e);
-        }
+        MD4Digest digest = new MD4Digest();
+        digest.update(m, 0, m.length);
+        byte[] hash = new byte[digest.getDigestSize()];
+        digest.doFinal(hash, 0);
+        return hash;
     }
 
     /**
