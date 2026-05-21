@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { InstanceActions } from "@/components/instances/instance-actions";
+import { InstanceConsole } from "@/components/instances/instance-console";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,10 +133,15 @@ function ConsolePanel({ detail }: { detail: InstanceDetail }) {
       <CardHeader>
         <CardTitle>Console</CardTitle>
       </CardHeader>
-      <div className="grid gap-3 text-sm">
-        <p className="text-[color:var(--fg-muted)]">
-          Console access will be issued through the BFF in a later slice so short-lived console URLs stay server-side.
-        </p>
+      <div className="grid gap-4 text-sm">
+        <InstanceConsole
+          id={detail.instance.id}
+          name={detail.identity.name}
+          state={detail.instance.state}
+          rawState={detail.console.rawState}
+          hostControlState={detail.console.hostControlState}
+          externalUrl={detail.console.externalUrl}
+        />
         <dl className="grid gap-2">
           <KeyValue label="Instance" value={detail.identity.name} />
           <KeyValue label="State" value={stateLabel(detail.instance.state)} />

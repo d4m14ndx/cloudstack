@@ -4,18 +4,19 @@ import test from "node:test";
 import { createConsoleEndpoint } from "./instance-console.ts";
 
 test("createConsoleEndpoint posts virtualmachineid only to the BFF", async () => {
-  const requests: Array<{ url: string; init?: RequestInit; body: Record<string, string> }> = [];
-  const fetchImpl: typeof fetch = async (input, init) => {
+  const requests: Array<{ url: URL; init: RequestInit; body: Record<string, string> }> = [];
+  const fetchImpl: typeof fetch = async (input, init = {}) => {
     requests.push({
-      url: String(input),
+      url: new URL(String(input)),
       init,
-      body: JSON.parse(String(init?.body)) as Record<string, string>,
+      body: JSON.parse(String(init.body)) as Record<string, string>,
     });
     return Response.json({
       createconsoleendpointresponse: {
         consoleendpoint: {
           success: true,
-          url: "wss://console.example.test/token",
+          url: "https://console.example.test/client/console?token=secret-token",
+          websockettoken: "websocket-secret",
         },
       },
     });
@@ -24,9 +25,10 @@ test("createConsoleEndpoint posts virtualmachineid only to the BFF", async () =>
   await createConsoleEndpoint("vm-1", { fetchImpl });
 
   assert.equal(requests.length, 1);
-  assert.equal(new URL(requests[0]!.url).pathname, "/api/cs/createConsoleEndpoint");
-  assert.equal(requests[0]!.init?.method, "POST");
-  assert.equal((requests[0]!.init?.headers as Record<string, string>)["content-type"], "application/json");
+  assert.equal(requests[0]!.url.pathname, "/api/cs/createConsoleEndpoint");
+  assert.equal(requests[0]!.init.method, "POST");
+  assert.equal(requests[0]!.init.cache, "no-store");
+  assert.equal((requests[0]!.init.headers as Record<string, string>)["content-type"], "application/json");
   assert.deepEqual(requests[0]!.body, { virtualmachineid: "vm-1" });
 });
 
@@ -38,7 +40,7 @@ test("createConsoleEndpoint normalizes successful URL responses", async () => {
           consoleendpoint: {
             success: "true",
             url: "https://console.example.test/session",
-            websocket: "wss://console.example.test/session",
+            websocket: { token: "websocket-secret" },
             details: "ready",
           },
         },
@@ -46,31 +48,45 @@ test("createConsoleEndpoint normalizes successful URL responses", async () => {
   });
 
   assert.deepEqual(result, {
-    success: true,
     url: "https://console.example.test/session",
-    websocket: "wss://console.example.test/session",
+    websocket: { token: "websocket-secret" },
     details: "ready",
+    websocketToken: null,
   });
 });
 
-test("createConsoleEndpoint returns failure details without a URL", async () => {
+test("createConsoleEndpoint supports legacy string endpoint envelopes", async () => {
   const result = await createConsoleEndpoint("vm-1", {
     fetchImpl: async () =>
       Response.json({
         createconsoleendpointresponse: {
-          consoleendpoint: {
-            success: false,
-            details: "VM is not running",
-          },
+          consoleendpoint: "https://console.example.test/string-endpoint",
+          websockettoken: "websocket-secret",
         },
       }),
   });
 
   assert.deepEqual(result, {
-    success: false,
-    details: "VM is not running",
+    url: "https://console.example.test/string-endpoint",
+    websocketToken: "websocket-secret",
   });
-  assert.equal("url" in result, false);
+});
+
+test("createConsoleEndpoint surfaces failure details without fabricating a URL", async () => {
+  await assert.rejects(
+    createConsoleEndpoint("vm-1", {
+      fetchImpl: async () =>
+        Response.json({
+          createconsoleendpointresponse: {
+            consoleendpoint: {
+              success: false,
+              details: "VM is not running",
+            },
+          },
+        }),
+    }),
+    /VM is not running/,
+  );
 });
 
 test("createConsoleEndpoint rejects malformed successful responses that omit url", async () => {
@@ -90,18 +106,35 @@ test("createConsoleEndpoint rejects malformed successful responses that omit url
   );
 });
 
+test("createConsoleEndpoint surfaces CloudStack HTTP error text", async () => {
+  await assert.rejects(
+    createConsoleEndpoint("vm-1", {
+      fetchImpl: async () =>
+        Response.json(
+          {
+            errorresponse: {
+              errortext: "Console proxy is unavailable",
+            },
+          },
+          { status: 503 },
+        ),
+    }),
+    /Console proxy is unavailable/,
+  );
+});
+
 test("createConsoleEndpoint does not pass extra sensitive or session parameters in request payload", async () => {
   const requests: Array<{ body: Record<string, string> }> = [];
-  const fetchImpl: typeof fetch = async (_input, init) => {
+  const fetchImpl: typeof fetch = async (_input, init = {}) => {
     requests.push({
-      body: JSON.parse(String(init?.body)) as Record<string, string>,
+      body: JSON.parse(String(init.body)) as Record<string, string>,
     });
     return Response.json({
       createconsoleendpointresponse: {
         consoleendpoint: {
           success: true,
           url: "https://console.example.test/session",
-          websocket: "wss://console.example.test/session",
+          websockettoken: "websocket-secret",
         },
       },
     });
