@@ -76,6 +76,13 @@ async function proxyCloudStackCommand(
     return jsonError("CloudStack API is not configured", 503);
   }
 
+  let clientParams: URLSearchParams;
+  try {
+    clientParams = await readClientParams(request, method);
+  } catch {
+    return jsonError("Invalid CloudStack request parameters", 400);
+  }
+
   const client = deps.createClient(config);
   let sessionResolution: BffSessionResolution | null = null;
   if (authenticatedUser) {
@@ -121,13 +128,6 @@ async function proxyCloudStackCommand(
   } catch {
     await store.delete(bffSessionId);
     return jsonError("CloudStack session refresh failed", 401, expiredBffSessionCookieHeader(secureCookie));
-  }
-
-  let clientParams: URLSearchParams;
-  try {
-    clientParams = await readClientParams(request, method);
-  } catch {
-    return jsonError("Invalid CloudStack request parameters", 400);
   }
 
   try {
