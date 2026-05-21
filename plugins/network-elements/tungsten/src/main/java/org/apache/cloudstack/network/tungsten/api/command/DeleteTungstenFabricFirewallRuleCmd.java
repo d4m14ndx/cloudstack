@@ -26,7 +26,6 @@ import com.cloud.user.Account;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
@@ -38,7 +37,7 @@ import jakarta.inject.Inject;
 
 @APICommand(name = DeleteTungstenFabricFirewallRuleCmd.APINAME, description = "Delete Tungsten-Fabric firewall rule",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
-public class DeleteTungstenFabricFirewallRuleCmd extends BaseAsyncCmd {
+public class DeleteTungstenFabricFirewallRuleCmd extends TungstenFabricAsyncCmd {
     public static final String APINAME = "deleteTungstenFabricFirewallRule";
 
     @Inject
@@ -55,8 +54,7 @@ public class DeleteTungstenFabricFirewallRuleCmd extends BaseAsyncCmd {
         ConcurrentOperationException, ResourceAllocationException, NetworkRuleConflictException {
         boolean result = tungstenService.deleteTungstenFirewallRule(zoneId, firewallRuleUuid);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete Tungsten-Fabric firewall rule");
         }

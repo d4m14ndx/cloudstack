@@ -26,7 +26,6 @@ import com.cloud.user.Account;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
@@ -38,7 +37,7 @@ import jakarta.inject.Inject;
 
 @APICommand(name = DeleteTungstenFabricPolicyCmd.APINAME, description = "Delete Tungsten-Fabric policy",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
-public class DeleteTungstenFabricPolicyCmd extends BaseAsyncCmd {
+public class DeleteTungstenFabricPolicyCmd extends TungstenFabricAsyncCmd {
     public static final String APINAME = "deleteTungstenFabricPolicy";
 
     @Inject
@@ -55,8 +54,7 @@ public class DeleteTungstenFabricPolicyCmd extends BaseAsyncCmd {
         ConcurrentOperationException, ResourceAllocationException, NetworkRuleConflictException {
         boolean result = tungstenService.deleteTungstenPolicy(zoneId, policyUuid);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete Tungsten-Fabric policy");
         }
