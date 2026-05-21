@@ -116,11 +116,14 @@ OpenJDK 21 with `mvn -B -ntp install -DskipTests -T4`.
 
 These are the best first cleanup candidates.
 
+Status update on 2026-05-22: the stale ngui RAT excludes and the smokedev
+Dockerfile copy of the removed test backup directory were cleaned up in the
+`backend-deadcode-stale-build-artifacts` slice. They are no longer pending
+items in this queue.
+
 | Area | Candidate | Evidence | Verification |
 |---|---|---|---|
 | OVM3 leftovers | `scripts/vm/hypervisor/ovm3/` | The Java OVM3 plugin is gone; only DB compatibility enum/fields should stay. | Delete scripts, run RAT/checkstyle/build. |
-| Dead test backup | `test/bindirbak/cloud-run-test.in` | No references to `bindirbak`; name suggests old backup. | `rg bindirbak`, then build/test. |
-| Stale RAT excludes | `pom.xml` excludes for `tools/ngui/static/bootstrap/*` and `tools/ngui/static/js/lib/*` | `tools/ngui/` was removed earlier. | Remove excludes, run RAT/checkstyle. |
 | Stale Java version marker | `.java-version` | Still says `11.0` while root POM is `17`. | Update during Java 21 baseline slice. |
 | ONTAP compiler override | `plugins/storage/volume/ontap/pom.xml` source/target `11` | Conflicts with root Java version. | Align with root, run ONTAP module tests. |
 | `AnnotationManagerImpl` | private `isDomainAdminAllowedType(EntityType)` | Static search found only the definition. | Remove with annotation permission tests. |
@@ -361,8 +364,10 @@ shim or marks it as a deliberate public facade.
 
 ### C. High-Confidence Dead Code Cleanup
 
-Remove private unused helpers, OVM3 scripts, stale RAT excludes, `bindirbak`,
-and stale Java config. Acceptance: relevant unit tests plus full compile.
+Remove private unused helpers, OVM3 scripts, and stale Java config. Acceptance:
+relevant unit tests plus full compile. The stale ngui RAT excludes and the
+smokedev Dockerfile copy of the removed test backup directory have already been
+cleaned up.
 
 ### D. Repeated Backend Code Extraction
 
