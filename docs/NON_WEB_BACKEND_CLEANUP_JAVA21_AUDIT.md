@@ -40,19 +40,18 @@ The fork has moved beyond upstream's source baseline:
   `pom.xml` as observed from the GitHub mirror and local `upstream/main`.
 - Apache CloudStack 4.20 added Java 17 runtime support, and 4.22 documentation
   says management server and KVM agent require Java 17.
-- This fork currently has `<cs.jdk.version>17</cs.jdk.version>` in root
-  `pom.xml`.
+- This fork now uses `<cs.jdk.version>21</cs.jdk.version>` in root `pom.xml`
+  and `.java-version` is `21`.
 
-However, the fork is not internally consistent yet:
+The first Java 21 baseline pass has aligned build, packaging, and developer
+docs. Follow-up cleanup remains:
 
-- `.java-version` is still `11.0`.
-- `plugins/storage/volume/ontap/pom.xml` hard-codes `<source>11</source>` and
-  `<target>11</target>`.
-- `Dockerfile`, `debian/control`, `docs/DEVELOPMENT.md`, `docs/PHASE5A_CI.md`,
-  and `docs/PROGRESS.md` still describe Java 17.
-- Root `pom.xml` uses compiler `source`/`target` instead of `release`.
-- The runtime and test arg lines still depend on `-noverify`, `--add-opens`,
-  and `--add-exports` for reflective access and internal certificate APIs.
+- Root `pom.xml`, developer POMs, LDAP tests, and systemd defaults still carry
+  some `-noverify`, `--add-opens`, and `--add-exports` flags. Remove only after
+  focused tests prove each reflective path is gone.
+- Mockito inline mocking now runs through an explicit test JVM `-javaagent`
+  configured via `maven-dependency-plugin:properties`; this avoids Java 21
+  self-attach failures while preserving static/final mocking tests.
 
 ## Java 21 Migration Work
 
@@ -78,16 +77,24 @@ JAVA_HOME=<jdk21> mvn -T 4 -DskipTests install
 JAVA_HOME=<jdk21> mvn -T 4 test
 ```
 
+Status on 2026-05-22: the Java 21 baseline slice completed `.java-version`,
+root compiler release, Docker, Debian, ONTAP test stack alignment, AspectJ
+1.9.19 alignment, and developer/CI docs. The full reactor passed under
+OpenJDK 21 with `mvn -B -ntp install -DskipTests -T4`.
+
 ### Java 21 Compatibility Risks To Check
 
 - Internal JDK APIs:
-  - `sun.security.x509.X509CertImpl` in direct-download certificate handling
-    and RDP console code.
-  - `sun.security.provider.MD4` in RDP NTLM code.
-  - `com.sun.net.httpserver.*` in console proxy and Prometheus exporter.
+  - Done: `sun.security.x509.X509CertImpl` in direct-download certificate
+    handling and RDP console code was replaced with public certificate APIs.
+  - Done: `sun.security.provider.MD4` in RDP NTLM code was replaced with
+    Bouncy Castle `MD4Digest`.
+  - Still open: `com.sun.net.httpserver.*` in console proxy and Prometheus
+    exporter should be contained or replaced in a later server slice.
 - Reflective construction:
-  - Multiple `Class.newInstance()` sites remain. These should move to
-    `getDeclaredConstructor().newInstance()` with clearer exception handling.
+  - Done for low-risk production sites found in the Java 21 scout. Remaining
+    direct `Class.newInstance()` calls are test-only and tracked in
+    `docs/JAVA21_COMPAT_SCOUT.md`.
 - Finalization:
   - `DirectAgentAttache`, `ConnectedAgentAttache`, `TransactionLegacy`,
     `ConnectionConcierge`, and `SearchBase` still use `finalize()` style
@@ -96,6 +103,8 @@ JAVA_HOME=<jdk21> mvn -T 4 test
   - Root `argLine`, Dockerfile, developer POMs, LDAP tests, and systemd defaults
     all carry `--add-opens` / `--add-exports`. Revalidate under Java 21 and
     remove only after tests prove the reflective path is gone.
+  - Done for Mockito: Surefire/Failsafe now attach `mockito-core` explicitly as
+    a Java agent so Java 21 test runs do not depend on dynamic self-attach.
 - Preview features:
   - Do not use Java 21 preview features in production code. Avoid string
     templates, unnamed patterns, unnamed classes, scoped values, and structured
@@ -393,3 +402,6 @@ Run only after Java 21 is the green baseline:
   [Java language changes summary](https://docs.oracle.com/en/java/javase/21/language/java-language-changes-summary.html)
   lists record patterns and switch pattern matching as permanent Java 21
   language features.
+- Mockito's
+  [Java 21 inline mocking guidance](https://javadoc.io/static/org.mockito/mockito-core/5.16.1/org.mockito/org/mockito/Mockito.html#0.3)
+  recommends explicit Java-agent setup for Maven Surefire.

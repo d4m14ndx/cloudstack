@@ -3,6 +3,7 @@
 Date: 2026-05-22
 Branch: java21-compat-scout
 Base: 78d2c3b3f5
+Integrated: modernize-2026
 
 ## Scope
 
@@ -41,17 +42,20 @@ factory APIs such as XML/JAXB factories, `Array.newInstance`, or already use
 
 ## Internal JDK APIs
 
-These should be handled as dedicated slices because they require behavior-level
-replacement choices, not a mechanical rename:
+Resolved during the Java 21 baseline integration:
 
 - `services/console-proxy/rdpconsole/src/main/java/rdpclient/ntlmssp/CryptoAlgos.java`
-  uses `sun.security.provider.MD4`.
+  now uses Bouncy Castle `MD4Digest` instead of `sun.security.provider.MD4`.
 - `services/console-proxy/rdpconsole/src/main/java/streamer/apr/AprSocketWrapperImpl.java`
-  imports `sun.security.x509.X509CertImpl`.
+  now parses the peer certificate with `CertificateFactory` and
+  `X509Certificate`.
 - `server/src/main/java/com/cloud/api/ApiDirectDownloadCertificateResponseServiceImpl.java`
-  imports `sun.security.x509.X509CertImpl`.
+  now uses the public `X509Certificate` API.
 - `server/src/main/java/org/apache/cloudstack/direct/download/DirectDownloadManagerImpl.java`
-  imports `sun.security.x509.X509CertImpl`.
+  now uses the public `X509Certificate` API.
+
+Post-merge source search found no remaining non-web Java references to
+`sun.security.*`, `X509CertImpl`, or `sun.security.provider.MD4`.
 
 ## `com.sun.net.httpserver`
 
@@ -99,38 +103,33 @@ configuration areas and runtime packaging:
 
 The baseline-owned files were intentionally not edited in this scout branch.
 
+Mockito inline mocking is now handled by the Java 21 baseline. Surefire and
+Failsafe resolve `mockito-core` with `maven-dependency-plugin:properties` and
+attach it with `-javaagent`, matching Mockito's Java 21 guidance and avoiding
+dynamic self-attach failures in focused module tests.
+
 ## Verification Notes
 
 `git diff --check` passed.
 
-Targeted Maven compile was attempted for touched modules:
+The original scout branch targeted compile was blocked by the old
+`aspectjweaver:1.8.13` artifact. The Java 21 baseline now aligns both
+`aspectjtools` and `aspectjweaver` with `${cs.aspectjrt.version}` (`1.9.19`).
+
+Post-merge verification under OpenJDK 21:
 
 ```bash
-mvn -pl core,engine/schema,framework/db,plugins/hypervisors/baremetal,plugins/hypervisors/kvm,server,services/console-proxy/server,services/secondary-storage/server,utils -am -DskipTests compile
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home mvn -B -ntp install -DskipTests -T4
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home mvn -B -ntp -pl plugins/storage/volume/ontap test -T1
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home mvn -B -ntp -pl server -Dtest=ApiDirectDownloadCertificateResponseServiceImplTest,DirectDownloadManagerImplTest test -T1
 ```
 
-The sandboxed run failed before the touched source could compile because Maven
-could not write tracking files under `~/.m2`. An escalated run reached
-`cloud-utils` compilation but failed on a corrupted
-`org/aspectj/aspectjweaver/1.8.13/aspectjweaver-1.8.13.jar` with:
-
-```text
-Invalid CEN header (invalid zip64 extra data field size)
-```
-
-The same error reproduced with a clean temporary Maven repository at
-`/private/tmp/cloudstack-java21-scout-m2`, so this is currently a dependency
-artifact/repository blocker rather than evidence of a source-level failure in
-the scout changes.
+All passed.
 
 ## Suggested Next Slices
 
-1. Fix or override the `aspectjweaver:1.8.13` artifact source, then rerun the
-   targeted module compile under Java 21.
-2. Finish the remaining test-only `Class.newInstance()` replacements.
-3. Replace `sun.security.provider.MD4` in RDP NTLM with a supported digest
-   implementation.
-4. Replace or encapsulate `sun.security.x509.X509CertImpl` certificate parsing
-   in direct-download and RDP code.
-5. Plan explicit cleanup replacements for `finalize()` users, starting with
+1. Finish the remaining test-only `Class.newInstance()` replacements.
+2. Plan explicit cleanup replacements for `finalize()` users, starting with
    `DirectAgentAttache` and `ConnectedAgentAttache`.
+3. Decide whether to replace, wrap, or keep the JDK `com.sun.net.httpserver`
+   dependency in console proxy and Prometheus exporter.
