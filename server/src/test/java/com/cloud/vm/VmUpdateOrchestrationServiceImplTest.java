@@ -241,6 +241,40 @@ public class VmUpdateOrchestrationServiceImplTest {
         verifyNoInteractions(routerDao, commandSetupHelper, nwHelper);
     }
 
+    @Test
+    public void verifyVmLimitsThrowsWhenOwnerIsNull() {
+        when(vm.getAccountId()).thenReturn(ACCOUNT_ID);
+        when(accountDao.findById(ACCOUNT_ID)).thenReturn(null);
+
+        assertThrows(InvalidParameterValueException.class, () -> service.verifyVmLimits(vm, new HashMap<>()));
+    }
+
+    @Test
+    public void validateInputsAndPermissionThrowsWhenVmNotFound() {
+        CallContext.register(callerUser, callerAccount);
+        when(updateVmCommand.getId()).thenReturn(VM_ID);
+        when(vmDao.findById(VM_ID)).thenReturn(null);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.validateInputsAndPermissionForUpdateVirtualMachineCommand(updateVmCommand));
+    }
+
+    @Test
+    public void updateUserDataDelegatesToCredentialResetService() throws ResourceUnavailableException, InsufficientCapacityException {
+        UserVm userVm = mock(UserVm.class);
+
+        service.updateUserData(userVm);
+
+        verify(vmCredentialResetService).updateUserData(userVm);
+    }
+
+    @Test
+    public void updateDnsNoopsWhenHostNameIsNull() throws ResourceUnavailableException, InsufficientCapacityException {
+        service.updateDns(vm, null);
+
+        verifyNoInteractions(nicDao, routerDao, commandSetupHelper, nwHelper);
+    }
+
     private void configureCommandUpdateDefaults(List<Long> securityGroupIds) {
         when(updateVmCommand.getId()).thenReturn(VM_ID);
         when(updateVmCommand.getDetails()).thenReturn(Collections.emptyMap());
