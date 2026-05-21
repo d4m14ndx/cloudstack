@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { PageHeader } from "@/components/page-header";
+import { SecurityGroupActions } from "@/components/security-groups/security-group-actions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -38,6 +39,8 @@ export default async function Page() {
         <Badge variant={instances > 0 ? "success" : "default"} size="md">{instances} instances</Badge>
         <Badge variant={defaultGroups > 0 ? "warning" : "default"} size="md">{defaultGroups} default</Badge>
       </div>
+
+      <SecurityGroupActions securityGroups={securityGroups} />
 
       <Card className="p-0">
         <Table className="min-w-[1120px]">
