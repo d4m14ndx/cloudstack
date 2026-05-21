@@ -290,7 +290,7 @@ test("buildDeployVirtualMachineParams sends security group only when no advanced
   assert.equal(params.has("networkids"), false);
 });
 
-test("buildDeployVirtualMachineParams omits custom disk offerings until a size is supplied", () => {
+test("buildDeployVirtualMachineParams sends custom disk offering id and size when the size is valid", () => {
   const params = buildDeployVirtualMachineParams({
     name: "custom-disk-01",
     zoneId: "zone-1",
@@ -298,9 +298,47 @@ test("buildDeployVirtualMachineParams omits custom disk offerings until a size i
     serviceOfferingId: "so-1",
     diskOfferingId: "do-custom",
     diskOfferingCustomized: true,
+    diskOfferingSizeGiB: 75,
   });
 
-  assert.equal(params.has("diskofferingid"), false);
+  assert.equal(params.get("diskofferingid"), "do-custom");
+  assert.equal(params.get("size"), "75");
+});
+
+test("buildDeployVirtualMachineParams rejects custom disk offerings without a positive integer size", () => {
+  const baseInput = {
+    name: "custom-disk-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    diskOfferingId: "do-custom",
+    diskOfferingCustomized: true,
+  };
+
+  assert.throws(() => buildDeployVirtualMachineParams(baseInput), /custom disk size/i);
+  assert.throws(
+    () => buildDeployVirtualMachineParams({ ...baseInput, diskOfferingSizeGiB: 0 }),
+    /custom disk size/i,
+  );
+  assert.throws(
+    () => buildDeployVirtualMachineParams({ ...baseInput, diskOfferingSizeGiB: 10.5 }),
+    /custom disk size/i,
+  );
+});
+
+test("buildDeployVirtualMachineParams never sends size for fixed disk offerings", () => {
+  const params = buildDeployVirtualMachineParams({
+    name: "fixed-disk-01",
+    zoneId: "zone-1",
+    templateId: "tmpl-1",
+    serviceOfferingId: "so-1",
+    diskOfferingId: "do-fixed",
+    diskOfferingCustomized: false,
+    diskOfferingSizeGiB: 75,
+  });
+
+  assert.equal(params.get("diskofferingid"), "do-fixed");
+  assert.equal(params.has("size"), false);
 });
 
 test("deployVirtualMachineFromWizard posts deploy params and returns the async job id", async () => {

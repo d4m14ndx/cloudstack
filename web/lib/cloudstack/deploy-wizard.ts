@@ -92,6 +92,7 @@ export type DeployWizardLaunchInput = {
   networkId?: string;
   diskOfferingId?: string;
   diskOfferingCustomized?: boolean;
+  diskOfferingSizeGiB?: number;
   securityGroupId?: string;
   sshKeyPairName?: string;
   userData?: string;
@@ -223,7 +224,10 @@ export function buildDeployVirtualMachineParams(input: DeployWizardLaunchInput):
   setRequiredParam(params, "zoneid", input.zoneId);
   setRequiredParam(params, "templateid", input.templateId);
   setRequiredParam(params, "serviceofferingid", input.serviceOfferingId);
-  if (!input.diskOfferingCustomized) {
+  if (input.diskOfferingCustomized) {
+    setRequiredParam(params, "diskofferingid", input.diskOfferingId ?? "");
+    params.set("size", String(readPositiveInteger(input.diskOfferingSizeGiB, "custom disk size")));
+  } else {
     setOptionalParam(params, "diskofferingid", input.diskOfferingId);
   }
   setOptionalParam(params, "sshkeypairs", input.sshKeyPairName);
@@ -387,6 +391,14 @@ function bytesToGiB(value: number | string | undefined): number | null {
 function readNonNegativeInteger(value: number | string | undefined): number | null {
   const number = readNonNegativeNumber(value);
   return number === null ? null : Math.floor(number);
+}
+
+function readPositiveInteger(value: number | undefined, label: string): number {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  throw new Error(`Missing or invalid Deploy Wizard value: ${label}`);
 }
 
 function readNonNegativeNumber(value: number | string | undefined): number | null {

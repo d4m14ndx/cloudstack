@@ -72,6 +72,7 @@ type WizardForm = {
   serviceOfferingId: string;
   networkId: string;
   diskOfferingId: string;
+  diskOfferingSizeGiB: string;
   sshKeyPairId: string;
   securityGroupId: string;
   userData: string;
@@ -98,6 +99,7 @@ const initialForm: WizardForm = {
   serviceOfferingId: "",
   networkId: "",
   diskOfferingId: "",
+  diskOfferingSizeGiB: "",
   sshKeyPairId: "",
   securityGroupId: "",
   userData: "#cloud-config\npackage_update: true",
@@ -159,8 +161,10 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
   }, [actualOpen]);
 
   const selections = useMemo(() => resolveSelections(form, catalog), [catalog, form]);
-  const canContinue = canContinueFromStep(step, form);
-  const canLaunch = Boolean(catalog && canLaunchForm(form) && !isLaunchBusy(launchState) && launchState.status !== "success");
+  const canContinue = canContinueFromStep(step, form, selections);
+  const canLaunch = Boolean(
+    catalog && canLaunchForm(form, selections) && !isLaunchBusy(launchState) && launchState.status !== "success",
+  );
 
   async function handleLaunch() {
     if (!catalog || !canLaunch) {
@@ -178,6 +182,9 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
         networkId: form.networkId || undefined,
         diskOfferingId: form.diskOfferingId || undefined,
         diskOfferingCustomized: selections.diskOffering?.customized,
+        ...(selections.diskOffering?.customized
+          ? { diskOfferingSizeGiB: parsePositiveInteger(form.diskOfferingSizeGiB) ?? undefined }
+          : {}),
         securityGroupId: form.networkId ? undefined : form.securityGroupId || undefined,
         sshKeyPairName: selections.sshKeyPair?.name,
         userData: form.userData,
@@ -394,13 +401,35 @@ function StepContent({
 
   if (step === 3) {
     return (
-      <OptionGrid
-        title="Disk offering"
-        options={catalog.diskOfferings}
-        selectedId={form.diskOfferingId}
-        onSelect={(diskOfferingId) => onFormChange((current) => ({ ...current, diskOfferingId }))}
-        render={(offering) => <DiskOfferingOption offering={offering} />}
-      />
+      <div className="space-y-4">
+        <OptionGrid
+          title="Disk offering"
+          options={catalog.diskOfferings}
+          selectedId={form.diskOfferingId}
+          onSelect={(diskOfferingId) => onFormChange((current) => ({ ...current, diskOfferingId }))}
+          render={(offering) => <DiskOfferingOption offering={offering} />}
+        />
+        {selections.diskOffering?.customized ? (
+          <div className="max-w-[220px]">
+            <label className="block text-sm font-medium text-[color:var(--fg)]">
+              Size
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={form.diskOfferingSizeGiB}
+                  onChange={(event) =>
+                    onFormChange((current) => ({ ...current, diskOfferingSizeGiB: event.target.value }))
+                  }
+                />
+                <span className="text-xs font-medium text-[color:var(--fg-muted)]">GiB</span>
+              </div>
+            </label>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -583,6 +612,7 @@ function Review({
     ["Network", selections.network?.name ?? "-"],
     ["Security group", selections.securityGroup?.name ?? "-"],
     ["Disk offering", selections.diskOffering?.name ?? "-"],
+    ["Disk size", readDiskSizeLabel(selections.diskOffering, form.diskOfferingSizeGiB)],
     ["SSH key", selections.sshKeyPair?.name ?? "None"],
   ];
 
@@ -761,7 +791,7 @@ function applyCatalogDefaults(form: WizardForm, catalog: DeployWizardCatalog): W
   };
 }
 
-function canContinueFromStep(step: number, form: WizardForm): boolean {
+function canContinueFromStep(step: number, form: WizardForm, selections: ResolvedSelections): boolean {
   switch (step) {
     case 0:
       return Boolean(form.name && form.zoneId && form.templateId);
@@ -770,14 +800,14 @@ function canContinueFromStep(step: number, form: WizardForm): boolean {
     case 2:
       return Boolean(form.networkId);
     case 3:
-      return Boolean(form.diskOfferingId);
+      return Boolean(form.diskOfferingId && isDiskSizeValid(form, selections));
     default:
       return true;
   }
 }
 
-function canLaunchForm(form: WizardForm): boolean {
-  return Boolean(form.name && form.zoneId && form.templateId && form.serviceOfferingId);
+function canLaunchForm(form: WizardForm, selections: ResolvedSelections): boolean {
+  return Boolean(form.name && form.zoneId && form.templateId && form.serviceOfferingId && isDiskSizeValid(form, selections));
 }
 
 function isLaunchBusy(state: LaunchState): boolean {
@@ -803,4 +833,30 @@ async function waitForDeployJob(
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function isDiskSizeValid(form: WizardForm, selections: ResolvedSelections): boolean {
+  return !selections.diskOffering?.customized || parsePositiveInteger(form.diskOfferingSizeGiB) !== null;
+}
+
+function parsePositiveInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  return parsed > 0 ? parsed : null;
+}
+
+function readDiskSizeLabel(offering: DiskOffering | undefined, customSizeGiB: string): string {
+  if (!offering) {
+    return "-";
+  }
+
+  if (offering.customized) {
+    return parsePositiveInteger(customSizeGiB) === null ? "-" : `${customSizeGiB.trim()} GiB`;
+  }
+
+  return offering.sizeGiB === null ? "-" : `${offering.sizeGiB} GiB`;
 }
