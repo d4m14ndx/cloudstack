@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,6 +126,8 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<WizardForm>(initialForm);
   const [launchState, setLaunchState] = useState<LaunchState>({ status: "idle" });
+  const nameFieldRef = useRef<HTMLInputElement>(null);
+  const hasFocusedInitialControl = useRef(false);
 
   useEffect(() => {
     const openWizard = () => setActualOpen(true);
@@ -135,6 +137,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
 
   useEffect(() => {
     if (!actualOpen) {
+      hasFocusedInitialControl.current = false;
       return;
     }
 
@@ -170,6 +173,19 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
       cancelled = true;
     };
   }, [actualOpen]);
+
+  useEffect(() => {
+    if (!actualOpen || loading || !catalog || step !== 0 || hasFocusedInitialControl.current) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      nameFieldRef.current?.focus();
+      hasFocusedInitialControl.current = true;
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [actualOpen, catalog, loading, step]);
 
   const selections = useMemo(() => resolveSelections(form, catalog), [catalog, form]);
   const canContinue = canContinueFromStep(step, form, selections);
@@ -290,6 +306,7 @@ export function DeployWizard({ open, onOpenChange }: DeployWizardProps) {
                 selections={selections}
                 launchState={launchState}
                 onFormChange={setForm}
+                nameFieldRef={nameFieldRef}
               />
             ) : null}
           </div>
@@ -348,6 +365,7 @@ function StepContent({
   selections,
   launchState,
   onFormChange,
+  nameFieldRef,
 }: {
   step: number;
   catalog: DeployWizardCatalog;
@@ -355,12 +373,18 @@ function StepContent({
   selections: ResolvedSelections;
   launchState: LaunchState;
   onFormChange: React.Dispatch<React.SetStateAction<WizardForm>>;
+  nameFieldRef: React.Ref<HTMLInputElement>;
 }) {
   if (step === 0) {
     return (
       <div className="space-y-4">
         <FieldGrid>
-          <TextField label="Name" value={form.name} onChange={(name) => onFormChange((current) => ({ ...current, name }))} />
+          <TextField
+            label="Name"
+            value={form.name}
+            onChange={(name) => onFormChange((current) => ({ ...current, name }))}
+            inputRef={nameFieldRef}
+          />
           <TextField label="Display name" value={form.displayName} onChange={(displayName) => onFormChange((current) => ({ ...current, displayName }))} />
         </FieldGrid>
         {catalog.projects.length > 0 ? (
@@ -587,6 +611,7 @@ function OptionGrid<T extends { id: string }>({
             key={option.id}
             type="button"
             onClick={() => onSelect(option.id)}
+            aria-pressed={selectedId === option.id}
             className={cn(
               "rounded-lg border bg-[color:var(--surface)] p-3 text-left transition-colors",
               selectedId === option.id
@@ -799,6 +824,8 @@ function StatusLine({
 }) {
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={cn(
         "mt-4 flex min-h-10 items-center gap-2 rounded-md border px-3 py-2 text-sm",
         tone === "muted" && "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--fg-muted)]",
@@ -816,18 +843,33 @@ function FieldGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-3 md:grid-cols-2">{children}</div>;
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextField({
+  label,
+  value,
+  onChange,
+  inputRef,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inputRef?: React.Ref<HTMLInputElement>;
+}) {
   return (
     <label className="block text-sm font-medium text-[color:var(--fg)]">
       {label}
-      <Input className="mt-2 w-full" value={value} onChange={(event) => onChange(event.target.value)} />
+      <Input ref={inputRef} className="mt-2 w-full" value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
 function CatalogLoading() {
   return (
-    <div className="flex h-[360px] items-center justify-center text-sm text-[color:var(--fg-muted)]">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className="flex h-[360px] items-center justify-center text-sm text-[color:var(--fg-muted)]"
+    >
       <Loader2 size={16} strokeWidth={1.7} className="mr-2 animate-spin" />
       Loading catalog
     </div>
