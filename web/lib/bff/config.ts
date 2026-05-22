@@ -20,6 +20,13 @@ function readPositiveInteger(name: string, fallback: number): number {
 export function getBffConfig(): BffConfig {
   const appEnv = process.env.NEXT_PUBLIC_APP_ENV;
   const explicitDevSession = process.env.BFF_DEV_SESSION;
+  // The dev-session escape hatch grants anonymous requests a hardcoded ROOT
+  // CloudStack session. It MUST never engage in a production runtime, even
+  // if someone forgets to override NEXT_PUBLIC_APP_ENV or sets BFF_DEV_SESSION
+  // in a deploy template. The build phase is treated as non-production so
+  // `next build` against a containerised setup still tree-shakes correctly.
+  const isProductionRuntime =
+    process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build";
 
   return {
     cloudstackUrl: process.env.CS_URL ?? null,
@@ -28,9 +35,10 @@ export function getBffConfig(): BffConfig {
     sessionTtlSeconds: readPositiveInteger("BFF_SESSION_TTL_SECONDS", 28_800),
     refreshMarginSeconds: readPositiveInteger("CS_SESSION_REFRESH_MARGIN_SECONDS", 120),
     allowDevSession:
-      explicitDevSession === "1" ||
-      explicitDevSession === "true" ||
-      appEnv === "dev" ||
-      appEnv === "development",
+      !isProductionRuntime &&
+      (explicitDevSession === "1" ||
+        explicitDevSession === "true" ||
+        appEnv === "dev" ||
+        appEnv === "development"),
   };
 }

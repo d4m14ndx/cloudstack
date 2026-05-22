@@ -393,10 +393,179 @@ test("CloudStack proxy throw returns 503", async () => {
   assert.deepEqual(await jsonBody(response), { error: "CloudStack API request failed" });
 });
 
+// === CSRF / Origin allowlist on POST ===
+
+test("POST from a foreign Origin is rejected with 403 even with a valid cookie", async () => {
+  const harness = new Harness();
+  await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+  const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await POST(
+    routeRequest("https://ui.example/api/cs/deployVirtualMachine", {
+      method: "POST",
+      headers: {
+        cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+        "content-type": "application/json",
+        origin: "https://evil.example",
+      },
+      body: JSON.stringify({ serviceofferingid: "small", templateid: "tmpl-1" }),
+    }),
+    routeContext("deployVirtualMachine"),
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await jsonBody(response), { error: "Cross-origin request not allowed" });
+  assert.equal(harness.client.proxyCalls.length, 0);
+});
+
+test("POST with matching same-origin Origin header is accepted", async () => {
+  const harness = new Harness();
+  await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+  const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await POST(
+    routeRequest("https://ui.example/api/cs/deployVirtualMachine", {
+      method: "POST",
+      headers: {
+        cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+        "content-type": "application/json",
+        origin: "https://ui.example",
+      },
+      body: JSON.stringify({ serviceofferingid: "small", templateid: "tmpl-1" }),
+    }),
+    routeContext("deployVirtualMachine"),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(harness.client.proxyCalls.length, 1);
+});
+
+test("POST with Origin matching NEXTAUTH_URL is accepted even if host header differs", async () => {
+  const previousAuthUrl = process.env.NEXTAUTH_URL;
+  process.env.NEXTAUTH_URL = "https://cloud.example.com/";
+  try {
+    const harness = new Harness();
+    await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+    const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+    const response = await POST(
+      routeRequest("https://internal-host/api/cs/deployVirtualMachine", {
+        method: "POST",
+        headers: {
+          cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+          "content-type": "application/json",
+          origin: "https://cloud.example.com",
+        },
+        body: JSON.stringify({ serviceofferingid: "small", templateid: "tmpl-1" }),
+      }),
+      routeContext("deployVirtualMachine"),
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(harness.client.proxyCalls.length, 1);
+  } finally {
+    if (previousAuthUrl === undefined) {
+      delete process.env.NEXTAUTH_URL;
+    } else {
+      process.env.NEXTAUTH_URL = previousAuthUrl;
+    }
+  }
+});
+
+test("POST without an Origin header is allowed in non-production (curl, tests)", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  defineNodeEnv("test");
+  try {
+    const harness = new Harness();
+    await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+    const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+    const response = await POST(
+      routeRequest("https://ui.example/api/cs/deployVirtualMachine", {
+        method: "POST",
+        headers: {
+          cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ serviceofferingid: "small", templateid: "tmpl-1" }),
+      }),
+      routeContext("deployVirtualMachine"),
+    );
+
+    assert.equal(response.status, 200);
+  } finally {
+    defineNodeEnv(previousNodeEnv);
+  }
+});
+
+test("POST without an Origin header is rejected in production", async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  defineNodeEnv("production");
+  try {
+    const harness = new Harness();
+    await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+    const { POST } = createCloudStackRouteHandlers(harness.deps());
+
+    const response = await POST(
+      routeRequest("https://ui.example/api/cs/deployVirtualMachine", {
+        method: "POST",
+        headers: {
+          cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ serviceofferingid: "small", templateid: "tmpl-1" }),
+      }),
+      routeContext("deployVirtualMachine"),
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal(harness.client.proxyCalls.length, 0);
+  } finally {
+    defineNodeEnv(previousNodeEnv);
+  }
+});
+
+test("GET requests are not subject to the Origin allowlist (Lax cookie protects them)", async () => {
+  const harness = new Harness();
+  await harness.store.set(existingSessionId, bffSession("stored-sessionkey", now + 60 * 60 * 1_000), sessionTtlSeconds);
+  const { GET } = createCloudStackRouteHandlers(harness.deps());
+
+  const response = await GET(
+    routeRequest("https://ui.example/api/cs/listVirtualMachines", {
+      headers: {
+        cookie: `${BFF_SESSION_COOKIE}=${existingSessionId}`,
+        origin: "https://evil.example",
+      },
+    }),
+    routeContext("listVirtualMachines"),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(harness.client.proxyCalls.length, 1);
+});
+
 function routeRequest(input: string, init?: RequestInit): CloudStackRouteRequest {
   const request = new Request(input, init) as CloudStackRouteRequest;
   request.nextUrl = new URL(input);
   return request;
+}
+
+/**
+ * Reassign NODE_ENV via defineProperty so TypeScript's `readonly` typing on
+ * process.env doesn't reject the write, and so Node/Next.js property guards
+ * don't bail out on a normal assignment.
+ */
+function defineNodeEnv(value: string | undefined): void {
+  if (value === undefined) {
+    delete (process.env as Record<string, string | undefined>).NODE_ENV;
+    return;
+  }
+  Object.defineProperty(process.env, "NODE_ENV", {
+    value,
+    configurable: true,
+    enumerable: true,
+    writable: true,
+  });
 }
 
 function routeContext(command: string): { params: { command: string } } {

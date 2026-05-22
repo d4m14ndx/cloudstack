@@ -62,6 +62,13 @@ async function proxyCloudStackCommand(
     return jsonError("Invalid CloudStack command", 400);
   }
 
+  // CSRF defence: state-changing requests must originate from a known same-site
+  // origin. The SameSite=Lax cookie blocks most cross-site POSTs already, but
+  // not top-level form submissions; an Origin allowlist closes that gap.
+  if (method === "POST" && !isAllowedOrigin(request)) {
+    return jsonError("Cross-origin request not allowed", 403);
+  }
+
   const config = deps.getConfig();
   const store = deps.getStore();
   const authenticatedUser = await deps.getAuthenticatedUser();
@@ -212,6 +219,39 @@ async function combinedPostParams(request: CloudStackRouteRequest): Promise<URLS
 
 function isSecureRequest(request: CloudStackRouteRequest): boolean {
   return process.env.NODE_ENV === "production" || request.nextUrl.protocol === "https:";
+}
+
+/**
+ * Accept POSTs whose Origin header either:
+ *   1. Matches the configured public URL (NEXTAUTH_URL) — production case, or
+ *   2. Matches the request's own Host header (same-origin) — handles local
+ *      dev + deployments where NEXTAUTH_URL isn't set.
+ * If Origin is missing entirely, allow in non-production (curl / tests) but
+ * deny in production so attackers can't strip the header to bypass the check.
+ */
+export function isAllowedOrigin(request: CloudStackRouteRequest): boolean {
+  const origin = request.headers.get("origin");
+
+  if (!origin) {
+    return process.env.NODE_ENV !== "production";
+  }
+
+  const normalisedOrigin = origin.replace(/\/$/, "");
+  const configuredUrl = (process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "");
+  if (configuredUrl && normalisedOrigin === configuredUrl) {
+    return true;
+  }
+
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  if (host) {
+    const expectedHttp = `http://${host}`;
+    const expectedHttps = `https://${host}`;
+    if (normalisedOrigin === expectedHttp || normalisedOrigin === expectedHttps) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function cloudStackResponse(response: Response, setCookieHeader?: string): Promise<Response> {
