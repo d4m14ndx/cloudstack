@@ -16,11 +16,14 @@
 // under the License.
 package com.cloud.vm;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doNothing;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.mockito.Mockito.doThrow;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -37,6 +40,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.cloud.dc.DataCenterVO;
 import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.exception.PermissionDeniedException;
 import com.cloud.network.Network;
 import com.cloud.network.NetworkModel;
 import com.cloud.network.dao.NetworkDao;
@@ -145,5 +149,44 @@ public class VmAssignmentNetworkServiceImplTest {
 
         assertEquals(networkVo, defaultNetwork);
         assertEquals(2, networks.size());
+    }
+
+    @Test
+    public void canAccountUseNetworkReturnsFalseForAccountAclType() {
+        when(network.getAclType()).thenReturn(ACLType.Account);
+
+        assertFalse(service.canAccountUseNetwork(newAccount, network));
+    }
+
+    @Test
+    public void canAccountUseNetworkReturnsFalseForNullNetwork() {
+        assertFalse(service.canAccountUseNetwork(newAccount, null));
+    }
+
+    @Test
+    public void canAccountUseNetworkReturnsFalseWhenPermissionDenied() {
+        when(network.getAclType()).thenReturn(ACLType.Domain);
+        when(network.getGuestType()).thenReturn(Network.GuestType.Shared);
+        doThrow(new PermissionDeniedException("denied")).when(networkModel).checkNetworkPermissions(newAccount, network);
+
+        assertFalse(service.canAccountUseNetwork(newAccount, network));
+    }
+
+    @Test
+    public void addDefaultNetworkToNetworkListThrowsWhenNetworkIsNull() {
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.addDefaultNetworkToNetworkList(new ArrayList<>(), null));
+    }
+
+    @Test
+    public void addDefaultNetworkToNetworkListAddsNetworkIdToList() {
+        ArrayList<NetworkVO> networkList = new ArrayList<>();
+        when(network.getId()).thenReturn(NETWORK_ID);
+        when(networkDao.findById(NETWORK_ID)).thenReturn(networkVo);
+
+        service.addDefaultNetworkToNetworkList(networkList, network);
+
+        assertEquals(1, networkList.size());
+        assertEquals(networkVo, networkList.get(0));
     }
 }

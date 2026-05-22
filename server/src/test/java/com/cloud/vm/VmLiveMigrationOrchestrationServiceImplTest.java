@@ -176,6 +176,32 @@ public class VmLiveMigrationOrchestrationServiceImplTest {
         assertThrows(CloudRuntimeException.class, () -> service.chooseVmMigrationDestinationUsingVolumePoolMap(vm, srcHost, null));
     }
 
+    @Test
+    public void isAllVmVolumesOnZoneWideStoreReturnsFalseForEmptyList() {
+        assertFalse(service.isAllVmVolumesOnZoneWideStore(Collections.emptyList()));
+    }
+
+    @Test
+    public void isAllVmVolumesOnZoneWideStoreReturnsTrueWhenAllVolumesAreZoneScoped() {
+        VolumeVO vol1 = volume(1L, 10L);
+        VolumeVO vol2 = volume(2L, 20L);
+        StoragePoolVO zonePool1 = pool(ScopeType.ZONE);
+        StoragePoolVO zonePool2 = pool(ScopeType.ZONE);
+        when(storagePoolDao.findById(1L)).thenReturn(zonePool1);
+        when(storagePoolDao.findById(2L)).thenReturn(zonePool2);
+
+        assertTrue(service.isAllVmVolumesOnZoneWideStore(Arrays.asList(vol1, vol2)));
+    }
+
+    @Test
+    public void isVmCanBeMigratedWithoutStorageReturnsFalseWhenDestinationHostIsNull() {
+        Host srcHost = host(1L, 5L);
+        VolumeVO volume = volume(1L, 10L);
+        stubSharedVolume(volume);
+
+        assertFalse(service.isVmCanBeMigratedWithoutStorage(srcHost, null, Collections.singletonList(volume), Collections.emptyMap()));
+    }
+
     private VolumeVO volume(long poolId, long diskOfferingId) {
         VolumeVO volume = mock(VolumeVO.class);
         when(volume.getPoolId()).thenReturn(poolId);

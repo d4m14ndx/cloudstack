@@ -207,6 +207,78 @@ public class ApiAddressVlanResponseServiceImplTest {
         assertEquals("remover-account-uuid", response.getRemoverAccountId());
     }
 
+    @Test
+    public void createVlanIpRangeResponseWithNullVlanTypeDoesNotSetForVirtualNetwork() {
+        ApiAddressVlanResponseServiceImpl serviceSpy = Mockito.spy(service);
+        Vlan vlan = Mockito.mock(Vlan.class);
+        DataCenterVO zone = Mockito.mock(DataCenterVO.class);
+        when(vlan.getId()).thenReturn(101L);
+        when(vlan.getUuid()).thenReturn("vlan-uuid-2");
+        when(vlan.getVlanType()).thenReturn(null);
+        when(vlan.getVlanTag()).thenReturn("untagged");
+        when(vlan.getDataCenterId()).thenReturn(10L);
+        when(vlan.getVlanGateway()).thenReturn(null);
+        when(vlan.getVlanNetmask()).thenReturn(null);
+        when(vlan.getIpRange()).thenReturn(null);
+        when(vlan.getIp6Gateway()).thenReturn(null);
+        when(vlan.getIp6Cidr()).thenReturn(null);
+        when(vlan.getIp6Range()).thenReturn(null);
+        when(vlan.getNetworkId()).thenReturn(null);
+        when(vlan.getPhysicalNetworkId()).thenReturn(null);
+        when(zone.getUuid()).thenReturn("zone-uuid");
+        Mockito.doReturn(false).when(serviceSpy).isForSystemVms(101L);
+        Mockito.doReturn(null).when(serviceSpy).getProviderFromVlanDetailKey(vlan);
+
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.getPodIdForVlan(101L)).thenReturn(null);
+            when(ApiDBUtils.findZoneById(10L)).thenReturn(zone);
+            when(ApiDBUtils.getVlanAccount(101L)).thenReturn(null);
+            when(ApiDBUtils.getVlanDomain(101L)).thenReturn(null);
+
+            VlanIpRangeResponse response = serviceSpy.createVlanIpRangeResponse(vlan);
+
+            assertNull(ReflectionTestUtils.getField(response, "forVirtualNetwork"));
+            assertNull(ReflectionTestUtils.getField(response, "startIp"));
+            assertNull(ReflectionTestUtils.getField(response, "endIp"));
+        }
+    }
+
+    @Test
+    public void createVlanIpRangeResponseWithDirectAttachedTypeSetForVirtualNetworkFalse() {
+        ApiAddressVlanResponseServiceImpl serviceSpy = Mockito.spy(service);
+        Vlan vlan = Mockito.mock(Vlan.class);
+        DataCenterVO zone = Mockito.mock(DataCenterVO.class);
+        when(vlan.getId()).thenReturn(102L);
+        when(vlan.getUuid()).thenReturn("vlan-uuid-3");
+        when(vlan.getVlanType()).thenReturn(VlanType.DirectAttached);
+        when(vlan.getVlanTag()).thenReturn("vlan://300");
+        when(vlan.getDataCenterId()).thenReturn(10L);
+        when(vlan.getVlanGateway()).thenReturn("10.0.0.1");
+        when(vlan.getVlanNetmask()).thenReturn("255.255.255.0");
+        when(vlan.getIpRange()).thenReturn("10.0.0.10-10.0.0.20");
+        when(vlan.getIp6Gateway()).thenReturn(null);
+        when(vlan.getIp6Cidr()).thenReturn(null);
+        when(vlan.getIp6Range()).thenReturn(null);
+        when(vlan.getNetworkId()).thenReturn(null);
+        when(vlan.getPhysicalNetworkId()).thenReturn(null);
+        when(zone.getUuid()).thenReturn("zone-uuid");
+        Mockito.doReturn(false).when(serviceSpy).isForSystemVms(102L);
+        Mockito.doReturn(null).when(serviceSpy).getProviderFromVlanDetailKey(vlan);
+
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.getPodIdForVlan(102L)).thenReturn(null);
+            when(ApiDBUtils.findZoneById(10L)).thenReturn(zone);
+            when(ApiDBUtils.getVlanAccount(102L)).thenReturn(null);
+            when(ApiDBUtils.getVlanDomain(102L)).thenReturn(null);
+
+            VlanIpRangeResponse response = serviceSpy.createVlanIpRangeResponse(vlan);
+
+            assertEquals(Boolean.FALSE, ReflectionTestUtils.getField(response, "forVirtualNetwork"));
+            assertEquals("10.0.0.10", ReflectionTestUtils.getField(response, "startIp"));
+            assertEquals("10.0.0.20", ReflectionTestUtils.getField(response, "endIp"));
+        }
+    }
+
     private void wireSecondaryIpDependencies() {
         ReflectionTestUtils.setField(service, "_entityMgr", entityManager);
         when(secondaryIp.getUuid()).thenReturn("secondary-ip-uuid");

@@ -218,6 +218,67 @@ public class VmExternalDhcpIpFetchServiceImplTest {
         verify(nicDao, never()).update(eq(nicId), any());
     }
 
+    @Test
+    public void trackNicForIpFetchAddsEntryWithCorrectVmAndCount() {
+        service.trackNicForIpFetch(201L, 301L, 5);
+
+        assertEquals(1, service.getTrackedNicCount());
+        assertEquals(5, service.getTrackedRetrievalCount(201L));
+    }
+
+    @Test
+    public void getTrackedNicCountReturnsZeroAfterSetup() {
+        assertEquals(0, service.getTrackedNicCount());
+    }
+
+    @Test
+    public void scheduleIpFetchAddsNicToTrackedMap() {
+        service.scheduleIpFetch(301L, 401L);
+
+        assertEquals(1, service.getTrackedNicCount());
+    }
+
+    @Test
+    public void trackNicForIpFetchOverwritesExistingEntry() {
+        service.trackNicForIpFetch(201L, 301L, 5);
+        service.trackNicForIpFetch(201L, 302L, 3);
+
+        assertEquals(1, service.getTrackedNicCount());
+        assertEquals(3, service.getTrackedRetrievalCount(201L));
+    }
+
+    @Test
+    public void loadVmDetailsSkipsStoppedVms() {
+        NetworkVO shared = network(10L, Network.GuestType.Shared);
+        NicVO nic = nic(101L, 201L, 10L, null);
+        VMInstanceVO stoppedVm = vm(201L, VirtualMachine.State.Stopped);
+
+        when(networkDao.listByGuestType(Network.GuestType.Shared)).thenReturn(Collections.singletonList(shared));
+        when(networkDao.listByGuestType(Network.GuestType.L2)).thenReturn(Collections.emptyList());
+        when(networkModel.isSharedNetworkWithoutServices(10L)).thenReturn(true);
+        when(nicDao.listByNetworkId(10L)).thenReturn(Collections.singletonList(nic));
+        when(vmInstanceDao.findById(201L)).thenReturn(stoppedVm);
+
+        service.loadVmDetailsInMapForExternalDhcpIp();
+
+        assertEquals(0, service.getTrackedNicCount());
+    }
+
+    @Test
+    public void loadVmDetailsSkipsNicsWithExistingIp() {
+        NetworkVO shared = network(10L, Network.GuestType.Shared);
+        NicVO nicWithIp = nic(102L, 202L, 10L, "192.0.2.5");
+
+        when(networkDao.listByGuestType(Network.GuestType.Shared)).thenReturn(Collections.singletonList(shared));
+        when(networkDao.listByGuestType(Network.GuestType.L2)).thenReturn(Collections.emptyList());
+        when(networkModel.isSharedNetworkWithoutServices(10L)).thenReturn(true);
+        when(nicDao.listByNetworkId(10L)).thenReturn(Collections.singletonList(nicWithIp));
+
+        service.loadVmDetailsInMapForExternalDhcpIp();
+
+        assertEquals(0, service.getTrackedNicCount());
+    }
+
     private NetworkVO network(long id, Network.GuestType guestType) {
         return new NetworkVO(id, Networks.TrafficType.Guest, Networks.Mode.None, Networks.BroadcastDomainType.Native,
                 1L, 1L, 1L, id, "net-" + id, "net-" + id, "example.com", guestType, 1L, 1L,

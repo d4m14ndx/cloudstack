@@ -16,8 +16,10 @@
 // under the License.
 package com.cloud.vm;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -157,5 +159,99 @@ public class VmRuntimeLifecycleServiceImplTest {
         service.updateVncPasswordIfItHasChanged("same", "same", profile);
 
         verify(vmDao, never()).update(anyLong(), any(UserVmVO.class));
+    }
+
+    @Test
+    public void updateVncPasswordWhenReturnedIsNullDoesNotPersist() {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+
+        service.updateVncPasswordIfItHasChanged("original", null, profile);
+
+        verify(vmDao, never()).update(anyLong(), any(UserVmVO.class));
+    }
+
+    @Test
+    public void setupVmForPvlanReturnsFalseWhenNicIsNull() {
+        assertFalse(service.setupVmForPvlan(true, 1L, null));
+    }
+
+    @Test
+    public void setupVmForPvlanReturnsFalseWhenBroadcastUriIsNull() {
+        NicProfile nic = mock(NicProfile.class);
+        when(nic.getBroadCastUri()).thenReturn(null);
+
+        assertFalse(service.setupVmForPvlan(true, 1L, nic));
+    }
+
+    @Test
+    public void setupVmForPvlanReturnsFalseWhenSchemeIsNotPvlan() {
+        NicProfile nic = mock(NicProfile.class);
+        java.net.URI uri = java.net.URI.create("vxlan://200");
+        when(nic.getBroadCastUri()).thenReturn(uri);
+
+        assertFalse(service.setupVmForPvlan(true, 1L, nic));
+    }
+
+    @Test
+    public void finalizeCommandsOnStartAddsRestoreCommandWhenSnapshotsExist() {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        UserVmVO vm = mock(UserVmVO.class);
+        com.cloud.agent.manager.Commands cmds = new com.cloud.agent.manager.Commands(com.cloud.agent.api.Command.OnError.Stop);
+        List<com.cloud.vm.snapshot.VMSnapshotVO> snapshots = List.of(mock(com.cloud.vm.snapshot.VMSnapshotVO.class));
+        com.cloud.agent.api.RestoreVMSnapshotCommand restoreCmd = mock(com.cloud.agent.api.RestoreVMSnapshotCommand.class);
+
+        when(profile.getId()).thenReturn(VM_ID);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getId()).thenReturn(VM_ID);
+        when(vmSnapshotDao.findByVm(VM_ID)).thenReturn(snapshots);
+        when(vmSnapshotMgr.createRestoreCommand(eq(vm), any())).thenReturn(restoreCmd);
+
+        assertTrue(service.finalizeCommandsOnStart(cmds, profile));
+        verify(vmSnapshotMgr).createRestoreCommand(eq(vm), any());
+    }
+
+    @Test
+    public void finalizeDeploymentSkipsDiskStatsWhenAlreadyExist() {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        UserVmVO vm = mock(UserVmVO.class);
+        NicVO guestNic = mock(NicVO.class);
+        NetworkVO guestNetwork = mock(NetworkVO.class);
+        VolumeVO volume = mock(VolumeVO.class);
+        com.cloud.user.VmDiskStatisticsVO existingStats = mock(com.cloud.user.VmDiskStatisticsVO.class);
+        com.cloud.agent.manager.Commands cmds = new com.cloud.agent.manager.Commands(com.cloud.agent.api.Command.OnError.Stop);
+
+        when(profile.getId()).thenReturn(VM_ID);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getId()).thenReturn(VM_ID);
+        when(vm.getAccountId()).thenReturn(ACCOUNT_ID);
+        when(vm.getDataCenterId()).thenReturn(DATA_CENTER_ID);
+        when(nicDao.listByVmId(VM_ID)).thenReturn(List.of(guestNic));
+        when(guestNic.getNetworkId()).thenReturn(NETWORK_ID);
+        when(networkDao.findById(NETWORK_ID)).thenReturn(guestNetwork);
+        when(guestNetwork.getTrafficType()).thenReturn(com.cloud.network.Networks.TrafficType.Guest);
+        when(volsDao.findByInstance(VM_ID)).thenReturn(List.of(volume));
+        when(volume.getId()).thenReturn(VOLUME_ID);
+        when(vmDiskStatsDao.findBy(ACCOUNT_ID, DATA_CENTER_ID, VM_ID, VOLUME_ID)).thenReturn(existingStats);
+        when(vmSnapshotDao.findByVm(VM_ID)).thenReturn(java.util.Collections.emptyList());
+        when(vmSnapshotMgr.createRestoreCommand(eq(vm), any())).thenReturn(null);
+
+        assertTrue(service.finalizeDeployment(cmds, profile, null, null));
+
+        verify(vmDiskStatsDao, never()).persist(any());
+    }
+
+    @Test
+    public void finalizeStopWithNoSystemIpDoesNotAttemptStaticNatDisable() throws Exception {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        VirtualMachine vm = mock(VirtualMachine.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(profile.getId()).thenReturn(VM_ID);
+        when(vm.getId()).thenReturn(VM_ID);
+        when(ipAddressDao.findByAssociatedVmId(VM_ID)).thenReturn(null);
+        when(nicDao.listByVmId(VM_ID)).thenReturn(java.util.Collections.emptyList());
+
+        service.finalizeStop(profile, null);
+
+        verify(rulesMgr, never()).disableStaticNat(anyLong(), any(), anyLong(), anyBoolean());
     }
 }

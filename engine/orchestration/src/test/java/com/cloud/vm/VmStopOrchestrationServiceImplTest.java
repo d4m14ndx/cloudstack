@@ -17,9 +17,11 @@
 
 package com.cloud.vm;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -104,5 +106,107 @@ public class VmStopOrchestrationServiceImplTest {
         assertTrue(result);
         verify(virtualMachineManager).sendStop(guru, profile, true, false);
         verify(networkMgr).release(profile, true);
+    }
+
+    @Test
+    public void releaseVmResourcesReleasesNetworkAndStorageForKvm() throws Exception {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Stopped);
+        when(vm.getHypervisorType()).thenReturn(HypervisorType.KVM);
+
+        service.releaseVmResources(profile, false);
+
+        verify(networkMgr).release(profile, false);
+        verify(volumeMgr).release(profile);
+    }
+
+    @Test
+    public void releaseVmResourcesSkipsStorageForExternalHypervisor() throws Exception {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Stopped);
+        when(vm.getHypervisorType()).thenReturn(HypervisorType.External);
+
+        service.releaseVmResources(profile, false);
+
+        verify(networkMgr).release(profile, false);
+        verifyNoInteractions(volumeMgr);
+    }
+
+    @Test
+    public void cleanupForStoppedVmReleasesResourcesWithoutSendingStop() throws Exception {
+        VirtualMachineGuru guru = mock(VirtualMachineGuru.class);
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Stopped);
+
+        boolean result = service.cleanup(guru, profile, null, null, false);
+
+        assertTrue(result);
+        verify(networkMgr).release(profile, false);
+        verify(virtualMachineManager, never()).sendStop(guru, profile, false, false);
+    }
+
+    @Test
+    public void cleanupReturnsFalseWhenSendStopFailsForRunningVm() throws Exception {
+        VirtualMachineGuru guru = mock(VirtualMachineGuru.class);
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Running);
+        when(virtualMachineManager.sendStop(guru, profile, false, false)).thenReturn(false);
+
+        boolean result = service.cleanup(guru, profile, null, null, false);
+
+        assertFalse(result);
+    }
+
+    @Test
+    public void advanceStopCreateAndExpungesPlaceholderWhenInWorkJob() throws Exception {
+        AsyncJobExecutionContext jobContext = mock(AsyncJobExecutionContext.class);
+        when(jobContext.isJobDispatchedBy(VmWorkConstants.VM_WORK_JOB_DISPATCHER)).thenReturn(true);
+        when(vmDao.findByUuid(VM_UUID)).thenReturn(vm);
+        when(vm.getId()).thenReturn(VM_ID);
+        org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO placeholder = mock(org.apache.cloudstack.framework.jobs.impl.VmWorkJobVO.class);
+        when(vmWorkJobQueueService.createPlaceHolderWork(VM_ID)).thenReturn(placeholder);
+        // orchestrateStop calls advanceStop which requires more mocking — just check placeholder lifecycle
+        when(vmDao.findByUuid(VM_UUID)).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Stopped);
+
+        try (MockedStatic<AsyncJobExecutionContext> context = mockStatic(AsyncJobExecutionContext.class)) {
+            context.when(AsyncJobExecutionContext::getCurrentExecutionContext).thenReturn(jobContext);
+            service.advanceStop(VM_UUID, false);
+        }
+
+        verify(vmWorkJobQueueService).createPlaceHolderWork(VM_ID);
+        verify(vmWorkJobQueueService).expungePlaceHolderWork(placeholder);
+    }
+
+    @Test
+    public void releaseVmResourcesReleasesStorageForNoneHypervisor() throws Exception {
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Stopped);
+        when(vm.getHypervisorType()).thenReturn(HypervisorType.None);
+
+        service.releaseVmResources(profile, false);
+
+        verify(networkMgr).release(profile, false);
+        verify(volumeMgr).release(profile);
+    }
+
+    @Test
+    public void cleanupForStartingVmWithNullWorkAndNullHostSkipsSendStop() throws Exception {
+        VirtualMachineGuru guru = mock(VirtualMachineGuru.class);
+        VirtualMachineProfile profile = mock(VirtualMachineProfile.class);
+        when(profile.getVirtualMachine()).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Starting);
+        when(vm.getHostId()).thenReturn(null);
+
+        boolean result = service.cleanup(guru, profile, null, null, true);
+
+        assertTrue(result);
+        verify(networkMgr).release(profile, true);
+        verify(virtualMachineManager, never()).sendStop(guru, profile, true, false);
     }
 }

@@ -23,6 +23,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.Before;
@@ -149,5 +150,60 @@ public class VmCreationNetworkSelectionServiceImplTest {
         assertEquals(List.of(network), networks);
         verify(networkModel).checkNetworkPermissions(owner, network);
         verify(vmHostNameUniquenessService).verifyExtraDhcpOptionsNetwork(null, networks);
+    }
+
+    @Test
+    public void selectBasicSecurityGroupNetworksThrowsWhenDefaultNetworkIsNull() {
+        when(networkModel.getExclusiveGuestNetwork(ZONE_ID)).thenReturn(null);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.selectBasicSecurityGroupNetworks(zone, template, null, owner, HypervisorType.KVM));
+    }
+
+    @Test
+    public void selectBasicSecurityGroupNetworksThrowsForVmwareWithSecurityGroups() {
+        when(networkModel.getExclusiveGuestNetwork(ZONE_ID)).thenReturn(network);
+        when(network.getId()).thenReturn(NETWORK_ID);
+        when(networkDao.findById(NETWORK_ID)).thenReturn(network);
+        when(template.getHypervisorType()).thenReturn(HypervisorType.VMware);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.selectBasicSecurityGroupNetworks(zone, template, List.of(1L), owner, HypervisorType.VMware));
+    }
+
+    @Test
+    public void getDefaultNetworkThrowsWhenNoRequiredOfferings() {
+        when(networkOfferingDao.listByAvailability(Availability.Required, false)).thenReturn(Collections.emptyList());
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.getDefaultNetwork(zone, owner, false));
+    }
+
+    @Test
+    public void getDefaultNetworkThrowsWhenRequiredOfferingIsNotEnabled() {
+        when(networkOfferingDao.listByAvailability(Availability.Required, false)).thenReturn(List.of(requiredOffering));
+        when(requiredOffering.getState()).thenReturn(NetworkOffering.State.Disabled);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.getDefaultNetwork(zone, owner, false));
+    }
+
+    @Test
+    public void getDefaultNetworkThrowsWhenMoreThanOneIsolatedNetworkAndSelectAnyIsFalse() throws Exception {
+        NetworkVO network2 = org.mockito.Mockito.mock(NetworkVO.class);
+        when(networkOfferingDao.listByAvailability(Availability.Required, false)).thenReturn(List.of(requiredOffering));
+        when(requiredOffering.getState()).thenReturn(NetworkOffering.State.Enabled);
+        doReturn(List.of(network, network2)).when(networkModel).listNetworksForAccount(ACCOUNT_ID, ZONE_ID, Network.GuestType.Isolated);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.getDefaultNetwork(zone, owner, false));
+    }
+
+    @Test
+    public void validateVpcNetworkThrowsWhenNetworkNotFound() {
+        when(networkDao.findById(NETWORK_ID)).thenReturn(null);
+
+        assertThrows(InvalidParameterValueException.class,
+                () -> service.validateVpcNetworkAndReturnIt(template, owner, HypervisorType.KVM, List.of(HypervisorType.KVM), NETWORK_ID));
     }
 }

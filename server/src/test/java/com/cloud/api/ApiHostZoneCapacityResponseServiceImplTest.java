@@ -225,6 +225,148 @@ public class ApiHostZoneCapacityResponseServiceImplTest {
         }
     }
 
+    @Test
+    public void createMinimalPodResponsePopulatesIdNameAndObjectName() {
+        HostPodVO pod = new HostPodVO("pod-b", ZONE_ID, "10.0.0.1", "10.0.0.0", 24, "");
+        pod.setUuid("pod-b-uuid");
+
+        PodResponse response = service.createMinimalPodResponse(pod);
+
+        assertEquals("pod-b-uuid", response.getId());
+        assertEquals("pod-b", response.getName());
+        assertEquals("pod", response.getObjectName());
+    }
+
+    @Test
+    public void createMinimalClusterResponsePopulatesIdNameAndObjectName() {
+        ClusterVO cluster = new ClusterVO(ZONE_ID, POD_ID, "cluster-b");
+        cluster.setUuid("cluster-b-uuid");
+
+        ClusterResponse response = service.createMinimalClusterResponse(cluster);
+
+        assertEquals("cluster-b-uuid", response.getId());
+        assertEquals("cluster-b", response.getName());
+        assertEquals("cluster", response.getObjectName());
+    }
+
+    @Test
+    public void createPodResponseWithFalseCapacitiesSkipsCapacityLookup() {
+        HostPodVO pod = new HostPodVO("pod-c", ZONE_ID, "10.0.0.1", "10.0.0.0", 24, "");
+        ReflectionTestUtils.setField(pod, "id", POD_ID);
+        pod.setUuid("pod-c-uuid");
+        DataCenterVO zone = newZone();
+
+        when(accountManager.isRootAdmin(ACCOUNT_ID)).thenReturn(false);
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.findZoneById(ZONE_ID)).thenReturn(zone);
+
+            PodResponse response = service.createPodResponse(pod, false);
+
+            assertEquals("pod-c-uuid", response.getId());
+            assertEquals("pod-c", response.getName());
+        }
+    }
+
+    @Test
+    public void createClusterResponseWithFalseCapacitiesSkipsCapacityLookup() {
+        ClusterVO cluster = new ClusterVO(ZONE_ID, POD_ID, "cluster-c");
+        ReflectionTestUtils.setField(cluster, "id", CLUSTER_ID);
+        cluster.setUuid("cluster-c-uuid");
+        cluster.setHypervisorType(Hypervisor.HypervisorType.KVM.toString());
+        cluster.setClusterType(Cluster.ClusterType.CloudManaged);
+        cluster.setAllocationState(Grouping.AllocationState.Enabled);
+        cluster.setManagedState(Managed.ManagedState.Managed);
+        HostPodVO pod = new HostPodVO("pod-a", ZONE_ID, "10.0.0.1", "10.0.0.0", 24, "");
+        ReflectionTestUtils.setField(pod, "id", POD_ID);
+        pod.setUuid("pod-uuid");
+        DataCenterVO zone = newZone();
+
+        when(clusterDetailsDao.findDetails(CLUSTER_ID)).thenReturn(Map.of());
+        when(accountManager.isRootAdmin(ACCOUNT_ID)).thenReturn(false);
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.findPodById(POD_ID)).thenReturn(pod);
+            when(ApiDBUtils.findZoneById(ZONE_ID)).thenReturn(zone);
+            when(ApiDBUtils.findClusterDetails(CLUSTER_ID, "cpuOvercommitRatio")).thenReturn(null);
+            when(ApiDBUtils.findClusterDetails(CLUSTER_ID, "memoryOvercommitRatio")).thenReturn(null);
+
+            ClusterResponse response = service.createClusterResponse(cluster, false);
+
+            assertEquals("cluster-c-uuid", response.getId());
+            assertEquals("cluster-c", response.getName());
+        }
+    }
+
+    @Test
+    public void createClusterResponseHidesSensitiveDetailsForNonAdmin() {
+        ClusterVO cluster = new ClusterVO(ZONE_ID, POD_ID, "cluster-d");
+        ReflectionTestUtils.setField(cluster, "id", CLUSTER_ID);
+        cluster.setUuid("cluster-d-uuid");
+        cluster.setHypervisorType(Hypervisor.HypervisorType.KVM.toString());
+        cluster.setClusterType(Cluster.ClusterType.CloudManaged);
+        cluster.setAllocationState(Grouping.AllocationState.Enabled);
+        cluster.setManagedState(Managed.ManagedState.Managed);
+        HostPodVO pod = new HostPodVO("pod-a", ZONE_ID, "10.0.0.1", "10.0.0.0", 24, "");
+        ReflectionTestUtils.setField(pod, "id", POD_ID);
+        pod.setUuid("pod-uuid");
+        DataCenterVO zone = newZone();
+
+        when(clusterDetailsDao.findDetails(CLUSTER_ID)).thenReturn(Map.of("safe", "value", "password", "secret"));
+        when(accountManager.isRootAdmin(ACCOUNT_ID)).thenReturn(false);
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.findPodById(POD_ID)).thenReturn(pod);
+            when(ApiDBUtils.findZoneById(ZONE_ID)).thenReturn(zone);
+            when(ApiDBUtils.findClusterDetails(CLUSTER_ID, "cpuOvercommitRatio")).thenReturn(null);
+            when(ApiDBUtils.findClusterDetails(CLUSTER_ID, "memoryOvercommitRatio")).thenReturn(null);
+
+            ClusterResponse response = service.createClusterResponse(cluster, false);
+
+            assertEquals("value", response.getResourceDetails().get("safe"));
+            assertFalse(response.getResourceDetails().containsKey("password"));
+        }
+    }
+
+    @Test
+    public void getDataCenterCapacityResponseWithZeroTotalReturnsZeroPercentUsed() {
+        SummedCapacity memory = new SummedCapacity(0L, 0L, 0L, Capacity.CAPACITY_TYPE_MEMORY, null, null, ZONE_ID);
+        CapacityVO storageStats = new CapacityVO(null, ZONE_ID, null, null, 0L, 0L, Capacity.CAPACITY_TYPE_STORAGE);
+        CapacityVO secondaryStats = new CapacityVO(null, ZONE_ID, null, null, 0L, 0L, Capacity.CAPACITY_TYPE_SECONDARY_STORAGE);
+        CapacityVO objectStats = new CapacityVO(null, ZONE_ID, null, null, 0L, 0L, Capacity.CAPACITY_TYPE_OBJECT_STORAGE);
+
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.getCapacityByClusterPodZone(ZONE_ID, null, null)).thenReturn(List.of(memory));
+            when(ApiDBUtils.findNonSharedStorageForClusterPodZone(ZONE_ID, null, null)).thenReturn(List.of());
+            when(ApiDBUtils.getStoragePoolUsedStats(null, null, null, ZONE_ID)).thenReturn(storageStats);
+            when(ApiDBUtils.getSecondaryStorageUsedStats(null, ZONE_ID)).thenReturn(secondaryStats);
+            when(ApiDBUtils.getObjectStorageUsedStats(ZONE_ID)).thenReturn(objectStats);
+
+            List<CapacityResponse> responses = service.getDataCenterCapacityResponse(ZONE_ID);
+
+            CapacityResponse memResponse = findCapacity(responses, Capacity.CAPACITY_TYPE_MEMORY);
+            assertEquals("0", memResponse.getPercentUsed());
+        }
+    }
+
+    @Test
+    public void createPodResponseAnnotationFalseWhenNoAnnotations() {
+        HostPodVO pod = new HostPodVO("pod-d", ZONE_ID, "10.0.0.1", "10.0.0.0", 24, "");
+        ReflectionTestUtils.setField(pod, "id", POD_ID);
+        pod.setUuid("pod-d-uuid");
+        DataCenterVO zone = newZone();
+        CapacityVO storageStats = new CapacityVO(null, ZONE_ID, POD_ID, null, 0L, 0L, Capacity.CAPACITY_TYPE_STORAGE);
+
+        when(accountManager.isRootAdmin(ACCOUNT_ID)).thenReturn(true);
+        when(annotationDao.hasAnnotations("pod-d-uuid", AnnotationService.EntityType.POD.name(), true)).thenReturn(false);
+        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
+            when(ApiDBUtils.findZoneById(ZONE_ID)).thenReturn(zone);
+            when(ApiDBUtils.getCapacityByClusterPodZone(null, POD_ID, null)).thenReturn(List.of());
+            when(ApiDBUtils.getStoragePoolUsedStats(null, null, POD_ID, ZONE_ID)).thenReturn(storageStats);
+
+            PodResponse response = service.createPodResponse(pod, true);
+
+            assertFalse(response.hasAnnotation());
+        }
+    }
+
     private DataCenterVO newZone() {
         DataCenterVO zone = new DataCenterVO(ZONE_ID, "zone-a", "description", "8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1",
                 "10.1.0.0/16", "example.com", 1L, DataCenter.NetworkType.Advanced, "zone-token", "example.com");

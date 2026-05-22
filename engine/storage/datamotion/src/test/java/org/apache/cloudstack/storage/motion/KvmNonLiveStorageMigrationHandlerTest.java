@@ -17,9 +17,11 @@
 package org.apache.cloudstack.storage.motion;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +45,7 @@ import com.cloud.agent.api.storage.MigrateVolumeAnswer;
 import com.cloud.agent.api.storage.MigrateVolumeCommand;
 import com.cloud.host.HostVO;
 import com.cloud.storage.Storage;
+import com.cloud.storage.VolumeDetailVO;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.dao.VolumeDetailsDao;
@@ -120,6 +123,85 @@ public class KvmNonLiveStorageMigrationHandlerTest {
         inOrder.verify(volumeService).revokeAccess(srcVolumeInfo, host, srcDataStore);
         inOrder.verify(volumeService).revokeAccess(destVolumeInfo, host, destDataStore);
         inOrder.verify(destDataStoreDriver).handleQualityOfServiceForVolumeMigration(destVolumeInfo, PrimaryDataStoreDriver.QualityOfServiceState.NO_MIGRATION);
+    }
+
+    @Test
+    public void checkAvailableForMigrationAllowsNullVm() {
+        // should not throw
+        handler.checkAvailableForMigration(null);
+    }
+
+    @Test
+    public void checkAvailableForMigrationAllowsStoppedVm() {
+        when(virtualMachine.getState()).thenReturn(VirtualMachine.State.Stopped);
+        // should not throw
+        handler.checkAvailableForMigration(virtualMachine);
+    }
+
+    @Test
+    public void checkAvailableForMigrationAllowsMigratingVm() {
+        when(virtualMachine.getState()).thenReturn(VirtualMachine.State.Migrating);
+        // should not throw
+        handler.checkAvailableForMigration(virtualMachine);
+    }
+
+    @Test(expected = CloudRuntimeException.class)
+    public void checkAvailableForMigrationRejectsStartingVm() {
+        when(virtualMachine.getState()).thenReturn(VirtualMachine.State.Starting);
+        handler.checkAvailableForMigration(virtualMachine);
+    }
+
+    @Test
+    public void updateVolumePathSetsPathAndUpdatesDao() {
+        VolumeVO volumeVO = Mockito.mock(VolumeVO.class);
+        when(volumeDao.findById(101L)).thenReturn(volumeVO);
+
+        handler.updateVolumePath(101L, "/new/path");
+
+        verify(volumeVO).setPath("/new/path");
+        verify(volumeDao).update(101L, volumeVO);
+    }
+
+    @Test
+    public void getVolumePropertyReturnsNullWhenDetailNotFound() {
+        when(volumeDetailsDao.findDetail(100L, "key")).thenReturn(null);
+
+        String result = handler.getVolumeProperty(100L, "key");
+
+        assertNull(result);
+    }
+
+    @Test
+    public void getVolumePropertyReturnsValueWhenDetailFound() {
+        VolumeDetailVO detail = Mockito.mock(VolumeDetailVO.class);
+        when(volumeDetailsDao.findDetail(100L, "key")).thenReturn(detail);
+        when(detail.getValue()).thenReturn("myvalue");
+
+        String result = handler.getVolumeProperty(100L, "key");
+
+        assertEquals("myvalue", result);
+    }
+
+    @Test
+    public void updatePathFromScsiNameSetsPathWhenScsiNameIsPresent() {
+        VolumeVO volumeVO = Mockito.mock(VolumeVO.class);
+        when(volumeVO.get_iScsiName()).thenReturn("iqn.2024-01.test");
+        when(volumeVO.getId()).thenReturn(200L);
+
+        handler.updatePathFromScsiName(volumeVO);
+
+        verify(volumeVO).setPath("iqn.2024-01.test");
+        verify(volumeDao).update(200L, volumeVO);
+    }
+
+    @Test
+    public void updatePathFromScsiNameSkipsUpdateWhenScsiNameIsNull() {
+        VolumeVO volumeVO = Mockito.mock(VolumeVO.class);
+        when(volumeVO.get_iScsiName()).thenReturn(null);
+
+        handler.updatePathFromScsiName(volumeVO);
+
+        verify(volumeDao, never()).update(eq(200L), any());
     }
 
     private void configureVolume(VolumeInfo volumeInfo, DataStore dataStore, long poolId, long volumeId) {

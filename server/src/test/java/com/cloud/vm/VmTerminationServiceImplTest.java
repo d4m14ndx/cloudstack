@@ -40,6 +40,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.cloud.exception.PermissionDeniedException;
 import com.cloud.network.as.AutoScaleManager;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
@@ -155,6 +156,126 @@ public class VmTerminationServiceImplTest {
             verify(vmDestroyPermissionService).checkForceStopVmPermission(callingAccount);
             verify(autoScaleManager).checkIfVmActionAllowed(VM_ID);
             verify(virtualMachineEntity).stopForced(Long.toString(USER_ID));
+        }
+    }
+
+    @Test
+    public void stopVirtualMachineNonForcedStopsNormally() throws Exception {
+        ReflectionTestUtils.setField(service, "orchestrationService", orchestrationService);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getUuid()).thenReturn("vm-uuid");
+        when(callContext.getCallingAccount()).thenReturn(callingAccount);
+        when(callContext.getCallingUserId()).thenReturn(USER_ID);
+        when(orchestrationService.getVirtualMachine("vm-uuid")).thenReturn(virtualMachineEntity);
+        when(virtualMachineEntity.stop(Long.toString(USER_ID))).thenReturn(true);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+
+            UserVm result = service.stopVirtualMachine(VM_ID, false);
+
+            assertSame(vm, result);
+            verify(virtualMachineEntity).stop(Long.toString(USER_ID));
+        }
+    }
+
+    @Test
+    public void stopVirtualMachineReturnsNullWhenStopReturnsFalse() throws Exception {
+        ReflectionTestUtils.setField(service, "orchestrationService", orchestrationService);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getUuid()).thenReturn("vm-uuid");
+        when(callContext.getCallingAccount()).thenReturn(callingAccount);
+        when(callContext.getCallingUserId()).thenReturn(USER_ID);
+        when(orchestrationService.getVirtualMachine("vm-uuid")).thenReturn(virtualMachineEntity);
+        when(virtualMachineEntity.stop(Long.toString(USER_ID))).thenReturn(false);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+
+            UserVm result = service.stopVirtualMachine(VM_ID, false);
+
+            org.junit.Assert.assertNull(result);
+        }
+    }
+
+    @Test(expected = com.cloud.exception.InvalidParameterValueException.class)
+    public void stopVirtualMachineThrowsWhenVmNotFound() throws Exception {
+        when(vmDao.findById(VM_ID)).thenReturn(null);
+        when(callContext.getCallingAccount()).thenReturn(callingAccount);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+            service.stopVirtualMachine(VM_ID, false);
+        }
+    }
+
+    @Test
+    public void destroyVmReturnsAlreadyDestroyedVmWhenStateIsDestroyed() throws Exception {
+        when(destroyVmCmd.getId()).thenReturn(VM_ID);
+        when(destroyVmCmd.getExpunge()).thenReturn(false);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Destroyed);
+        when(vm.getUserVmType()).thenReturn("User");
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+
+            UserVm result = service.destroyVm(destroyVmCmd, managerOperations);
+
+            assertSame(vm, result);
+            verifyNoInteractions(autoScaleManager);
+        }
+    }
+
+    @Test(expected = com.cloud.exception.InvalidParameterValueException.class)
+    public void destroyVmThrowsWhenVmIsSharedFsVm() throws Exception {
+        when(destroyVmCmd.getId()).thenReturn(VM_ID);
+        when(destroyVmCmd.getExpunge()).thenReturn(false);
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getUserVmType()).thenReturn(UserVmManager.SHAREDFSVM);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+            service.destroyVm(destroyVmCmd, managerOperations);
+        }
+    }
+
+    @Test(expected = com.cloud.exception.InvalidParameterValueException.class)
+    public void destroyVmThrowsWhenVmIsNull() throws Exception {
+        when(destroyVmCmd.getId()).thenReturn(VM_ID);
+        when(destroyVmCmd.getExpunge()).thenReturn(false);
+        when(vmDao.findById(VM_ID)).thenReturn(null);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+            service.destroyVm(destroyVmCmd, managerOperations);
+        }
+    }
+
+    @Test(expected = com.cloud.exception.InvalidParameterValueException.class)
+    public void destroyVmThrowsWhenVolumeIdNotFound() throws Exception {
+        when(destroyVmCmd.getId()).thenReturn(VM_ID);
+        when(destroyVmCmd.getExpunge()).thenReturn(false);
+        when(destroyVmCmd.getVolumeIds()).thenReturn(List.of(VOLUME_ID));
+        when(vmDao.findById(VM_ID)).thenReturn(vm);
+        when(vm.getState()).thenReturn(State.Running);
+        when(vm.getUserVmType()).thenReturn("User");
+        when(volumeDao.findById(VOLUME_ID)).thenReturn(null);
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+            service.destroyVm(destroyVmCmd, managerOperations);
+        }
+    }
+
+    @Test(expected = PermissionDeniedException.class)
+    public void stopVirtualMachineThrowsWhenCallerAccountIsRemoved() throws Exception {
+        when(callContext.getCallingAccount()).thenReturn(callingAccount);
+        when(callingAccount.getRemoved()).thenReturn(new java.util.Date());
+
+        try (MockedStatic<CallContext> mockedCallContext = mockStatic(CallContext.class)) {
+            mockedCallContext.when(CallContext::current).thenReturn(callContext);
+            service.stopVirtualMachine(VM_ID, false);
         }
     }
 }
