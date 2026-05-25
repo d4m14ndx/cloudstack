@@ -739,10 +739,41 @@
       "index": {
         "metadataTitle": "Settings",
         "title": "Settings",
-        "description": "Profile, security, API tokens, integrations.",
-        "emptyState": {
-          "title": "No settings panels available",
-          "description": "This build has no editable settings panels for the current scope."
+        "description": "Profile, access, API tokens, notifications, and account controls in one place.",
+        "states": {
+          "available": "Available",
+          "related": "Related",
+          "notConfigured": "Not configured"
+        },
+        "sections": {
+          "profile": {
+            "title": "Profile",
+            "description": "Current user identity, account, domain, and console preference details."
+          },
+          "security": {
+            "title": "Security",
+            "description": "Password, two-factor status, API key access, and authentication source."
+          },
+          "apiTokens": {
+            "title": "API tokens",
+            "description": "CloudStack API key status and scoped key-pair generation."
+          },
+          "localization": {
+            "title": "Localization",
+            "description": "Locale, time zone, and display preferences routed through profile settings."
+          },
+          "notifications": {
+            "title": "Notifications",
+            "description": "Email, event, and operational alert preferences for this scope."
+          },
+          "sessions": {
+            "title": "Sessions",
+            "description": "Session posture and sign-in context routed through security settings."
+          },
+          "account": {
+            "title": "Account",
+            "description": "Account and domain inventory for operator review."
+          }
         }
       },
       "profile": {
