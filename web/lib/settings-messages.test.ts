@@ -26,6 +26,25 @@ const SETTINGS_INDEX_SECTIONS = [
   "account",
 ] as const;
 
+const PROFILE_SETTINGS_MESSAGE_KEYS = [
+  "pages.profile.fields.username",
+  "pages.profile.fields.email",
+  "pages.profile.fields.account",
+  "pages.profile.fields.domain",
+  "pages.profile.fields.timezone",
+  "pages.profile.fields.source",
+  "pages.profile.summary.title",
+  "pages.profile.summary.role",
+  "pages.profile.summary.state",
+  "pages.profile.summary.apiKeyAccess",
+  "pages.profile.summary.twoFactor",
+  "pages.profile.states.enabled",
+  "pages.profile.states.disabled",
+  "pages.profile.apiKeyAccess.enabled",
+  "pages.profile.apiKeyAccess.disabled",
+  "pages.profile.apiKeyAccess.unknown",
+] as const;
+
 function readSettingsMessage(key: string): string | undefined {
   return key.split(".").reduce<unknown>((node, part) => {
     if (!node || typeof node !== "object") {
@@ -79,5 +98,11 @@ test("security settings resolve status-specific English message keys", () => {
     "badges.apiKeyAccess",
   ] as const) {
     assert.equal(typeof readSettingsMessage(`pages.security.${key}`), "string", key);
+  }
+});
+
+test("settings profile resolves operational message keys", () => {
+  for (const key of PROFILE_SETTINGS_MESSAGE_KEYS) {
+    assert.equal(typeof readSettingsMessage(key), "string", key);
   }
 });

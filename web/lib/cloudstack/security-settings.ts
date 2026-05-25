@@ -1,21 +1,5 @@
 import type { CurrentUser } from "../auth/types.ts";
-
-export type CloudStackUser = {
-  id?: string;
-  usersource?: string;
-  state?: string;
-  apikeyaccess?: boolean | string;
-  is2faenabled?: boolean | string;
-  is2famandated?: boolean | string;
-  passwordchangerequired?: boolean | string;
-};
-
-export type ListUsersResponse = {
-  listusersresponse?: {
-    count?: number | string;
-    user?: CloudStackUser[];
-  };
-};
+import { buildForwardedHeaders, buildListUsersUrl, type CloudStackUser, type ListUsersResponse } from "./users.ts";
 
 export type CurrentUserSecuritySettings = {
   source: string;
@@ -69,15 +53,6 @@ export function mapCloudStackUserToSecuritySettings(user: CloudStackUser): Curre
   };
 }
 
-export function buildListUsersUrl(userId: string, requestHeaders?: Pick<Headers, "get">): string {
-  const params = new URLSearchParams({
-    id: userId,
-    listall: "true",
-  });
-  const origin = getRequestOrigin(requestHeaders);
-  return `${origin}/api/cs/listUsers?${params.toString()}`;
-}
-
 function fallbackSecuritySettings(): CurrentUserSecuritySettings {
   return {
     source: "session",
@@ -109,19 +84,4 @@ function readBoolean(value: boolean | string | undefined): boolean {
 function normalizeText(value: string | undefined, fallback: string): string {
   const normalized = value?.trim().toLowerCase();
   return normalized && normalized.length > 0 ? normalized : fallback;
-}
-
-function getRequestOrigin(requestHeaders?: Pick<Headers, "get">): string {
-  if (process.env.NEXTAUTH_URL) {
-    return process.env.NEXTAUTH_URL.replace(/\/$/, "");
-  }
-
-  const host = requestHeaders?.get("x-forwarded-host") ?? requestHeaders?.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders?.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${protocol}://${host}`;
-}
-
-function buildForwardedHeaders(requestHeaders?: Pick<Headers, "get">): HeadersInit | undefined {
-  const cookie = requestHeaders?.get("cookie");
-  return cookie ? { cookie } : undefined;
 }
