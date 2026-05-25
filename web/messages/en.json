@@ -761,6 +761,32 @@
         "emptyState": {
           "title": "No security controls available",
           "description": "This build has no editable password, MFA, or session controls for the current account."
+        },
+        "summary": {
+          "title": "Security status"
+        },
+        "fields": {
+          "source": "Authentication source",
+          "state": "User state",
+          "apiKeyAccess": "API key access",
+          "twoFactorEnabled": "Two-factor enabled",
+          "twoFactorMandated": "Two-factor mandated",
+          "passwordChangeRequired": "Password change"
+        },
+        "states": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "required": "Required",
+          "notRequired": "Not required"
+        },
+        "access": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "unknown": "Not reported"
+        },
+        "badges": {
+          "twoFactor": "Two-factor",
+          "apiKeyAccess": "API keys"
         }
       },
       "notifications": {
