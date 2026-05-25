@@ -2,6 +2,7 @@
   "name": "cloudstack-web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Modern role-based Apache CloudStack UI (Phase 5 rebuild)",
   "scripts": {
     "dev": "next dev",
