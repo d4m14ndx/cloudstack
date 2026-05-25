@@ -14,6 +14,13 @@ const SETTINGS_PAGES = [
   "advanced",
 ] as const;
 
+const API_TOKEN_MESSAGE_KEYS = [
+  "pages.apiTokens.current.title",
+  "pages.apiTokens.current.apiKey",
+  "pages.apiTokens.generate.action",
+  "pages.apiTokens.access.enabled",
+] as const;
+
 function readSettingsMessage(key: string): string | undefined {
   return key.split(".").reduce<unknown>((node, part) => {
     if (!node || typeof node !== "object") {
@@ -30,5 +37,9 @@ test("settings pages resolve all English message keys", () => {
     assert.equal(typeof readSettingsMessage(`pages.${page}.description`), "string", page);
     assert.equal(typeof readSettingsMessage(`pages.${page}.emptyState.title`), "string", page);
     assert.equal(typeof readSettingsMessage(`pages.${page}.emptyState.description`), "string", page);
+  }
+
+  for (const key of API_TOKEN_MESSAGE_KEYS) {
+    assert.equal(typeof readSettingsMessage(key), "string", key);
   }
 });
