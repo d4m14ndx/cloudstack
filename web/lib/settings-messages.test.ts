@@ -58,3 +58,26 @@ test("settings index resolves section and state message keys", () => {
     assert.equal(typeof readSettingsMessage(`pages.index.sections.${section}.description`), "string", section);
   }
 });
+
+test("security settings resolve status-specific English message keys", () => {
+  for (const key of [
+    "summary.title",
+    "fields.source",
+    "fields.state",
+    "fields.apiKeyAccess",
+    "fields.twoFactorEnabled",
+    "fields.twoFactorMandated",
+    "fields.passwordChangeRequired",
+    "states.enabled",
+    "states.disabled",
+    "states.required",
+    "states.notRequired",
+    "access.enabled",
+    "access.disabled",
+    "access.unknown",
+    "badges.twoFactor",
+    "badges.apiKeyAccess",
+  ] as const) {
+    assert.equal(typeof readSettingsMessage(`pages.security.${key}`), "string", key);
+  }
+});
