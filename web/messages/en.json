@@ -748,10 +748,34 @@
       "profile": {
         "metadataTitle": "Profile settings",
         "title": "Profile",
-        "description": "Personal details and console preferences.",
+        "description": "Current CloudStack identity, scope, and console preferences.",
         "emptyState": {
           "title": "No profile controls available",
           "description": "This build has no editable personal details or console preferences for the current account."
+        },
+        "fields": {
+          "username": "Username",
+          "email": "Email",
+          "account": "Account",
+          "domain": "Domain",
+          "timezone": "Timezone",
+          "source": "Source"
+        },
+        "summary": {
+          "title": "Account summary",
+          "role": "Role",
+          "state": "State",
+          "apiKeyAccess": "API key access",
+          "twoFactor": "Two-factor authentication"
+        },
+        "states": {
+          "enabled": "Enabled",
+          "disabled": "Disabled"
+        },
+        "apiKeyAccess": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "unknown": "Not reported"
         }
       },
       "security": {
