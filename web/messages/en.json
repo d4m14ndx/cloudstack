@@ -860,6 +860,28 @@
         "emptyState": {
           "title": "No API tokens configured",
           "description": "CloudStack did not return scoped automation tokens for the current account."
+        },
+        "current": {
+          "title": "Current key status",
+          "access": "API key access",
+          "apiKey": "API key",
+          "secretKey": "Secret key"
+        },
+        "access": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "unknown": "Not reported"
+        },
+        "generate": {
+          "title": "Generate key pair",
+          "description": "Generate a new CloudStack API key pair for automation. The secret is returned once by CloudStack.",
+          "action": "Generate key pair",
+          "pending": "Generating key pair...",
+          "success": "Generated key pair",
+          "error": "Unable to generate API key pair",
+          "apiKey": "API key",
+          "secretKey": "Secret key",
+          "oneTimeSecret": "Save the secret now. CloudStack returns it only immediately after generation."
         }
       },
       "integrations": {

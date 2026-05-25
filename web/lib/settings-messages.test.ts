@@ -45,6 +45,25 @@ const PROFILE_SETTINGS_MESSAGE_KEYS = [
   "pages.profile.apiKeyAccess.unknown",
 ] as const;
 
+const API_TOKEN_MESSAGE_KEYS = [
+  "pages.apiTokens.current.title",
+  "pages.apiTokens.current.access",
+  "pages.apiTokens.current.apiKey",
+  "pages.apiTokens.current.secretKey",
+  "pages.apiTokens.generate.title",
+  "pages.apiTokens.generate.description",
+  "pages.apiTokens.generate.action",
+  "pages.apiTokens.generate.pending",
+  "pages.apiTokens.generate.success",
+  "pages.apiTokens.generate.error",
+  "pages.apiTokens.generate.apiKey",
+  "pages.apiTokens.generate.secretKey",
+  "pages.apiTokens.generate.oneTimeSecret",
+  "pages.apiTokens.access.enabled",
+  "pages.apiTokens.access.disabled",
+  "pages.apiTokens.access.unknown",
+] as const;
+
 function readSettingsMessage(key: string): string | undefined {
   return key.split(".").reduce<unknown>((node, part) => {
     if (!node || typeof node !== "object") {
@@ -103,6 +122,12 @@ test("security settings resolve status-specific English message keys", () => {
 
 test("settings profile resolves operational message keys", () => {
   for (const key of PROFILE_SETTINGS_MESSAGE_KEYS) {
+    assert.equal(typeof readSettingsMessage(key), "string", key);
+  }
+});
+
+test("settings API token page resolves operational message keys", () => {
+  for (const key of API_TOKEN_MESSAGE_KEYS) {
     assert.equal(typeof readSettingsMessage(key), "string", key);
   }
 });
