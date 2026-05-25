@@ -29,7 +29,7 @@ import java.net.Socket;
 import java.util.Map;
 import java.util.Properties;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

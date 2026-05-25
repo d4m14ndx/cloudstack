@@ -59,10 +59,8 @@ import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
-import com.cloud.offering.DiskOffering;
 import com.cloud.projects.ProjectManager;
 import com.cloud.storage.DiskOfferingVO;
-import com.cloud.storage.StoragePoolTagVO;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.StoragePoolTagsDao;
@@ -137,7 +135,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -253,6 +250,129 @@ public class ConfigurationManagerTest {
         when(configurationMgr._accountVlanMapDao.persist(any(AccountVlanMapVO.class))).thenReturn(new AccountVlanMapVO());
 
         when(configurationMgr._vlanDao.acquireInLockTable(anyLong(), anyInt())).thenReturn(vlan);
+
+        // Phase 4 Spring-component decomposition: pod CRUD was extracted into
+        // PodServiceImpl. The tests below exercise that behavior through the
+        // manager's delegating wrappers, so wire up a real PodServiceImpl
+        // backed by the existing DAO mocks.
+        PodServiceImpl podService = new PodServiceImpl();
+        ReflectionTestUtils.setField(podService, "_podDao", _podDao);
+        ReflectionTestUtils.setField(podService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(podService, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(podService, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(podService, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(podService, "_configDao", _configDao);
+        ReflectionTestUtils.setField(podService, "messageBus", messageBus);
+        ReflectionTestUtils.setField(podService, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(podService, "_volumeDao", _volumeDao);
+        ReflectionTestUtils.setField(podService, "_hostDao", _hostDao);
+        ReflectionTestUtils.setField(podService, "_vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(podService, "_clusterDao", _clusterDao);
+        ReflectionTestUtils.setField(podService, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(configurationMgr, "podService", podService);
+
+        // Phase 4 Spring-component decomposition: zone CRUD was extracted into
+        // ZoneServiceImpl. The zone tests below exercise that behavior through
+        // the manager's delegating wrappers, so wire up a real ZoneServiceImpl
+        // backed by the existing DAO mocks (and ad-hoc mocks for fields the
+        // legacy fixture didn't otherwise need).
+        ZoneServiceImpl zoneService = new ZoneServiceImpl();
+        ReflectionTestUtils.setField(zoneService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(zoneService, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(zoneService, "_accountDao", _accountDao);
+        ReflectionTestUtils.setField(zoneService, "_hostDao", _hostDao);
+        ReflectionTestUtils.setField(zoneService, "_podDao", _podDao);
+        ReflectionTestUtils.setField(zoneService, "_volumeDao", _volumeDao);
+        ReflectionTestUtils.setField(zoneService, "_vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(zoneService, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(zoneService, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(zoneService, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(zoneService, "_trafficTypeDao", Mockito.mock(com.cloud.network.dao.PhysicalNetworkTrafficTypeDao.class));
+        ReflectionTestUtils.setField(zoneService, "_imageStoreDao", _imageStoreDao);
+        ReflectionTestUtils.setField(zoneService, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(zoneService, "_capacityDao", Mockito.mock(com.cloud.capacity.dao.CapacityDao.class));
+        ReflectionTestUtils.setField(zoneService, "_dedicatedDao", Mockito.mock(com.cloud.dc.dao.DedicatedResourceDao.class));
+        ReflectionTestUtils.setField(zoneService, "_affinityGroupDao", Mockito.mock(org.apache.cloudstack.affinity.dao.AffinityGroupDao.class));
+        ReflectionTestUtils.setField(zoneService, "_affinityGroupService", Mockito.mock(org.apache.cloudstack.affinity.AffinityGroupService.class));
+        ReflectionTestUtils.setField(zoneService, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(zoneService, "_networkMgr", _networkMgr);
+        ReflectionTestUtils.setField(zoneService, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(zoneService, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(zoneService, "templateZoneDao", Mockito.mock(com.cloud.storage.dao.VMTemplateZoneDao.class));
+        ReflectionTestUtils.setField(zoneService, "annotationDao", Mockito.mock(org.apache.cloudstack.annotation.dao.AnnotationDao.class));
+        ReflectionTestUtils.setField(zoneService, "nsxProviderDao", Mockito.mock(com.cloud.network.dao.NsxProviderDao.class));
+        ReflectionTestUtils.setField(zoneService, "netrisProviderDao", Mockito.mock(com.cloud.network.dao.NetrisProviderDao.class));
+        ReflectionTestUtils.setField(configurationMgr, "zoneService", zoneService);
+
+        // Phase 4 Spring-component decomposition: VLAN/public-IP-range was
+        // extracted into VlanServiceImpl. The dedicate/release public IP
+        // range tests below exercise that behavior through the manager's
+        // delegating wrappers, so wire up a real VlanServiceImpl backed
+        // by the existing DAO mocks.
+        VlanServiceImpl vlanServiceImpl = new VlanServiceImpl();
+        ReflectionTestUtils.setField(vlanServiceImpl, "_vlanDao", _vlanDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "vlanDetailsDao", Mockito.mock(com.cloud.dc.dao.VlanDetailsDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_publicIpAddressDao", _publicIpAddressDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_privateIpAddressDao", _privateIpAddressDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountVlanMapDao", _accountVlanMapDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_domainVlanMapDao", _domainVlanMapDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "podVlanMapDao", Mockito.mock(com.cloud.dc.dao.PodVlanMapDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkDao", _networkDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountDao", _accountDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_podDao", _podDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_portableIpRangeDao", Mockito.mock(org.apache.cloudstack.region.PortableIpRangeDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_nicIpAliasDao", Mockito.mock(com.cloud.vm.dao.NicIpAliasDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ipv6Dao", Mockito.mock(com.cloud.network.dao.UserIpv6AddressDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "reservationDao", Mockito.mock(org.apache.cloudstack.reservation.dao.ReservationDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ntwkOffServiceMapDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingServiceMapDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_firewallDao", _firewallDao);
+        ReflectionTestUtils.setField(vlanServiceImpl, "nsxProviderDao", Mockito.mock(com.cloud.network.dao.NsxProviderDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "netrisProviderDao", Mockito.mock(com.cloud.network.dao.NetrisProviderDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_projectMgr", _projectMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_ipAddrMgr", _ipAddrMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_resourceLimitMgr", _resourceLimitMgr);
+        ReflectionTestUtils.setField(vlanServiceImpl, "ipv6Service", Mockito.mock(com.cloud.network.Ipv6Service.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "messageBus", messageBus);
+        ReflectionTestUtils.setField(vlanServiceImpl, "_regionDao", Mockito.mock(org.apache.cloudstack.region.dao.RegionDao.class));
+        ReflectionTestUtils.setField(vlanServiceImpl, "_networkMgr", _networkMgr);
+        ReflectionTestUtils.setField(configurationMgr, "vlanService", vlanServiceImpl);
+
+        // Phase 4 Spring-component decomposition: NetworkOffering CRUD was
+        // extracted into NetworkOfferingServiceImpl. Wire a real instance
+        // backed by mocks so tests that call createNetworkOffering /
+        // searchForNetworkOfferings still route through the right logic.
+        NetworkOfferingServiceImpl networkOfferingServiceImpl = new NetworkOfferingServiceImpl();
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkOfferingDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingJoinDao", networkOfferingJoinDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingDetailsDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDetailsDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_ntwkOffServiceMapDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingServiceMapDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_physicalNetworkDao", _physicalNetworkDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkDao", _networkDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_configDao", _configDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_entityMgr", Mockito.mock(com.cloud.utils.db.EntityManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "annotationDao", Mockito.mock(org.apache.cloudstack.annotation.dao.AnnotationDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_accountMgr", _accountMgr);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_vpcMgr", Mockito.mock(com.cloud.network.vpc.VpcManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkModel", _networkModel);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", messageBus);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", Mockito.mock(com.cloud.utils.DomainHelper.class));
+        ReflectionTestUtils.setField(configurationMgr, "networkOfferingService", networkOfferingServiceImpl);
+
+        GuestIpv6PrefixServiceImpl guestIpv6PrefixService = new GuestIpv6PrefixServiceImpl();
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "_zoneDao", _zoneDao);
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "dataCenterGuestIpv6PrefixDao", dataCenterGuestIpv6PrefixDao);
+        ReflectionTestUtils.setField(guestIpv6PrefixService, "ipv6GuestPrefixSubnetNetworkMapDao", ipv6GuestPrefixSubnetNetworkMapDao);
+        ReflectionTestUtils.setField(configurationMgr, "guestIpv6PrefixService", guestIpv6PrefixService);
 
         Field dedicateIdField = _dedicatePublicIpRangeClass.getDeclaredField("id");
         dedicateIdField.setAccessible(true);
@@ -1046,152 +1166,6 @@ public class ConfigurationManagerTest {
     @Test
     public void testGetVlanNumberFromUriUntagged() {
         assertEquals("untagged", configurationMgr.getVlanNumberFromUri("vlan://untagged"));
-    }
-
-    @Test
-    public void validateMaxRateEqualsOrGreaterTestAllGood() {
-        configurationMgr.validateMaxRateEqualsOrGreater(1l, 2l, "IOPS Read");
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void validateMaxRateEqualsOrGreaterTestNormalRateGreaterThanMax() {
-        configurationMgr.validateMaxRateEqualsOrGreater(3l, 2l, "IOPS Read");
-    }
-
-    @Test
-    public void validateMaxRateNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(3l, null, "IOPS Read");
-    }
-
-    @Test
-    public void validateNormalRateNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(null, 3l, "IOPS Read");
-    }
-
-    @Test
-    public void validateAllNull() {
-        configurationMgr.validateMaxRateEqualsOrGreater(null, 3l, "IOPS Read");
-    }
-
-    @Test
-    public void validateMaximumIopsAndBytesLengthTestAllNull() {
-        configurationMgr.validateMaximumIopsAndBytesLength(null, null, null, null);
-    }
-
-    @Test
-    public void validateMaximumIopsAndBytesLengthTestDefaultLengthConfigs() {
-        configurationMgr.validateMaximumIopsAndBytesLength(36000l, 36000l, 36000l, 36000l);
-    }
-
-    @Test
-    public void shouldUpdateDiskOfferingTests(){
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(Mockito.anyString(), Mockito.anyString(), Mockito.anyInt(), Mockito.anyBoolean(), Mockito.anyString(), Mockito.anyString(), Mockito.any(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(Mockito.anyString(), nullable(String.class), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), Mockito.any(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), Mockito.anyString(), nullable(Integer.class), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), Mockito.anyInt(), nullable(Boolean.class), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(int.class), Mockito.anyBoolean(), nullable(String.class), nullable(String.class), nullable(DiskOffering.State.class)));
-        assertTrue(configurationMgr.shouldUpdateDiskOffering(nullable(String.class), nullable(String.class), nullable(int.class), nullable(Boolean.class), Mockito.anyString(), Mockito.anyString(), nullable(DiskOffering.State.class)));
-    }
-
-    @Test
-    public void shouldUpdateDiskOfferingTestFalse(){
-        assertFalse(configurationMgr.shouldUpdateDiskOffering(null, null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateIopsRateParametersTestFalse() {
-        assertFalse(configurationMgr.shouldUpdateIopsRateParameters(null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateIopsRateParametersTests(){
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateIopsRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong()));
-    }
-
-    @Test
-    public void shouldUpdateBytesRateParametersTestFalse() {
-        assertFalse(configurationMgr.shouldUpdateBytesRateParameters(null, null, null, null, null, null));
-    }
-
-    @Test
-    public void shouldUpdateBytesRateParametersTests(){
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong(), nullable(Long.class)));
-        assertTrue(configurationMgr.shouldUpdateBytesRateParameters(nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), nullable(Long.class), Mockito.anyLong()));
-    }
-
-    @Test
-    public void updateDiskOfferingTagsIfIsNotNullTestWhenTagsIsNull(){
-        Mockito.doNothing().when(configurationMgr).updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-        Mockito.verify(configurationMgr, Mockito.times(1)).updateOfferingTagsIfIsNotNull(null, diskOfferingVOMock);
-    }
-    @Test
-    public void updateDiskOfferingTagsIfIsNotNullTestWhenTagsIsNotNull(){
-        String tags = "tags";
-        Mockito.doNothing().when(configurationMgr).updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        Mockito.verify(configurationMgr, Mockito.times(1)).updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void updateDiskOfferingTagsWithPrimaryStorageTagsEqualNullTestThrowException(){
-        String tags = "tags";
-        List<String> storageTagsNull = new ArrayList<>();
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.getStoragePoolTags(anyLong())).thenReturn(storageTagsNull);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test (expected = InvalidParameterValueException.class)
-    public void updateDiskOfferingTagsWithPrimaryStorageMissingTagsTestThrowException(){
-        String tags = "tag1,tag2";
-        List<String> storageTagsWithMissingTag = new ArrayList<>(Arrays.asList("tag1"));
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.getStoragePoolTags(anyLong())).thenReturn(storageTagsWithMissingTag);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-    }
-
-    @Test
-    public void updateDiskOfferingTagsWithPrimaryStorageWithCorrectTagsTestSuccess(){
-        String tags = "tag1,tag2";
-        List<StoragePoolVO> pools = new ArrayList<>(Arrays.asList(storagePoolVO));
-        List<VolumeVO> volumes = new ArrayList<>(Arrays.asList(volumeVO));
-
-        StoragePoolTagVO poolTagMock1 = Mockito.mock(StoragePoolTagVO.class);
-        StoragePoolTagVO poolTagMock2 = Mockito.mock(StoragePoolTagVO.class);
-        List<StoragePoolTagVO> poolTags = List.of(poolTagMock1, poolTagMock2);
-        Mockito.doReturn("tag1").when(poolTagMock1).getTag();
-        Mockito.doReturn("tag2").when(poolTagMock2).getTag();
-
-        Mockito.when(primaryDataStoreDao.listStoragePoolsWithActiveVolumesByOfferingId(anyLong())).thenReturn(pools);
-        Mockito.when(storagePoolTagsDao.findStoragePoolTags(anyLong())).thenReturn(poolTags);
-        Mockito.when(diskOfferingDao.findById(anyLong())).thenReturn(diskOfferingVOMock);
-        Mockito.when(_volumeDao.findByDiskOfferingId(anyLong())).thenReturn(volumes);
-
-        this.configurationMgr.updateOfferingTagsIfIsNotNull(tags, diskOfferingVOMock);
-        Mockito.verify(diskOfferingVOMock, Mockito.times(1)).setTags(tags);
     }
 
     @Test(expected = IllegalArgumentException.class)

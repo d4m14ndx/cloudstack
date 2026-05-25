@@ -27,6 +27,7 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,7 +39,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.exception.InvalidParameterValueException;
@@ -104,8 +105,6 @@ import com.cloud.utils.concurrency.NamedThreadFactory;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.security.CertificateHelper;
-
-import sun.security.x509.X509CertImpl;
 
 public class DirectDownloadManagerImpl extends ManagerBase implements DirectDownloadManager {
 
@@ -452,8 +451,8 @@ public class DirectDownloadManagerImpl extends ManagerBase implements DirectDown
     protected void certificateSanity(String certificatePem) {
         Certificate certificate = getCertificateFromString(certificatePem);
 
-        if (certificate instanceof X509CertImpl) {
-            X509CertImpl x509Cert = (X509CertImpl) certificate;
+        if (certificate instanceof X509Certificate) {
+            X509Certificate x509Cert = (X509Certificate) certificate;
             try {
                 x509Cert.checkValidity();
             } catch (CertificateExpiredException | CertificateNotYetValidException e) {

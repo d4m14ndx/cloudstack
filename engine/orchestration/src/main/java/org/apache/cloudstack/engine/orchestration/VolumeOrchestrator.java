@@ -35,7 +35,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.deploy.DeploymentClusterPlanner;
@@ -1156,8 +1156,6 @@ public class VolumeOrchestrator extends ManagerBase implements VolumeOrchestrati
             return ImageFormat.QCOW2;
         } else if (hyperType == HypervisorType.VMware) {
             return ImageFormat.OVA;
-        } else if (hyperType == HypervisorType.Ovm) {
-            return ImageFormat.RAW;
         } else if (hyperType == HypervisorType.Hyperv) {
             return ImageFormat.VHDX;
         } else {

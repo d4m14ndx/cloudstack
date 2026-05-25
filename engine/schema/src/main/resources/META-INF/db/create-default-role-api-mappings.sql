@@ -157,10 +157,6 @@ INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`,
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'extractVolume', 'ALLOW', 134) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getApiLimit', 'ALLOW', 135) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getCloudIdentifier', 'ALLOW', 136) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getSolidFireAccountId', 'ALLOW', 137) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getSolidFireVolumeAccessGroupId', 'ALLOW', 138) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getSolidFireVolumeIscsiName', 'ALLOW', 139) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getSolidFireVolumeSize', 'ALLOW', 140) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getUploadParamsForTemplate', 'ALLOW', 141) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getUploadParamsForVolume', 'ALLOW', 142) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 2, 'getVMPassword', 'ALLOW', 143) ON DUPLICATE KEY UPDATE rule=rule;
@@ -470,10 +466,6 @@ INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`,
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'extractVolume', 'ALLOW', 130) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getApiLimit', 'ALLOW', 131) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getCloudIdentifier', 'ALLOW', 132) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getSolidFireAccountId', 'ALLOW', 133) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getSolidFireVolumeAccessGroupId', 'ALLOW', 134) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getSolidFireVolumeIscsiName', 'ALLOW', 135) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getSolidFireVolumeSize', 'ALLOW', 136) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getUploadParamsForTemplate', 'ALLOW', 137) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getUploadParamsForVolume', 'ALLOW', 138) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 3, 'getVMPassword', 'ALLOW', 139) ON DUPLICATE KEY UPDATE rule=rule;
@@ -749,10 +741,6 @@ INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`,
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'extractVolume', 'ALLOW', 108) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getApiLimit', 'ALLOW', 109) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getCloudIdentifier', 'ALLOW', 110) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getSolidFireAccountId', 'ALLOW', 111) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getSolidFireVolumeAccessGroupId', 'ALLOW', 112) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getSolidFireVolumeIscsiName', 'ALLOW', 113) ON DUPLICATE KEY UPDATE rule=rule;
-INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getSolidFireVolumeSize', 'ALLOW', 114) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getUploadParamsForTemplate', 'ALLOW', 115) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getUploadParamsForVolume', 'ALLOW', 116) ON DUPLICATE KEY UPDATE rule=rule;
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'getVMPassword', 'ALLOW', 117) ON DUPLICATE KEY UPDATE rule=rule;

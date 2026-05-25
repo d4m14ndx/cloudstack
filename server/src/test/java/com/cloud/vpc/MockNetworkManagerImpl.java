@@ -21,7 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;
@@ -475,7 +475,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkOrches
      */
     @Override
     public PhysicalNetworkTrafficType addTrafficTypeToPhysicalNetwork(Long physicalNetworkId, String trafficType, String isolationMethod, String xenLabel, String kvmLabel, String vmwareLabel,
-        String simulatorLabel, String vlan, String hypervLabel, String ovm3Label) {
+        String simulatorLabel, String vlan, String hypervLabel) {
         // TODO Auto-generated method stub
         return null;
     }
@@ -493,7 +493,7 @@ public class MockNetworkManagerImpl extends ManagerBase implements NetworkOrches
      * @see com.cloud.network.NetworkService#updatePhysicalNetworkTrafficType(java.lang.Long, java.lang.String, java.lang.String, java.lang.String)
      */
     @Override
-    public PhysicalNetworkTrafficType updatePhysicalNetworkTrafficType(Long id, String xenLabel, String kvmLabel, String vmwareLabel, String hypervLabel, String ovm3Label) {
+    public PhysicalNetworkTrafficType updatePhysicalNetworkTrafficType(Long id, String xenLabel, String kvmLabel, String vmwareLabel, String hypervLabel) {
         // TODO Auto-generated method stub
         return null;
     }

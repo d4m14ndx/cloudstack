@@ -27,7 +27,7 @@ import org.apache.cloudstack.quota.QuotaStatement;
 
 import java.util.Calendar;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaUpdate", responseObject = QuotaUpdateResponse.class, description = "Update quota calculations, alerts and statements", since = "4.7.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
 public class QuotaUpdateCmd extends BaseCmd {

@@ -25,9 +25,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.persistence.TableGenerator;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.persistence.TableGenerator;
 
 import com.cloud.utils.exception.CloudRuntimeException;
 import org.apache.cloudstack.acl.ControlledEntity.ACLType;

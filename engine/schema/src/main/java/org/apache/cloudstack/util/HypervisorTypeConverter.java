@@ -18,8 +18,8 @@ package org.apache.cloudstack.util;
 
 import com.cloud.hypervisor.Hypervisor;
 
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 /**
  * Converts {@link com.cloud.hypervisor.Hypervisor.HypervisorType} to and from {@link String} using {@link com.cloud.hypervisor.Hypervisor.HypervisorType#name()}.

@@ -63,6 +63,20 @@
         <property name="dhcpProviders" value="#{dhcpProvidersRegistry.registered}" />
     </bean>
 
+    <bean id="nicDhcpCleanupServiceImpl"
+        class="org.apache.cloudstack.engine.orchestration.NicDhcpCleanupServiceImpl">
+        <property name="networkElements" value="#{networkElementsRegistry.registered}" />
+    </bean>
+
+    <bean id="nicMigrationServiceImpl"
+        class="org.apache.cloudstack.engine.orchestration.NicMigrationServiceImpl">
+        <property name="networkGurus" value="#{networkGurusRegistry.registered}" />
+        <property name="networkElements" value="#{networkElementsRegistry.registered}" />
+    </bean>
+
+    <bean id="networkHostSetupServiceImpl"
+        class="org.apache.cloudstack.engine.orchestration.NetworkHostSetupServiceImpl" />
+
     <bean id="clusteredAgentManagerImpl" class="com.cloud.agent.manager.ClusteredAgentManagerImpl" />
     <bean id="managementServiceConfigurationImpl" class="com.cloud.configuration.ManagementServiceConfigurationImpl" />
 

@@ -29,7 +29,7 @@ import org.apache.cloudstack.acl.dao.ApiKeyPairDao;
 import org.apache.cloudstack.acl.dao.ApiKeyPairPermissionsDao;
 import org.apache.commons.collections.CollectionUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 public class ApiKeyPairManagerImpl extends ManagerBase implements ApiKeyPairService {

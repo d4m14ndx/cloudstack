@@ -22,9 +22,9 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.messagebus.MessageBus;

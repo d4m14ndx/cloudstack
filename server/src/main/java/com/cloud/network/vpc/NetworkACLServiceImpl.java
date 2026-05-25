@@ -24,7 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;

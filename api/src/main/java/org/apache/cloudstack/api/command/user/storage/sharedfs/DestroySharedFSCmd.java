@@ -31,7 +31,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.storage.sharedfs.SharedFS;
 import org.apache.cloudstack.storage.sharedfs.SharedFSService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.event.EventTypes;
 

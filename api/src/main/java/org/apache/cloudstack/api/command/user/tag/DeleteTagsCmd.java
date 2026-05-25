@@ -101,8 +101,7 @@ public class DeleteTagsCmd extends BaseAsyncCmd {
         boolean success = _taggedResourceService.deleteTags(getResourceIds(), getResourceType(), getTags());
 
         if (success) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete tags");
         }

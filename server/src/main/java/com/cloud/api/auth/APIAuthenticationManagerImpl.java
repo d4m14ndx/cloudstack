@@ -103,10 +103,10 @@ public class APIAuthenticationManagerImpl extends ManagerBase implements APIAuth
         APIAuthenticator apiAuthenticator = null;
         if (s_authenticators != null && s_authenticators.containsKey(name)) {
             try {
-                apiAuthenticator = (APIAuthenticator) s_authenticators.get(name).newInstance();
+                apiAuthenticator = (APIAuthenticator) s_authenticators.get(name).getDeclaredConstructor().newInstance();
                 apiAuthenticator = ComponentContext.inject(apiAuthenticator);
                 apiAuthenticator.setAuthenticators(_apiAuthenticators);
-            } catch (InstantiationException | IllegalAccessException e) {
+            } catch (ReflectiveOperationException e) {
                 if (logger.isDebugEnabled()) {
                     logger.debug("APIAuthenticationManagerImpl::getAPIAuthenticator failed: " + e.getMessage());
                 }

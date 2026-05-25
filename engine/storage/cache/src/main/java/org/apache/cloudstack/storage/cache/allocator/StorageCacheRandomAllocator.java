@@ -20,7 +20,7 @@ package org.apache.cloudstack.storage.cache.allocator;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

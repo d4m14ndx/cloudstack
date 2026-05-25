@@ -21,7 +21,7 @@ package org.apache.cloudstack.storage.datastore.driver;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.storage.command.CommandResult;
 

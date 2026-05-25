@@ -25,9 +25,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import javax.persistence.CollectionTable;
-import javax.persistence.ElementCollection;
-import javax.persistence.JoinColumn;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.JoinColumn;
 
 import com.cloud.utils.exception.CloudRuntimeException;
 

@@ -19,7 +19,7 @@ package com.cloud.api.query.dao;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.annotation.AnnotationService;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;

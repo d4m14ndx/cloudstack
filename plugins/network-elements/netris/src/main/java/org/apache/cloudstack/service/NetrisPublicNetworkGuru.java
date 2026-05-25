@@ -38,7 +38,7 @@ import com.cloud.vm.VirtualMachineProfile;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.commons.collections.CollectionUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 import java.util.stream.Collectors;
 

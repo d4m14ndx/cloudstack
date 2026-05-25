@@ -44,8 +44,8 @@ import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpSession;
 
 import org.apache.logging.log4j.Logger;
 import org.junit.BeforeClass;

@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;

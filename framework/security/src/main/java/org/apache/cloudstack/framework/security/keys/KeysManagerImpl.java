@@ -19,7 +19,7 @@ package org.apache.cloudstack.framework.security.keys;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.net.ssl.KeyManager;
 
 import org.apache.commons.codec.binary.Base64;

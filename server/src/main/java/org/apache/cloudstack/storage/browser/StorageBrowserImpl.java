@@ -63,7 +63,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.EnumUtils;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Date;

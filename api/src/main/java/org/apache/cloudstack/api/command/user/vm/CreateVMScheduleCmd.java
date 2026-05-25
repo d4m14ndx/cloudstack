@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.api.response.VMScheduleResponse;
 import org.apache.cloudstack.vm.schedule.VMScheduleManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Date;
 
 @APICommand(name = "createVMSchedule", description = "Create Instance Schedule", responseObject = VMScheduleResponse.class,

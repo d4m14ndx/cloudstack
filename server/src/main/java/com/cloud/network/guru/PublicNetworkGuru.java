@@ -16,7 +16,7 @@
 // under the License.
 package com.cloud.network.guru;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.network.vpc.dao.VpcDao;

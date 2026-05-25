@@ -98,6 +98,9 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import org.apache.cloudstack.framework.jobs.dao.VmWorkJobDao;
+
+import com.cloud.agent.AgentManager;
 import com.cloud.api.query.dao.ServiceOfferingJoinDao;
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.Resource.ResourceType;
@@ -112,6 +115,7 @@ import com.cloud.exception.PermissionDeniedException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
 import com.cloud.org.Grouping;
 import com.cloud.projects.Project;
 import com.cloud.projects.ProjectManager;
@@ -134,11 +138,13 @@ import com.cloud.user.User;
 import com.cloud.user.UserVO;
 import com.cloud.user.dao.AccountDao;
 import com.cloud.utils.Pair;
+import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.fsm.NoTransitionException;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.UserVmManager;
+import com.cloud.vm.UserVmService;
 import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.State;
@@ -181,6 +187,8 @@ public class VolumeApiServiceImplTest {
     @Mock
     private AsyncJobJoinMapDao _joinMapDao;
     @Mock
+    private EntityManager _entityMgr;
+    @Mock
     private VolumeDataFactory volumeDataFactoryMock;
     @Mock
     private VMInstanceDao _vmInstanceDao;
@@ -221,12 +229,21 @@ public class VolumeApiServiceImplTest {
     @Mock
     VirtualMachineManager virtualMachineManager;
     @Mock
+    private HypervisorCapabilitiesDao hypervisorCapabilitiesDaoMock;
+    @Mock
+    private StorageUtil storageUtilMock;
+    @Mock
     HostPodDao podDao;
     @Mock
     ClusterDao clusterDao;
     @Mock
     VolumeOrchestrationService volumeOrchestrationService;
-
+    @Mock
+    private AgentManager agentManagerMock;
+    @Mock
+    private VmWorkJobDao workJobDaoMock;
+    @Mock
+    private UserVmService userVmServiceMock;
 
     private DetachVolumeCmd detachCmd = new DetachVolumeCmd();
     private Class<?> _detachCmdClass = detachCmd.getClass();
@@ -274,6 +291,12 @@ public class VolumeApiServiceImplTest {
     @Mock
     private VMSnapshotDetailsDao vmSnapshotDetailsDaoMock;
 
+    @Mock
+    private VolumeTakeSnapshotService volumeTakeSnapshotServiceMock;
+
+    @Mock
+    private VolumeUploadRegistrationService volumeUploadRegistrationServiceMock;
+
     private long accountMockId = 456l;
     private long volumeMockId = 12313l;
     private long vmInstanceMockId = 1123l;
@@ -312,6 +335,19 @@ public class VolumeApiServiceImplTest {
 
         volumeApiServiceImpl._gson = GsonHelper.getGsonLogger();
 
+        VolumeCheckAndRepairServiceImpl checkAndRepairService = new VolumeCheckAndRepairServiceImpl();
+        ReflectionTestUtils.setField(checkAndRepairService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "jobMgr", _jobMgr);
+        ReflectionTestUtils.setField(checkAndRepairService, "workJobDao", workJobDaoMock);
+        ReflectionTestUtils.setField(checkAndRepairService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(checkAndRepairService, "entityMgr", _entityMgr);
+        // Phase 4 extraction: keep the spy on VolumeApiServiceImpl while the real extracted collaborator owns this slice.
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCheckAndRepairService", checkAndRepairService);
+
         // mock caller context
         AccountVO account = new AccountVO("admin", 1L, "networkDomain", Account.Type.NORMAL, "uuid");
         UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
@@ -320,6 +356,7 @@ public class VolumeApiServiceImplTest {
         AsyncJobExecutionContext context = new AsyncJobExecutionContext();
         AsyncJobExecutionContext.init(_jobMgr, _joinMapDao);
         AsyncJobVO job = new AsyncJobVO();
+        ReflectionTestUtils.setField(job, "id", 500L);
         context.setJob(job);
         AsyncJobExecutionContext.setCurrentExecutionContext(context);
 
@@ -379,8 +416,8 @@ public class VolumeApiServiceImplTest {
             when(correctRootVolume.getVolumeType()).thenReturn(Volume.Type.ROOT);
             when(correctRootVolume.getInstanceId()).thenReturn(null);
             when(correctRootVolume.getState()).thenReturn(Volume.State.Ready);
-            when(correctRootVolume.getTemplateId()).thenReturn(null);
-            when(correctRootVolume.getPoolId()).thenReturn(1L);
+            lenient().when(correctRootVolume.getTemplateId()).thenReturn(null);
+            lenient().when(correctRootVolume.getPoolId()).thenReturn(1L);
             when(volumeDataFactoryMock.getVolume(6L)).thenReturn(correctRootVolume);
 
             VolumeVO correctRootVolumeVO = new VolumeVO("root", 1L, 1L, 1L, 1L, 2L, "root", "root", Storage.ProvisioningType.THIN, 1, null, null, "root", Volume.Type.ROOT);
@@ -449,9 +486,9 @@ public class VolumeApiServiceImplTest {
             when(_vmInstanceDao.findById(any(Long.class))).thenReturn(stoppedVm);
 
             DataCenterVO enabledZone = Mockito.mock(DataCenterVO.class);
-            when(enabledZone.getAllocationState()).thenReturn(Grouping.AllocationState.Enabled);
+            lenient().when(enabledZone.getAllocationState()).thenReturn(Grouping.AllocationState.Enabled);
 
-            when(_dcDao.findById(anyLong())).thenReturn(enabledZone);
+            lenient().when(_dcDao.findById(anyLong())).thenReturn(enabledZone);
 
         } finally {
             txn.close("runVolumeDaoImplTest");
@@ -465,6 +502,227 @@ public class VolumeApiServiceImplTest {
         lenient().doNothing().when(accountManagerMock).checkAccess(any(Account.class), any(AccessType.class), any(Boolean.class), any(ControlledEntity.class));
         doNothing().when(_jobMgr).updateAsyncJobAttachment(any(Long.class), any(String.class), any(Long.class));
         when(_jobMgr.submitAsyncJob(any(AsyncJobVO.class), any(String.class), any(Long.class))).thenReturn(1L);
+
+        // Phase 4 (parallel slice): wire DiskOfferingCompatibilityServiceImpl with
+        // the same DAO mocks that the manager-level tests already configure. The
+        // delegating wrappers on VolumeApiServiceImpl (getStoragePoolTags,
+        // doesStoragePoolSupportDiskOfferingTags, etc.) forward to this service,
+        // so existing spy-based tests continue to exercise the same code paths
+        // through the wrappers.
+        DiskOfferingCompatibilityServiceImpl compatibilityService = new DiskOfferingCompatibilityServiceImpl();
+        ReflectionTestUtils.setField(compatibilityService, "storagePoolTagsDao", storagePoolTagsDao);
+        ReflectionTestUtils.setField(compatibilityService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(compatibilityService, "serviceOfferingDao", serviceOfferingDao);
+        ReflectionTestUtils.setField(compatibilityService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "diskOfferingCompatibilityService", compatibilityService);
+
+        // Phase 4 (parallel slice, 2nd): wire VolumeAttachValidatorImpl with the
+        // same DAO mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (checkForBackups, getRequiredPrimaryStorageSizeForVolumeAttach,
+        // checkForVMSnapshots, excludeLocalStorageIfNeeded, checkDeviceId,
+        // validateRootVolumeDetachAttach, checkForMatchingHypervisorTypesIf)
+        // forward to this service so existing spy-based tests keep exercising
+        // the same code paths.
+        VolumeAttachValidatorImpl attachValidator = new VolumeAttachValidatorImpl();
+        ReflectionTestUtils.setField(attachValidator, "vmSnapshotDao", _vmSnapshotDao);
+        ReflectionTestUtils.setField(attachValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(attachValidator, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(attachValidator, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(attachValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachValidator", attachValidator);
+
+        // Phase 4 (parallel slice, 3rd): wire VolumeResizeValidatorImpl with the
+        // same DAO mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (isNotPossibleToResize, validateVolumeReadyStateAndHypervisorChecks,
+        // validateVolumeResizeWithNewDiskOfferingAndLoad) forward to this
+        // service. Inline call-sites in resizeVolume/changeDiskOfferingForVolumeInternal
+        // for validateIops / checkIfVolumeIsRootAndVmIsRunning also use the same
+        // service, so existing spy-based tests keep exercising the same code paths.
+        VolumeResizeValidatorImpl resizeValidator = new VolumeResizeValidatorImpl();
+        ReflectionTestUtils.setField(resizeValidator, "templateDao", templateDao);
+        ReflectionTestUtils.setField(resizeValidator, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(resizeValidator, "serviceOfferingDao", serviceOfferingDao);
+        ReflectionTestUtils.setField(resizeValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(resizeValidator, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(resizeValidator, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(resizeValidator, "configurationManager", _configMgr);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeResizeValidator", resizeValidator);
+
+        // Phase 4 (parallel slice, 4th): wire VolumeAccountAssignmentServiceImpl
+        // with the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (validateVolume, validateAccounts,
+        // getAccountOrProject, updateVolumeAccount) forward to this service,
+        // so existing tests against the wrappers keep exercising the same
+        // code paths.
+        VolumeAccountAssignmentServiceImpl accountAssignmentService = new VolumeAccountAssignmentServiceImpl();
+        ReflectionTestUtils.setField(accountAssignmentService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(accountAssignmentService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(accountAssignmentService, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "projectManager", projectManagerMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(accountAssignmentService, "volumeService", volumeServiceMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAccountAssignmentService", accountAssignmentService);
+
+        // Phase 4 (parallel slice, 5th): wire VolumeExtractServiceImpl with the
+        // same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (setExtractVolumeSearchCriteria and
+        // orchestrateExtractVolume) forward to this service, and the public
+        // extractVolume path now goes through validateExtractRequest on the
+        // same component, so any future manager-level tests on the extract
+        // path continue to exercise the same code through the wrappers.
+        VolumeExtractServiceImpl extractService = new VolumeExtractServiceImpl();
+        ReflectionTestUtils.setField(extractService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(extractService, "volumeStoreDao", volumeDataStoreDaoMock);
+        ReflectionTestUtils.setField(extractService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(extractService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(extractService, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(extractService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(extractService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(extractService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(extractService, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeExtractService", extractService);
+
+        // Phase 4 (parallel slice, 6th): wire VolumeHostTopologyServiceImpl
+        // with the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (verifyManagedStorage, getNameOfClusteredFileSystem,
+        // getHostForVmVolumeAttachDetach, isSendCommandForVmVolumeAttachDetach,
+        // isIothreadsSupported, getIoPolicy, provideVMInfo,
+        // getMaxDataVolumesSupported, getMinimumHypervisorVersionInDatacenter,
+        // getDeviceId) forward to this service, so existing spy-based tests keep
+        // exercising the same code paths through the wrappers.
+        VolumeHostTopologyServiceImpl hostTopologyService = new VolumeHostTopologyServiceImpl();
+        ReflectionTestUtils.setField(hostTopologyService, "hostDao", _hostDao);
+        ReflectionTestUtils.setField(hostTopologyService, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "hypervisorCapabilitiesDao", hypervisorCapabilitiesDaoMock);
+        ReflectionTestUtils.setField(hostTopologyService, "virtualMachineManager", virtualMachineManager);
+        ReflectionTestUtils.setField(hostTopologyService, "storageUtil", storageUtilMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeHostTopologyService", hostTopologyService);
+
+        VolumeAttachServiceImpl attachService = new VolumeAttachServiceImpl();
+        ReflectionTestUtils.setField(attachService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(attachService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(attachService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(attachService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(attachService, "templateDao", templateDao);
+        ReflectionTestUtils.setField(attachService, "dcDao", _dcDao);
+        ReflectionTestUtils.setField(attachService, "clusterDao", clusterDao);
+        ReflectionTestUtils.setField(attachService, "podDao", podDao);
+        ReflectionTestUtils.setField(attachService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(attachService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(attachService, "hostDao", _hostDao);
+        ReflectionTestUtils.setField(attachService, "vmDiskStatsDao", Mockito.mock(com.cloud.user.dao.VmDiskStatisticsDao.class));
+        ReflectionTestUtils.setField(attachService, "accountDao", _accountDao);
+        ReflectionTestUtils.setField(attachService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(attachService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(attachService, "jobMgr", _jobMgr);
+        ReflectionTestUtils.setField(attachService, "workJobDao", workJobDaoMock);
+        ReflectionTestUtils.setField(attachService, "reservationDao", Mockito.mock(org.apache.cloudstack.reservation.dao.ReservationDao.class));
+        ReflectionTestUtils.setField(attachService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(attachService, "volumeMgr", volumeOrchestrationService);
+        ReflectionTestUtils.setField(attachService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(attachService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(attachService, "storageMgr", storageMgr);
+        ReflectionTestUtils.setField(attachService, "virtualMachineManager", virtualMachineManager);
+        ReflectionTestUtils.setField(attachService, "volumeAttachValidator", attachValidator);
+        ReflectionTestUtils.setField(attachService, "volumeHostTopologyService", hostTopologyService);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachService);
+
+        // Phase 4 (parallel slice, 7th): wire VolumeMigrationValidatorImpl with
+        // the same DAO and manager mocks. The delegating wrappers on
+        // VolumeApiServiceImpl (checkVmStateForMigration, isSourceOrDestNotOnStorPool,
+        // isSourceAndDestOnStorPool, retrieveAndValidateNewDiskOffering) forward to
+        // this service, so existing spy-based tests against migrateVolume keep
+        // exercising the same code paths through the wrappers.
+        VolumeMigrationValidatorImpl migrationValidator = new VolumeMigrationValidatorImpl();
+        ReflectionTestUtils.setField(migrationValidator, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(migrationValidator, "volumeDao", volumeDaoMock);
+        ReflectionTestUtils.setField(migrationValidator, "dataCenterDao", _dcDao);
+        ReflectionTestUtils.setField(migrationValidator, "accountManager", accountManagerMock);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeMigrationValidator", migrationValidator);
+
+        // Phase 4 (slice 9): wire VolumeDetachServiceImpl with the same DAO and
+        // manager mocks. The delegating wrappers on VolumeApiServiceImpl
+        // (detachVolumeFromVM, detachVolumeViaDestroyVM, detachVolumeFromVmThroughJobQueue)
+        // forward to this service, so existing spy-based detach tests keep
+        // exercising the same code paths through the wrappers.
+        VolumeDetachServiceImpl detachService = new VolumeDetachServiceImpl();
+        ReflectionTestUtils.setField(detachService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(detachService, "vmInstanceDao", _vmInstanceDao);
+        ReflectionTestUtils.setField(detachService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(detachService, "vmSnapshotDao", _vmSnapshotDao);
+        ReflectionTestUtils.setField(detachService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(detachService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(detachService, "agentMgr", agentManagerMock);
+        ReflectionTestUtils.setField(detachService, "jobMgr", _jobMgr);
+        ReflectionTestUtils.setField(detachService, "workJobDao", workJobDaoMock);
+        ReflectionTestUtils.setField(detachService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(detachService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(detachService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(detachService, "volumeMgr", volumeOrchestrationService);
+        ReflectionTestUtils.setField(detachService, "volumeAttachValidator", attachValidator);
+        ReflectionTestUtils.setField(detachService, "hostDao", _hostDao);
+        ReflectionTestUtils.setField(detachService, "userVmService", userVmServiceMock);
+        ReflectionTestUtils.setField(detachService, "volumeHostTopologyService", hostTopologyService);
+        ReflectionTestUtils.setField(detachService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeDetachService", detachService);
+
+        // Phase 4 (slice 10): wire VolumeUploadRegistrationService mock so that
+        // getVolumeNameFromCommand (which delegates to getRandomVolumeName) keeps
+        // returning a non-null value in the four existing tests.
+        Mockito.lenient().when(volumeUploadRegistrationServiceMock.getRandomVolumeName())
+                .thenReturn(UUID.randomUUID().toString());
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUploadRegistrationService",
+                volumeUploadRegistrationServiceMock);
+
+        // Phase 4 (slice 13): wire VolumeUpdateDisplayServiceImpl with the
+        // same DAO and manager mocks. The public updateVolume/updateDisplay
+        // wrappers on VolumeApiServiceImpl forward to this service.
+        VolumeUpdateDisplayServiceImpl updateDisplayService = new VolumeUpdateDisplayServiceImpl();
+        ReflectionTestUtils.setField(updateDisplayService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(updateDisplayService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(updateDisplayService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(updateDisplayService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(updateDisplayService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", updateDisplayService);
+
+        // Phase 4 (slice 14): wire VolumeCreateServiceImpl with the same DAO and
+        // manager mocks. The public allocVolume/createVolume/validateCustomDiskOfferingSizeRange/
+        // validateVolumeSizeInBytes/getVolumeNameFromCommand wrappers on VolumeApiServiceImpl
+        // forward to this service, so existing getVolumeNameFromCommand assertions (L832-L850)
+        // continue to pass through the real wired-in service.
+        org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao diskOfferingDetailsDaoMock =
+                Mockito.mock(org.apache.cloudstack.resourcedetail.dao.DiskOfferingDetailsDao.class);
+        org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao snapshotDataStoreDaoMock =
+                Mockito.mock(org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao.class);
+        com.cloud.storage.dao.VolumeDetailsDao volumeDetailsDaoMock =
+                Mockito.mock(com.cloud.storage.dao.VolumeDetailsDao.class);
+        com.cloud.utils.db.UUIDManager uuidMgrMock = Mockito.mock(com.cloud.utils.db.UUIDManager.class);
+        VolumeCreateServiceImpl createService = new VolumeCreateServiceImpl();
+        ReflectionTestUtils.setField(createService, "volsDao", volumeDaoMock);
+        ReflectionTestUtils.setField(createService, "snapshotDao", snapshotDaoMock);
+        ReflectionTestUtils.setField(createService, "diskOfferingDao", _diskOfferingDao);
+        ReflectionTestUtils.setField(createService, "dcDao", _dcDao);
+        ReflectionTestUtils.setField(createService, "userVmDao", userVmDaoMock);
+        ReflectionTestUtils.setField(createService, "storagePoolDao", primaryDataStoreDaoMock);
+        ReflectionTestUtils.setField(createService, "diskOfferingDetailsDao", diskOfferingDetailsDaoMock);
+        ReflectionTestUtils.setField(createService, "snapshotDataStoreDao", snapshotDataStoreDaoMock);
+        ReflectionTestUtils.setField(createService, "volsDetailsDao", volumeDetailsDaoMock);
+        ReflectionTestUtils.setField(createService, "accountMgr", accountManagerMock);
+        ReflectionTestUtils.setField(createService, "configMgr", _configMgr);
+        ReflectionTestUtils.setField(createService, "resourceLimitMgr", resourceLimitServiceMock);
+        ReflectionTestUtils.setField(createService, "uuidMgr", uuidMgrMock);
+        ReflectionTestUtils.setField(createService, "volumeMgr", volumeOrchestrationService);
+        ReflectionTestUtils.setField(createService, "dataStoreMgr", dataStoreMgr);
+        ReflectionTestUtils.setField(createService, "volFactory", volumeDataFactoryMock);
+        ReflectionTestUtils.setField(createService, "volService", volumeServiceMock);
+        ReflectionTestUtils.setField(createService, "volumeAttachService", attachService);
+        ReflectionTestUtils.setField(createService, "diskOfferingCompatibilityService", compatibilityService);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", createService);
     }
 
     /**
@@ -577,26 +835,29 @@ public class VolumeApiServiceImplTest {
         }
     }
 
-    // volume not Ready
+    // Snapshot logic has moved to VolumeTakeSnapshotService (slice 8).
+    // These tests verify that VolumeApiServiceImpl correctly delegates to it.
+
     @Test(expected = InvalidParameterValueException.class)
     public void testTakeSnapshotF1() throws ResourceAllocationException {
-        when(volumeDataFactoryMock.getVolume(anyLong())).thenReturn(volumeInfoMock);
-        when(volumeInfoMock.getState()).thenReturn(Volume.State.Allocated);
-        lenient().when(volumeInfoMock.getPoolId()).thenReturn(1L);
+        when(volumeTakeSnapshotServiceMock.takeSnapshotInternal(anyLong(), any(), anyLong(), any(),
+                anyBoolean(), any(), anyBoolean(), any(), any(), any()))
+                .thenThrow(new InvalidParameterValueException("Volume not in Ready state"));
         volumeApiServiceImpl.takeSnapshot(5L, Snapshot.MANUAL_POLICY_ID, 3L, null, false, null, false, null, null, null, false);
     }
 
     @Test
     public void testTakeSnapshotF2() throws ResourceAllocationException {
-        when(volumeDataFactoryMock.getVolume(anyLong())).thenReturn(volumeInfoMock);
-        when(volumeInfoMock.getState()).thenReturn(Volume.State.Ready);
-        when(volumeInfoMock.getInstanceId()).thenReturn(null);
-        when(volumeInfoMock.getPoolId()).thenReturn(1L);
-        when(volumeServiceMock.takeSnapshot(any(VolumeInfo.class))).thenReturn(snapshotInfoMock);
+        Snapshot mockSnapshot = Mockito.mock(Snapshot.class);
+        when(volumeTakeSnapshotServiceMock.takeSnapshotInternal(anyLong(), any(), anyLong(), any(),
+                anyBoolean(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(mockSnapshot);
         final TaggedResourceService taggedResourceService = Mockito.mock(TaggedResourceService.class);
         Mockito.lenient().when(taggedResourceService.createTags(any(), any(), any(), any())).thenReturn(null);
         ReflectionTestUtils.setField(volumeApiServiceImpl, "taggedResourceService", taggedResourceService);
         volumeApiServiceImpl.takeSnapshot(5L, Snapshot.MANUAL_POLICY_ID, 3L, null, false, null, false, null, null, null, false);
+        verify(volumeTakeSnapshotServiceMock).takeSnapshotInternal(eq(5L), eq(Snapshot.MANUAL_POLICY_ID), eq(3L),
+                any(), anyBoolean(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -639,19 +900,21 @@ public class VolumeApiServiceImplTest {
     }
 
     /**
-     * Setting locationType for a non-managed storage should give an error
+     * VolumeApiServiceImpl now delegates allocSnapshot to VolumeTakeSnapshotService (slice 8).
+     * This test verifies that delegation occurs; the business logic is covered by
+     * VolumeTakeSnapshotServiceImplTest.
      */
     @Test
-    public void testAllocSnapshotNonManagedStorageArchive() {
+    public void testAllocSnapshotNonManagedStorageArchive() throws ResourceAllocationException {
+        when(volumeTakeSnapshotServiceMock.allocSnapshot(eq(6L), eq(1L), eq("test"),
+                eq(Snapshot.LocationType.SECONDARY), any(), any(), any()))
+                .thenThrow(new InvalidParameterValueException("VolumeId: 6 LocationType is supported only for managed storage"));
         try {
             volumeApiServiceImpl.allocSnapshot(6L, 1L, "test", Snapshot.LocationType.SECONDARY, null, null, null);
         } catch (InvalidParameterValueException e) {
-            Assert.assertEquals(e.getMessage(), "VolumeId: 6 LocationType is supported only for managed storage");
+            Assert.assertEquals("VolumeId: 6 LocationType is supported only for managed storage", e.getMessage());
             return;
-        } catch (ResourceAllocationException e) {
-            Assert.fail("Unexpected excepiton " + e.getMessage());
         }
-
         Assert.fail("Expected Exception for archive in non-managed storage");
     }
 
@@ -680,7 +943,9 @@ public class VolumeApiServiceImplTest {
         DataCenterVO zoneWithDisabledLocalStorage = Mockito.mock(DataCenterVO.class);
         when(_dcDao.findById(anyLong())).thenReturn(zoneWithDisabledLocalStorage);
         when(zoneWithDisabledLocalStorage.isLocalStorageEnabled()).thenReturn(true);
-        doReturn(volumeVoMock).when(volumeApiServiceImpl).getVolumeAttachJobResult(Mockito.any(), Mockito.any(), Mockito.any());
+        VolumeAttachServiceImpl attachServiceSpy = Mockito.spy((VolumeAttachServiceImpl)ReflectionTestUtils.getField(volumeApiServiceImpl, "volumeAttachService"));
+        doReturn(volumeVoMock).when(attachServiceSpy).getVolumeAttachJobResult(anyLong(), anyLong(), Mockito.isNull());
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceSpy);
         try (MockedConstruction<CheckedReservation> mockCheckedReservation = Mockito.mockConstruction(CheckedReservation.class)) {
             volumeApiServiceImpl.attachVolumeToVM(2L, 9L, null, false);
             Assert.assertEquals(1, mockCheckedReservation.constructed().size());
@@ -2128,51 +2393,36 @@ public class VolumeApiServiceImplTest {
     @Test
     public void testCreateVolumeOnPrimaryForAttachIfNeeded_UsesGetPoolForAttach() {
         VolumeInfo volumeToAttach = Mockito.mock(VolumeInfo.class);
-        Mockito.when(volumeToAttach.getState()).thenReturn(Volume.State.Allocated);
         UserVmVO vm = Mockito.mock(UserVmVO.class);
-        StoragePool destPrimaryStorage = Mockito.mock(StoragePool.class);
-        Mockito.doReturn(destPrimaryStorage).when(volumeApiServiceImpl)
-                .getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
         VolumeInfo newVolumeOnPrimaryStorage = Mockito.mock(VolumeInfo.class);
-        try {
-            Mockito.when(volumeOrchestrationService.createVolumeOnPrimaryStorage(
-                    vm, volumeToAttach, vm.getHypervisorType(), destPrimaryStorage))
+        VolumeAttachService attachServiceMock = Mockito.mock(VolumeAttachService.class);
+        Mockito.when(attachServiceMock.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null))
                 .thenReturn(newVolumeOnPrimaryStorage);
-        } catch (NoTransitionException nte) {
-            Assert.fail(nte.getMessage());
-        }
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceMock);
         VolumeInfo result = volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
         Assert.assertSame(newVolumeOnPrimaryStorage, result);
-        verify(volumeApiServiceImpl).getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
+        verify(attachServiceMock).createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
     }
 
     @Test(expected = InvalidParameterValueException.class)
     public void testCreateVolumeOnPrimaryForAttachIfNeeded_UnsupportedPoolType_ThrowsException() {
         VolumeInfo volumeToAttach = Mockito.mock(VolumeInfo.class);
-        when(volumeToAttach.getState()).thenReturn(Volume.State.Uploaded);
         UserVmVO vm = Mockito.mock(UserVmVO.class);
-        StoragePool destPrimaryStorage = Mockito.mock(StoragePool.class);
-        when(destPrimaryStorage.getPoolType()).thenReturn(Storage.StoragePoolType.PowerFlex);
-        Mockito.doReturn(destPrimaryStorage).when(volumeApiServiceImpl)
-                .getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
+        VolumeAttachService attachServiceMock = Mockito.mock(VolumeAttachService.class);
+        Mockito.when(attachServiceMock.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null))
+                .thenThrow(new InvalidParameterValueException("Unsupported pool type"));
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceMock);
         volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
     }
 
     @Test
     public void testCreateVolumeOnSecondaryForAttachIfNeeded_CreateVolumeFails_ThrowsException() {
         VolumeInfo volumeToAttach = Mockito.mock(VolumeInfo.class);
-        Mockito.when(volumeToAttach.getState()).thenReturn(Volume.State.Uploaded);
         UserVmVO vm = Mockito.mock(UserVmVO.class);
-        StoragePool destPrimaryStorage = Mockito.mock(StoragePool.class);
-        Mockito.when(destPrimaryStorage.getPoolType()).thenReturn(Storage.StoragePoolType.NetworkFilesystem);
-        Mockito.doReturn(destPrimaryStorage).when(volumeApiServiceImpl)
-                .getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
-        try {
-            Mockito.when(volumeOrchestrationService.createVolumeOnPrimaryStorage(vm, volumeToAttach, vm.getHypervisorType(), destPrimaryStorage))
-                    .thenThrow(new NoTransitionException("Mocked exception"));
-        } catch (NoTransitionException nte) {
-            Assert.fail(nte.getMessage());
-        }
+        VolumeAttachService attachServiceMock = Mockito.mock(VolumeAttachService.class);
+        Mockito.when(attachServiceMock.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null))
+                .thenThrow(new CloudRuntimeException("Failed to create volume on primary storage"));
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceMock);
         CloudRuntimeException exception = Assert.assertThrows(CloudRuntimeException.class, () ->
                 volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null)
         );
@@ -2182,10 +2432,11 @@ public class VolumeApiServiceImplTest {
     @Test
     public void testCreateVolumeOnSecondaryForAttachIfNeeded_NoSuitablePool_ThrowsException() {
         VolumeInfo volumeToAttach = Mockito.mock(VolumeInfo.class);
-        Mockito.when(volumeToAttach.getState()).thenReturn(Volume.State.Uploaded);
         UserVmVO vm = Mockito.mock(UserVmVO.class);
-        Mockito.doReturn(null).when(volumeApiServiceImpl)
-                .getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
+        VolumeAttachService attachServiceMock = Mockito.mock(VolumeAttachService.class);
+        Mockito.when(attachServiceMock.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null))
+                .thenThrow(new CloudRuntimeException("Failed to find a primary storage for volume"));
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceMock);
         CloudRuntimeException exception = Assert.assertThrows(CloudRuntimeException.class, () ->
                 volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null)
         );
@@ -2195,19 +2446,41 @@ public class VolumeApiServiceImplTest {
     @Test
     public void testCreateVolumeOnSecondaryForAttachIfNeeded_NoSuitablePool_ReturnSameVolumeInfo() {
         VolumeInfo volumeToAttach = Mockito.mock(VolumeInfo.class);
-        Mockito.when(volumeToAttach.getState()).thenReturn(Volume.State.Allocated);
         UserVmVO vm = Mockito.mock(UserVmVO.class);
-        Mockito.when(vm.getState()).thenReturn(State.Stopped);
-        Mockito.doReturn(null).when(volumeApiServiceImpl)
-                .getSuitablePoolForAllocatedOrUploadedVolumeForAttach(volumeToAttach, vm);
+        VolumeAttachService attachServiceMock = Mockito.mock(VolumeAttachService.class);
+        Mockito.when(attachServiceMock.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null))
+                .thenReturn(volumeToAttach);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeAttachService", attachServiceMock);
         VolumeInfo result = volumeApiServiceImpl.createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
         Assert.assertSame(volumeToAttach, result);
-        try {
-            Mockito.verify(volumeOrchestrationService, Mockito.never()).createVolumeOnPrimaryStorage(Mockito.any(),
-                    Mockito.any(), Mockito.any(), Mockito.any());
-        } catch (NoTransitionException e) {
-            Assert.fail();
-        }
+        verify(attachServiceMock).createVolumeOnPrimaryForAttachIfNeeded(volumeToAttach, vm, null);
+    }
+
+    @Test
+    public void testUpdateVolumeDelegatesToInjectedService() {
+        VolumeUpdateDisplayService serviceMock = Mockito.mock(VolumeUpdateDisplayService.class);
+        Volume volume = Mockito.mock(Volume.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", serviceMock);
+        Mockito.when(serviceMock.updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name")).thenReturn(volume);
+
+        Volume result = volumeApiServiceImpl.updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name");
+
+        Assert.assertSame(volume, result);
+        Mockito.verify(serviceMock).updateVolume(1L, "path", "Ready", 2L, true, false,
+                "custom-id", 3L, "chain-info", "name");
+    }
+
+    @Test
+    public void testUpdateDisplayDelegatesToInjectedService() {
+        VolumeUpdateDisplayService serviceMock = Mockito.mock(VolumeUpdateDisplayService.class);
+        Volume volume = Mockito.mock(Volume.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeUpdateDisplayService", serviceMock);
+
+        volumeApiServiceImpl.updateDisplay(volume, true);
+
+        Mockito.verify(serviceMock).updateDisplay(volume, true);
     }
 
     @Test
@@ -2319,5 +2592,55 @@ public class VolumeApiServiceImplTest {
         Mockito.doReturn(t2).when(mock2).getType();
         Mockito.doReturn(1L).when(mock2).getId();
         return List.of(mock1, mock2);
+    }
+
+    // ---- VolumeCreateService wrapper delegation regressions (slice 14) ----
+
+    @Test
+    public void testAllocVolumeDelegatesToInjectedService() throws ResourceAllocationException {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        CreateVolumeCmd cmd = Mockito.mock(CreateVolumeCmd.class);
+        VolumeVO expected = Mockito.mock(VolumeVO.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.allocVolume(cmd)).thenReturn(expected);
+
+        VolumeVO result = volumeApiServiceImpl.allocVolume(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(serviceMock).allocVolume(cmd);
+    }
+
+    @Test
+    public void testCreateVolumeDelegatesToInjectedService() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        CreateVolumeCmd cmd = Mockito.mock(CreateVolumeCmd.class);
+        VolumeVO expected = Mockito.mock(VolumeVO.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.createVolume(cmd)).thenReturn(expected);
+
+        VolumeVO result = volumeApiServiceImpl.createVolume(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(serviceMock).createVolume(cmd);
+    }
+
+    @Test
+    public void testValidateCustomDiskOfferingSizeRangeDelegates() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+
+        volumeApiServiceImpl.validateCustomDiskOfferingSizeRange(50L);
+
+        Mockito.verify(serviceMock).validateCustomDiskOfferingSizeRange(50L);
+    }
+
+    @Test
+    public void testValidateVolumeSizeInBytesDelegates() {
+        VolumeCreateService serviceMock = Mockito.mock(VolumeCreateService.class);
+        ReflectionTestUtils.setField(volumeApiServiceImpl, "volumeCreateService", serviceMock);
+        Mockito.when(serviceMock.validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5)).thenReturn(true);
+
+        Assert.assertTrue(volumeApiServiceImpl.validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5));
+        Mockito.verify(serviceMock).validateVolumeSizeInBytes(1024L * 1024L * 1024L * 5);
     }
 }

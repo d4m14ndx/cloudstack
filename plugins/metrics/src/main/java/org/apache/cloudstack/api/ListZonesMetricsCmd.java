@@ -24,7 +24,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.ZoneMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listZonesMetrics", description = "Lists zone metrics", responseObject = ZoneMetricsResponse.class,

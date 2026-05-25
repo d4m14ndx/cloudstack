@@ -1,0 +1,153 @@
+# Fork CI: build + unit test on every push and PR.
+# Runs without -Dnoredist to avoid the proprietary cloudstack-nonoss dependency.
+
+name: Fork CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  build-and-test:
+    name: Build & Test (Java ${{ matrix.java }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+          cache: 'maven'
+
+      - name: Show environment
+        run: |
+          java -version
+          mvn -v
+          free -m
+          nproc
+
+      - name: Build (skip tests)
+        run: mvn -B -ntp install -DskipTests -T1C
+
+      - name: Run unit tests with coverage
+        run: mvn -B -ntp test -fae -T1C -P quality
+
+      - name: Generate aggregate JaCoCo report
+        if: matrix.java == '17'
+        run: |
+          find . -path '*/target/jacoco.exec' -type f | head -5
+          mvn -B -ntp -pl :cloud-utils jacoco:report || true
+
+      - name: Upload JaCoCo coverage reports
+        if: always() && matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-reports
+          path: '**/target/site/jacoco/**'
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-jdk${{ matrix.java }}
+          path: '**/target/surefire-reports/**'
+          retention-days: 14
+
+      - name: Publish test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: '**/target/surefire-reports/TEST-*.xml'
+          fail_on_failure: false
+          require_tests: false
+          check_name: Unit Tests (Java ${{ matrix.java }})
+
+  quality:
+    name: Quality checks (advisory)
+    runs-on: ubuntu-24.04
+    # Quality checks are advisory — they upload reports but never fail the build.
+    # As code quality improves we'll progressively raise the bar.
+    continue-on-error: true
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Compile (cached)
+        run: mvn -B -ntp install -DskipTests -T1C
+
+      - name: SpotBugs analysis
+        run: mvn -B -ntp spotbugs:spotbugs -DskipTests -fae || true
+
+      - name: PMD analysis
+        run: mvn -B -ntp pmd:pmd -DskipTests -fae || true
+
+      - name: Upload SpotBugs reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-reports
+          path: '**/target/spotbugsXml.xml'
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload PMD reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmd-reports
+          path: '**/target/pmd.xml'
+          retention-days: 14
+          if-no-files-found: ignore
+
+  security:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: OWASP Dependency-Check
+        run: mvn -B -ntp -P quality org.owasp:dependency-check-maven:check -DskipTests -DfailBuildOnCVSS=11 || true
+
+      - name: Upload dependency-check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: '**/target/dependency-check-report.*'
+          retention-days: 30
+          if-no-files-found: ignore

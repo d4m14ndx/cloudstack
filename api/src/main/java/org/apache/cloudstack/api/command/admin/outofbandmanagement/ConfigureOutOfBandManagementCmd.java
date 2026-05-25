@@ -39,7 +39,7 @@ import org.apache.cloudstack.outofbandmanagement.OutOfBandManagement;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementService;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "configureOutOfBandManagement", description = "Configures a host's out-of-band management interface",
         responseObject = OutOfBandManagementResponse.class, requestHasSensitiveInfo = true, responseHasSensitiveInfo = false,

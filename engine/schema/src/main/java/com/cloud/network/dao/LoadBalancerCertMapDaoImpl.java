@@ -18,7 +18,7 @@ package com.cloud.network.dao;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.utils.db.GenericDaoBase;
 import com.cloud.utils.db.JoinBuilder;

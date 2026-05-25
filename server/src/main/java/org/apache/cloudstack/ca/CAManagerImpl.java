@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;

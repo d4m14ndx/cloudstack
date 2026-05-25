@@ -1,0 +1,90 @@
+//
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+//
+
+package org.apache.cloudstack.backup;
+
+import java.util.Arrays;
+
+import com.cloud.agent.api.Command;
+import com.cloud.agent.api.LogLevel;
+
+public class StartNBDServerCommand extends Command {
+    private String transferId;
+    private String exportName;
+    private String volumePath;
+    private String socket;
+    private String direction;
+    private String fromCheckpointId;
+    @LogLevel(LogLevel.Log4jLevel.Off)
+    private byte[] passphrase;
+
+    public StartNBDServerCommand() {
+    }
+
+    public StartNBDServerCommand(String transferId, String exportName, String volumePath, String socket,
+                                 String direction, String fromCheckpointId, byte[] passphrase) {
+        this.transferId = transferId;
+        this.exportName = exportName;
+        this.volumePath = volumePath;
+        this.socket = socket;
+        this.direction = direction;
+        this.fromCheckpointId = fromCheckpointId;
+        this.passphrase = passphrase;
+    }
+
+    public String getTransferId() {
+        return transferId;
+    }
+
+    public String getExportName() {
+        return exportName;
+    }
+
+    public String getVolumePath() {
+        return volumePath;
+    }
+
+    public String getSocket() {
+        return socket;
+    }
+
+    public String getDirection() {
+        return direction;
+    }
+
+    public String getFromCheckpointId() {
+        return fromCheckpointId;
+    }
+
+    public byte[] getPassphrase() {
+        return passphrase;
+    }
+
+    public void clearPassphrase() {
+        if (passphrase != null) {
+            Arrays.fill(passphrase, (byte) 0);
+            passphrase = null;
+        }
+    }
+
+    @Override
+    public boolean executeInSequence() {
+        return true;
+    }
+}

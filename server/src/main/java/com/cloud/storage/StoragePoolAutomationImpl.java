@@ -21,7 +21,7 @@ package com.cloud.storage;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.OperationTimedoutException;

@@ -20,6 +20,8 @@ package com.cloud.resource;
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.GetVncPortAnswer;
 import com.cloud.agent.api.GetVncPortCommand;
+import com.cloud.agent.api.StartupCommand;
+import com.cloud.agent.api.StartupRoutingCommand;
 import com.cloud.capacity.dao.CapacityDao;
 import com.cloud.dc.ClusterVO;
 import com.cloud.dc.DataCenterVO;
@@ -34,12 +36,14 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.Status;
 import com.cloud.host.dao.HostDao;
+import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.storage.ScopeType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePoolHostVO;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.StoragePoolAndAccessGroupMapDao;
 import com.cloud.storage.dao.StoragePoolHostDao;
 import com.cloud.storage.dao.VolumeDao;
@@ -55,10 +59,12 @@ import com.cloud.vm.dao.VMInstanceDao;
 import com.trilead.ssh2.Connection;
 import org.apache.cloudstack.api.command.admin.host.CancelHostAsDegradedCmd;
 import org.apache.cloudstack.api.command.admin.host.DeclareHostAsDegradedCmd;
+import org.apache.cloudstack.api.command.admin.host.UpdateHostCmd;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreInfo;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
+import org.apache.cloudstack.jsinterpreter.JsInterpreterHelper;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.junit.After;
@@ -80,7 +86,9 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static com.cloud.resource.ResourceState.Event.ErrorsCorrected;
@@ -113,6 +121,8 @@ public class ResourceManagerImplTest {
     @Mock
     private HostDao hostDao;
     @Mock
+    private HostDetailsDao hostDetailsDao;
+    @Mock
     private ClusterDao clusterDao;
     @Mock
     private HostPodDao podDao;
@@ -128,6 +138,39 @@ public class ResourceManagerImplTest {
     private PrimaryDataStoreDao storagePoolDao;
     @Mock
     private StoragePoolHostDao storagePoolHostDao;
+    @Mock
+    private GuestOSCategoryDao guestOSCategoryDao;
+    @Mock
+    private com.cloud.host.dao.HostTagsDao hostTagsDao;
+    @Mock
+    private org.apache.cloudstack.annotation.AnnotationService annotationService;
+    @Mock
+    private com.cloud.alert.AlertManager alertManager;
+    @Mock
+    private JsInterpreterHelper jsInterpreterHelper;
+
+    /**
+     * Real {@link HostAgentSshServiceImpl} wired with the same mocks so the
+     * existing tests that call {@code resourceManager.getHostCredentials(...)}
+     * and {@code resourceManager.connectAndRestartAgentOnHost(...)} continue
+     * to exercise the real SSH-credential and agent-restart logic (which now
+     * lives in the slice) rather than a no-op mock.
+     */
+    @Spy
+    private HostAgentSshServiceImpl hostAgentSshService = new HostAgentSshServiceImpl();
+
+    /**
+     * Real {@link HostMaintenanceServiceImpl} wired with the same mocks so
+     * the maintenance-state-machine tests continue to exercise the real
+     * helper logic (local-storage strategy checks, scheduleVmsRestart,
+     * etc.) that now lives in the slice.
+     */
+    @Spy
+    private HostMaintenanceServiceImpl hostMaintenanceService = new HostMaintenanceServiceImpl();
+    @Mock
+    private HostUpdateService hostUpdateService;
+    @Mock
+    private HostRegistrationService hostRegistrationService;
 
     @Spy
     @InjectMocks
@@ -156,6 +199,8 @@ public class ResourceManagerImplTest {
 
     @Mock
     private StoragePoolAndAccessGroupMapDao storagePoolAccessGroupMapDao;
+    @Spy
+    private StorageAccessGroupServiceImpl storageAccessGroupService = new StorageAccessGroupServiceImpl();
 
     private static long hostId = 1L;
     private static final String hostUsername = "user";
@@ -190,6 +235,52 @@ public class ResourceManagerImplTest {
     @Before
     public void setup() throws Exception {
         closeable = MockitoAnnotations.openMocks(this);
+        // Wire the slice with the same mocks the manager uses, so the
+        // delegated getHostCredentials / connectAndRestartAgentOnHost /
+        // doUpdateHostPassword paths see the same DAOs and agent.
+        hostAgentSshService.hostDao = hostDao;
+        hostAgentSshService.hostDetailsDao = hostDetailsDao;
+        hostAgentSshService.configurationDao = configurationDao;
+        hostAgentSshService.agentManager = agentManager;
+        Field sshSliceField = ResourceManagerImpl.class.getDeclaredField("hostAgentSshService");
+        sshSliceField.setAccessible(true);
+        sshSliceField.set(resourceManager, hostAgentSshService);
+
+        hostMaintenanceService.dataCenterDao = dcDao;
+        hostMaintenanceService.haManager = haManager;
+        hostMaintenanceService.vmInstanceDao = vmInstanceDao;
+        hostMaintenanceService.vmManager = Mockito.mock(com.cloud.vm.VirtualMachineManager.class);
+        hostMaintenanceService.serviceOfferingDao = Mockito.mock(com.cloud.service.dao.ServiceOfferingDao.class);
+        hostMaintenanceService.deploymentManager = Mockito.mock(com.cloud.deploy.DeploymentPlanningManager.class);
+        hostMaintenanceService.hostLookupService = Mockito.mock(HostLookupService.class);
+        Field maintenanceSliceField = ResourceManagerImpl.class.getDeclaredField("hostMaintenanceService");
+        maintenanceSliceField.setAccessible(true);
+        maintenanceSliceField.set(resourceManager, hostMaintenanceService);
+
+        Field updateSliceField = ResourceManagerImpl.class.getDeclaredField("hostUpdateService");
+        updateSliceField.setAccessible(true);
+        updateSliceField.set(resourceManager, hostUpdateService);
+
+        Field registrationSliceField = ResourceManagerImpl.class.getDeclaredField("hostRegistrationService");
+        registrationSliceField.setAccessible(true);
+        registrationSliceField.set(resourceManager, hostRegistrationService);
+
+        storageAccessGroupService.storagePoolDao = storagePoolDao;
+        storageAccessGroupService.storagePoolAccessGroupMapDao = storagePoolAccessGroupMapDao;
+        storageAccessGroupService.storagePoolHostDao = storagePoolHostDao;
+        storageAccessGroupService.storageManager = storageManager;
+        storageAccessGroupService.hostDao = hostDao;
+        storageAccessGroupService.vmDao = vmInstanceDao;
+        storageAccessGroupService.volumeDao = volumeDao;
+        storageAccessGroupService.clusterDao = clusterDao;
+        storageAccessGroupService.podDao = podDao;
+        storageAccessGroupService.dataCenterDao = dcDao;
+        storageAccessGroupService.hostLookupService = Mockito.mock(HostLookupService.class);
+        storageAccessGroupService.storagePoolTagsDao = Mockito.mock(com.cloud.storage.dao.StoragePoolTagsDao.class);
+        Field sagSliceField = ResourceManagerImpl.class.getDeclaredField("storageAccessGroupService");
+        sagSliceField.setAccessible(true);
+        sagSliceField.set(resourceManager, storageAccessGroupService);
+
         when(host.getType()).thenReturn(Host.Type.Routing);
         when(host.getId()).thenReturn(hostId);
         when(host.getResourceState()).thenReturn(ResourceState.Enabled);
@@ -428,6 +519,116 @@ public class ResourceManagerImplTest {
         resourceManager.handleAgentIfNotConnected(host, true);
         verify(resourceManager, never()).getHostCredentials(eq(host));
         verify(resourceManager, never()).connectAndRestartAgentOnHost(eq(host), eq(hostUsername), eq(hostPassword), eq(hostPrivateKey));
+    }
+
+    @Test
+    public void updateHost_delegatesToHostUpdateService() throws NoTransitionException {
+        UpdateHostCmd updateHostCmd = Mockito.mock(UpdateHostCmd.class);
+        when(hostUpdateService.updateHost(updateHostCmd)).thenReturn(host);
+
+        Host result = resourceManager.updateHost(updateHostCmd);
+
+        Assert.assertSame(host, result);
+        verify(hostUpdateService).updateHost(updateHostCmd);
+    }
+
+    @Test
+    public void autoUpdateHostAllocationState_delegatesToHostUpdateService() throws NoTransitionException {
+        when(hostUpdateService.autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable)).thenReturn(host);
+
+        Host result = resourceManager.autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable);
+
+        Assert.assertSame(host, result);
+        verify(hostUpdateService).autoUpdateHostAllocationState(hostId, ResourceState.Event.Enable);
+    }
+
+    @Test
+    public void checkCIDR_delegatesToHostRegistrationService() {
+        HostPodVO pod = Mockito.mock(HostPodVO.class);
+        DataCenterVO dc = Mockito.mock(DataCenterVO.class);
+
+        resourceManager.checkCIDR(pod, dc, "10.0.0.10", "255.255.255.0");
+
+        verify(hostRegistrationService).checkCIDR(pod, dc, "10.0.0.10", "255.255.255.0");
+    }
+
+    @Test
+    public void createHostAndAgent_delegatesToHostRegistrationService() {
+        Map<String, String> details = Collections.singletonMap("k", "v");
+        List<String> hostTags = Collections.singletonList("tag-1");
+        ServerResource serverResource = Mockito.mock(ServerResource.class);
+        when(hostRegistrationService.createHostAndAgent(99L, serverResource, details, true, hostTags, false)).thenReturn(host);
+
+        Host result = resourceManager.createHostAndAgent(99L, serverResource, details, true, hostTags, false);
+
+        Assert.assertSame(host, result);
+        verify(hostRegistrationService).createHostAndAgent(99L, serverResource, details, true, hostTags, false);
+    }
+
+    @Test
+    public void createHostAndAgentWithTransferredConnection_delegatesToHostRegistrationService() {
+        Map<String, String> details = Collections.singletonMap("k", "v");
+        List<String> hostTags = Collections.singletonList("tag-1");
+        ServerResource serverResource = Mockito.mock(ServerResource.class);
+        when(hostRegistrationService.createHostAndAgent(99L, serverResource, details, true, hostTags, false, true)).thenReturn(host);
+
+        Host result = resourceManager.createHostAndAgent(99L, serverResource, details, true, hostTags, false, true);
+
+        Assert.assertSame(host, result);
+        verify(hostRegistrationService).createHostAndAgent(99L, serverResource, details, true, hostTags, false, true);
+    }
+
+    @Test
+    public void addHost_delegatesToHostRegistrationService() {
+        Map<String, String> details = Collections.singletonMap("guid", "guid-1");
+        ServerResource serverResource = Mockito.mock(ServerResource.class);
+        when(hostRegistrationService.addHost(7L, serverResource, Host.Type.Routing, details)).thenReturn(host);
+
+        Host result = resourceManager.addHost(7L, serverResource, Host.Type.Routing, details);
+
+        Assert.assertSame(host, result);
+        verify(hostRegistrationService).addHost(7L, serverResource, Host.Type.Routing, details);
+    }
+
+    @Test
+    public void createHostVOForConnectedAgent_delegatesToHostRegistrationService() {
+        StartupCommand[] cmds = new StartupCommand[] {Mockito.mock(StartupCommand.class)};
+        HostVO createdHost = Mockito.mock(HostVO.class);
+        when(hostRegistrationService.createHostVOForConnectedAgent(cmds)).thenReturn(createdHost);
+
+        HostVO result = resourceManager.createHostVOForConnectedAgent(cmds);
+
+        Assert.assertSame(createdHost, result);
+        verify(hostRegistrationService).createHostVOForConnectedAgent(cmds);
+    }
+
+    @Test
+    public void fillRoutingHostVO_delegatesToHostRegistrationService() {
+        HostVO routingHost = Mockito.mock(HostVO.class);
+        StartupRoutingCommand startupRoutingCommand = Mockito.mock(StartupRoutingCommand.class);
+        Map<String, String> details = new HashMap<>();
+        List<String> hostTags = Collections.singletonList("tag-1");
+        HostVO filledHost = Mockito.mock(HostVO.class);
+        when(hostRegistrationService.fillRoutingHostVO(routingHost, startupRoutingCommand, Hypervisor.HypervisorType.KVM, details, hostTags)).thenReturn(filledHost);
+
+        HostVO result = resourceManager.fillRoutingHostVO(routingHost, startupRoutingCommand, Hypervisor.HypervisorType.KVM, details, hostTags);
+
+        Assert.assertSame(filledHost, result);
+        verify(hostRegistrationService).fillRoutingHostVO(routingHost, startupRoutingCommand, Hypervisor.HypervisorType.KVM, details, hostTags);
+    }
+
+    @Test
+    public void createHostAndAgentForDiscovery_delegatesToHostRegistrationService() {
+        ServerResource serverResource = Mockito.mock(ServerResource.class);
+        Map<String, String> details = Collections.singletonMap("guid", "guid-1");
+        List<String> hostTags = Collections.singletonList("tag-1");
+        List<String> storageAccessGroups = Collections.singletonList("ag-1");
+        when(hostRegistrationService.createHostAndAgentForDiscovery(serverResource, details, hostTags, storageAccessGroups)).thenReturn(host);
+
+        Host result = resourceManager.createHostAndAgentForDiscovery(serverResource, details, hostTags, storageAccessGroups);
+
+        Assert.assertSame(host, result);
+        verify(hostRegistrationService).createHostAndAgentForDiscovery(serverResource, details, hostTags, storageAccessGroups);
     }
 
     private void setupNoPendingMigrationRetries() {

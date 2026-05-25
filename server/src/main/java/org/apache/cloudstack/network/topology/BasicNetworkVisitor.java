@@ -20,7 +20,7 @@ package org.apache.cloudstack.network.topology;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.network.rules.BgpPeersRules;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -31,7 +31,7 @@ import org.apache.cloudstack.storage.object.store.lifecycle.ObjectStoreLifeCycle
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.HashMap;
 import java.util.Map;
 

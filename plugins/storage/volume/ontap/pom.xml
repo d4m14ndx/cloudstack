@@ -32,13 +32,7 @@
         <openfeign.version>11.0</openfeign.version>
         <httpclient.version>4.5.14</httpclient.version>
         <swagger-annotations.version>1.6.2</swagger-annotations.version>
-        <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
         <jackson-databind.version>2.13.4</jackson-databind.version>
-        <assertj.version>3.24.2</assertj.version>
-        <junit-jupiter.version>5.8.1</junit-jupiter.version>
-        <mockito.version>3.12.4</mockito.version>
-        <mockito-junit-jupiter.version>5.2.0</mockito-junit-jupiter.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -96,7 +90,7 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <version>${junit-jupiter.version}</version>
+            <version>${cs.junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -104,27 +98,19 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>${mockito.version}</version>
+            <version>${cs.mockito.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
-            <version>${mockito-junit-jupiter.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Mockito Inline (for static method mocking) -->
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-inline</artifactId>
-            <version>${mockito.version}</version>
+            <version>${cs.mockito.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
-            <version>${assertj.version}</version>
+            <version>${cs.assertj.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -135,35 +121,4 @@
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
     </repositories>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>${maven-compiler-plugin.version}</version>
-                <configuration>
-                    <source>11</source>
-                    <target>11</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>${maven-surefire-plugin.version}</version>
-                <configuration>
-                    <skipTests>false</skipTests>
-                    <includes>
-                        <include>**/*Test.java</include>
-                    </includes>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>integration-test</phase>
-                        <goals>
-                            <goal>test</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

@@ -22,8 +22,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
-import javax.persistence.TableGenerator;
+import jakarta.inject.Inject;
+import jakarta.persistence.TableGenerator;
 
 import org.springframework.stereotype.Component;
 

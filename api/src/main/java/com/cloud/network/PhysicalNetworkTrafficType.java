@@ -40,7 +40,5 @@ public interface PhysicalNetworkTrafficType extends InternalIdentity, Identity {
 
     String getHypervNetworkLabel();
 
-    String getOvm3NetworkLabel();
-
     String getVlan();
 }

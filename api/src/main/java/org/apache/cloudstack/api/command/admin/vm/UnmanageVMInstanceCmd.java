@@ -44,7 +44,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.vm.UnmanagedVMsManager;
 import org.apache.commons.lang3.BooleanUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "unmanageVirtualMachine",
         description = "Unmanage a Guest Instance.",

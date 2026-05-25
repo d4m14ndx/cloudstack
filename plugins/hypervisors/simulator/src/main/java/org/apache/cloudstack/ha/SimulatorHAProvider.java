@@ -30,7 +30,7 @@ import org.apache.cloudstack.ha.provider.HARecoveryException;
 import org.apache.cloudstack.ha.provider.host.HAAbstractHostProvider;
 import org.joda.time.DateTime;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;

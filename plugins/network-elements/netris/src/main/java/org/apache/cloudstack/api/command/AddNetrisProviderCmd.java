@@ -32,7 +32,7 @@ import org.apache.cloudstack.service.NetrisProviderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = AddNetrisProviderCmd.APINAME, description = "Add Netris Provider to CloudStack",
         responseObject = NetrisProviderResponse.class, requestHasSensitiveInfo = false,

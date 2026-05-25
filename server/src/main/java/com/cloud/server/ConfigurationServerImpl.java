@@ -36,7 +36,7 @@ import java.util.UUID;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.config.ApiServiceConfiguration;
@@ -227,9 +227,6 @@ public class ConfigurationServerImpl extends ManagerBase implements Configuratio
 
             _configDao.update("user.password.encoders.exclude", "MD5,LDAP,PLAINTEXT");
             logger.debug("Configuration server excluded insecure encoders");
-
-            _configDao.update("user.authenticators.exclude", "PLAINTEXT");
-            logger.debug("Configuration server excluded plaintext authenticator");
 
             // Save default service offerings
             createServiceOffering(User.UID_SYSTEM, "Small Instance", 1, 512, 500, "Small Instance", ProvisioningType.THIN, false, false, null);

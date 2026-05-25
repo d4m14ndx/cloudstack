@@ -282,6 +282,7 @@ public class EventTypes {
     // UserVO Events
     public static final String EVENT_USER_LOGIN = "USER.LOGIN";
     public static final String EVENT_USER_LOGOUT = "USER.LOGOUT";
+    public static final String EVENT_USER_IMPERSONATE = "USER.IMPERSONATE";
     public static final String EVENT_USER_CREATE = "USER.CREATE";
     public static final String EVENT_USER_DELETE = "USER.DELETE";
     public static final String EVENT_USER_DISABLE = "USER.DISABLE";
@@ -639,6 +640,7 @@ public class EventTypes {
     public static final String EVENT_VM_BACKUP_OFFERING_ASSIGN = "BACKUP.OFFERING.ASSIGN";
     public static final String EVENT_VM_BACKUP_OFFERING_REMOVE = "BACKUP.OFFERING.REMOVE";
     public static final String EVENT_VM_BACKUP_CREATE = "BACKUP.CREATE";
+    public static final String EVENT_VM_BACKUP_FINALIZE = "BACKUP.FINALIZE";
     public static final String EVENT_VM_BACKUP_RESTORE = "BACKUP.RESTORE";
     public static final String EVENT_VM_BACKUP_DELETE = "BACKUP.DELETE";
     public static final String EVENT_VM_BACKUP_OFFERING_REMOVED_AND_BACKUPS_DELETED = "BACKUP.OFFERING.BACKUPS.DEL";

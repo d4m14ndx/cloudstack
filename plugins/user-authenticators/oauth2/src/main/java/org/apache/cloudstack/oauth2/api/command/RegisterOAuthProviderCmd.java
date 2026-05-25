@@ -14,8 +14,8 @@
 // limitations under the License.
 package org.apache.cloudstack.oauth2.api.command;
 
-import javax.inject.Inject;
-import javax.persistence.EntityExistsException;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityExistsException;
 
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.oauth2.OAuth2AuthManager;

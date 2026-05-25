@@ -16,12 +16,14 @@
 // under the License.
 package com.cloud.api;
 
-import java.lang.reflect.Field;
+import static org.mockito.ArgumentMatchers.any;
+
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,66 +45,191 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
+import org.apache.cloudstack.api.ApiConstants.HostDetails;
+import org.apache.cloudstack.api.ApiConstants.VMDetails;
 import org.apache.cloudstack.api.ResponseObject;
+import org.apache.cloudstack.api.ResponseObject.ResponseView;
+import org.apache.cloudstack.acl.apikeypair.ApiKeyPair;
+import org.apache.cloudstack.acl.apikeypair.ApiKeyPairPermission;
+import org.apache.cloudstack.api.command.user.job.QueryAsyncJobResultCmd;
+import org.apache.cloudstack.api.response.AsyncJobResponse;
+import org.apache.cloudstack.api.response.AutoScalePolicyResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmGroupResponse;
 import org.apache.cloudstack.api.response.AutoScaleVmProfileResponse;
+import org.apache.cloudstack.api.response.AccountResponse;
+import org.apache.cloudstack.api.response.ApplicationLoadBalancerResponse;
+import org.apache.cloudstack.api.response.ApiKeyPairResponse;
+import org.apache.cloudstack.api.response.BaseRolePermissionResponse;
+import org.apache.cloudstack.api.response.BucketResponse;
+import org.apache.cloudstack.api.response.ConditionResponse;
 import org.apache.cloudstack.api.response.ConsoleSessionResponse;
+import org.apache.cloudstack.api.response.CounterResponse;
+import org.apache.cloudstack.api.response.ClusterResponse;
+import org.apache.cloudstack.api.response.DirectDownloadCertificateHostStatusResponse;
 import org.apache.cloudstack.api.response.DirectDownloadCertificateResponse;
+import org.apache.cloudstack.api.response.ConfigurationGroupResponse;
+import org.apache.cloudstack.api.response.ConfigurationResponse;
+import org.apache.cloudstack.api.response.DiskOfferingResponse;
+import org.apache.cloudstack.api.response.DomainResponse;
+import org.apache.cloudstack.api.response.DomainRouterResponse;
+import org.apache.cloudstack.api.response.EventResponse;
+import org.apache.cloudstack.api.response.ExtractResponse;
+import org.apache.cloudstack.api.response.FirewallResponse;
+import org.apache.cloudstack.api.response.FirewallRuleResponse;
+import org.apache.cloudstack.api.response.GlobalLoadBalancerResponse;
 import org.apache.cloudstack.api.response.GuestOSCategoryResponse;
+import org.apache.cloudstack.api.response.HostForMigrationResponse;
+import org.apache.cloudstack.api.response.HostResponse;
+import org.apache.cloudstack.api.response.IPAddressResponse;
+import org.apache.cloudstack.api.response.IpForwardingRuleResponse;
+import org.apache.cloudstack.api.response.ImageStoreResponse;
+import org.apache.cloudstack.api.response.InstanceGroupResponse;
 import org.apache.cloudstack.api.response.IpQuarantineResponse;
+import org.apache.cloudstack.api.response.LBHealthCheckResponse;
+import org.apache.cloudstack.api.response.LBStickinessResponse;
+import org.apache.cloudstack.api.response.ListResponse;
+import org.apache.cloudstack.api.response.LoadBalancerResponse;
+import org.apache.cloudstack.api.response.NetworkACLItemResponse;
 import org.apache.cloudstack.api.response.NicSecondaryIpResponse;
+import org.apache.cloudstack.api.response.ObjectStoreResponse;
+import org.apache.cloudstack.api.response.PodResponse;
+import org.apache.cloudstack.api.response.ProjectAccountResponse;
+import org.apache.cloudstack.api.response.ProjectInvitationResponse;
+import org.apache.cloudstack.api.response.ProjectResponse;
+import org.apache.cloudstack.api.response.ResourceCountResponse;
 import org.apache.cloudstack.api.response.ResourceIconResponse;
+import org.apache.cloudstack.api.response.ResourceLimitResponse;
+import org.apache.cloudstack.api.response.RouterHealthCheckResultResponse;
+import org.apache.cloudstack.api.response.SecondaryStorageHeuristicsResponse;
+import org.apache.cloudstack.api.response.SecurityGroupResponse;
+import org.apache.cloudstack.api.response.ServiceOfferingResponse;
+import org.apache.cloudstack.api.response.SnapshotPolicyResponse;
+import org.apache.cloudstack.api.response.SnapshotResponse;
+import org.apache.cloudstack.api.response.SnapshotScheduleResponse;
+import org.apache.cloudstack.api.response.PrivateGatewayResponse;
+import org.apache.cloudstack.api.response.RemoteAccessVpnResponse;
+import org.apache.cloudstack.api.response.Site2SiteCustomerGatewayResponse;
+import org.apache.cloudstack.api.response.Site2SiteVpnConnectionResponse;
+import org.apache.cloudstack.api.response.Site2SiteVpnGatewayResponse;
+import org.apache.cloudstack.api.response.StaticRouteResponse;
+import org.apache.cloudstack.api.response.StorageNetworkIpRangeResponse;
+import org.apache.cloudstack.api.response.StoragePoolResponse;
+import org.apache.cloudstack.api.response.SystemVmInstanceResponse;
+import org.apache.cloudstack.api.response.SystemVmResponse;
+import org.apache.cloudstack.api.response.TemplatePermissionsResponse;
 import org.apache.cloudstack.api.response.TemplateResponse;
+import org.apache.cloudstack.api.response.UpgradeRouterTemplateResponse;
 import org.apache.cloudstack.api.response.UnmanagedInstanceResponse;
+import org.apache.cloudstack.api.response.UserVmResponse;
 import org.apache.cloudstack.api.response.UsageRecordResponse;
 import org.apache.cloudstack.api.response.TrafficTypeResponse;
+import org.apache.cloudstack.api.response.UserResponse;
+import org.apache.cloudstack.api.response.VMSnapshotResponse;
+import org.apache.cloudstack.api.response.VlanIpRangeResponse;
+import org.apache.cloudstack.api.response.VolumeResponse;
+import org.apache.cloudstack.api.response.ZoneResponse;
+import org.apache.cloudstack.api.response.VpcOfferingResponse;
+import org.apache.cloudstack.api.response.VpcResponse;
+import org.apache.cloudstack.api.response.VpnUsersResponse;
+import org.apache.cloudstack.config.Configuration;
+import org.apache.cloudstack.config.ConfigurationGroup;
 import org.apache.cloudstack.context.CallContext;
+import org.apache.cloudstack.network.lb.ApplicationLoadBalancerRule;
+import org.apache.cloudstack.secstorage.heuristics.Heuristic;
+import org.apache.cloudstack.storage.object.Bucket;
+import org.apache.cloudstack.storage.object.ObjectStore;
+import org.apache.cloudstack.framework.jobs.AsyncJob;
 import org.apache.cloudstack.usage.UsageService;
 import org.apache.cloudstack.vm.UnmanagedInstanceTO;
+import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
+import org.apache.cloudstack.direct.download.DirectDownloadCertificateHostMap;
+import org.apache.cloudstack.direct.download.DirectDownloadManager;
 
 import com.cloud.capacity.Capacity;
 import com.cloud.configuration.Resource;
+import com.cloud.configuration.ResourceCount;
+import com.cloud.configuration.ResourceLimit;
+import com.cloud.dc.DataCenter;
+import com.cloud.dc.StorageNetworkIpRange;
+import com.cloud.dc.Vlan;
+import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;
-import com.cloud.host.HostVO;
+import com.cloud.host.Host;
+import com.cloud.network.IpAddress;
 import com.cloud.network.Networks;
 import com.cloud.network.PhysicalNetworkTrafficType;
 import com.cloud.network.PublicIpQuarantine;
+import com.cloud.network.RouterHealthCheckResult;
+import com.cloud.network.as.AutoScalePolicy;
 import com.cloud.network.as.AutoScaleVmGroup;
-import com.cloud.network.as.AutoScaleVmGroupVO;
-import com.cloud.network.as.AutoScaleVmProfileVO;
-import com.cloud.network.as.dao.AutoScaleVmGroupVmMapDao;
+import com.cloud.network.as.AutoScaleVmProfile;
+import com.cloud.network.as.Condition;
+import com.cloud.network.as.Counter;
 import com.cloud.network.dao.IPAddressDao;
-import com.cloud.network.dao.IPAddressVO;
-import com.cloud.network.dao.LoadBalancerVO;
-import com.cloud.network.dao.NetworkServiceMapDao;
-import com.cloud.network.dao.NetworkVO;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.PhysicalNetworkTrafficTypeVO;
+import com.cloud.network.RemoteAccessVpn;
+import com.cloud.network.Site2SiteCustomerGateway;
+import com.cloud.network.Site2SiteVpnConnection;
+import com.cloud.network.Site2SiteVpnGateway;
+import com.cloud.network.VpnUser;
+import com.cloud.network.rules.FirewallRule;
+import com.cloud.network.rules.HealthCheckPolicy;
+import com.cloud.network.rules.LoadBalancer;
+import com.cloud.network.rules.PortForwardingRule;
+import com.cloud.network.rules.StaticNatRule;
+import com.cloud.network.rules.StickinessPolicy;
+import com.cloud.network.vpc.PrivateGateway;
+import com.cloud.network.vpc.NetworkACLItem;
+import com.cloud.network.vpc.StaticRoute;
+import com.cloud.network.vpc.Vpc;
+import com.cloud.network.vpc.VpcOffering;
+import com.cloud.network.router.VirtualRouter;
+import com.cloud.org.Cluster;
+import com.cloud.offering.DiskOffering;
+import com.cloud.offering.ServiceOffering;
+import com.cloud.region.ha.GlobalLoadBalancerRule;
+import com.cloud.network.security.SecurityGroup;
+import com.cloud.network.security.SecurityRule;
+import com.cloud.projects.Project;
+import com.cloud.projects.ProjectAccount;
+import com.cloud.projects.ProjectInvitation;
 import com.cloud.resource.icon.ResourceIconVO;
+import com.cloud.event.Event;
 import com.cloud.server.ResourceIcon;
 import com.cloud.server.ResourceIconManager;
 import com.cloud.server.ResourceTag;
-import com.cloud.storage.GuestOsCategory;
+import com.cloud.storage.ImageStore;
+import com.cloud.storage.Snapshot;
+import com.cloud.storage.DiskOfferingVO;
+import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
+import com.cloud.storage.Volume;
+import com.cloud.storage.snapshot.SnapshotPolicy;
+import com.cloud.storage.snapshot.SnapshotSchedule;
+import com.cloud.storage.GuestOsCategory;
+import com.cloud.template.VirtualMachineTemplate;
 import com.cloud.usage.UsageVO;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.AccountVO;
 import com.cloud.user.User;
-import com.cloud.user.UserData;
-import com.cloud.user.UserDataVO;
+import com.cloud.user.UserAccount;
 import com.cloud.user.UserVO;
-import com.cloud.user.dao.UserDataDao;
+import com.cloud.uservm.UserVm;
 import com.cloud.utils.net.Ip;
+import com.cloud.utils.Pair;
 import com.cloud.vm.ConsoleSessionVO;
+import com.cloud.vm.InstanceGroup;
 import com.cloud.vm.NicSecondaryIp;
-import com.cloud.vm.VMInstanceVO;
+import com.cloud.vm.snapshot.VMSnapshot;
+import com.cloud.vm.VirtualMachine;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -123,33 +250,51 @@ public class ApiResponseHelperTest {
     AnnotationDao annotationDaoMock;
 
     @Mock
-    NetworkServiceMapDao ntwkSrvcDaoMock;
-
-    @Mock
-    AutoScaleVmGroupVmMapDao autoScaleVmGroupVmMapDaoMock;
-
-    @Mock
-    UserDataDao userDataDaoMock;
-
-    @Mock
     IPAddressDao ipAddressDaoMock;
 
     @Mock
     ResourceIconManager resourceIconManager;
+    @Mock
+    private ApiConsoleSessionResponseService apiConsoleSessionResponseService;
+    @Mock
+    private ApiKeyPairResponseService apiKeyPairResponseService;
+    @Mock
+    private ApiUnmanagedInstanceResponseService apiUnmanagedInstanceResponseService;
+    @Mock
+    private ApiDirectDownloadCertificateResponseService apiDirectDownloadCertificateResponseService;
+    @Mock
+    private ApiOfferingConfigurationResponseService apiOfferingConfigurationResponseService;
+    @Mock
+    private ApiAutoscaleResponseService apiAutoscaleResponseService;
+    @Mock
+    private ApiSnapshotResponseService apiSnapshotResponseService;
+    @Mock
+    private ApiAddressVlanResponseService apiAddressVlanResponseService;
+    @Mock
+    private ApiStorageResponseService apiStorageResponseService;
+    @Mock
+    private ApiIdentityAccountResponseService apiIdentityAccountResponseService;
+    @Mock
+    private ApiHostZoneCapacityResponseService apiHostZoneCapacityResponseService;
+    @Mock
+    private ApiVpcVpnResponseService apiVpcVpnResponseService;
+    @Mock
+    private ApiProjectSecurityJobResponseService apiProjectSecurityJobResponseService;
+    @Mock
+    private ApiResponseOwnerService apiResponseOwnerService;
+    @Mock
+    private ApiLoadBalancerFirewallResponseService apiLoadBalancerFirewallResponseService;
+    @Mock
+    private ApiTemplateIsoResponseService apiTemplateIsoResponseService;
+    @Mock
+    private ApiVmSystemResponseService apiVmSystemResponseService;
 
     @Mock
     private ConsoleSessionVO consoleSessionMock;
     @Mock
-    private DomainVO domainVOMock;
+    private ApiKeyPair apiKeyPairMock;
     @Mock
-    private UserVO userVOMock;
-    @Mock
-    private AccountVO accountVOMock;
-    @Mock
-    private HostVO hostVOMock;
-    @Mock
-    private VMInstanceVO vmInstanceVOMock;
-
+    private VMTemplateVO templateMock;
     @Spy
     @InjectMocks
     ApiResponseHelper apiResponseHelper = new ApiResponseHelper();
@@ -171,11 +316,31 @@ public class ApiResponseHelperTest {
     @Before
     public void injectMocks() throws SecurityException, NoSuchFieldException,
             IllegalArgumentException, IllegalAccessException {
-        Field usageSvcField = ApiResponseHelper.class
-                .getDeclaredField("_usageSvc");
-        usageSvcField.setAccessible(true);
+        ApiUsageResponseService apiUsageResponseService = new ApiUsageResponseService();
+        ReflectionTestUtils.setField(apiUsageResponseService, "_usageSvc", usageService);
+
         helper = new ApiResponseHelper();
-        usageSvcField.set(helper, usageService);
+        ReflectionTestUtils.setField(helper, "apiUsageResponseService", apiUsageResponseService);
+        ReflectionTestUtils.setField(helper, "apiConsoleSessionResponseService", apiConsoleSessionResponseService);
+        ReflectionTestUtils.setField(helper, "apiKeyPairResponseService", apiKeyPairResponseService);
+        ReflectionTestUtils.setField(helper, "apiUnmanagedInstanceResponseService", apiUnmanagedInstanceResponseService);
+        ReflectionTestUtils.setField(helper, "apiDirectDownloadCertificateResponseService", apiDirectDownloadCertificateResponseService);
+        ReflectionTestUtils.setField(helper, "apiOfferingConfigurationResponseService", apiOfferingConfigurationResponseService);
+        ReflectionTestUtils.setField(helper, "apiAutoscaleResponseService", apiAutoscaleResponseService);
+        ReflectionTestUtils.setField(helper, "apiSnapshotResponseService", apiSnapshotResponseService);
+        ReflectionTestUtils.setField(helper, "apiAddressVlanResponseService", apiAddressVlanResponseService);
+        ReflectionTestUtils.setField(helper, "apiStorageResponseService", apiStorageResponseService);
+        ReflectionTestUtils.setField(helper, "apiIdentityAccountResponseService", apiIdentityAccountResponseService);
+        ReflectionTestUtils.setField(helper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
+        ReflectionTestUtils.setField(helper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
+        ReflectionTestUtils.setField(helper, "apiProjectSecurityJobResponseService", apiProjectSecurityJobResponseService);
+        ReflectionTestUtils.setField(helper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
+        ReflectionTestUtils.setField(apiResponseHelper, "apiVpcVpnResponseService", apiVpcVpnResponseService);
+        ReflectionTestUtils.setField(apiResponseHelper, "apiResponseOwnerService", new ApiResponseOwnerServiceImpl());
+        ReflectionTestUtils.setField(helper, "apiLoadBalancerFirewallResponseService", apiLoadBalancerFirewallResponseService);
+        ReflectionTestUtils.setField(apiResponseHelper, "apiHostZoneCapacityResponseService", apiHostZoneCapacityResponseService);
+        ReflectionTestUtils.setField(helper, "apiTemplateIsoResponseService", apiTemplateIsoResponseService);
+        ReflectionTestUtils.setField(helper, "apiVmSystemResponseService", apiVmSystemResponseService);
     }
 
     @Before
@@ -191,6 +356,210 @@ public class ApiResponseHelperTest {
     @After
     public void cleanup() {
         CallContext.unregister();
+    }
+
+    @Test
+    public void createDiskOfferingResponseDelegatesToOfferingConfigurationResponseService() {
+        DiskOffering offering = Mockito.mock(DiskOffering.class);
+        DiskOfferingResponse expectedResponse = new DiskOfferingResponse();
+        when(apiOfferingConfigurationResponseService.createDiskOfferingResponse(offering)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createDiskOfferingResponse(offering));
+    }
+
+    @Test
+    public void createUserResponseFromUserDelegatesToIdentityAccountResponseService() {
+        User user = Mockito.mock(User.class);
+        UserResponse expectedResponse = new UserResponse();
+        when(apiIdentityAccountResponseService.createUserResponse(user)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserResponse(user));
+    }
+
+    @Test
+    public void createUserAccountResponseDelegatesToIdentityAccountResponseService() {
+        UserAccount userAccount = Mockito.mock(UserAccount.class);
+        AccountResponse expectedResponse = new AccountResponse();
+        when(apiIdentityAccountResponseService.createUserAccountResponse(ResponseObject.ResponseView.Full, userAccount)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserAccountResponse(ResponseObject.ResponseView.Full, userAccount));
+    }
+
+    @Test
+    public void createAccountResponseDelegatesToIdentityAccountResponseService() {
+        Account account = Mockito.mock(Account.class);
+        AccountResponse expectedResponse = new AccountResponse();
+        when(apiIdentityAccountResponseService.createAccountResponse(ResponseObject.ResponseView.Restricted, account)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createAccountResponse(ResponseObject.ResponseView.Restricted, account));
+    }
+
+    @Test
+    public void createUserResponseFromUserAccountDelegatesToIdentityAccountResponseService() {
+        UserAccount userAccount = Mockito.mock(UserAccount.class);
+        UserResponse expectedResponse = new UserResponse();
+        when(apiIdentityAccountResponseService.createUserResponse(userAccount)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createUserResponse(userAccount));
+    }
+
+    @Test
+    public void createDomainResponseDelegatesToIdentityAccountResponseService() {
+        Domain domain = Mockito.mock(Domain.class);
+        DomainResponse expectedResponse = new DomainResponse();
+        when(apiIdentityAccountResponseService.createDomainResponse(domain)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createDomainResponse(domain));
+    }
+
+    @Test
+    public void identityAccountFindersDelegateToIdentityAccountResponseService() {
+        User user = Mockito.mock(User.class);
+        Account account = Mockito.mock(Account.class);
+        VirtualMachineTemplate template = Mockito.mock(VirtualMachineTemplate.class);
+        DiskOfferingVO diskOffering = Mockito.mock(DiskOfferingVO.class);
+        when(apiIdentityAccountResponseService.findUserById(1L)).thenReturn(user);
+        when(apiIdentityAccountResponseService.findAccountByNameDomain("account", 2L)).thenReturn(account);
+        when(apiIdentityAccountResponseService.findTemplateById(3L)).thenReturn(template);
+        when(apiIdentityAccountResponseService.findDiskOfferingById(4L)).thenReturn(diskOffering);
+
+        assertSame(user, helper.findUserById(1L));
+        assertSame(account, helper.findAccountByNameDomain("account", 2L));
+        assertSame(template, helper.findTemplateById(3L));
+        assertSame(diskOffering, helper.findDiskOfferingById(4L));
+    }
+
+    @Test
+    public void createResourceLimitResponseDelegatesToOfferingConfigurationResponseService() {
+        ResourceLimit limit = Mockito.mock(ResourceLimit.class);
+        ResourceLimitResponse expectedResponse = new ResourceLimitResponse();
+        when(apiOfferingConfigurationResponseService.createResourceLimitResponse(any(ResourceLimit.class), any(), any(), any())).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createResourceLimitResponse(limit));
+    }
+
+    @Test
+    public void createResourceCountResponseDelegatesToOfferingConfigurationResponseService() {
+        ResourceCount resourceCount = Mockito.mock(ResourceCount.class);
+        ResourceCountResponse expectedResponse = new ResourceCountResponse();
+        when(apiOfferingConfigurationResponseService.createResourceCountResponse(any(ResourceCount.class), any(), any(), any())).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createResourceCountResponse(resourceCount));
+    }
+
+    @Test
+    public void createServiceOfferingResponseDelegatesToOfferingConfigurationResponseService() {
+        ServiceOffering offering = Mockito.mock(ServiceOffering.class);
+        ServiceOfferingResponse expectedResponse = new ServiceOfferingResponse();
+        when(apiOfferingConfigurationResponseService.createServiceOfferingResponse(offering)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createServiceOfferingResponse(offering));
+    }
+
+    @Test
+    public void createConfigurationResponseDelegatesToOfferingConfigurationResponseService() {
+        Configuration configuration = Mockito.mock(Configuration.class);
+        ConfigurationResponse expectedResponse = new ConfigurationResponse();
+        when(apiOfferingConfigurationResponseService.createConfigurationResponse(configuration)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createConfigurationResponse(configuration));
+    }
+
+    @Test
+    public void createConfigurationGroupResponseDelegatesToOfferingConfigurationResponseService() {
+        ConfigurationGroup configurationGroup = Mockito.mock(ConfigurationGroup.class);
+        ConfigurationGroupResponse expectedResponse = new ConfigurationGroupResponse();
+        when(apiOfferingConfigurationResponseService.createConfigurationGroupResponse(configurationGroup)).thenReturn(expectedResponse);
+
+        assertSame(expectedResponse, helper.createConfigurationGroupResponse(configurationGroup));
+    }
+
+    @Test
+    public void createSecurityGroupResponseDelegatesToProjectSecurityJobResponseService() {
+        SecurityGroup securityGroup = Mockito.mock(SecurityGroup.class);
+        SecurityGroupResponse expected = new SecurityGroupResponse();
+        when(apiProjectSecurityJobResponseService.createSecurityGroupResponse(securityGroup)).thenReturn(expected);
+
+        assertSame(expected, helper.createSecurityGroupResponse(securityGroup));
+        verify(apiProjectSecurityJobResponseService).createSecurityGroupResponse(securityGroup);
+    }
+
+    @Test
+    public void createSecurityGroupResponseFromSecurityGroupRuleDelegatesToProjectSecurityJobResponseService() {
+        List<SecurityRule> securityRules = Collections.singletonList(Mockito.mock(SecurityRule.class));
+        SecurityGroupResponse expected = new SecurityGroupResponse();
+        when(apiProjectSecurityJobResponseService.createSecurityGroupResponseFromSecurityGroupRule(securityRules)).thenReturn(expected);
+
+        assertSame(expected, helper.createSecurityGroupResponseFromSecurityGroupRule(securityRules));
+        verify(apiProjectSecurityJobResponseService).createSecurityGroupResponseFromSecurityGroupRule(securityRules);
+    }
+
+    @Test
+    public void getSecurityGroupIdDelegatesToProjectSecurityJobResponseService() {
+        when(apiProjectSecurityJobResponseService.getSecurityGroupId("default", accountId)).thenReturn(42L);
+
+        assertEquals(Long.valueOf(42L), helper.getSecurityGroupId("default", accountId));
+        verify(apiProjectSecurityJobResponseService).getSecurityGroupId("default", accountId);
+    }
+
+    @Test
+    public void createProjectResponseDelegatesToProjectSecurityJobResponseService() {
+        Project project = Mockito.mock(Project.class);
+        ProjectResponse expected = new ProjectResponse();
+        when(apiProjectSecurityJobResponseService.createProjectResponse(project)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectResponse(project));
+        verify(apiProjectSecurityJobResponseService).createProjectResponse(project);
+    }
+
+    @Test
+    public void createProjectAccountResponseDelegatesToProjectSecurityJobResponseService() {
+        ProjectAccount projectAccount = Mockito.mock(ProjectAccount.class);
+        ProjectAccountResponse expected = new ProjectAccountResponse();
+        when(apiProjectSecurityJobResponseService.createProjectAccountResponse(projectAccount)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectAccountResponse(projectAccount));
+        verify(apiProjectSecurityJobResponseService).createProjectAccountResponse(projectAccount);
+    }
+
+    @Test
+    public void createProjectInvitationResponseDelegatesToProjectSecurityJobResponseService() {
+        ProjectInvitation invitation = Mockito.mock(ProjectInvitation.class);
+        ProjectInvitationResponse expected = new ProjectInvitationResponse();
+        when(apiProjectSecurityJobResponseService.createProjectInvitationResponse(invitation)).thenReturn(expected);
+
+        assertSame(expected, helper.createProjectInvitationResponse(invitation));
+        verify(apiProjectSecurityJobResponseService).createProjectInvitationResponse(invitation);
+    }
+
+    @Test
+    public void createEventResponseDelegatesToProjectSecurityJobResponseService() {
+        Event event = Mockito.mock(Event.class);
+        EventResponse expected = new EventResponse();
+        when(apiProjectSecurityJobResponseService.createEventResponse(event)).thenReturn(expected);
+
+        assertSame(expected, helper.createEventResponse(event));
+        verify(apiProjectSecurityJobResponseService).createEventResponse(event);
+    }
+
+    @Test
+    public void queryJobResultDelegatesToProjectSecurityJobResponseService() {
+        QueryAsyncJobResultCmd cmd = Mockito.mock(QueryAsyncJobResultCmd.class);
+        AsyncJobResponse expected = new AsyncJobResponse();
+        when(apiProjectSecurityJobResponseService.queryJobResult(cmd)).thenReturn(expected);
+
+        assertSame(expected, helper.queryJobResult(cmd));
+        verify(apiProjectSecurityJobResponseService).queryJobResult(cmd);
+    }
+
+    @Test
+    public void createAsyncJobResponseDelegatesToProjectSecurityJobResponseService() {
+        AsyncJob job = Mockito.mock(AsyncJob.class);
+        AsyncJobResponse expected = new AsyncJobResponse();
+        when(apiProjectSecurityJobResponseService.createAsyncJobResponse(job)).thenReturn(expected);
+
+        assertSame(expected, helper.createAsyncJobResponse(job));
+        verify(apiProjectSecurityJobResponseService).createAsyncJobResponse(job);
     }
 
     @Test
@@ -271,158 +640,121 @@ public class ApiResponseHelperTest {
     }
 
     @Test
+    public void createVlanIpRangeResponseDelegatesToService() {
+        Vlan vlan = Mockito.mock(Vlan.class);
+        VlanIpRangeResponse expected = new VlanIpRangeResponse();
+        when(apiAddressVlanResponseService.createVlanIpRangeResponse(vlan)).thenReturn(expected);
+
+        VlanIpRangeResponse response = helper.createVlanIpRangeResponse(vlan);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createVlanIpRangeResponse(vlan);
+    }
+
+    @Test
+    public void createVlanIpRangeResponseSubclassDelegatesToService() {
+        Vlan vlan = Mockito.mock(Vlan.class);
+        VlanIpRangeResponse expected = new VlanIpRangeResponse();
+        when(apiAddressVlanResponseService.createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan)).thenReturn(expected);
+
+        VlanIpRangeResponse response = helper.createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createVlanIpRangeResponse(VlanIpRangeResponse.class, vlan);
+    }
+
+    @Test
+    public void createIPAddressResponseDelegatesToService() {
+        IpAddress ipAddress = Mockito.mock(IpAddress.class);
+        IPAddressResponse expected = new IPAddressResponse();
+        when(apiAddressVlanResponseService.createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress)).thenReturn(expected);
+
+        IPAddressResponse response = helper.createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createIPAddressResponse(ResponseObject.ResponseView.Full, ipAddress);
+    }
+
+    @Test
+    public void createSecondaryIPToNicResponseDelegatesToService() {
+        NicSecondaryIp secondaryIp = Mockito.mock(NicSecondaryIp.class);
+        NicSecondaryIpResponse expected = new NicSecondaryIpResponse();
+        when(apiAddressVlanResponseService.createSecondaryIPToNicResponse(secondaryIp)).thenReturn(expected);
+
+        NicSecondaryIpResponse response = helper.createSecondaryIPToNicResponse(secondaryIp);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createSecondaryIPToNicResponse(secondaryIp);
+    }
+
+    @Test
     public void testHandleCertificateResponse() {
-        String certStr = "-----BEGIN CERTIFICATE-----\n" +
-                "MIIGLTCCBRWgAwIBAgIQOHZRhOAYLowYNcopBvxCdjANBgkqhkiG9w0BAQsFADCB\n" +
-                "jzELMAkGA1UEBhMCR0IxGzAZBgNVBAgTEkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4G\n" +
-                "A1UEBxMHU2FsZm9yZDEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTcwNQYDVQQD\n" +
-                "Ey5TZWN0aWdvIFJTQSBEb21haW4gVmFsaWRhdGlvbiBTZWN1cmUgU2VydmVyIENB\n" +
-                "MB4XDTIxMDYxNTAwMDAwMFoXDTIyMDcxNjIzNTk1OVowFzEVMBMGA1UEAwwMKi5h\n" +
-                "cGFjaGUub3JnMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4UoHCmK5\n" +
-                "XdbyZ++d2BGuX35zZcESvr4K1Hw7ZTbyzMC+uokBKJcng1Hf5ctjUFKCoz7AlWRq\n" +
-                "JH5U3vU0y515C0aEE+j0lUHlxMGQD2ut+sJ6BZqcTBl5d8ns1TSckEH31DBDN3Fw\n" +
-                "uMLqEWBOjwt1MMT3Z+kR7ekuheJYbYHbJ2VtnKQd4jHmLly+/p+UqaQ6dIvQxq82\n" +
-                "ggZIUNWjGKwXS2vKl6O9EDu/QaAX9e059pf3UxAxGtJjeKXWJvt1e96T53+2+kXp\n" +
-                "j0/PuyT6F0o+grY08tCJnw7kTB4sE2qfALdwSblvyjBDOYtS4Xj5nycMpd+4Qse4\n" +
-                "2+irNBdZ63pqqQIDAQABo4IC+jCCAvYwHwYDVR0jBBgwFoAUjYxexFStiuF36Zv5\n" +
-                "mwXhuAGNYeEwHQYDVR0OBBYEFH+9CNXAwWW4+jyizee51r8x4ofHMA4GA1UdDwEB\n" +
-                "/wQEAwIFoDAMBgNVHRMBAf8EAjAAMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEF\n" +
-                "BQcDAjBJBgNVHSAEQjBAMDQGCysGAQQBsjEBAgIHMCUwIwYIKwYBBQUHAgEWF2h0\n" +
-                "dHBzOi8vc2VjdGlnby5jb20vQ1BTMAgGBmeBDAECATCBhAYIKwYBBQUHAQEEeDB2\n" +
-                "ME8GCCsGAQUFBzAChkNodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29SU0FE\n" +
-                "b21haW5WYWxpZGF0aW9uU2VjdXJlU2VydmVyQ0EuY3J0MCMGCCsGAQUFBzABhhdo\n" +
-                "dHRwOi8vb2NzcC5zZWN0aWdvLmNvbTAjBgNVHREEHDAaggwqLmFwYWNoZS5vcmeC\n" +
-                "CmFwYWNoZS5vcmcwggF+BgorBgEEAdZ5AgQCBIIBbgSCAWoBaAB2AEalVet1+pEg\n" +
-                "MLWiiWn0830RLEF0vv1JuIWr8vxw/m1HAAABehHLqfgAAAQDAEcwRQIgINH3CquJ\n" +
-                "zTAprwjdo2cEWkMzpaNoP1SOI4xGl68PF2oCIQC77eD7K6Smx4Fv/z/sTKk21Psb\n" +
-                "ZhmVq5YoqhwRKuMgVAB2AEHIyrHfIkZKEMahOglCh15OMYsbA+vrS8do8JBilgb2\n" +
-                "AAABehHLqcEAAAQDAEcwRQIhANh++zJa9AE4U0DsHIFq6bW40b1OfGfH8uUdmjEZ\n" +
-                "s1jzAiBIRtJeFVmobSnbFKlOr8BGfD2L/hg1rkAgJlKY5oFShgB2ACl5vvCeOTkh\n" +
-                "8FZzn2Old+W+V32cYAr4+U1dJlwlXceEAAABehHLqZ4AAAQDAEcwRQIhAOZDfvU8\n" +
-                "Hz80I6Iyj2rv8+yWBVq1XVixI8bMykdCO6ADAiAWj8cJ9g1zxko4dJu8ouJf+Pwl\n" +
-                "0bbhhuJHhy/f5kiaszANBgkqhkiG9w0BAQsFAAOCAQEAlkdB7FZtVQz39TDNKR4u\n" +
-                "I8VQsTH5n4Kg+zVc0pptI7HGUWtp5PjBAEsvJ/G/NQXsjVflQaNPRRd7KNZycZL1\n" +
-                "jls6GdVoWVno6O5aLS7cCnb0tTlb8srhb9vdLZkSoCVCZLVjik5s2TLfpLsBKrTP\n" +
-                "leVY3n9TBZH+vyKLHt4WHR23Z+74xDsuXunoPGXQVV8ymqTtfohaoM19jP99vjY7\n" +
-                "DL/289XjMSfyPFqlpU4JDM7lY/kJSKB/C4eQglT8Sgm0h/kj5hdT2uMJBIQZIJVv\n" +
-                "241fAVUPgrYAESOMm2TVA9r1OzeoUNlKw+e3+vjTR6sfDDp/iRKcEVQX4u9+CxZp\n" +
-                "9g==\n-----END CERTIFICATE-----";
+        String certStr = "certificate";
         DirectDownloadCertificateResponse response = new DirectDownloadCertificateResponse();
+
         helper.handleCertificateResponse(certStr, response);
-        assertEquals("3", response.getVersion());
-        assertEquals("CN=*.apache.org", response.getSubject());
+
+        verify(apiDirectDownloadCertificateResponseService).handleCertificateResponse(certStr, response);
     }
 
     @Test
-    public void testAutoScaleVmGroupResponse() {
-        AutoScaleVmGroupVO vmGroup = new AutoScaleVmGroupVO(1L, 2L, 3L, 4L, "test", 5, 6, 7, 8, new Date(), 9L, AutoScaleVmGroup.State.ENABLED);
+    public void testCreateCounterResponseDelegatesToAutoscaleResponseService() {
+        Counter counter = Mockito.mock(Counter.class);
+        CounterResponse expected = new CounterResponse();
+        when(apiAutoscaleResponseService.createCounterResponse(counter)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAutoScaleVmProfileById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findLoadBalancerById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
-            when(ApiDBUtils.countAvailableVmsByGroupId(anyLong())).thenReturn(9);
+        CounterResponse response = apiResponseHelper.createCounterResponse(counter);
 
-            AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
-            assertEquals("test", response.getName());
-            assertEquals(5, response.getMinMembers());
-            assertEquals(6, response.getMaxMembers());
-            assertEquals(8, response.getInterval());
-            assertEquals(9, response.getAvailableVirtualMachineCount());
-            assertEquals(AutoScaleVmGroup.State.ENABLED.toString(), response.getState());
-
-            assertNull(response.getNetworkName());
-            assertNull(response.getLbProvider());
-            assertNull(response.getPublicIp());
-            assertNull(response.getPublicPort());
-            assertNull(response.getPrivatePort());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createCounterResponse(counter);
     }
 
     @Test
-    public void testAutoScaleVmGroupResponseWithNetwork() {
-        AutoScaleVmGroupVO vmGroup = new AutoScaleVmGroupVO(1L, 2L, 3L, 4L, "test", 5, 6, 7, 8, new Date(), 9L, AutoScaleVmGroup.State.ENABLED);
+    public void testCreateConditionResponseDelegatesToAutoscaleResponseService() {
+        Condition condition = Mockito.mock(Condition.class);
+        ConditionResponse expected = new ConditionResponse();
+        when(apiAutoscaleResponseService.createConditionResponse(condition)).thenReturn(expected);
 
-        LoadBalancerVO lb = new LoadBalancerVO(null, null, null, 0L, 8080, 8081, null, 0L, 0L, 1L, null, null);
-        NetworkVO network = new NetworkVO(1L, null, null, null, 2L, 1L, 2L, 3L,
-                "testnetwork", "displaytext", "networkdomain", null, 1L, null, null, false, null, false);
-        IPAddressVO ipAddressVO = new IPAddressVO(new Ip("10.10.10.10"), 1L, 1L, 1L,false);
+        ConditionResponse response = apiResponseHelper.createConditionResponse(condition);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAutoScaleVmProfileById(anyLong())).thenReturn(null);
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
-            when(ApiDBUtils.findLoadBalancerById(anyLong())).thenReturn(lb);
-
-            when(ApiDBUtils.findNetworkById(anyLong())).thenReturn(network);
-            when(ntwkSrvcDaoMock.getProviderForServiceInNetwork(anyLong(), any())).thenReturn("VirtualRouter");
-            when(ApiDBUtils.findIpAddressById(anyLong())).thenReturn(ipAddressVO);
-
-            AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
-            assertEquals("test", response.getName());
-            assertEquals(5, response.getMinMembers());
-            assertEquals(6, response.getMaxMembers());
-            assertEquals(8, response.getInterval());
-            assertEquals(AutoScaleVmGroup.State.ENABLED.toString(), response.getState());
-
-            assertEquals("testnetwork", response.getNetworkName());
-            assertEquals("VirtualRouter", response.getLbProvider());
-            assertEquals("10.10.10.10", response.getPublicIp());
-            assertEquals("8080", response.getPublicPort());
-            assertEquals("8081", response.getPrivatePort());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createConditionResponse(condition);
     }
 
     @Test
-    public void testAutoScaleVmProfileResponse() {
-        AutoScaleVmProfileVO vmProfile = new AutoScaleVmProfileVO(zoneId, domainId, accountId, serviceOfferingId, templateId, null, null, userdata, null, autoScaleUserId);
-        vmProfile.setUserDataId(userdataId);
-        vmProfile.setUserDataDetails(userdataDetails);
+    public void testCreateAutoScaleVmProfileResponseDelegatesToAutoscaleResponseService() {
+        AutoScaleVmProfile profile = Mockito.mock(AutoScaleVmProfile.class);
+        AutoScaleVmProfileResponse expected = new AutoScaleVmProfileResponse();
+        when(apiAutoscaleResponseService.createAutoScaleVmProfileResponse(profile)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
+        AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(profile);
 
-            UserData.UserDataOverridePolicy templatePolicy = UserData.UserDataOverridePolicy.APPEND;
-            VMTemplateVO templateVO = Mockito.mock(VMTemplateVO.class);
-            when(ApiDBUtils.findTemplateById(anyLong())).thenReturn(templateVO);
-            when(templateVO.getUserDataOverridePolicy()).thenReturn(templatePolicy);
-
-            UserDataVO userDataVO = Mockito.mock(UserDataVO.class);
-            String userDataUuid = "userDataUuid";
-            String userDataName = "userDataName";
-            when(userDataDaoMock.findById(anyLong())).thenReturn(userDataVO);
-            when(userDataVO.getUuid()).thenReturn(userDataUuid);
-            when(userDataVO.getName()).thenReturn(userDataName);
-
-            AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(vmProfile);
-            assertEquals(templatePolicy.toString(), response.getUserDataPolicy());
-            assertEquals(userdata, response.getUserData());
-            assertEquals(userDataUuid, response.getUserDataId());
-            assertEquals(userDataName, response.getUserDataName());
-            assertEquals(userdataDetails, response.getUserDataDetails());
-        }
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScaleVmProfileResponse(profile);
     }
 
     @Test
-    public void testAutoScaleVmProfileResponseWithoutUserData() {
-        AutoScaleVmProfileVO vmProfile = new AutoScaleVmProfileVO(zoneId, domainId, accountId, serviceOfferingId, templateId, null, null, null, null, autoScaleUserId);
+    public void testCreateAutoScalePolicyResponseDelegatesToAutoscaleResponseService() {
+        AutoScalePolicy policy = Mockito.mock(AutoScalePolicy.class);
+        AutoScalePolicyResponse expected = new AutoScalePolicyResponse();
+        when(apiAutoscaleResponseService.createAutoScalePolicyResponse(policy)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> ignored = Mockito.mockStatic(ApiDBUtils.class)) {
-            when(ApiDBUtils.findAccountById(anyLong())).thenReturn(new AccountVO());
-            when(ApiDBUtils.findDomainById(anyLong())).thenReturn(new DomainVO());
+        AutoScalePolicyResponse response = apiResponseHelper.createAutoScalePolicyResponse(policy);
 
-            VMTemplateVO templateVO = Mockito.mock(VMTemplateVO.class);
-            when(ApiDBUtils.findTemplateById(anyLong())).thenReturn(templateVO);
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScalePolicyResponse(policy);
+    }
 
-            AutoScaleVmProfileResponse response = apiResponseHelper.createAutoScaleVmProfileResponse(vmProfile);
-            assertNull(response.getUserDataPolicy());
-            assertNull(response.getUserData());
-            assertNull(response.getUserDataId());
-            assertNull(response.getUserDataName());
-            assertNull(response.getUserDataDetails());
-        }
+    @Test
+    public void testCreateAutoScaleVmGroupResponseDelegatesToAutoscaleResponseService() {
+        AutoScaleVmGroup vmGroup = Mockito.mock(AutoScaleVmGroup.class);
+        AutoScaleVmGroupResponse expected = new AutoScaleVmGroupResponse();
+        when(apiAutoscaleResponseService.createAutoScaleVmGroupResponse(vmGroup)).thenReturn(expected);
+
+        AutoScaleVmGroupResponse response = apiResponseHelper.createAutoScaleVmGroupResponse(vmGroup);
+
+        assertEquals(expected, response);
+        verify(apiAutoscaleResponseService).createAutoScaleVmGroupResponse(vmGroup);
     }
 
     @Test
@@ -438,10 +770,9 @@ public class ApiResponseHelperTest {
             String vmwareLabel = "vmware";
             String simulatorLabel = "simulator";
             String hypervLabel = "hyperv";
-            String ovmLabel = "ovm";
             String vlan = "vlan";
             String trafficType = "Public";
-            PhysicalNetworkTrafficType pnetTrafficType = new PhysicalNetworkTrafficTypeVO(pnet.getId(), Networks.TrafficType.getTrafficType(trafficType), xenLabel, kvmLabel, vmwareLabel, simulatorLabel, vlan, hypervLabel, ovmLabel);
+            PhysicalNetworkTrafficType pnetTrafficType = new PhysicalNetworkTrafficTypeVO(pnet.getId(), Networks.TrafficType.getTrafficType(trafficType), xenLabel, kvmLabel, vmwareLabel, simulatorLabel, vlan, hypervLabel, null);
 
             TrafficTypeResponse response = apiResponseHelper.createTrafficTypeResponse(pnetTrafficType);
             assertFalse(UUID.fromString(response.getId()).toString().isEmpty());
@@ -451,86 +782,447 @@ public class ApiResponseHelperTest {
             assertEquals(response.getKvmLabel(), kvmLabel);
             assertEquals(response.getVmwareLabel(), vmwareLabel);
             assertEquals(response.getHypervLabel(), hypervLabel);
-            assertEquals(response.getOvm3Label(), ovmLabel);
             assertEquals(response.getVlan(), vlan);
             assertEquals(response.getIsolationMethods(), "VXLAN,STT");
 
         }
     }
 
-    private UnmanagedInstanceTO getUnmanagedInstanceForTests() {
+    @Test
+    public void testCreateUnmanagedInstanceResponseDelegatesToService() {
         UnmanagedInstanceTO instance = Mockito.mock(UnmanagedInstanceTO.class);
-        Mockito.when(instance.getPowerState()).thenReturn(UnmanagedInstanceTO.PowerState.PowerOff);
-        Mockito.when(instance.getClusterName()).thenReturn("CL1");
-        UnmanagedInstanceTO.Disk disk = Mockito.mock(UnmanagedInstanceTO.Disk.class);
-        Mockito.when(disk.getDiskId()).thenReturn("0");
-        Mockito.when(disk.getLabel()).thenReturn("Hard disk 1");
-        Mockito.when(disk.getCapacity()).thenReturn(17179869184L);
-        Mockito.when(disk.getPosition()).thenReturn(0);
-        Mockito.when(instance.getDisks()).thenReturn(List.of(disk));
-        UnmanagedInstanceTO.Nic nic = Mockito.mock(UnmanagedInstanceTO.Nic.class);
-        Mockito.when(nic.getNicId()).thenReturn("Network adapter 1");
-        Mockito.when(nic.getMacAddress()).thenReturn("aa:bb:cc:dd:ee:ff");
-        Mockito.when(instance.getNics()).thenReturn(List.of(nic));
-        return instance;
+        Cluster cluster = Mockito.mock(Cluster.class);
+        Host host = Mockito.mock(Host.class);
+        UnmanagedInstanceResponse expectedResponse = new UnmanagedInstanceResponse();
+        Mockito.when(apiUnmanagedInstanceResponseService.createUnmanagedInstanceResponse(instance, cluster, host)).thenReturn(expectedResponse);
+
+        UnmanagedInstanceResponse response = apiResponseHelper.createUnmanagedInstanceResponse(instance, cluster, host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiUnmanagedInstanceResponseService).createUnmanagedInstanceResponse(instance, cluster, host);
     }
 
     @Test
-    public void testCreateUnmanagedInstanceResponseVmwareDcVms() {
-        UnmanagedInstanceTO instance = getUnmanagedInstanceForTests();
-        UnmanagedInstanceResponse response = apiResponseHelper.createUnmanagedInstanceResponse(instance, null, null);
-        Assert.assertEquals(1, response.getDisks().size());
-        Assert.assertEquals(1, response.getNics().size());
+    public void vmSystemResponsesDelegateToService() {
+        UserVm userVm = Mockito.mock(UserVm.class);
+        List<UserVmResponse> userVmResponses = Collections.singletonList(new UserVmResponse());
+        EnumSet<VMDetails> details = EnumSet.of(VMDetails.nics);
+        Mockito.when(apiVmSystemResponseService.createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm)).thenReturn(userVmResponses);
+        Mockito.when(apiVmSystemResponseService.createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm)).thenReturn(userVmResponses);
+
+        VirtualRouter router = Mockito.mock(VirtualRouter.class);
+        DomainRouterResponse routerResponse = new DomainRouterResponse();
+        Mockito.when(apiVmSystemResponseService.createDomainRouterResponse(router)).thenReturn(routerResponse);
+
+        VirtualMachine systemVm = Mockito.mock(VirtualMachine.class);
+        SystemVmResponse systemVmResponse = new SystemVmResponse();
+        SystemVmInstanceResponse systemVmInstanceResponse = new SystemVmInstanceResponse();
+        Mockito.when(apiVmSystemResponseService.createSystemVmResponse(systemVm)).thenReturn(systemVmResponse);
+        Mockito.when(apiVmSystemResponseService.createSystemVmInstanceResponse(systemVm)).thenReturn(systemVmInstanceResponse);
+
+        InstanceGroup group = Mockito.mock(InstanceGroup.class);
+        InstanceGroupResponse groupResponse = new InstanceGroupResponse();
+        Mockito.when(apiVmSystemResponseService.createInstanceGroupResponse(group)).thenReturn(groupResponse);
+
+        List<Long> jobIds = Collections.singletonList(1L);
+        ListResponse<UpgradeRouterTemplateResponse> upgradeResponse = new ListResponse<>();
+        Mockito.when(apiVmSystemResponseService.createUpgradeRouterTemplateResponse(jobIds)).thenReturn(upgradeResponse);
+
+        List<RouterHealthCheckResult> healthCheckResults = Collections.singletonList(Mockito.mock(RouterHealthCheckResult.class));
+        List<RouterHealthCheckResultResponse> healthCheckResponses = Collections.singletonList(new RouterHealthCheckResultResponse());
+        Mockito.when(apiVmSystemResponseService.createHealthCheckResponse(systemVm, healthCheckResults)).thenReturn(healthCheckResponses);
+
+        Assert.assertSame(userVmResponses, helper.createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm));
+        Assert.assertSame(userVmResponses, helper.createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm));
+        Assert.assertSame(routerResponse, helper.createDomainRouterResponse(router));
+        Assert.assertSame(systemVmResponse, helper.createSystemVmResponse(systemVm));
+        Assert.assertSame(groupResponse, helper.createInstanceGroupResponse(group));
+        Assert.assertSame(systemVmInstanceResponse, helper.createSystemVmInstanceResponse(systemVm));
+        Assert.assertSame(upgradeResponse, helper.createUpgradeRouterTemplateResponse(jobIds));
+        Assert.assertSame(healthCheckResponses, helper.createHealthCheckResponse(systemVm, healthCheckResults));
+
+        verify(apiVmSystemResponseService).createUserVmResponse(ResponseObject.ResponseView.Full, "uservm", details, userVm);
+        verify(apiVmSystemResponseService).createUserVmResponse(ResponseObject.ResponseView.Restricted, "virtualmachine", userVm);
+        verify(apiVmSystemResponseService).createDomainRouterResponse(router);
+        verify(apiVmSystemResponseService).createSystemVmResponse(systemVm);
+        verify(apiVmSystemResponseService).createInstanceGroupResponse(group);
+        verify(apiVmSystemResponseService).createSystemVmInstanceResponse(systemVm);
+        verify(apiVmSystemResponseService).createUpgradeRouterTemplateResponse(jobIds);
+        verify(apiVmSystemResponseService).createHealthCheckResponse(systemVm, healthCheckResults);
     }
 
     @Test
-    public void createQuarantinedIpsResponseTestReturnsObject() {
-        String quarantinedIpUuid = "quarantined_ip_uuid";
-        Long previousOwnerId = 300L;
-        String previousOwnerUuid = "previous_owner_uuid";
-        String previousOwnerName = "previous_owner_name";
-        Long removerAccountId = 400L;
-        String removerAccountUuid = "remover_account_uuid";
-        Long publicIpAddressId = 500L;
-        String publicIpAddress = "1.2.3.4";
-        Date created = new Date(599L);
-        Date removed = new Date(600L);
-        Date endDate = new Date(601L);
-        String removalReason = "removalReason";
+    public void createSnapshotResponseDelegatesToService() {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        SnapshotResponse expectedResponse = new SnapshotResponse();
+        when(apiSnapshotResponseService.createSnapshotResponse(snapshot)).thenReturn(expectedResponse);
 
-        PublicIpQuarantine quarantinedIpMock = Mockito.mock(PublicIpQuarantine.class);
-        IPAddressVO ipAddressVoMock = Mockito.mock(IPAddressVO.class);
-        Account previousOwner = Mockito.mock(Account.class);
-        Account removerAccount = Mockito.mock(Account.class);
+        SnapshotResponse response = helper.createSnapshotResponse(snapshot);
 
-        Mockito.when(quarantinedIpMock.getUuid()).thenReturn(quarantinedIpUuid);
-        Mockito.when(quarantinedIpMock.getPreviousOwnerId()).thenReturn(previousOwnerId);
-        Mockito.when(quarantinedIpMock.getPublicIpAddressId()).thenReturn(publicIpAddressId);
-        Mockito.doReturn(ipAddressVoMock).when(ipAddressDaoMock).findById(publicIpAddressId);
-        Mockito.when(ipAddressVoMock.getAddress()).thenReturn(new Ip(publicIpAddress));
-        Mockito.doReturn(previousOwner).when(accountManagerMock).getAccount(previousOwnerId);
-        Mockito.when(previousOwner.getUuid()).thenReturn(previousOwnerUuid);
-        Mockito.when(previousOwner.getName()).thenReturn(previousOwnerName);
-        Mockito.when(quarantinedIpMock.getCreated()).thenReturn(created);
-        Mockito.when(quarantinedIpMock.getRemoved()).thenReturn(removed);
-        Mockito.when(quarantinedIpMock.getEndDate()).thenReturn(endDate);
-        Mockito.when(quarantinedIpMock.getRemovalReason()).thenReturn(removalReason);
-        Mockito.when(quarantinedIpMock.getRemoverAccountId()).thenReturn(removerAccountId);
-        Mockito.when(removerAccount.getUuid()).thenReturn(removerAccountUuid);
-        Mockito.doReturn(removerAccount).when(accountManagerMock).getAccount(removerAccountId);
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotResponse(snapshot);
+    }
 
-        IpQuarantineResponse result = apiResponseHelper.createQuarantinedIpsResponse(quarantinedIpMock);
+    @Test
+    public void createVMSnapshotResponseDelegatesToService() {
+        VMSnapshot vmSnapshot = Mockito.mock(VMSnapshot.class);
+        VMSnapshotResponse expectedResponse = new VMSnapshotResponse();
+        when(apiSnapshotResponseService.createVMSnapshotResponse(vmSnapshot)).thenReturn(expectedResponse);
 
-        Assert.assertEquals(quarantinedIpUuid, result.getId());
-        Assert.assertEquals(publicIpAddress, result.getPublicIpAddress());
-        Assert.assertEquals(previousOwnerUuid, result.getPreviousOwnerId());
-        Assert.assertEquals(previousOwnerName, result.getPreviousOwnerName());
-        Assert.assertEquals(created, result.getCreated());
-        Assert.assertEquals(removed, result.getRemoved());
-        Assert.assertEquals(endDate, result.getEndDate());
-        Assert.assertEquals(removalReason, result.getRemovalReason());
-        Assert.assertEquals(removerAccountUuid, result.getRemoverAccountId());
-        Assert.assertEquals("quarantinedip", result.getResponseName());
+        VMSnapshotResponse response = helper.createVMSnapshotResponse(vmSnapshot);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createVMSnapshotResponse(vmSnapshot);
+    }
+
+    @Test
+    public void createSnapshotPolicyResponseDelegatesToService() {
+        SnapshotPolicy policy = Mockito.mock(SnapshotPolicy.class);
+        SnapshotPolicyResponse expectedResponse = new SnapshotPolicyResponse();
+        when(apiSnapshotResponseService.createSnapshotPolicyResponse(policy)).thenReturn(expectedResponse);
+
+        SnapshotPolicyResponse response = helper.createSnapshotPolicyResponse(policy);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotPolicyResponse(policy);
+    }
+
+    @Test
+    public void createHostResponseDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        HostResponse expectedResponse = new HostResponse();
+        when(apiHostZoneCapacityResponseService.createHostResponse(host)).thenReturn(expectedResponse);
+
+        HostResponse response = helper.createHostResponse(host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostResponse(host);
+    }
+
+    @Test
+    public void createHostResponseWithDetailsDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        EnumSet<HostDetails> details = EnumSet.of(HostDetails.stats);
+        HostResponse expectedResponse = new HostResponse();
+        when(apiHostZoneCapacityResponseService.createHostResponse(host, details)).thenReturn(expectedResponse);
+
+        HostResponse response = helper.createHostResponse(host, details);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostResponse(host, details);
+    }
+
+    @Test
+    public void createHostForMigrationResponseDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        HostForMigrationResponse expectedResponse = new HostForMigrationResponse();
+        when(apiHostZoneCapacityResponseService.createHostForMigrationResponse(host)).thenReturn(expectedResponse);
+
+        HostForMigrationResponse response = helper.createHostForMigrationResponse(host);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostForMigrationResponse(host);
+    }
+
+    @Test
+    public void createHostForMigrationResponseWithDetailsDelegatesToHostZoneCapacityResponseService() {
+        Host host = Mockito.mock(Host.class);
+        EnumSet<HostDetails> details = EnumSet.of(HostDetails.capacity);
+        HostForMigrationResponse expectedResponse = new HostForMigrationResponse();
+        when(apiHostZoneCapacityResponseService.createHostForMigrationResponse(host, details)).thenReturn(expectedResponse);
+
+        HostForMigrationResponse response = helper.createHostForMigrationResponse(host, details);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createHostForMigrationResponse(host, details);
+    }
+
+    @Test
+    public void createMinimalPodResponseDelegatesToHostZoneCapacityResponseService() {
+        com.cloud.dc.Pod pod = Mockito.mock(com.cloud.dc.Pod.class);
+        PodResponse expectedResponse = new PodResponse();
+        when(apiHostZoneCapacityResponseService.createMinimalPodResponse(pod)).thenReturn(expectedResponse);
+
+        PodResponse response = helper.createMinimalPodResponse(pod);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createMinimalPodResponse(pod);
+    }
+
+    @Test
+    public void createPodResponseDelegatesToHostZoneCapacityResponseService() {
+        com.cloud.dc.Pod pod = Mockito.mock(com.cloud.dc.Pod.class);
+        PodResponse expectedResponse = new PodResponse();
+        when(apiHostZoneCapacityResponseService.createPodResponse(pod, true)).thenReturn(expectedResponse);
+
+        PodResponse response = helper.createPodResponse(pod, true);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createPodResponse(pod, true);
+    }
+
+    @Test
+    public void createZoneResponseDelegatesToHostZoneCapacityResponseService() {
+        DataCenter dataCenter = Mockito.mock(DataCenter.class);
+        ZoneResponse expectedResponse = new ZoneResponse();
+        when(apiHostZoneCapacityResponseService.createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false)).thenReturn(expectedResponse);
+
+        ZoneResponse response = helper.createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createZoneResponse(ResponseObject.ResponseView.Full, dataCenter, true, false);
+    }
+
+    @Test
+    public void createMinimalClusterResponseDelegatesToHostZoneCapacityResponseService() {
+        Cluster cluster = Mockito.mock(Cluster.class);
+        ClusterResponse expectedResponse = new ClusterResponse();
+        when(apiHostZoneCapacityResponseService.createMinimalClusterResponse(cluster)).thenReturn(expectedResponse);
+
+        ClusterResponse response = helper.createMinimalClusterResponse(cluster);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createMinimalClusterResponse(cluster);
+    }
+
+    @Test
+    public void createClusterResponseDelegatesToHostZoneCapacityResponseService() {
+        Cluster cluster = Mockito.mock(Cluster.class);
+        ClusterResponse expectedResponse = new ClusterResponse();
+        when(apiHostZoneCapacityResponseService.createClusterResponse(cluster, true)).thenReturn(expectedResponse);
+
+        ClusterResponse response = helper.createClusterResponse(cluster, true);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiHostZoneCapacityResponseService).createClusterResponse(cluster, true);
+    }
+
+    @Test
+    public void createSnapshotScheduleResponseDelegatesToService() {
+        SnapshotSchedule schedule = Mockito.mock(SnapshotSchedule.class);
+        SnapshotScheduleResponse expectedResponse = new SnapshotScheduleResponse();
+        when(apiSnapshotResponseService.createSnapshotScheduleResponse(schedule)).thenReturn(expectedResponse);
+
+        SnapshotScheduleResponse response = helper.createSnapshotScheduleResponse(schedule);
+
+        Assert.assertSame(expectedResponse, response);
+        verify(apiSnapshotResponseService).createSnapshotScheduleResponse(schedule);
+    }
+
+    @Test
+    public void createQuarantinedIpsResponseDelegatesToService() {
+        PublicIpQuarantine quarantinedIp = Mockito.mock(PublicIpQuarantine.class);
+        IpQuarantineResponse expected = new IpQuarantineResponse();
+        when(apiAddressVlanResponseService.createQuarantinedIpsResponse(quarantinedIp)).thenReturn(expected);
+
+        IpQuarantineResponse response = apiResponseHelper.createQuarantinedIpsResponse(quarantinedIp);
+
+        Assert.assertSame(expected, response);
+        verify(apiAddressVlanResponseService).createQuarantinedIpsResponse(quarantinedIp);
+    }
+
+    @Test
+    public void createVolumeResponseDelegatesToStorageResponseService() {
+        Volume volume = Mockito.mock(Volume.class);
+        VolumeResponse expected = new VolumeResponse();
+        when(apiStorageResponseService.createVolumeResponse(ResponseObject.ResponseView.Full, volume)).thenReturn(expected);
+
+        VolumeResponse response = helper.createVolumeResponse(ResponseObject.ResponseView.Full, volume);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createVolumeResponse(ResponseObject.ResponseView.Full, volume);
+    }
+
+    @Test
+    public void createStoragePoolResponseDelegatesToStorageResponseService() {
+        StoragePool pool = Mockito.mock(StoragePool.class);
+        StoragePoolResponse expected = new StoragePoolResponse();
+        when(apiStorageResponseService.createStoragePoolResponse(pool)).thenReturn(expected);
+
+        StoragePoolResponse response = helper.createStoragePoolResponse(pool);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStoragePoolResponse(pool);
+    }
+
+    @Test
+    public void createImageStoreResponseDelegatesToStorageResponseService() {
+        ImageStore imageStore = Mockito.mock(ImageStore.class);
+        ImageStoreResponse expected = new ImageStoreResponse();
+        when(apiStorageResponseService.createImageStoreResponse(imageStore)).thenReturn(expected);
+
+        ImageStoreResponse response = helper.createImageStoreResponse(imageStore);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createImageStoreResponse(imageStore);
+    }
+
+    @Test
+    public void createStoragePoolForMigrationResponseDelegatesToStorageResponseService() {
+        StoragePool pool = Mockito.mock(StoragePool.class);
+        StoragePoolResponse expected = new StoragePoolResponse();
+        when(apiStorageResponseService.createStoragePoolForMigrationResponse(pool)).thenReturn(expected);
+
+        StoragePoolResponse response = helper.createStoragePoolForMigrationResponse(pool);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStoragePoolForMigrationResponse(pool);
+    }
+
+    @Test
+    public void createStorageNetworkIpRangeResponseDelegatesToStorageResponseService() {
+        StorageNetworkIpRange range = Mockito.mock(StorageNetworkIpRange.class);
+        StorageNetworkIpRangeResponse expected = new StorageNetworkIpRangeResponse();
+        when(apiStorageResponseService.createStorageNetworkIpRangeResponse(range)).thenReturn(expected);
+
+        StorageNetworkIpRangeResponse response = helper.createStorageNetworkIpRangeResponse(range);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createStorageNetworkIpRangeResponse(range);
+    }
+
+    @Test
+    public void createSecondaryStorageSelectorResponseDelegatesToStorageResponseService() {
+        Heuristic heuristic = Mockito.mock(Heuristic.class);
+        SecondaryStorageHeuristicsResponse expected = new SecondaryStorageHeuristicsResponse("id", "name", "description", "zone-id", "type", "rule", null, null);
+        when(apiStorageResponseService.createSecondaryStorageSelectorResponse(heuristic)).thenReturn(expected);
+
+        SecondaryStorageHeuristicsResponse response = helper.createSecondaryStorageSelectorResponse(heuristic);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createSecondaryStorageSelectorResponse(heuristic);
+    }
+
+    @Test
+    public void createObjectStoreResponseDelegatesToStorageResponseService() {
+        ObjectStore objectStore = Mockito.mock(ObjectStore.class);
+        ObjectStoreResponse expected = new ObjectStoreResponse();
+        when(apiStorageResponseService.createObjectStoreResponse(objectStore)).thenReturn(expected);
+
+        ObjectStoreResponse response = helper.createObjectStoreResponse(objectStore);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createObjectStoreResponse(objectStore);
+    }
+
+    @Test
+    public void createBucketResponseDelegatesToStorageResponseService() {
+        Bucket bucket = Mockito.mock(Bucket.class);
+        BucketResponse expected = new BucketResponse();
+        when(apiStorageResponseService.createBucketResponse(bucket)).thenReturn(expected);
+
+        BucketResponse response = helper.createBucketResponse(bucket);
+
+        Assert.assertSame(expected, response);
+        verify(apiStorageResponseService).createBucketResponse(bucket);
+    }
+
+    @Test
+    public void createVpcOfferingResponseDelegatesToService() {
+        VpcOffering offering = Mockito.mock(VpcOffering.class);
+        VpcOfferingResponse expected = new VpcOfferingResponse();
+        when(apiVpcVpnResponseService.createVpcOfferingResponse(offering)).thenReturn(expected);
+
+        VpcOfferingResponse response = helper.createVpcOfferingResponse(offering);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpcOfferingResponse(offering);
+    }
+
+    @Test
+    public void createVpcResponseDelegatesToService() {
+        Vpc vpc = Mockito.mock(Vpc.class);
+        VpcResponse expected = new VpcResponse();
+        when(apiVpcVpnResponseService.createVpcResponse(ResponseObject.ResponseView.Full, vpc)).thenReturn(expected);
+
+        VpcResponse response = helper.createVpcResponse(ResponseObject.ResponseView.Full, vpc);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpcResponse(ResponseObject.ResponseView.Full, vpc);
+    }
+
+    @Test
+    public void createPrivateGatewayResponseDelegatesToService() {
+        PrivateGateway gateway = Mockito.mock(PrivateGateway.class);
+        PrivateGatewayResponse expected = new PrivateGatewayResponse();
+        when(apiVpcVpnResponseService.createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway)).thenReturn(expected);
+
+        PrivateGatewayResponse response = helper.createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createPrivateGatewayResponse(ResponseObject.ResponseView.Full, gateway);
+    }
+
+    @Test
+    public void createStaticRouteResponseDelegatesToService() {
+        StaticRoute route = Mockito.mock(StaticRoute.class);
+        StaticRouteResponse expected = new StaticRouteResponse();
+        when(apiVpcVpnResponseService.createStaticRouteResponse(route)).thenReturn(expected);
+
+        StaticRouteResponse response = helper.createStaticRouteResponse(route);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createStaticRouteResponse(route);
+    }
+
+    @Test
+    public void createSite2SiteVpnGatewayResponseDelegatesToService() {
+        Site2SiteVpnGateway gateway = Mockito.mock(Site2SiteVpnGateway.class);
+        Site2SiteVpnGatewayResponse expected = new Site2SiteVpnGatewayResponse();
+        when(apiVpcVpnResponseService.createSite2SiteVpnGatewayResponse(gateway)).thenReturn(expected);
+
+        Site2SiteVpnGatewayResponse response = helper.createSite2SiteVpnGatewayResponse(gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteVpnGatewayResponse(gateway);
+    }
+
+    @Test
+    public void createSite2SiteCustomerGatewayResponseDelegatesToService() {
+        Site2SiteCustomerGateway gateway = Mockito.mock(Site2SiteCustomerGateway.class);
+        Site2SiteCustomerGatewayResponse expected = new Site2SiteCustomerGatewayResponse();
+        when(apiVpcVpnResponseService.createSite2SiteCustomerGatewayResponse(gateway)).thenReturn(expected);
+
+        Site2SiteCustomerGatewayResponse response = helper.createSite2SiteCustomerGatewayResponse(gateway);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteCustomerGatewayResponse(gateway);
+    }
+
+    @Test
+    public void createSite2SiteVpnConnectionResponseDelegatesToService() {
+        Site2SiteVpnConnection connection = Mockito.mock(Site2SiteVpnConnection.class);
+        Site2SiteVpnConnectionResponse expected = new Site2SiteVpnConnectionResponse();
+        when(apiVpcVpnResponseService.createSite2SiteVpnConnectionResponse(connection)).thenReturn(expected);
+
+        Site2SiteVpnConnectionResponse response = helper.createSite2SiteVpnConnectionResponse(connection);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createSite2SiteVpnConnectionResponse(connection);
+    }
+
+    @Test
+    public void createVpnUserResponseDelegatesToService() {
+        VpnUser vpnUser = Mockito.mock(VpnUser.class);
+        VpnUsersResponse expected = new VpnUsersResponse();
+        when(apiVpcVpnResponseService.createVpnUserResponse(vpnUser)).thenReturn(expected);
+
+        VpnUsersResponse response = helper.createVpnUserResponse(vpnUser);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createVpnUserResponse(vpnUser);
+    }
+
+    @Test
+    public void createRemoteAccessVpnResponseDelegatesToService() {
+        RemoteAccessVpn vpn = Mockito.mock(RemoteAccessVpn.class);
+        RemoteAccessVpnResponse expected = new RemoteAccessVpnResponse();
+        when(apiVpcVpnResponseService.createRemoteAccessVpnResponse(vpn)).thenReturn(expected);
+
+        RemoteAccessVpnResponse response = helper.createRemoteAccessVpnResponse(vpn);
+
+        Assert.assertSame(expected, response);
+        verify(apiVpcVpnResponseService).createRemoteAccessVpnResponse(vpn);
     }
 
     @Test
@@ -691,113 +1383,290 @@ public class ApiResponseHelperTest {
                 Mockito.anyCollection());
     }
 
-    private ConsoleSessionResponse getExpectedConsoleSessionResponseForTests(boolean fullView) {
+    @Test
+    public void createConsoleSessionResponseDelegatesToServiceForRestrictedResponse() {
         ConsoleSessionResponse expected = new ConsoleSessionResponse();
-        expected.setId("uuid");
-        expected.setCreated(new Date());
-        expected.setAcquired(new Date());
-        expected.setRemoved(new Date());
-        expected.setConsoleEndpointCreatorAddress("127.0.0.1");
-        expected.setClientAddress("127.0.0.1");
+        when(apiConsoleSessionResponseService.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted)).thenReturn(expected);
 
-        if (fullView) {
-            expected.setDomain("domain");
-            expected.setDomainPath("domainPath");
-            expected.setDomainId("domainUuid");
-            expected.setUser("user");
-            expected.setUserId("userUuid");
-            expected.setAccount("account");
-            expected.setAccountId("accountUuid");
-            expected.setHostName("host");
-            expected.setHostId("hostUuid");
-            expected.setVmId("vmUuid");
-            expected.setVmName("vmName");
-        }
+        ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
 
-        return expected;
+        Assert.assertSame(expected, response);
+        verify(apiConsoleSessionResponseService).createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
     }
 
     @Test
-    public void createConsoleSessionResponseTestShouldReturnRestrictedResponse() {
-        ConsoleSessionResponse expected = getExpectedConsoleSessionResponseForTests(false);
+    public void createConsoleSessionResponseDelegatesToServiceForFullResponse() {
+        ConsoleSessionResponse expected = new ConsoleSessionResponse();
+        when(apiConsoleSessionResponseService.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> apiDBUtilsStaticMock = Mockito.mockStatic(ApiDBUtils.class)) {
-            Mockito.when(consoleSessionMock.getUuid()).thenReturn(expected.getId());
-            Mockito.when(consoleSessionMock.getDomainId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getCreated()).thenReturn(expected.getCreated());
-            Mockito.when(consoleSessionMock.getAcquired()).thenReturn(expected.getAcquired());
-            Mockito.when(consoleSessionMock.getRemoved()).thenReturn(expected.getRemoved());
-            Mockito.when(consoleSessionMock.getConsoleEndpointCreatorAddress()).thenReturn(expected.getConsoleEndpointCreatorAddress());
-            Mockito.when(consoleSessionMock.getClientAddress()).thenReturn(expected.getClientAddress());
+        ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
 
-            ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Restricted);
-
-            Assert.assertEquals(expected.getId(), response.getId());
-            Assert.assertEquals(expected.getCreated(), response.getCreated());
-            Assert.assertEquals(expected.getAcquired(), response.getAcquired());
-            Assert.assertEquals(expected.getRemoved(), response.getRemoved());
-            Assert.assertEquals(expected.getConsoleEndpointCreatorAddress(), response.getConsoleEndpointCreatorAddress());
-            Assert.assertEquals(expected.getClientAddress(), response.getClientAddress());
-        }
+        Assert.assertSame(expected, response);
+        verify(apiConsoleSessionResponseService).createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
     }
 
     @Test
-    public void createConsoleSessionResponseTestShouldReturnFullResponse() {
-        ConsoleSessionResponse expected = getExpectedConsoleSessionResponseForTests(true);
+    public void createKeyPairResponseDelegatesToService() {
+        ApiKeyPairResponse expected = new ApiKeyPairResponse();
+        when(apiKeyPairResponseService.createKeyPairResponse(apiKeyPairMock)).thenReturn(expected);
 
-        try (MockedStatic<ApiDBUtils> apiDBUtilsStaticMock = Mockito.mockStatic(ApiDBUtils.class)) {
-            Mockito.when(consoleSessionMock.getUuid()).thenReturn(expected.getId());
-            Mockito.when(consoleSessionMock.getDomainId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getAccountId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getUserId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getHostId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getInstanceId()).thenReturn(2L);
-            Mockito.when(consoleSessionMock.getCreated()).thenReturn(expected.getCreated());
-            Mockito.when(consoleSessionMock.getAcquired()).thenReturn(expected.getAcquired());
-            Mockito.when(consoleSessionMock.getRemoved()).thenReturn(expected.getRemoved());
-            Mockito.when(consoleSessionMock.getConsoleEndpointCreatorAddress()).thenReturn(expected.getConsoleEndpointCreatorAddress());
-            Mockito.when(consoleSessionMock.getClientAddress()).thenReturn(expected.getClientAddress());
+        ApiKeyPairResponse response = apiResponseHelper.createKeyPairResponse(apiKeyPairMock);
 
-            apiDBUtilsStaticMock.when(() -> ApiDBUtils.findDomainById(2L)).thenReturn(domainVOMock);
-            Mockito.when(domainVOMock.getName()).thenReturn(expected.getDomain());
-            Mockito.when(domainVOMock.getPath()).thenReturn(expected.getDomainPath());
-            Mockito.when(domainVOMock.getUuid()).thenReturn(expected.getDomainId());
+        Assert.assertSame(expected, response);
+        verify(apiKeyPairResponseService).createKeyPairResponse(apiKeyPairMock);
+    }
 
-            Mockito.when(apiResponseHelper.findUserById(2L)).thenReturn(userVOMock);
-            Mockito.when(userVOMock.getUsername()).thenReturn(expected.getUser());
-            Mockito.when(userVOMock.getUuid()).thenReturn(expected.getUserId());
+    @Test
+    public void createKeypairPermissionsResponseDelegatesToService() {
+        List<ApiKeyPairPermission> permissions = Collections.emptyList();
+        ListResponse<BaseRolePermissionResponse> expected = new ListResponse<>();
+        when(apiKeyPairResponseService.createKeypairPermissionsResponse(permissions)).thenReturn(expected);
 
-            Mockito.when(ApiDBUtils.findAccountById(2L)).thenReturn(accountVOMock);
-            Mockito.when(accountVOMock.getAccountName()).thenReturn(expected.getAccount());
-            Mockito.when(accountVOMock.getUuid()).thenReturn(expected.getAccountId());
+        ListResponse<BaseRolePermissionResponse> response = apiResponseHelper.createKeypairPermissionsResponse(permissions);
 
-            Mockito.when(apiResponseHelper.findHostById(2L)).thenReturn(hostVOMock);
-            Mockito.when(hostVOMock.getUuid()).thenReturn(expected.getHostId());
-            Mockito.when(hostVOMock.getName()).thenReturn(expected.getHostName());
+        Assert.assertSame(expected, response);
+        verify(apiKeyPairResponseService).createKeypairPermissionsResponse(permissions);
+    }
 
-            apiDBUtilsStaticMock.when(() -> ApiDBUtils.findVMInstanceById(2L)).thenReturn(vmInstanceVOMock);
-            Mockito.when(vmInstanceVOMock.getUuid()).thenReturn(expected.getVmId());
-            Mockito.when(vmInstanceVOMock.getInstanceName()).thenReturn(expected.getVmName());
+    @Test
+    public void createDirectDownloadCertificateResponseDelegatesToService() {
+        DirectDownloadCertificate certificate = Mockito.mock(DirectDownloadCertificate.class);
+        DirectDownloadCertificateResponse expected = new DirectDownloadCertificateResponse();
+        when(apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateResponse(certificate)).thenReturn(expected);
 
-            ConsoleSessionResponse response = apiResponseHelper.createConsoleSessionResponse(consoleSessionMock, ResponseObject.ResponseView.Full);
+        DirectDownloadCertificateResponse response = helper.createDirectDownloadCertificateResponse(certificate);
 
-            Assert.assertEquals(expected.getId(), response.getId());
-            Assert.assertEquals(expected.getCreated(), response.getCreated());
-            Assert.assertEquals(expected.getAcquired(), response.getAcquired());
-            Assert.assertEquals(expected.getRemoved(), response.getRemoved());
-            Assert.assertEquals(expected.getConsoleEndpointCreatorAddress(), response.getConsoleEndpointCreatorAddress());
-            Assert.assertEquals(expected.getClientAddress(), response.getClientAddress());
-            Assert.assertEquals(expected.getDomain(), response.getDomain());
-            Assert.assertEquals(expected.getDomainPath(), response.getDomainPath());
-            Assert.assertEquals(expected.getDomainId(), response.getDomainId());
-            Assert.assertEquals(expected.getUser(), response.getUser());
-            Assert.assertEquals(expected.getUserId(), response.getUserId());
-            Assert.assertEquals(expected.getAccount(), response.getAccount());
-            Assert.assertEquals(expected.getAccountId(), response.getAccountId());
-            Assert.assertEquals(expected.getHostId(), response.getHostId());
-            Assert.assertEquals(expected.getHostName(), response.getHostName());
-            Assert.assertEquals(expected.getVmId(), response.getVmId());
-            Assert.assertEquals(expected.getVmName(), response.getVmName());
-        }
+        Assert.assertSame(expected, response);
+        verify(apiDirectDownloadCertificateResponseService).createDirectDownloadCertificateResponse(certificate);
+    }
+
+    @Test
+    public void createDirectDownloadCertificateHostMapResponseDelegatesToService() {
+        List<DirectDownloadCertificateHostMap> hostMappings = Collections.singletonList(Mockito.mock(DirectDownloadCertificateHostMap.class));
+        List<DirectDownloadCertificateHostStatusResponse> expected = Collections.singletonList(new DirectDownloadCertificateHostStatusResponse());
+        when(apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateHostMapResponse(hostMappings)).thenReturn(expected);
+
+        List<DirectDownloadCertificateHostStatusResponse> response = helper.createDirectDownloadCertificateHostMapResponse(hostMappings);
+
+        Assert.assertSame(expected, response);
+        verify(apiDirectDownloadCertificateResponseService).createDirectDownloadCertificateHostMapResponse(hostMappings);
+    }
+
+    @Test
+    public void createDirectDownloadCertificateHostStatusResponseDelegatesToService() {
+        DirectDownloadManager.HostCertificateStatus hostStatus = Mockito.mock(DirectDownloadManager.HostCertificateStatus.class);
+        DirectDownloadCertificateHostStatusResponse expected = new DirectDownloadCertificateHostStatusResponse();
+        when(apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateHostStatusResponse(hostStatus)).thenReturn(expected);
+
+        DirectDownloadCertificateHostStatusResponse response = helper.createDirectDownloadCertificateHostStatusResponse(hostStatus);
+
+        Assert.assertSame(expected, response);
+        verify(apiDirectDownloadCertificateResponseService).createDirectDownloadCertificateHostStatusResponse(hostStatus);
+    }
+
+    @Test
+    public void createDirectDownloadCertificateProvisionResponseDelegatesToService() {
+        Pair<Boolean, String> result = new Pair<>(true, "uploaded");
+        DirectDownloadCertificateHostStatusResponse expected = new DirectDownloadCertificateHostStatusResponse();
+        when(apiDirectDownloadCertificateResponseService.createDirectDownloadCertificateProvisionResponse(1L, 2L, result)).thenReturn(expected);
+
+        DirectDownloadCertificateHostStatusResponse response = helper.createDirectDownloadCertificateProvisionResponse(1L, 2L, result);
+
+        Assert.assertSame(expected, response);
+        verify(apiDirectDownloadCertificateResponseService).createDirectDownloadCertificateProvisionResponse(1L, 2L, result);
+    }
+
+    @Test
+    public void createLoadBalancerResponseDelegatesToService() {
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LoadBalancerResponse expected = new LoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createLoadBalancerResponse(loadBalancer)).thenReturn(expected);
+
+        LoadBalancerResponse response = helper.createLoadBalancerResponse(loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLoadBalancerResponse(loadBalancer);
+    }
+
+    @Test
+    public void createGlobalLoadBalancerResponseDelegatesToService() {
+        GlobalLoadBalancerRule globalLoadBalancerRule = Mockito.mock(GlobalLoadBalancerRule.class);
+        GlobalLoadBalancerResponse expected = new GlobalLoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createGlobalLoadBalancerResponse(globalLoadBalancerRule)).thenReturn(expected);
+
+        GlobalLoadBalancerResponse response = helper.createGlobalLoadBalancerResponse(globalLoadBalancerRule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createGlobalLoadBalancerResponse(globalLoadBalancerRule);
+    }
+
+    @Test
+    public void createPortForwardingRuleResponseDelegatesToService() {
+        PortForwardingRule rule = Mockito.mock(PortForwardingRule.class);
+        FirewallRuleResponse expected = new FirewallRuleResponse();
+        when(apiLoadBalancerFirewallResponseService.createPortForwardingRuleResponse(rule)).thenReturn(expected);
+
+        FirewallRuleResponse response = helper.createPortForwardingRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createPortForwardingRuleResponse(rule);
+    }
+
+    @Test
+    public void createIpForwardingRuleResponseDelegatesToService() {
+        StaticNatRule rule = Mockito.mock(StaticNatRule.class);
+        IpForwardingRuleResponse expected = new IpForwardingRuleResponse();
+        when(apiLoadBalancerFirewallResponseService.createIpForwardingRuleResponse(rule)).thenReturn(expected);
+
+        IpForwardingRuleResponse response = helper.createIpForwardingRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createIpForwardingRuleResponse(rule);
+    }
+
+    @Test
+    public void createFirewallResponseDelegatesToService() {
+        FirewallRule rule = Mockito.mock(FirewallRule.class);
+        FirewallResponse expected = new FirewallResponse();
+        when(apiLoadBalancerFirewallResponseService.createFirewallResponse(rule)).thenReturn(expected);
+
+        FirewallResponse response = helper.createFirewallResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createFirewallResponse(rule);
+    }
+
+    @Test
+    public void createNetworkACLItemResponseDelegatesToService() {
+        NetworkACLItem aclItem = Mockito.mock(NetworkACLItem.class);
+        NetworkACLItemResponse expected = new NetworkACLItemResponse();
+        when(apiLoadBalancerFirewallResponseService.createNetworkACLItemResponse(aclItem)).thenReturn(expected);
+
+        NetworkACLItemResponse response = helper.createNetworkACLItemResponse(aclItem);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createNetworkACLItemResponse(aclItem);
+    }
+
+    @Test
+    public void createSingleLBStickinessPolicyResponseDelegatesToService() {
+        StickinessPolicy stickinessPolicy = Mockito.mock(StickinessPolicy.class);
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBStickinessResponse expected = new LBStickinessResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer)).thenReturn(expected);
+
+        LBStickinessResponse response = helper.createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBStickinessPolicyResponse(stickinessPolicy, loadBalancer);
+    }
+
+    @Test
+    public void createLBStickinessPolicyListResponseDelegatesToService() {
+        List<StickinessPolicy> policies = Collections.singletonList(Mockito.mock(StickinessPolicy.class));
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBStickinessResponse expected = new LBStickinessResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBStickinessPolicyResponse(policies, loadBalancer)).thenReturn(expected);
+
+        LBStickinessResponse response = helper.createLBStickinessPolicyResponse(policies, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBStickinessPolicyResponse(policies, loadBalancer);
+    }
+
+    @Test
+    public void createLBHealthCheckPolicyListResponseDelegatesToService() {
+        List<HealthCheckPolicy> policies = Collections.singletonList(Mockito.mock(HealthCheckPolicy.class));
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBHealthCheckResponse expected = new LBHealthCheckResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(policies, loadBalancer)).thenReturn(expected);
+
+        LBHealthCheckResponse response = helper.createLBHealthCheckPolicyResponse(policies, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBHealthCheckPolicyResponse(policies, loadBalancer);
+    }
+
+    @Test
+    public void createSingleLBHealthCheckPolicyResponseDelegatesToService() {
+        HealthCheckPolicy healthCheckPolicy = Mockito.mock(HealthCheckPolicy.class);
+        LoadBalancer loadBalancer = Mockito.mock(LoadBalancer.class);
+        LBHealthCheckResponse expected = new LBHealthCheckResponse();
+        when(apiLoadBalancerFirewallResponseService.createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer)).thenReturn(expected);
+
+        LBHealthCheckResponse response = helper.createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLBHealthCheckPolicyResponse(healthCheckPolicy, loadBalancer);
+    }
+
+    @Test
+    public void createLoadBalancerContainerReponseDelegatesToService() {
+        ApplicationLoadBalancerRule rule = Mockito.mock(ApplicationLoadBalancerRule.class);
+        Map<Ip, UserVm> instances = Collections.singletonMap(new Ip("10.1.1.10"), Mockito.mock(UserVm.class));
+        ApplicationLoadBalancerResponse expected = new ApplicationLoadBalancerResponse();
+        when(apiLoadBalancerFirewallResponseService.createLoadBalancerContainerReponse(rule, instances)).thenReturn(expected);
+
+        ApplicationLoadBalancerResponse response = helper.createLoadBalancerContainerReponse(rule, instances);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createLoadBalancerContainerReponse(rule, instances);
+    }
+
+    @Test
+    public void createIpv6FirewallRuleResponseDelegatesToService() {
+        FirewallRule rule = Mockito.mock(FirewallRule.class);
+        FirewallResponse expected = new FirewallResponse();
+        when(apiLoadBalancerFirewallResponseService.createIpv6FirewallRuleResponse(rule)).thenReturn(expected);
+
+        FirewallResponse response = helper.createIpv6FirewallRuleResponse(rule);
+
+        Assert.assertSame(expected, response);
+        verify(apiLoadBalancerFirewallResponseService).createIpv6FirewallRuleResponse(rule);
+    }
+
+    @Test
+    public void createTemplateResponsesForTemplateIdDelegatesToService() {
+        List<TemplateResponse> expected = Collections.singletonList(new TemplateResponse());
+        when(apiTemplateIsoResponseService.createTemplateResponses(ResponseView.Full, templateId, zoneId, true)).thenReturn(expected);
+
+        List<TemplateResponse> response = helper.createTemplateResponses(ResponseView.Full, templateId, zoneId, true);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplateResponses(ResponseView.Full, templateId, zoneId, true);
+    }
+
+    @Test
+    public void createTemplateUpdateResponseDelegatesToService() {
+        TemplateResponse expected = new TemplateResponse();
+        when(apiTemplateIsoResponseService.createTemplateUpdateResponse(ResponseView.Restricted, templateMock)).thenReturn(expected);
+
+        TemplateResponse response = helper.createTemplateUpdateResponse(ResponseView.Restricted, templateMock);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplateUpdateResponse(ResponseView.Restricted, templateMock);
+    }
+
+    @Test
+    public void createVolumeExtractResponseDelegatesToService() {
+        ExtractResponse expected = new ExtractResponse();
+        when(apiTemplateIsoResponseService.createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume")).thenReturn(expected);
+
+        ExtractResponse response = helper.createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume");
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createVolumeExtractResponse(1L, 2L, 3L, "HTTP_DOWNLOAD", "https://download.example/volume");
+    }
+
+    @Test
+    public void createTemplatePermissionsResponseDelegatesToService() {
+        List<String> accountNames = Collections.singletonList("account");
+        TemplatePermissionsResponse expected = new TemplatePermissionsResponse();
+        when(apiTemplateIsoResponseService.createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId)).thenReturn(expected);
+
+        TemplatePermissionsResponse response = helper.createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId);
+
+        Assert.assertSame(expected, response);
+        verify(apiTemplateIsoResponseService).createTemplatePermissionsResponse(ResponseView.Full, accountNames, templateId);
     }
 }

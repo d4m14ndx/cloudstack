@@ -17,7 +17,7 @@
 
 package org.apache.cloudstack.storage.snapshot;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.Snapshot.Event;

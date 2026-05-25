@@ -36,7 +36,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
@@ -310,8 +310,7 @@ public class SystemVmTemplateRegistration {
             new Pair<>(Hypervisor.HypervisorType.VMware, CPU.CPUArch.amd64),
             new Pair<>(Hypervisor.HypervisorType.XenServer, CPU.CPUArch.amd64),
             new Pair<>(Hypervisor.HypervisorType.Hyperv, CPU.CPUArch.amd64),
-            new Pair<>(Hypervisor.HypervisorType.LXC, CPU.CPUArch.amd64),
-            new Pair<>(Hypervisor.HypervisorType.Ovm3, CPU.CPUArch.amd64)
+            new Pair<>(Hypervisor.HypervisorType.LXC, CPU.CPUArch.amd64)
     );
 
     protected static final List<MetadataTemplateDetails> METADATA_TEMPLATE_LIST = new ArrayList<>();
@@ -323,7 +322,6 @@ public class SystemVmTemplateRegistration {
             put(Hypervisor.HypervisorType.XenServer, "router.template.xenserver");
             put(Hypervisor.HypervisorType.Hyperv, "router.template.hyperv");
             put(Hypervisor.HypervisorType.LXC, "router.template.lxc");
-            put(Hypervisor.HypervisorType.Ovm3, "router.template.ovm3");
         }
     };
 
@@ -334,7 +332,6 @@ public class SystemVmTemplateRegistration {
             put(Hypervisor.HypervisorType.VMware, ImageFormat.OVA);
             put(Hypervisor.HypervisorType.Hyperv, ImageFormat.VHD);
             put(Hypervisor.HypervisorType.LXC, ImageFormat.QCOW2);
-            put(Hypervisor.HypervisorType.Ovm3, ImageFormat.RAW);
         }
     };
 
@@ -345,7 +342,6 @@ public class SystemVmTemplateRegistration {
             put(Hypervisor.HypervisorType.VMware, OTHER_LINUX_ID);
             put(Hypervisor.HypervisorType.Hyperv, LINUX_12_ID);
             put(Hypervisor.HypervisorType.LXC, LINUX_12_ID);
-            put(Hypervisor.HypervisorType.Ovm3, LINUX_12_ID);
         }
     };
 
@@ -709,7 +705,6 @@ public class SystemVmTemplateRegistration {
             hypervisorGuestOsMap.put(Hypervisor.HypervisorType.KVM, LINUX_12_ID);
             hypervisorGuestOsMap.put(Hypervisor.HypervisorType.Hyperv, LINUX_12_ID);
             hypervisorGuestOsMap.put(Hypervisor.HypervisorType.LXC, LINUX_12_ID);
-            hypervisorGuestOsMap.put(Hypervisor.HypervisorType.Ovm3, LINUX_12_ID);
         } catch (Exception e) {
             LOGGER.warn("Couldn't update System VM template guest OS ID, due to {}", e.getMessage());
         }

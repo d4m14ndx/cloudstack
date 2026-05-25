@@ -25,7 +25,7 @@ import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.utils.db.Transaction;
 import com.cloud.utils.db.TransactionCallback;

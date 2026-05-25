@@ -217,6 +217,153 @@ public class AccountManagentImplTestBase {
     public void setup() {
         accountManagerImpl.setUserAuthenticators(Arrays.asList(userAuthenticator));
         accountManagerImpl.setSecurityCheckers(Arrays.asList(securityChecker));
+        // Phase 4 slice: wire AccountLookupServiceImpl with the same DAO mocks
+        // so AccountManagerImpl's delegating wrappers (getActiveAccountByName,
+        // getActiveUser, getUserAccountById, etc.) still exercise the same
+        // code paths the legacy tests assert on.
+        AccountLookupServiceImpl accountLookupService = new AccountLookupServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountLookupService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountLookupService", accountLookupService);
+        // Phase 4 slice (2nd): wire ApiKeyPermissionServiceImpl so AccountManagerImpl's
+        // delegating wrappers (getAccessingApiKey, getAllKeypairPermissions, the
+        // private isAccessingKeypairSuperset / validateKeyPair* helpers) still
+        // exercise the same code paths the legacy tests assert on. We share the
+        // apiKeyPairService and roleService mocks that the existing test subclasses
+        // already inject into accountManagerImpl via @InjectMocks (legacy
+        // expectations like Mockito.when(roleService...) only stub the
+        // accountManagerImpl-side instances).
+        ApiKeyPermissionServiceImpl apiKeyPermissionService = new ApiKeyPermissionServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "apiKeyPairService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyPermissionService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyPermissionService", apiKeyPermissionService);
+        // Phase 4 slice (3rd): wire ApiKeyLifecycleServiceImpl so AccountManagerImpl's
+        // delegating wrappers (findUserByApiKey, getKeyPairById, getKeyPairByApiKey,
+        // getLatestUserKeyPair, the private createUserApiKey / createUserSecretKey /
+        // validateAndPersistKeyPairAndPermissions / internalDeleteApiKey /
+        // removeApiKeyPairIfExpired helpers) still exercise the same code paths the
+        // legacy createApiKeyAndSecretKey and deleteApiKey tests assert on. Share the
+        // apiKeyPairDao, apiKeyPairPermissionsDao and roleService mocks that the
+        // existing test subclasses already inject into accountManagerImpl, plus the
+        // apiKeyPermissionService we just constructed above.
+        ApiKeyLifecycleServiceImpl apiKeyLifecycleService = new ApiKeyLifecycleServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPairDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPairPermissionsDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairPermissionsDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "apiKeyPermissionService", apiKeyPermissionService);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(apiKeyLifecycleService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "apiKeyLifecycleService", apiKeyLifecycleService);
+        // Phase 4 slice (4th): wire TwoFactorAuthenticationServiceImpl so the
+        // AccountManagerImpl delegating wrappers (listUserTwoFactorAuthenticationProviders,
+        // getUserTwoFactorAuthenticationProvider, getUserTwoFactorAuthenticator,
+        // clearUserTwoFactorAuthenticationInSetupStateOnLogin,
+        // initializeUserTwoFactorAuthenticationProvidersMap) still exercise the
+        // same code paths the legacy 2FA tests assert on. The service reads/writes
+        // the static AccountManagerImpl.userTwoFactorAuthenticationProvidersMap so
+        // the existing testEnable2FAcode / testVerify2FAcode tests that mutate that
+        // static map directly continue to work unchanged.
+        TwoFactorAuthenticationServiceImpl twoFactorAuthenticationService = new TwoFactorAuthenticationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(twoFactorAuthenticationService, "accountService", _accountService);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "twoFactorAuthenticationService", twoFactorAuthenticationService);
+        // Phase 4 slice (6th): wire AccountOwnerResolverServiceImpl so AccountManagerImpl's
+        // delegating wrappers (finalizeOwner, both finalizeAccountId overloads,
+        // getActiveProjectAccountByProjectId) still exercise the same code paths
+        // the legacy tests assert on. The service delegates security checks and
+        // active-account lookups back through AccountService, so we wire it with
+        // the same accountManagerImpl spy that the existing tests already inject.
+        AccountOwnerResolverServiceImpl accountOwnerResolverService = new AccountOwnerResolverServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "projectManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_projectMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountOwnerResolverService, "accountService", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountOwnerResolverService", accountOwnerResolverService);
+        // Phase 4 slice (7th): wire UserUpdateServiceImpl so AccountManagerImpl's
+        // delegating wrappers (retrieveAndValidateUser, retrieveAndValidateAccount,
+        // validateAndUpdateFirstNameIfNeeded, validateAndUpdateLastNameIfNeeded,
+        // validateAndUpdateUsernameIfNeeded, validateUserPasswordAndUpdateIfNeeded,
+        // validateCurrentPassword, validateAndUpdateApiAndSecretKeyIfNeeded,
+        // validateAndUpdateUserApiKeyAccess, getCurrentCallingAccount,
+        // validateRoleChange, validateAndUpdateAccountApiKeyAccess,
+        // validateAndUpdatePasswordChangeRequired) still exercise the same
+        // code paths the legacy tests assert on. We share the DAO and service
+        // mocks that the existing test subclasses already inject into
+        // accountManagerImpl via @InjectMocks.
+        UserUpdateServiceImpl userUpdateService = new UserUpdateServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "apiKeyPairDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "apiKeyPairDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "roleService",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "roleService"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "passwordPolicy",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "passwordPolicy"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "domainDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainDao"));
+        // back-references: use the accountManagerImpl spy for both AccountService and AccountManager
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountService", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(userUpdateService, "accountManager", accountManagerImpl);
+        // userPasswordEncoders: share the list already set on accountManagerImpl
+        userUpdateService.setUserPasswordEncoders(
+                (java.util.List<org.apache.cloudstack.auth.UserAuthenticator>)
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_userPasswordEncoders"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userUpdateService", userUpdateService);
+        // Phase 4 slice (8th): wire UserAuthenticationServiceImpl so AccountManagerImpl's
+        // delegating wrappers (authenticateUser, logoutUser, updateLoginAttempts,
+        // getUserAccount, getUserAccountForSSO) still exercise the same auth logic
+        // while keeping spy-visible updateLoginAttemptsWhenIncorrectLoginAttemptsEnabled
+        // behavior on the AccountManagerImpl spy.
+        UserAuthenticationServiceImpl userAuthenticationService = new UserAuthenticationServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "userDetailsDao", userDetailsDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "configDao", _configDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(userAuthenticationService, "accountService", accountManagerImpl);
+        userAuthenticationService.setUserAuthenticators(
+                (java.util.List<org.apache.cloudstack.auth.UserAuthenticator>)
+                        org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_userAuthenticators"));
+        userAuthenticationService.setAllowedLoginAttempts(5);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "userAuthenticationService",
+                userAuthenticationService);
+        // Phase 4 slice (9th): wire AccountStateServiceImpl so AccountManagerImpl's
+        // delegating wrappers for account/user state transitions still exercise the
+        // extracted real logic while the legacy spy-based AccountManagerImplTest
+        // suite keeps observing the same outer orchestration in the god class.
+        AccountStateServiceImpl accountStateService = new AccountStateServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "userDao", userDaoMock);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "userAccountDao", userAccountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "vmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "itMgr", _itMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "hostDao",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "hostDao"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountStateService, "accountManager", accountManagerImpl);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountStateService", accountStateService);
+        // Phase 4 slice (10th): wire AccountAccessServiceImpl so AccountManagerImpl's
+        // one-line access wrappers delegate to the same DAO and checker mocks while
+        // validateAccountHasAccessToResource keeps its spy-observed orchestration.
+        AccountAccessServiceImpl accountAccessService = new AccountAccessServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "domainManager",
+                org.springframework.test.util.ReflectionTestUtils.getField(accountManagerImpl, "_domainMgr"));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountAccessService, "dataCenterDao", _dcDao);
+        accountAccessService.setSecurityCheckers(Arrays.asList(securityChecker));
+        org.springframework.test.util.ReflectionTestUtils.setField(accountManagerImpl, "accountAccessService", accountAccessService);
         CallContext.register(callingUser, callingAccount);
     }
 

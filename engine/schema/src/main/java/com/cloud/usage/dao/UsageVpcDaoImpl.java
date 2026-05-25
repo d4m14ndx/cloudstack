@@ -24,13 +24,12 @@ import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.TransactionLegacy;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.TimeZone;
 
 @Component
 public class UsageVpcDaoImpl extends GenericDaoBase<UsageVpcVO, Long> implements UsageVpcDao {
@@ -97,13 +96,9 @@ public class UsageVpcDaoImpl extends GenericDaoBase<UsageVpcVO, Long> implements
             pstmt = txn.prepareAutoCloseStatement(GET_USAGE_RECORDS_BY_ACCOUNT);
             pstmt.setLong(i++, accountId);
 
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
+            UsageDateRangeBinder dateRangeBinder = UsageDateRangeBinder.of(startDate, endDate);
+            i = dateRangeBinder.bindEnd(pstmt, i);
+            i = dateRangeBinder.bindStartEndPairs(pstmt, i, 3);
 
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {

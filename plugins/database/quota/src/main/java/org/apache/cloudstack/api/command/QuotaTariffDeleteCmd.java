@@ -30,7 +30,7 @@ import org.apache.cloudstack.api.response.QuotaTariffResponse;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaTariffDelete", description = "Marks a quota tariff as removed.", responseObject = SuccessResponse.class, requestHasSensitiveInfo = false,
 responseHasSensitiveInfo = false, since = "4.18.0.0", authorized = {RoleType.Admin})

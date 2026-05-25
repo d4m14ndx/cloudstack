@@ -20,7 +20,7 @@ package org.apache.cloudstack.backup.networker.api;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import javax.annotation.Generated;
+import jakarta.annotation.Generated;
 import java.io.Serializable;
 import java.util.List;
 import org.apache.cloudstack.utils.reflectiontostringbuilderutils.ReflectionToStringBuilderUtils;

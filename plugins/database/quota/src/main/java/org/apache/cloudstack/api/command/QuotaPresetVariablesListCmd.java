@@ -27,7 +27,7 @@ import org.apache.cloudstack.api.response.QuotaPresetVariablesItemResponse;
 import org.apache.cloudstack.api.response.QuotaResponseBuilder;
 import org.apache.cloudstack.quota.constant.QuotaTypes;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "quotaPresetVariablesList", responseObject = QuotaPresetVariablesItemResponse.class, description = "List the preset variables available for using in the " +

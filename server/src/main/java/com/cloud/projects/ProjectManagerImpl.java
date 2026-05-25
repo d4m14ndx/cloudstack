@@ -32,8 +32,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.inject.Inject;
-import javax.mail.MessagingException;
+import jakarta.inject.Inject;
+import jakarta.mail.MessagingException;
 import javax.naming.ConfigurationException;
 
 import com.cloud.resourcelimit.CheckedReservation;

@@ -25,7 +25,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.utils.DomainHelper;
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
@@ -40,9 +40,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.cloud.configuration.ConfigurationManager;
 import com.cloud.configuration.ConfigurationManagerImpl;
+import com.cloud.configuration.NetworkOfferingServiceImpl;
 import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.event.dao.UsageEventDao;
 import com.cloud.event.dao.UsageEventDetailsDao;
@@ -122,6 +124,28 @@ public class CreateNetworkOfferingTest extends TestCase {
         Mockito.when(accountMgr.getSystemAccount()).thenReturn(new AccountVO(2));
 
         CallContext.register(accountMgr.getSystemUser(), accountMgr.getSystemAccount());
+
+        // Phase 4: wire NetworkOfferingServiceImpl so that createNetworkOffering
+        // delegates reach the real implementation backed by the DAO mocks above.
+        NetworkOfferingServiceImpl networkOfferingServiceImpl = new NetworkOfferingServiceImpl();
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkOfferingDao", offDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingJoinDao", Mockito.mock(com.cloud.api.query.dao.NetworkOfferingJoinDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "networkOfferingDetailsDao", Mockito.mock(com.cloud.offerings.dao.NetworkOfferingDetailsDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_ntwkOffServiceMapDao", mapDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_physicalNetworkDao", Mockito.mock(com.cloud.network.dao.PhysicalNetworkDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_zoneDao", Mockito.mock(com.cloud.dc.dao.DataCenterDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_domainDao", Mockito.mock(com.cloud.domain.dao.DomainDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkDao", Mockito.mock(com.cloud.network.dao.NetworkDao.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_configDao", configDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_entityMgr", Mockito.mock(com.cloud.utils.db.EntityManager.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "annotationDao", annotationDao);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_accountMgr", accountMgr);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_vpcMgr", vpcMgr);
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkSvc", Mockito.mock(com.cloud.network.NetworkService.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "_networkModel", Mockito.mock(com.cloud.network.NetworkModel.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "messageBus", Mockito.mock(org.apache.cloudstack.framework.messagebus.MessageBus.class));
+        ReflectionTestUtils.setField(networkOfferingServiceImpl, "domainHelper", domainHelper);
+        ReflectionTestUtils.setField(configMgr, "networkOfferingService", networkOfferingServiceImpl);
     }
 
     @Override

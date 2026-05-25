@@ -235,7 +235,7 @@ public class ServerDaemon implements Daemon {
         // Configure SSL
         if (httpsEnable && StringUtils.isNotEmpty(keystoreFile) && new File(keystoreFile).exists()) {
             // SSL Context
-            final SslContextFactory sslContextFactory = new SslContextFactory.Server();
+            final SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
 
             // Define keystore path and passwords
             sslContextFactory.setKeyStorePath(keystoreFile);
@@ -275,7 +275,6 @@ public class ServerDaemon implements Daemon {
         final GzipHandler gzipHandler = new GzipHandler();
         gzipHandler.addIncludedMimeTypes("text/html", "text/xml", "text/css", "text/plain", "text/javascript", "application/javascript", "application/json", "application/xml");
         gzipHandler.setIncludedMethods("GET", "POST");
-        gzipHandler.setCompressionLevel(9);
         gzipHandler.setHandler(webApp);
 
         if (StringUtils.isEmpty(webAppLocation)) {
@@ -307,8 +306,6 @@ public class ServerDaemon implements Daemon {
         }
         log.setFilename(logPath.getPath());
         log.setAppend(true);
-        log.setLogTimeZone("GMT");
-        log.setLogLatency(true);
         return log;
     }
 

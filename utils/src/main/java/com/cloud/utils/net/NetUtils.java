@@ -1314,7 +1314,7 @@ public class NetUtils {
     }
 
     public static boolean isValidIp6(final String ip) {
-        if (ip == null)
+        if (ip == null || ip.contains("/"))
             return  false;
 
         final InetAddressValidator validator = InetAddressValidator.getInstance();

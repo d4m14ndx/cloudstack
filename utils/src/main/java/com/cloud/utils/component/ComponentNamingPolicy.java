@@ -19,8 +19,8 @@
 
 package com.cloud.utils.component;
 
-import net.sf.cglib.core.NamingPolicy;
-import net.sf.cglib.core.Predicate;
+import org.springframework.cglib.core.NamingPolicy;
+import org.springframework.cglib.core.Predicate;
 
 /**
  * Copied/Modified from Spring source
@@ -33,7 +33,7 @@ public class ComponentNamingPolicy implements NamingPolicy {
     @Override
     public String getClassName(String prefix, String source, Object key, Predicate names) {
         if (prefix == null) {
-            prefix = "net.sf.cglib.empty.Object";
+            prefix = "org.springframework.cglib.empty.Object";
         } else if (prefix.startsWith("java")) {
             prefix = "_" + prefix;
         }

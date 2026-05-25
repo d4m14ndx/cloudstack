@@ -36,7 +36,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.network.NetworkModel;
 import org.apache.cloudstack.acl.ApiKeyPairVO;
@@ -170,7 +170,6 @@ import com.cloud.utils.db.DB;
 import com.cloud.utils.db.EntityManager;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.GenericDao;
-import com.cloud.utils.db.GenericSearchBuilder;
 import com.cloud.utils.db.JoinBuilder;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
@@ -285,6 +284,10 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
     private VirtualMachineManager virtualMachineManager;
     @Inject
     GuestOSDao guestOSDao;
+    @Inject
+    CounterService counterService;
+    @Inject
+    ConditionService conditionService;
 
     private static final String PARAM_ROOT_DISK_SIZE = "rootdisksize";
     private static final String PARAM_DISK_OFFERING_ID = "diskofferingid";
@@ -1456,239 +1459,47 @@ public class AutoScaleManagerImpl extends ManagerBase implements AutoScaleManage
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_CREATE, eventDescription = "Counter", create = true)
     @DB
     public Counter createCounter(CreateCounterCmd cmd) {
-        String source = cmd.getSource().toUpperCase();
-        String name = cmd.getName();
-        String value = cmd.getValue();
-        Counter.Source src;
-        // Validate Source
-        try {
-            src = Counter.Source.valueOf(source);
-        } catch (Exception ex) {
-            throw new InvalidParameterValueException("The Source " + source + " does not exist; Unable to create Counter");
-        }
-
-        // Validate Provider
-        Network.Provider provider = Network.Provider.getProvider(cmd.getProvider());
-        if (provider == null) {
-            throw new InvalidParameterValueException("The Provider " + cmd.getProvider() + " does not exist; Unable to create Counter");
-        }
-
-        CounterVO counter = null;
-
-        CounterVO existingCounter = counterDao.findByNameProviderValue(name, value, provider.getName());
-        if (existingCounter != null) {
-            throw new InvalidParameterValueException(String.format("Counter with name %s and value %s already exists. ", name,value));
-        }
-        logger.debug("Adding Counter " + name);
-        counter = counterDao.persist(new CounterVO(src, name, value, provider));
-
-        CallContext.current().setEventDetails(" ID: " + counter.getUuid() + " Name: " + name);
-        return counter;
+        return counterService.createCounter(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_CREATE, eventDescription = "Creating a counter", async = true)
     public Counter getCounter(long counterId) {
-        return counterDao.findById(counterId);
+        return counterService.getCounter(counterId);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_CONDITION_CREATE, eventDescription = "Condition", create = true)
     public Condition createCondition(CreateConditionCmd cmd) {
-        Account caller = CallContext.current().getCallingAccount();
-        Account owner = accountMgr.finalizeOwner(caller, cmd.getAccountName(), cmd.getDomainId(), cmd.getProjectId());
-        accountMgr.checkAccess(caller, null, true, owner);
-
-        String opr = cmd.getRelationalOperator().toUpperCase();
-        long cid = cmd.getCounterId();
-        long threshold = cmd.getThreshold();
-        Condition.Operator op;
-        // Validate Relational Operator
-        try {
-            op = Condition.Operator.valueOf(opr);
-        } catch (IllegalArgumentException ex) {
-            throw new InvalidParameterValueException("The Operator " + opr + " does not exist; Unable to create Condition.");
-        }
-        if (threshold < 0) {
-            throw new InvalidParameterValueException("The threshold " + threshold + " must be equal to or greater than 0.");
-        }
-
-        CounterVO counter = counterDao.findById(cid);
-
-        if (counter == null) {
-            throw new InvalidParameterValueException("Unable to find counter");
-        }
-        ConditionVO condition = null;
-
-        condition = conditionDao.persist(new ConditionVO(cid, threshold, owner.getAccountId(), owner.getDomainId(), op));
-        logger.info("Successfully created condition: {}", condition);
-
-        CallContext.current().setEventDetails(" ID: " + condition.getUuid());
-        return condition;
+        return conditionService.createCondition(cmd);
     }
 
     @Override
     public List<? extends Counter> listCounters(ListCountersCmd cmd) {
-        String name = cmd.getName();
-        Long id = cmd.getId();
-        String source = cmd.getSource();
-        if (source != null) {
-            source = source.toUpperCase();
-        }
-        String providerStr = cmd.getProvider();
-        if (providerStr != null) {
-            Network.Provider provider = Network.Provider.getProvider(providerStr);
-            if (provider == null) {
-                throw new InvalidParameterValueException("The Provider " + providerStr + " does not exist; Unable to list Counter");
-            }
-            providerStr = provider.getName();
-        }
-
-        Filter searchFilter = new Filter(CounterVO.class, "created", false, cmd.getStartIndex(), cmd.getPageSizeVal());
-
-        return counterDao.listCounters(id, name, source, providerStr, cmd.getKeyword(), searchFilter);
+        return counterService.listCounters(cmd);
     }
 
     @Override
     public List<? extends Condition> listConditions(ListConditionsCmd cmd) {
-        Long id = cmd.getId();
-        Long counterId = cmd.getCounterId();
-        Long policyId = cmd.getPolicyId();
-        SearchWrapper<ConditionVO> searchWrapper = new SearchWrapper<>(conditionDao, ConditionVO.class, cmd, cmd.getId());
-        SearchBuilder<ConditionVO> sb = searchWrapper.getSearchBuilder();
-        if (policyId != null) {
-            SearchBuilder<AutoScalePolicyConditionMapVO> asPolicyConditionSearch = autoScalePolicyConditionMapDao.createSearchBuilder();
-            asPolicyConditionSearch.and("policyId", asPolicyConditionSearch.entity().getPolicyId(), SearchCriteria.Op.EQ);
-            sb.join("asPolicyConditionSearch", asPolicyConditionSearch, sb.entity().getId(), asPolicyConditionSearch.entity().getConditionId(),
-                JoinBuilder.JoinType.INNER);
-        }
-
-        sb.and("id", sb.entity().getId(), SearchCriteria.Op.EQ);
-        sb.and("counterId", sb.entity().getCounterId(), SearchCriteria.Op.EQ);
-
-        // now set the SC criteria...
-        SearchCriteria<ConditionVO> sc = searchWrapper.buildSearchCriteria();
-
-        if (id != null) {
-            sc.setParameters("id", id);
-        }
-
-        if (counterId != null) {
-            sc.setParameters("counterId", counterId);
-        }
-
-        if (policyId != null) {
-            sc.setJoinParameters("asPolicyConditionSearch", "policyId", policyId);
-        }
-
-        return searchWrapper.search();
+        return conditionService.listConditions(cmd);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_COUNTER_DELETE, eventDescription = "counter")
     public boolean deleteCounter(long counterId) throws ResourceInUseException {
-        // Verify Counter id
-        CounterVO counter = counterDao.findById(counterId);
-        if (counter == null) {
-            throw new InvalidParameterValueException("Unable to find Counter");
-        }
-
-        // Verify if it is used in any Condition
-
-        ConditionVO condition = conditionDao.findByCounterId(counterId);
-        if (condition != null) {
-            logger.info("Cannot delete counter {} as it is being used in a condition.", counter);
-            throw new ResourceInUseException("Counter is in use.");
-        }
-
-        boolean success = counterDao.remove(counterId);
-        if (success) {
-            logger.info("Successfully deleted counter: {}", counter);
-        }
-
-        return success;
+        return counterService.deleteCounter(counterId);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_CONDITION_DELETE, eventDescription = "delete a condition")
     public boolean deleteCondition(long conditionId) throws ResourceInUseException {
-        /* Check if entity is in database */
-        ConditionVO condition = getEntityInDatabase(CallContext.current().getCallingAccount(), "Condition", conditionId, conditionDao);
-        if (condition == null) {
-            throw new InvalidParameterValueException("Unable to find Condition");
-        }
-
-        // Verify if condition is used in any autoscale policy
-        if (autoScalePolicyConditionMapDao.isConditionInUse(conditionId)) {
-            logger.info("Cannot delete condition {} as it is being used in a condition.", condition);
-            throw new ResourceInUseException("Cannot delete Condition when it is in use by one or more AutoScale Policies.");
-        }
-        boolean success = conditionDao.remove(conditionId);
-        if (success) {
-            logger.info("Successfully deleted condition {}", condition);
-        }
-        return success;
+        return conditionService.deleteCondition(conditionId);
     }
 
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_CONDITION_UPDATE, eventDescription = "update a condition")
     public Condition updateCondition(UpdateConditionCmd cmd) throws ResourceInUseException {
-        Long conditionId = cmd.getId();
-        /* Check if entity is in database */
-        ConditionVO condition = getEntityInDatabase(CallContext.current().getCallingAccount(), "Condition", conditionId, conditionDao);
-
-        String operator = cmd.getRelationalOperator().toUpperCase();
-        Long threshold = cmd.getThreshold();
-
-        Condition.Operator op;
-        // Validate Relational Operator
-        try {
-            op = Condition.Operator.valueOf(operator);
-        } catch (IllegalArgumentException ex) {
-            throw new InvalidParameterValueException("The Operator " + operator + " does not exist; Unable to update Condition.");
-        }
-        if (threshold < 0) {
-            throw new InvalidParameterValueException("The threshold " + threshold + " must be equal to or greater than 0.");
-        }
-
-        // Verify if condition is used in any autoscale vmgroup
-        GenericSearchBuilder<AutoScalePolicyConditionMapVO, Long> conditionSearch = autoScalePolicyConditionMapDao.createSearchBuilder(Long.class);
-        conditionSearch.selectFields(conditionSearch.entity().getPolicyId());
-        conditionSearch.and("conditionId", conditionSearch.entity().getConditionId(), Op.EQ);
-        SearchCriteria<Long> sc = conditionSearch.create();
-        sc.setParameters("conditionId", conditionId);
-        List<Long> policyIds = autoScalePolicyConditionMapDao.customSearch(sc, null);
-
-        if (CollectionUtils.isNotEmpty(policyIds)) {
-            SearchBuilder<AutoScaleVmGroupPolicyMapVO> policySearch = autoScaleVmGroupPolicyMapDao.createSearchBuilder();
-            policySearch.and("policyId", policySearch.entity().getPolicyId(), Op.IN);
-            SearchBuilder<AutoScaleVmGroupVO> vmGroupSearch = autoScaleVmGroupDao.createSearchBuilder();
-            vmGroupSearch.and("stateNEQ", vmGroupSearch.entity().getState(), Op.NEQ);
-            vmGroupSearch.join("policySearch", policySearch, vmGroupSearch.entity().getId(), policySearch.entity().getVmGroupId(), JoinBuilder.JoinType.INNER);
-            vmGroupSearch.done();
-
-            SearchCriteria<AutoScaleVmGroupVO> sc2 = vmGroupSearch.create();
-            sc2.setParameters("stateNEQ", AutoScaleVmGroup.State.DISABLED);
-            sc2.setJoinParameters("policySearch", "policyId", policyIds.toArray((new Object[policyIds.size()])));
-            List<AutoScaleVmGroupVO> groups = autoScaleVmGroupDao.search(sc2, null);
-            if (CollectionUtils.isNotEmpty(groups)) {
-                String msg = String.format("Cannot update condition %s as it is being used in %d vm groups NOT in Disabled state.", condition, groups.size());
-                logger.info(msg);
-                throw new ResourceInUseException(msg);
-            }
-        }
-
-        condition.setRelationalOperator(op);
-        condition.setThreshold(threshold);
-        boolean success = conditionDao.update(conditionId, condition);
-        if (success) {
-            logger.info("Successfully updated condition {}", condition);
-
-            for (Long policyId : policyIds) {
-                markStatisticsAsInactive(null, policyId);
-            }
-        }
-        return condition;
+        return conditionService.updateCondition(cmd);
     }
 
     @Override

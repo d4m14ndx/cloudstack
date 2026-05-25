@@ -20,8 +20,8 @@ package org.apache.cloudstack.backup.dao;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.backup.BackupOfferingVO;
 import org.apache.cloudstack.backup.BackupRepository;

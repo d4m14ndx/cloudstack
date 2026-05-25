@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.host.Host;
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;

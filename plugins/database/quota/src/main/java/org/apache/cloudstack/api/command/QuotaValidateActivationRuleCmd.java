@@ -26,7 +26,7 @@ import org.apache.cloudstack.api.response.QuotaResponseBuilder;
 import org.apache.cloudstack.api.response.QuotaValidateActivationRuleResponse;
 import org.apache.cloudstack.quota.constant.QuotaTypes;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaValidateActivationRule", responseObject = QuotaValidateActivationRuleResponse.class, description = "Validates if the given activation rule is valid for the informed usage type.", since = "4.20.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
 public class QuotaValidateActivationRuleCmd extends BaseCmd {

@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.response.VsphereStoragePoliciesResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -38,7 +38,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.ha.HAConfigManager;
 import org.apache.cloudstack.ha.HAResource;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "enableHAForHost", description = "Enables HA for a host",
         responseObject = HostHAResponse.class,

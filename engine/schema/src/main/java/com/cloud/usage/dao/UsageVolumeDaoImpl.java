@@ -21,10 +21,9 @@ import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.TimeZone;
 
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.springframework.stereotype.Component;
 
@@ -93,12 +92,8 @@ public class UsageVolumeDaoImpl extends GenericDaoBase<UsageVolumeVO, Long> impl
             if (param1 != null) {
                 pstmt.setLong(i++, param1);
             }
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), startDate));
-            pstmt.setString(i++, DateUtil.getDateDisplayString(TimeZone.getTimeZone("GMT"), endDate));
+            UsageDateRangeBinder dateRangeBinder = UsageDateRangeBinder.of(startDate, endDate);
+            i = dateRangeBinder.bindStartEndPairs(pstmt, i, 3);
 
             ResultSet rs = pstmt.executeQuery();
             while (rs.next()) {

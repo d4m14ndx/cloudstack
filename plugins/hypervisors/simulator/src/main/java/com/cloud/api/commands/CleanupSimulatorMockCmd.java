@@ -31,7 +31,7 @@ import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.response.SuccessResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 @APICommand(name = "cleanupSimulatorMock", description = "Cleanup simulator mock", responseObject=SuccessResponse.class)

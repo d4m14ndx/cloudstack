@@ -39,7 +39,7 @@ import org.apache.cloudstack.ldap.LdapUser;
 import org.apache.cloudstack.ldap.NoLdapUserMatchingQueryException;
 import org.bouncycastle.util.encoders.Base64;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Map;

@@ -23,7 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.dc.VlanDetailsVO;
@@ -34,7 +34,6 @@ import org.springframework.stereotype.Component;
 import com.cloud.dc.AccountVlanMapVO;
 import com.cloud.dc.DomainVlanMapVO;
 import com.cloud.dc.PodVlanMapVO;
-import com.cloud.dc.Vlan;
 import com.cloud.dc.Vlan.VlanType;
 import com.cloud.dc.VlanVO;
 import com.cloud.network.dao.IPAddressDao;
@@ -296,45 +295,6 @@ public class VlanDaoImpl extends GenericDaoBase<VlanVO, Long> implements VlanDao
         ProviderVlanSearch.done();
 
         return result;
-    }
-
-    private VlanVO findNextVlan(long zoneId, Vlan.VlanType vlanType) {
-        List<VlanVO> allVlans = listByZoneAndType(zoneId, vlanType);
-        List<VlanVO> emptyVlans = new ArrayList<VlanVO>();
-        List<VlanVO> fullVlans = new ArrayList<VlanVO>();
-
-        // Try to find a VLAN that is partially allocated
-        for (VlanVO vlan : allVlans) {
-            long vlanDbId = vlan.getId();
-
-            int countOfAllocatedIps = _ipAddressDao.countIPs(zoneId, vlanDbId, true);
-            int countOfAllIps = _ipAddressDao.countIPs(zoneId, vlanDbId, false);
-
-            if ((countOfAllocatedIps > 0) && (countOfAllocatedIps < countOfAllIps)) {
-                return vlan;
-            } else if (countOfAllocatedIps == 0) {
-                emptyVlans.add(vlan);
-            } else if (countOfAllocatedIps == countOfAllIps) {
-                fullVlans.add(vlan);
-            }
-        }
-
-        if (emptyVlans.isEmpty()) {
-            return null;
-        }
-
-        // Try to find an empty VLAN with the same tag/subnet as a VLAN that is full
-        for (VlanVO fullVlan : fullVlans) {
-            for (VlanVO emptyVlan : emptyVlans) {
-                if (fullVlan.getVlanTag().equals(emptyVlan.getVlanTag()) && fullVlan.getVlanGateway().equals(emptyVlan.getVlanGateway()) &&
-                    fullVlan.getVlanNetmask().equals(emptyVlan.getVlanNetmask())) {
-                    return emptyVlan;
-                }
-            }
-        }
-
-        // Return a random empty VLAN
-        return emptyVlans.get(0);
     }
 
     @Override

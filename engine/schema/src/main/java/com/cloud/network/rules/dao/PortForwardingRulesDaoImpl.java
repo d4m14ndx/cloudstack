@@ -18,7 +18,7 @@ package com.cloud.network.rules.dao;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.springframework.stereotype.Component;

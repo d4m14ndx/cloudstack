@@ -20,7 +20,7 @@ import com.cloud.dc.dao.DataCenterDao.PrivateAllocationData;
 import com.cloud.vm.VirtualMachine;
 import java.util.Random;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.network.NetworkModel;
 

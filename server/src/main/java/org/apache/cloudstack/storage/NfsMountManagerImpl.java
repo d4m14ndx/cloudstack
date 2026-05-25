@@ -30,7 +30,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import javax.annotation.PreDestroy;
+import jakarta.annotation.PreDestroy;
 
 import com.cloud.storage.StorageLayer;
 import com.cloud.utils.exception.CloudRuntimeException;

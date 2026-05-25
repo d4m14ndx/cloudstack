@@ -557,15 +557,7 @@ class DeployDataCenters(object):
                         self.enableProvider(pnetprovres[0].id)
                     elif provider.name == 'SecurityGroupProvider':
                         self.enableProvider(pnetprovres[0].id)
-                elif provider.name in ['JuniperContrailRouter',
-                                       'JuniperContrailVpcRouter']:
-                    netprov = addNetworkServiceProvider.\
-                        addNetworkServiceProviderCmd()
-                    netprov.name = provider.name
-                    netprov.physicalnetworkid = phynetwrk.id
-                    result = self.__apiClient.addNetworkServiceProvider(netprov)
-                    self.enableProvider(result.id)
-                elif provider.name in ['Netscaler', 'JuniperSRX', 'F5BigIp', 'NiciraNvp']:
+                elif provider.name in ['Netscaler', 'JuniperSRX', 'F5BigIp']:
                     netprov = addNetworkServiceProvider.\
                         addNetworkServiceProviderCmd()
                     netprov.name = provider.name
@@ -624,17 +616,6 @@ class DeployDataCenters(object):
                                         debug("==== AddF5 "
                                               "Successful=====")
                                     self.__addToCleanUp("F5LoadBalancer", ret.id)
-                            elif provider.name == 'NiciraNvp':
-                                cmd =  addNiciraNvpDevice.addNiciraNvpDeviceCmd()
-                                cmd.hostname = device.hostname
-                                cmd.username = device.username
-                                cmd.password = device.password
-                                cmd.transportzoneuuid = device.transportzoneuuid
-                                cmd.physicalnetworkid = phynetwrk.id
-                                ret = self.__apiClient.addNiciraNvpDevice(cmd)
-                                self.__tcRunLogger.\
-                                    debug("==== AddNiciraNvp Successful =====")
-                                self.__addToCleanUp("NiciraNvp", ret.id)
                             else:
                                 raise InvalidParameterException(
                                     "Device %s doesn't match "

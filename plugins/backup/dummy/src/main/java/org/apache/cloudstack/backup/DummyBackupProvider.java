@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.offering.DiskOffering;
 import com.cloud.storage.StoragePoolHostVO;

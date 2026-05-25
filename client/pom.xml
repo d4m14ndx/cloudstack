@@ -29,8 +29,8 @@
     </parent>
     <dependencies>
         <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
@@ -128,21 +128,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-solidfire</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-cloudbyte</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-storage-volume-datera</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-storage-volume-scaleio</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -213,7 +198,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-user-authenticator-md5</artifactId>
+            <artifactId>cloud-plugin-user-authenticator-bff-trusted-source</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -224,11 +209,6 @@
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-user-authenticator-pbkdf2</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-user-authenticator-plaintext</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -258,11 +238,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-nvp</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-network-palo-alto</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -283,16 +258,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-bigswitch</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-ssp</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-network-internallb</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -308,22 +273,12 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-vcs</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-hypervisor-xenserver</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-hypervisor-baremetal</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-hypervisor-ucs</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -564,16 +519,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-api-solidfire-intg-test</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
-            <artifactId>cloud-plugin-network-globodns</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.cloudstack</groupId>
             <artifactId>cloud-plugin-cluster-drs-balanced</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -716,17 +661,17 @@
                     </dependency>
                     <dependency>
                         <groupId>org.bouncycastle</groupId>
-                        <artifactId>bcprov-jdk15on</artifactId>
+                        <artifactId>bcprov-jdk18on</artifactId>
                         <version>${cs.bcprov.version}</version>
                     </dependency>
                     <dependency>
                         <groupId>org.bouncycastle</groupId>
-                        <artifactId>bcpkix-jdk15on</artifactId>
+                        <artifactId>bcpkix-jdk18on</artifactId>
                         <version>${cs.bcprov.version}</version>
                     </dependency>
                     <dependency>
                         <groupId>org.bouncycastle</groupId>
-                        <artifactId>bctls-jdk15on</artifactId>
+                        <artifactId>bctls-jdk18on</artifactId>
                         <version>${cs.bcprov.version}</version>
                     </dependency>
                 </dependencies>
@@ -868,11 +813,6 @@
                                     match="classpath:componentContext.xml"
                                     replace="classpath:nonossComponentContext.xml"
                                     byline="true" />
-                                <copy overwrite="true" todir="${basedir}/target/common/scripts">
-                                    <fileset dir="${basedir}/../plugins/network-elements/cisco-vnmc/src/main/scripts">
-                                        <include name="**/*" />
-                                    </fileset>
-                                </copy>
                             </target>
                         </configuration>
                     </execution>
@@ -906,13 +846,13 @@
                                 </artifactItem>
                                 <artifactItem>
                                     <groupId>org.bouncycastle</groupId>
-                                    <artifactId>bcprov-jdk15on</artifactId>
+                                    <artifactId>bcprov-jdk18on</artifactId>
                                     <overWrite>false</overWrite>
                                     <outputDirectory>${project.build.directory}/lib</outputDirectory>
                                 </artifactItem>
                                 <artifactItem>
                                     <groupId>org.bouncycastle</groupId>
-                                    <artifactId>bcpkix-jdk15on</artifactId>
+                                    <artifactId>bcpkix-jdk18on</artifactId>
                                     <overWrite>false</overWrite>
                                     <outputDirectory>${project.build.directory}/lib</outputDirectory>
 			        </artifactItem>
@@ -936,7 +876,7 @@
                                 </artifactItem>
                                 <artifactItem>
                                     <groupId>org.bouncycastle</groupId>
-                                    <artifactId>bctls-jdk15on</artifactId>
+                                    <artifactId>bctls-jdk18on</artifactId>
                                     <overWrite>false</overWrite>
                                     <outputDirectory>${project.build.directory}/lib</outputDirectory>
                                 </artifactItem>
@@ -966,14 +906,14 @@
                                     <exclude>junit:junit</exclude>
                                     <exclude>com.tngtech.java:junit-dataprovider</exclude>
                                     <exclude>org.mockito:mockito-all</exclude>
-                                    <exclude>org.hamcrest:hamcrest-all</exclude>
+                                    <exclude>org.hamcrest:hamcrest</exclude>
                                     <exclude>org.springframework:spring-test</exclude>
                                     <exclude>org.apache.tomcat.embed:tomcat-embed-core</exclude>
                                     <exclude>org.apache.geronimo.specs:geronimo-servlet_3.0_spec</exclude>
                                     <exclude>org.apache.geronimo.specs:geronimo-javamail_1.4_spec</exclude>
-                                    <exclude>org.bouncycastle:bcprov-jdk15on</exclude>
-                                    <exclude>org.bouncycastle:bcpkix-jdk15on</exclude>
-                                    <exclude>org.bouncycastle:bctls-jdk15on</exclude>
+                                    <exclude>org.bouncycastle:bcprov-jdk18on</exclude>
+                                    <exclude>org.bouncycastle:bcpkix-jdk18on</exclude>
+                                    <exclude>org.bouncycastle:bctls-jdk18on</exclude>
                                     <exclude>com.mysql:mysql-connector-j</exclude>
                                     <exclude>org.apache.cloudstack:cloud-plugin-storage-volume-storpool</exclude>
                                     <exclude>org.apache.cloudstack:cloud-plugin-storage-volume-linstor</exclude>
@@ -1095,11 +1035,6 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.cloudstack</groupId>
-                    <artifactId>cloud-plugin-network-cisco-vnmc</artifactId>
-                    <version>${project.version}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.cloudstack</groupId>
                     <artifactId>cloud-plugin-network-nsx</artifactId>
                     <version>${project.version}</version>
                 </dependency>
@@ -1116,11 +1051,6 @@
                 <dependency>
                     <groupId>org.apache.cloudstack</groupId>
                     <artifactId>cloud-plugin-api-vmware-sioc</artifactId>
-                    <version>${project.version}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.cloudstack</groupId>
-                    <artifactId>cloud-plugin-network-contrail</artifactId>
                     <version>${project.version}</version>
                 </dependency>
                 <dependency>

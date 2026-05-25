@@ -156,7 +156,6 @@ import com.cloud.uservm.UserVm;
 import com.cloud.utils.Pair;
 import com.cloud.utils.component.ComponentContext;
 import com.cloud.utils.db.EntityManager;
-import com.cloud.utils.db.GenericSearchBuilder;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.exception.CloudRuntimeException;
@@ -271,6 +270,12 @@ public class AutoScaleManagerImplTest {
 
     @Mock
     NetworkOrchestrationService networkOrchestrationService;
+
+    @Mock
+    CounterService counterService;
+
+    @Mock
+    ConditionService conditionService;
 
     AccountVO account;
     UserVO user;
@@ -418,10 +423,9 @@ public class AutoScaleManagerImplTest {
                 UUID.randomUUID().toString(), User.Source.UNKNOWN);
         CallContext.register(user, account);
 
-        when(counterDao.persist(any(CounterVO.class))).thenReturn(counterMock);
-        when(counterDao.findById(anyLong())).thenReturn(counterMock);
-        when(conditionDao.findById(any())).thenReturn(conditionMock);
-        when(conditionDao.persist(any(ConditionVO.class))).thenReturn(conditionMock);
+        Mockito.lenient().when(counterDao.findById(anyLong())).thenReturn(counterMock);
+        Mockito.lenient().when(conditionDao.findById(any())).thenReturn(conditionMock);
+        Mockito.lenient().when(conditionDao.persist(any(ConditionVO.class))).thenReturn(conditionMock);
 
         when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
         Mockito.doNothing().when(accountManager).checkAccess(Mockito.any(Account.class), Mockito.isNull(), Mockito.anyBoolean(), Mockito.any());
@@ -457,225 +461,67 @@ public class AutoScaleManagerImplTest {
         ReflectionTestUtils.setField(cmd, ApiConstants.SOURCE, counterSource.toString());
         ReflectionTestUtils.setField(cmd, ApiConstants.VALUE, counterValue);
 
+        when(counterService.createCounter(cmd)).thenReturn(counterMock);
+
         Counter counter = autoScaleManagerImplSpy.createCounter(cmd);
 
         Assert.assertEquals(counterMock, counter);
-        Mockito.verify(counterDao).persist(Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCreateCounterCmdWithInvalidSource() throws IllegalArgumentException {
-        CreateCounterCmd cmd = new CreateCounterCmd();
-        ReflectionTestUtils.setField(cmd, ApiConstants.NAME, counterName);
-        ReflectionTestUtils.setField(cmd, ApiConstants.PROVIDER, counterProvider);
-        ReflectionTestUtils.setField(cmd, ApiConstants.SOURCE, INVALID);
-        ReflectionTestUtils.setField(cmd, ApiConstants.VALUE, counterValue);
-
-        Counter counter = autoScaleManagerImplSpy.createCounter(cmd);
-
-        Mockito.verify(counterDao, never()).persist(Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCreateCounterCmdWithInvalidProvider() throws IllegalArgumentException {
-        CreateCounterCmd cmd = new CreateCounterCmd();
-        ReflectionTestUtils.setField(cmd, ApiConstants.NAME, counterName);
-        ReflectionTestUtils.setField(cmd, ApiConstants.PROVIDER, INVALID);
-        ReflectionTestUtils.setField(cmd, ApiConstants.SOURCE, counterSource.toString());
-        ReflectionTestUtils.setField(cmd, ApiConstants.VALUE, counterValue);
-
-        Counter counter = autoScaleManagerImplSpy.createCounter(cmd);
-
-        Mockito.verify(counterDao, never()).persist(Mockito.any());
+        Mockito.verify(counterService).createCounter(cmd);
     }
 
     @Test
     public void testListCounters() {
         List<CounterVO> countersMock = Arrays.asList(counterMock);
-        when(counterDao.listCounters(any(), any(), any(), any(), any(), any())).thenReturn(countersMock);
-
         ListCountersCmd cmd = new ListCountersCmd();
         ReflectionTestUtils.setField(cmd, ApiConstants.PROVIDER, counterProvider);
 
+        Mockito.doReturn(countersMock).when(counterService).listCounters(cmd);
+
         List<? extends Counter> counters = autoScaleManagerImplSpy.listCounters(cmd);
         Assert.assertEquals(countersMock, counters);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testListCountersWithInvalidProvider() {
-        ListCountersCmd cmd = new ListCountersCmd();
-        ReflectionTestUtils.setField(cmd, ApiConstants.PROVIDER, INVALID);
-
-        List<? extends Counter> counters = autoScaleManagerImplSpy.listCounters(cmd);
+        Mockito.verify(counterService).listCounters(cmd);
     }
 
     @Test
     public void testDeleteCounter() throws ResourceInUseException {
-        when(counterDao.remove(counterId)).thenReturn(true);
+        when(counterService.deleteCounter(counterId)).thenReturn(true);
 
         boolean success = autoScaleManagerImplSpy.deleteCounter(counterId);
 
         Assert.assertTrue(success);
-        Mockito.verify(counterDao).remove(counterId);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testDeleteCounterInvalidCounter() throws ResourceInUseException {
-        when(counterDao.findById(counterId)).thenReturn(null);
-
-        boolean success = autoScaleManagerImplSpy.deleteCounter(counterId);
-        Mockito.verify(counterDao, never()).remove(counterId);
-    }
-
-    @Test(expected = ResourceInUseException.class)
-    public void testDeleteCounterWithUsedCounter() throws ResourceInUseException {
-        when(conditionDao.findByCounterId(counterId)).thenReturn(conditionMock);
-
-        boolean success = autoScaleManagerImplSpy.deleteCounter(counterId);
-        Mockito.verify(counterDao, never()).remove(counterId);
+        Mockito.verify(counterService).deleteCounter(counterId);
     }
 
     @Test
     public void testCreateConditionCmd() throws IllegalArgumentException {
         CreateConditionCmd cmd = new CreateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "counterId", counterId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", String.valueOf(relationalOperator));
-        ReflectionTestUtils.setField(cmd, "threshold", threshold);
+        when(conditionService.createCondition(cmd)).thenReturn(conditionMock);
 
         Condition condition = autoScaleManagerImplSpy.createCondition(cmd);
 
         Assert.assertEquals(conditionMock, condition);
-        Mockito.verify(conditionDao).persist(Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCreateConditionCmdWithInvalidOperator() throws IllegalArgumentException {
-        CreateConditionCmd cmd = new CreateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "counterId", counterId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", INVALID);
-        ReflectionTestUtils.setField(cmd, "threshold", threshold);
-
-        Condition condition = autoScaleManagerImplSpy.createCondition(cmd);
-
-        Mockito.verify(counterDao, never()).persist(Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testCreateConditionCmdWithInvalidThreshold() throws IllegalArgumentException {
-        CreateConditionCmd cmd = new CreateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "counterId", counterId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", String.valueOf(relationalOperator));
-        ReflectionTestUtils.setField(cmd, "threshold", -1L);
-
-        Condition condition = autoScaleManagerImplSpy.createCondition(cmd);
-
-        Mockito.verify(counterDao, never()).persist(Mockito.any());
+        Mockito.verify(conditionService).createCondition(cmd);
     }
 
     @Test
     public void testDeleteCondition() throws ResourceInUseException {
-        when(autoScalePolicyConditionMapDao.isConditionInUse(conditionId)).thenReturn(false);
-        when(conditionDao.remove(conditionId)).thenReturn(true);
+        when(conditionService.deleteCondition(conditionId)).thenReturn(true);
 
         boolean success = autoScaleManagerImplSpy.deleteCondition(conditionId);
 
         Assert.assertTrue(success);
-        Mockito.verify(conditionDao).remove(conditionId);
-    }
-
-    @Test(expected = ResourceInUseException.class)
-    public void testDeleteConditionWithUsedCondition() throws ResourceInUseException {
-        when(autoScalePolicyConditionMapDao.isConditionInUse(conditionId)).thenReturn(true);
-
-        boolean success = autoScaleManagerImplSpy.deleteCondition(conditionId);
-
-        Mockito.verify(conditionDao, never()).remove(conditionId);
+        Mockito.verify(conditionService).deleteCondition(conditionId);
     }
 
     @Test
     public void testUpdateCondition() throws ResourceInUseException {
-        GenericSearchBuilder<AutoScalePolicyConditionMapVO, Long> searchBuilderMock = Mockito.mock(GenericSearchBuilder.class);
-        SearchCriteria<Long> searchCriteriaMock = Mockito.mock(SearchCriteria.class);
-
-        Mockito.doReturn(searchBuilderMock).when(autoScalePolicyConditionMapDao).createSearchBuilder(any());
-        when(searchBuilderMock.entity()).thenReturn(autoScalePolicyConditionMapVOMock);
-        Mockito.doReturn(searchCriteriaMock).when(searchBuilderMock).create();
-        Mockito.doReturn(Arrays.asList()).when(autoScalePolicyConditionMapDao).customSearch(searchCriteriaMock, null);
-
-        when(conditionDao.update(eq(conditionId), any())).thenReturn(true);
-
         UpdateConditionCmd cmd = new UpdateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "id", conditionId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", String.valueOf(relationalOperator));
-        ReflectionTestUtils.setField(cmd, "threshold", 100L);
+        when(conditionService.updateCondition(cmd)).thenReturn(conditionMock);
 
         Condition condition = autoScaleManagerImplSpy.updateCondition(cmd);
 
         Assert.assertEquals(conditionMock, condition);
-        Mockito.verify(conditionDao).update(eq(conditionId), Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testUpdateConditionWithInvalidOperator() throws ResourceInUseException {
-        UpdateConditionCmd cmd = new UpdateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "id", conditionId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", INVALID);
-        ReflectionTestUtils.setField(cmd, "threshold", 100L);
-
-        Condition condition = autoScaleManagerImplSpy.updateCondition(cmd);
-
-        Mockito.verify(conditionDao, never()).update(eq(conditionId), Mockito.any());
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testUpdateConditionWithInvalidThreshold() throws ResourceInUseException {
-        UpdateConditionCmd cmd = new UpdateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "id", conditionId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", String.valueOf(relationalOperator));
-        ReflectionTestUtils.setField(cmd, "threshold", -1L);
-
-        Condition condition = autoScaleManagerImplSpy.updateCondition(cmd);
-
-        Mockito.verify(conditionDao, never()).update(eq(conditionId), Mockito.any());
-    }
-
-    @Test(expected = ResourceInUseException.class)
-    public void testUpdateConditionWithPolicies() throws ResourceInUseException {
-        GenericSearchBuilder<AutoScalePolicyConditionMapVO, Long> genericSearchBuilderMock = Mockito.mock(GenericSearchBuilder.class);
-        SearchCriteria<Long> searchCriteriaLongMock = Mockito.mock(SearchCriteria.class);
-
-        Mockito.doReturn(genericSearchBuilderMock).when(autoScalePolicyConditionMapDao).createSearchBuilder(Long.class);
-        when(genericSearchBuilderMock.entity()).thenReturn(autoScalePolicyConditionMapVOMock);
-        Mockito.doReturn(searchCriteriaLongMock).when(genericSearchBuilderMock).create();
-        Mockito.doReturn(Arrays.asList(scaleUpPolicyId)).when(autoScalePolicyConditionMapDao).customSearch(searchCriteriaLongMock, null);
-
-        SearchBuilder<AutoScaleVmGroupPolicyMapVO> searchBuilderMock1 = Mockito.mock(SearchBuilder.class);
-        Mockito.doReturn(searchBuilderMock1).when(autoScaleVmGroupPolicyMapDao).createSearchBuilder();
-        when(searchBuilderMock1.entity()).thenReturn(autoScaleVmGroupPolicyMapVOMock);
-
-        SearchBuilder<AutoScaleVmGroupVO> searchBuilderMock2 = Mockito.mock(SearchBuilder.class);
-        SearchCriteria<AutoScaleVmGroupVO> searchCriteriaMock2 = Mockito.mock(SearchCriteria.class);
-
-        Mockito.doReturn(searchBuilderMock2).when(autoScaleVmGroupDao).createSearchBuilder();
-        when(searchBuilderMock2.entity()).thenReturn(asVmGroupMock);
-        Mockito.doReturn(searchCriteriaMock2).when(searchBuilderMock2).create();
-        Mockito.doReturn(Arrays.asList(asVmGroupMock)).when(autoScaleVmGroupDao).search(searchCriteriaMock2, null);
-
-        UpdateConditionCmd cmd = new UpdateConditionCmd();
-
-        ReflectionTestUtils.setField(cmd, "id", conditionId);
-        ReflectionTestUtils.setField(cmd, "relationalOperator", String.valueOf(relationalOperator));
-        ReflectionTestUtils.setField(cmd, "threshold", 100L);
-
-        Condition condition = autoScaleManagerImplSpy.updateCondition(cmd);
-
-        Mockito.verify(conditionDao, never()).update(eq(conditionId), Mockito.any());
+        Mockito.verify(conditionService).updateCondition(cmd);
     }
 
     @Test

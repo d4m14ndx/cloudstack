@@ -35,7 +35,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricLogicalRouterResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = CreateTungstenFabricLogicalRouterCmd.APINAME, description = "Create Tungsten-Fabric logical router",
     responseObject = TungstenFabricLogicalRouterResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

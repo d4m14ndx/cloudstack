@@ -23,7 +23,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.vm.snapshot.dao.VMSnapshotDetailsDao;

@@ -17,8 +17,8 @@
 
 package com.cloud.api.commands;
 
-import javax.inject.Inject;
-import javax.persistence.EntityExistsException;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityExistsException;
 
 
 import org.apache.cloudstack.api.APICommand;

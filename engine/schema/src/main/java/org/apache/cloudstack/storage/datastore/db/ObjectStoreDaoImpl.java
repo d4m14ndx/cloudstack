@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.response.ObjectStoreResponse;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.util.ArrayList;
 import java.util.List;

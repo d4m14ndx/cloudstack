@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.cpu.CPU;
 import com.cloud.dc.ASNumberRangeVO;

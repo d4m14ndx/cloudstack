@@ -18,7 +18,7 @@ package org.apache.cloudstack.api.command.admin.network;
 
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.APICommand;

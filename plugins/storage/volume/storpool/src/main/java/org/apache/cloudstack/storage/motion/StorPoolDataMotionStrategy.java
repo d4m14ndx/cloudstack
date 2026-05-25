@@ -95,7 +95,7 @@ import org.apache.logging.log4j.Logger;
 
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;

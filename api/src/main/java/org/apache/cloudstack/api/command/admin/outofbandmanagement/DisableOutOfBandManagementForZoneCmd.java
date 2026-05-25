@@ -39,7 +39,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "disableOutOfBandManagementForZone", description = "Disables out-of-band management for a zone",
         responseObject = OutOfBandManagementResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,

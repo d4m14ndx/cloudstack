@@ -48,7 +48,7 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 import java.time.ZonedDateTime;
 import java.util.Calendar;
 import java.util.Date;

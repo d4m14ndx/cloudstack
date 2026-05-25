@@ -23,7 +23,7 @@
    <Appenders>
 
       <properties>
-         <property name="filters">net.sf.cglib.proxy</property>
+         <property name="filters">org.springframework.cglib.proxy</property>
       </properties>
 
       <!-- ============================== -->

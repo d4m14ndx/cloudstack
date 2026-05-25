@@ -19,7 +19,7 @@
 
 package com.cloud.agent.manager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.agent.api.Answer;

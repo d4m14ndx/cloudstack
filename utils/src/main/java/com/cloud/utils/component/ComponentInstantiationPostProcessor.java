@@ -19,17 +19,16 @@
 
 package com.cloud.utils.component;
 
-import java.beans.PropertyDescriptor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.sf.cglib.proxy.Callback;
-import net.sf.cglib.proxy.CallbackFilter;
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
-import net.sf.cglib.proxy.NoOp;
+import org.springframework.cglib.proxy.Callback;
+import org.springframework.cglib.proxy.CallbackFilter;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.cglib.proxy.MethodProxy;
+import org.springframework.cglib.proxy.NoOp;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -103,7 +102,7 @@ public class ComponentInstantiationPostProcessor implements InstantiationAwareBe
     }
 
     @Override
-    public PropertyValues postProcessPropertyValues(PropertyValues pvs, PropertyDescriptor[] pds, Object bean, String beanName) throws BeansException {
+    public PropertyValues postProcessProperties(PropertyValues pvs, Object bean, String beanName) throws BeansException {
         return pvs;
     }
 

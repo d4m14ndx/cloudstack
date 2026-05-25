@@ -17,7 +17,6 @@
 
 package org.apache.cloudstack.acl.dao;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -64,35 +63,6 @@ public class RolePermissionsDaoImpl extends GenericDaoBase<RolePermissionVO, Lon
         sortOrderAttribute = _allAttributes.get("sortOrder");
 
         assert (sortOrderAttribute != null) : "Couldn't find one of these attributes";
-    }
-
-    private boolean updateSortOrder(final RolePermissionVO permissionBeingMoved, final RolePermissionVO parentPermission) {
-        if (parentPermission != null && permissionBeingMoved.getId() == parentPermission.getId()) {
-            return true;
-        }
-        final List<RolePermissionVO> newOrderedPermissionsList = new ArrayList<>();
-        // Null parent implies item needs to move to the top
-        if (parentPermission == null) {
-            newOrderedPermissionsList.add(permissionBeingMoved);
-        }
-        for (final RolePermissionVO permission : findAllByRoleIdSorted(permissionBeingMoved.getRoleId())) {
-            if (permission.getId() == permissionBeingMoved.getId()) {
-                continue;
-            }
-            newOrderedPermissionsList.add(permission);
-            if (parentPermission != null && permission.getId() == parentPermission.getId()) {
-                newOrderedPermissionsList.add(permissionBeingMoved);
-            }
-        }
-        long sortOrder = 0L;
-        for (final RolePermissionVO permission : newOrderedPermissionsList) {
-            permission.setSortOrder(sortOrder++);
-            if (!update(permission.getId(), permission)) {
-                logger.warn("Failed to update item's sort order with id:" + permission.getId() + " while moving permission with id:" + permissionBeingMoved.getId() + " to a new position");
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override

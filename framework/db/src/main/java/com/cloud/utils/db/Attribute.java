@@ -18,14 +18,14 @@ package com.cloud.utils.db;
 
 import java.lang.reflect.Field;
 
-import javax.persistence.AttributeOverride;
-import javax.persistence.Column;
-import javax.persistence.ElementCollection;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.Temporal;
-import javax.persistence.TemporalType;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Temporal;
+import jakarta.persistence.TemporalType;
 
 /**
  * The Java annotation are somewhat incomplete.  This gives better information

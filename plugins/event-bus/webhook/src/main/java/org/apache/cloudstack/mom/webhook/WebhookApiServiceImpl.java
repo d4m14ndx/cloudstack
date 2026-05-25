@@ -23,7 +23,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.api.ApiConstants;

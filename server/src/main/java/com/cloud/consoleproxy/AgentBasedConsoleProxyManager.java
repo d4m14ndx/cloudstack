@@ -18,7 +18,7 @@ package com.cloud.consoleproxy;
 
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.dc.dao.HostPodDao;

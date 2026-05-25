@@ -37,7 +37,7 @@ import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.exception.CloudRuntimeException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class UserDataManagerImpl extends ManagerBase implements UserDataManager {
     @Inject

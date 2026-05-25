@@ -26,8 +26,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.cloudstack.network.router.deployment.RouterDeploymentDefinition;

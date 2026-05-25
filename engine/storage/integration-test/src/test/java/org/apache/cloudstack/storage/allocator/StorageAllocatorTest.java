@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProvider;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreProviderManager;

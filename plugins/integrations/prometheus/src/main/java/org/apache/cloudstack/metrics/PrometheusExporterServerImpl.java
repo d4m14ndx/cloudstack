@@ -23,7 +23,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;

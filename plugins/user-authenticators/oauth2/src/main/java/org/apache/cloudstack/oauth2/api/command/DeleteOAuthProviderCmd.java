@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.ServerApiException;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.context.CallContext;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "deleteOauthProvider", description = "Deletes the registered OAuth provider", responseObject = SuccessResponse.class,
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false, since = "4.19.0")

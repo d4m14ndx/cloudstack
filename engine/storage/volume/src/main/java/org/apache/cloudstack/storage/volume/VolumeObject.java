@@ -18,7 +18,7 @@ package org.apache.cloudstack.storage.volume;
 
 import java.util.Date;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.configuration.Resource.ResourceType;
 import com.cloud.dc.VsphereStoragePolicyVO;

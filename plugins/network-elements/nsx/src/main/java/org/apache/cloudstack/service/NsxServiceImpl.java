@@ -19,7 +19,7 @@ package org.apache.cloudstack.service;
 import java.util.List;
 import java.util.Objects;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.NsxAnswer;
 import org.apache.cloudstack.agent.api.CreateNsxDistributedFirewallRulesCommand;

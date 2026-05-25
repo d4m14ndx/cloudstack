@@ -61,7 +61,7 @@ import org.apache.cloudstack.network.opendaylight.agent.responses.DestroyPortAns
 import org.apache.cloudstack.network.opendaylight.dao.OpenDaylightControllerMappingDao;
 import org.apache.cloudstack.network.opendaylight.dao.OpenDaylightControllerVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 import java.util.UUID;
 

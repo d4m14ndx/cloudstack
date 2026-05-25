@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.cluster.ManagementServerHostVO;
@@ -242,10 +242,6 @@ public final class AnnotationManagerImpl extends ManagerBase implements Annotati
         annotation.setUserUuid(userUuid);
         annotation = annotationDao.persist(annotation);
         return createAnnotationResponse(annotation);
-    }
-
-    private boolean isDomainAdminAllowedType(EntityType type) {
-        return type == EntityType.DOMAIN || type == EntityType.DISK_OFFERING || type == EntityType.SERVICE_OFFERING;
     }
 
     private void checkAnnotationPermissions(EntityType type, UserVO user) {

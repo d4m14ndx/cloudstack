@@ -16,8 +16,8 @@
 // under the License.
 package com.cloud.hypervisor.vmware.resource;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

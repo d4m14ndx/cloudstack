@@ -26,7 +26,7 @@ import org.apache.cloudstack.engine.cloud.entity.api.db.dao.VMNetworkMapDao;
 import org.apache.cloudstack.storage.sharedfs.SharedFS;
 import org.apache.cloudstack.storage.sharedfs.SharedFSVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Date;
 import java.util.List;
 

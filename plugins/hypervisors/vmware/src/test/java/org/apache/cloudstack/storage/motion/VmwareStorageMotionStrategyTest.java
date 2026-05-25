@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;

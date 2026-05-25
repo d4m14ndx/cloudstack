@@ -37,8 +37,8 @@ import org.apache.commons.httpclient.methods.StringRequestEntity;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.Marshaller;
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.Marshaller;
 import java.io.StringWriter;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;

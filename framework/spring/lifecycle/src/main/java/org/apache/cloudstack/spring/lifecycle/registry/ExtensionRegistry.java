@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.Logger;

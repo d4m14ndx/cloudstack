@@ -31,7 +31,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.acl.SecurityChecker;
@@ -1568,10 +1568,6 @@ public class SnapshotManagerImpl extends MutualExclusiveIdsManagerBase implement
             hypervisorType = storagePool.getHypervisor();
         } else {
             hypervisorType = volume.getHypervisorType();
-        }
-
-        if (hypervisorType.equals(HypervisorType.Ovm)) {
-            throw new InvalidParameterValueException("Ovm won't support taking snapshot");
         }
 
         if (hypervisorType.equals(HypervisorType.KVM)) {

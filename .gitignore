@@ -104,3 +104,13 @@ waf-*
 #.*
 
 !.gitignore
+
+# Claude Code per-developer settings (contains per-user auth allowlist)
+.claude/
+
+# Local linked worktrees for AI-assisted slice work
+.worktrees/
+
+# Playwright browser-test output
+web/test-results/
+web/playwright-report/

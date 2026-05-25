@@ -18,7 +18,7 @@
  */
 package org.apache.cloudstack.api.command;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.user.User;

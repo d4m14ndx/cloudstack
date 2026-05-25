@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.storage.datastore.lifecycle;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;

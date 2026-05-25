@@ -17,7 +17,6 @@
 package org.apache.cloudstack.engine.orchestration;
 
 import static org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService.NetworkLockTimeout;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -27,44 +26,46 @@ import static org.mockito.Mockito.when;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.cloud.dc.DataCenter;
-import com.cloud.exception.InsufficientVirtualNetworkCapacityException;
 import com.cloud.network.IpAddressManager;
-import com.cloud.utils.Pair;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.ArgumentMatchers;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import com.cloud.api.query.dao.DomainRouterJoinDao;
+import com.cloud.agent.api.StartupCommand;
+import com.cloud.agent.api.to.NicTO;
 import com.cloud.dc.Vlan;
 import com.cloud.dc.VlanVO;
 import com.cloud.dc.dao.VlanDao;
 import com.cloud.deploy.DeployDestination;
+import com.cloud.exception.ConnectionException;
 import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ResourceUnavailableException;
+import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor;
 import com.cloud.network.IpAddress.State;
 import com.cloud.network.Network;
 import com.cloud.network.Network.GuestType;
 import com.cloud.network.Network.Service;
 import com.cloud.network.NetworkModel;
+import com.cloud.network.NetworkProfile;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkServiceMapDao;
 import com.cloud.network.dao.NetworkVO;
+import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
 import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.RouterNetworkDao;
 import com.cloud.network.element.DhcpServiceProvider;
@@ -73,9 +74,10 @@ import com.cloud.network.guru.NetworkGuru;
 import com.cloud.network.vpc.VpcManager;
 import com.cloud.network.vpc.VpcVO;
 import com.cloud.offerings.NetworkOfferingVO;
+import com.cloud.offerings.dao.NetworkOfferingServiceMapDao;
+import com.cloud.user.Account;
+import com.cloud.utils.Pair;
 import com.cloud.utils.db.EntityManager;
-import com.cloud.utils.db.Transaction;
-import com.cloud.utils.db.TransactionCallback;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.Ip;
 import com.cloud.vm.DomainRouterVO;
@@ -101,6 +103,8 @@ import junit.framework.TestCase;
 public class NetworkOrchestratorTest extends TestCase {
 
     NetworkOrchestrator testOrchestrator = Mockito.spy(new NetworkOrchestrator());
+    RequestedNicIpReservationServiceImpl requestedNicIpReservationService;
+    NetworkOfferingVlanValidationServiceImpl networkOfferingVlanValidationService;
 
     private String guruName = "GuestNetworkGuru";
     private String dhcpProvider = "VirtualRouter";
@@ -124,6 +128,8 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator._networkModel = mock(NetworkModel.class);
         testOrchestrator._nicSecondaryIpDao = mock(NicSecondaryIpDao.class);
         testOrchestrator._ntwkSrvcDao = mock(NetworkServiceMapDao.class);
+        testOrchestrator._ntwkOfferingSrvcDao = mock(NetworkOfferingServiceMapDao.class);
+        testOrchestrator._pNSPDao = mock(PhysicalNetworkServiceProviderDao.class);
         testOrchestrator._nicIpAliasDao = mock(NicIpAliasDao.class);
         testOrchestrator._ipAddressDao = mock(IPAddressDao.class);
         testOrchestrator._vlanDao = mock(VlanDao.class);
@@ -132,9 +138,97 @@ public class NetworkOrchestratorTest extends TestCase {
         testOrchestrator.routerDao = mock(DomainRouterDao.class);
         testOrchestrator.routerNetworkDao = mock(RouterNetworkDao.class);
         testOrchestrator._vpcMgr = mock(VpcManager.class);
-        testOrchestrator.routerJoinDao = mock(DomainRouterJoinDao.class);
         testOrchestrator._ipAddrMgr = mock(IpAddressManager.class);
         testOrchestrator._entityMgr = mock(EntityManager.class);
+        testOrchestrator._networkOfferingDao = mock(com.cloud.offerings.dao.NetworkOfferingDao.class);
+        testOrchestrator._dcDao = mock(com.cloud.dc.dao.DataCenterDao.class);
+        testOrchestrator._datacenterVnetDao = mock(com.cloud.dc.dao.DataCenterVnetDao.class);
+        testOrchestrator._accountGuestVlanMapDao = mock(com.cloud.network.dao.AccountGuestVlanMapDao.class);
+
+        requestedNicIpReservationService = Mockito.spy(new RequestedNicIpReservationServiceImpl());
+        requestedNicIpReservationService.vlanDao = testOrchestrator._vlanDao;
+        requestedNicIpReservationService.ipAddressDao = testOrchestrator._ipAddressDao;
+        requestedNicIpReservationService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.requestedNicIpReservationService = requestedNicIpReservationService;
+
+        networkOfferingVlanValidationService = Mockito.spy(new NetworkOfferingVlanValidationServiceImpl());
+        networkOfferingVlanValidationService.dataCenterDao = testOrchestrator._dcDao;
+        networkOfferingVlanValidationService.networksDao = testOrchestrator._networksDao;
+        networkOfferingVlanValidationService.dataCenterVnetDao = testOrchestrator._datacenterVnetDao;
+        networkOfferingVlanValidationService.accountGuestVlanMapDao = testOrchestrator._accountGuestVlanMapDao;
+        networkOfferingVlanValidationService.networkOfferingDao = testOrchestrator._networkOfferingDao;
+        networkOfferingVlanValidationService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.networkOfferingVlanValidationService = networkOfferingVlanValidationService;
+
+        // Wire a real NetworkProviderResolutionServiceImpl that shares the
+        // same dao/network-model mocks as the orchestrator under test, so
+        // existing `verify(orchestrator._ntwkSrvcDao, ...)` and
+        // `verify(orchestrator._networkModel, ...)` assertions in tests that
+        // indirectly exercise getDhcpServiceProvider / getDnsServiceProvider
+        // through removeNic et al. continue to observe the calls.
+        NetworkProviderResolutionServiceImpl resolutionService = new NetworkProviderResolutionServiceImpl();
+        resolutionService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        resolutionService.networkModel = testOrchestrator._networkModel;
+        resolutionService.entityManager = testOrchestrator._entityMgr;
+        testOrchestrator.networkProviderResolutionService = resolutionService;
+
+        NetworkProviderMappingServiceImpl mappingService = new NetworkProviderMappingServiceImpl();
+        mappingService.networkOfferingServiceMapDao = testOrchestrator._ntwkOfferingSrvcDao;
+        mappingService.networkModel = testOrchestrator._networkModel;
+        mappingService.physicalNetworkServiceProviderDao = testOrchestrator._pNSPDao;
+        mappingService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        testOrchestrator.networkProviderMappingService = mappingService;
+
+        // Wire a real NicDhcpCleanupServiceImpl sharing the same mocks so that
+        // assertions on _ntwkSrvcDao / _networkModel / _nicDao made by tests
+        // that exercise removeNic -> cleanupNicDhcpDnsEntry still work.
+        NicDhcpCleanupServiceImpl dhcpCleanupService = new NicDhcpCleanupServiceImpl();
+        dhcpCleanupService.networkServiceMapDao = testOrchestrator._ntwkSrvcDao;
+        dhcpCleanupService.networkModel = testOrchestrator._networkModel;
+        dhcpCleanupService.networksDao = testOrchestrator._networksDao;
+        dhcpCleanupService.nicDao = testOrchestrator._nicDao;
+        dhcpCleanupService.nicIpAliasDao = testOrchestrator._nicIpAliasDao;
+        dhcpCleanupService.publicIpAddressDao = testOrchestrator._publicIpAddressDao;
+        dhcpCleanupService.networkProviderResolutionService = resolutionService;
+        dhcpCleanupService.networkElements = new ArrayList<>();
+        testOrchestrator.nicDhcpCleanupService = dhcpCleanupService;
+
+        NicAuxiliaryServiceImpl nicAuxiliaryService = new NicAuxiliaryServiceImpl();
+        nicAuxiliaryService.nicDao = testOrchestrator._nicDao;
+        nicAuxiliaryService.nicSecondaryIpDao = testOrchestrator._nicSecondaryIpDao;
+        nicAuxiliaryService.networksDao = testOrchestrator._networksDao;
+        nicAuxiliaryService.networkModel = testOrchestrator._networkModel;
+        testOrchestrator.nicAuxiliaryService = nicAuxiliaryService;
+
+        NicElementPreparationServiceImpl elementPreparationService = new NicElementPreparationServiceImpl();
+        elementPreparationService.networkModel = testOrchestrator._networkModel;
+        elementPreparationService.nicDhcpCleanupService = dhcpCleanupService;
+        testOrchestrator.nicElementPreparationService = elementPreparationService;
+
+        // Wire a real NicProfileMtuServiceImpl backed by mocks. No tests trigger
+        // the MTU code path directly, but the orchestrator-level call sites in
+        // allocateNic/prepareNic/importNic delegate to it.
+        NicProfileMtuServiceImpl mtuService = new NicProfileMtuServiceImpl();
+        mtuService.routerJoinDao = mock(com.cloud.api.query.dao.DomainRouterJoinDao.class);
+        mtuService.networksDao = testOrchestrator._networksDao;
+        mtuService.entityManager = testOrchestrator._entityMgr;
+        testOrchestrator.nicProfileMtuService = mtuService;
+        testOrchestrator.nicImportService = mock(NicImportService.class);
+        testOrchestrator.nicMigrationService = mock(NicMigrationService.class);
+        testOrchestrator.networkHostSetupService = mock(NetworkHostSetupService.class);
+        testOrchestrator.networkUpdateSequenceService = mock(NetworkUpdateSequenceService.class);
+        testOrchestrator.networkServiceChangeCleanupService = mock(NetworkServiceChangeCleanupService.class);
+        testOrchestrator.networkRuleReprogrammingService = mock(NetworkRuleReprogrammingService.class);
+        testOrchestrator.networkResourceCleanupService = mock(NetworkResourceCleanupService.class);
+        testOrchestrator.persistentNetworkSetupService = mock(PersistentNetworkSetupService.class);
+        testOrchestrator.networkVlanRangeCleanupService = mock(NetworkVlanRangeCleanupService.class);
+        RouterDefaultDnsUpdateServiceImpl dnsUpdateService = new RouterDefaultDnsUpdateServiceImpl();
+        dnsUpdateService.routerDao = testOrchestrator.routerDao;
+        dnsUpdateService.routerNetworkDao = testOrchestrator.routerNetworkDao;
+        dnsUpdateService.vpcManager = testOrchestrator._vpcMgr;
+        dnsUpdateService.networksDao = testOrchestrator._networksDao;
+        testOrchestrator.routerDefaultDnsUpdateService = dnsUpdateService;
+
         DhcpServiceProvider provider = mock(DhcpServiceProvider.class);
 
         Map<Network.Capability, String> capabilities = new HashMap<Network.Capability, String>();
@@ -150,9 +244,234 @@ public class NetworkOrchestratorTest extends TestCase {
         List<NetworkGuru> networkGurus = new ArrayList<NetworkGuru>();
         networkGurus.add(guru);
         testOrchestrator.networkGurus = networkGurus;
+        NicProfileLifecycleMappingServiceImpl lifecycleMappingService = new NicProfileLifecycleMappingServiceImpl();
+        lifecycleMappingService.nicDao = testOrchestrator._nicDao;
+        lifecycleMappingService.networksDao = testOrchestrator._networksDao;
+        lifecycleMappingService.networkModel = testOrchestrator._networkModel;
+        lifecycleMappingService.setNetworkGurus(networkGurus);
+        testOrchestrator.nicProfileLifecycleMappingService = lifecycleMappingService;
 
         when(networkOffering.getGuestType()).thenReturn(GuestType.L2);
         when(networkOffering.getId()).thenReturn(networkOfferingId);
+    }
+
+    @Test
+    public void testProcessConnectDelegatesToNetworkHostSetupService() throws ConnectionException {
+        Host host = mock(Host.class);
+        StartupCommand startup = mock(StartupCommand.class);
+
+        testOrchestrator.processConnect(host, startup, true);
+
+        verify(testOrchestrator.networkHostSetupService).processConnect(host, startup, true);
+    }
+
+    @Test
+    public void canUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+        when(testOrchestrator.networkUpdateSequenceService.canUpdateInSequence(network, true)).thenReturn(true);
+
+        Assert.assertTrue(testOrchestrator.canUpdateInSequence(network, true));
+
+        verify(testOrchestrator.networkUpdateSequenceService).canUpdateInSequence(network, true);
+    }
+
+    @Test
+    public void deleteVlansInNetworkDelegatesToNetworkVlanRangeCleanupService() {
+        NetworkVO network = mock(NetworkVO.class);
+        Account caller = mock(Account.class);
+        Pair<Boolean, List<VlanVO>> expected = new Pair<>(true, Collections.emptyList());
+        when(testOrchestrator.networkVlanRangeCleanupService.deleteVlansInNetwork(network, 42L, caller)).thenReturn(expected);
+
+        Pair<Boolean, List<VlanVO>> result = testOrchestrator.deleteVlansInNetwork(network, 42L, caller);
+
+        Assert.assertSame(expected, result);
+        verify(testOrchestrator.networkVlanRangeCleanupService).deleteVlansInNetwork(network, 42L, caller);
+    }
+
+    @Test
+    public void applyProfileToNicDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+        when(service.applyProfileToNic(nic, profile, 2)).thenReturn(3);
+
+        Integer result = testOrchestrator.applyProfileToNic(nic, profile, 2);
+
+        Assert.assertEquals(Integer.valueOf(3), result);
+        verify(service).applyProfileToNic(nic, profile, 2);
+    }
+
+    @Test
+    public void applyProfileToNicForReleaseDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+
+        testOrchestrator.applyProfileToNicForRelease(nic, profile);
+
+        verify(service).applyProfileToNicForRelease(nic, profile);
+    }
+
+    @Test
+    public void applyProfileToNetworkDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NetworkVO network = mock(NetworkVO.class);
+        NetworkProfile profile = mock(NetworkProfile.class);
+
+        testOrchestrator.applyProfileToNetwork(network, profile);
+
+        verify(service).applyProfileToNetwork(network, profile);
+    }
+
+    @Test
+    public void toNicTODelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        NicVO nic = mock(NicVO.class);
+        NicProfile profile = mock(NicProfile.class);
+        NetworkVO network = mock(NetworkVO.class);
+        NicTO expected = new NicTO();
+        when(service.toNicTO(nic, profile, network)).thenReturn(expected);
+
+        NicTO result = testOrchestrator.toNicTO(nic, profile, network);
+
+        Assert.assertSame(expected, result);
+        verify(service).toNicTO(nic, profile, network);
+    }
+
+    @Test
+    public void getNicProfileForVmDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        Network network = mock(Network.class);
+        NicProfile requested = mock(NicProfile.class);
+        VirtualMachine vm = mock(VirtualMachine.class);
+        NicProfile expected = new NicProfile();
+        when(service.getNicProfileForVm(network, requested, vm)).thenReturn(expected);
+
+        NicProfile result = testOrchestrator.getNicProfileForVm(network, requested, vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfileForVm(network, requested, vm);
+    }
+
+    @Test
+    public void getNicProfilesByVmIdDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        List<NicProfile> expected = Collections.singletonList(new NicProfile());
+        when(service.getNicProfiles(42L, Hypervisor.HypervisorType.KVM)).thenReturn(expected);
+
+        List<NicProfile> result = testOrchestrator.getNicProfiles(42L, Hypervisor.HypervisorType.KVM);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfiles(42L, Hypervisor.HypervisorType.KVM);
+    }
+
+    @Test
+    public void getNicProfilesByVmDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        VirtualMachine vm = mock(VirtualMachine.class);
+        List<NicProfile> expected = Collections.singletonList(new NicProfile());
+        when(service.getNicProfiles(vm)).thenReturn(expected);
+
+        List<NicProfile> result = testOrchestrator.getNicProfiles(vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getNicProfiles(vm);
+    }
+
+    @Test
+    public void getSystemVMAccessDetailsDelegatesToLifecycleMappingService() {
+        NicProfileLifecycleMappingService service = mock(NicProfileLifecycleMappingService.class);
+        testOrchestrator.nicProfileLifecycleMappingService = service;
+        VirtualMachine vm = mock(VirtualMachine.class);
+        Map<String, String> expected = Collections.singletonMap("key", "value");
+        when(service.getSystemVMAccessDetails(vm)).thenReturn(expected);
+
+        Map<String, String> result = testOrchestrator.getSystemVMAccessDetails(vm);
+
+        Assert.assertSame(expected, result);
+        verify(service).getSystemVMAccessDetails(vm);
+    }
+
+    @Test
+    public void finalizeServicesAndProvidersForNetworkDelegatesToProviderMappingService() {
+        NetworkProviderMappingService mappingService = mock(NetworkProviderMappingService.class);
+        testOrchestrator.networkProviderMappingService = mappingService;
+        Long physicalNetworkId = 42L;
+        Map<String, String> expected = Collections.singletonMap(Service.Dhcp.getName(), Network.Provider.VirtualRouter.getName());
+        when(mappingService.finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId)).thenReturn(expected);
+
+        Map<String, String> result = testOrchestrator.finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId);
+
+        Assert.assertSame(expected, result);
+        verify(mappingService).finalizeServicesAndProvidersForNetwork(networkOffering, physicalNetworkId);
+    }
+
+    @Test
+    public void configureUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+
+        testOrchestrator.configureUpdateInSequence(network);
+
+        verify(testOrchestrator.networkUpdateSequenceService).configureUpdateInSequence(network);
+    }
+
+    @Test
+    public void getResourceCountDelegatesToService() {
+        Network network = mock(Network.class);
+        when(testOrchestrator.networkUpdateSequenceService.getResourceCount(network)).thenReturn(2);
+
+        Assert.assertEquals(2, testOrchestrator.getResourceCount(network));
+
+        verify(testOrchestrator.networkUpdateSequenceService).getResourceCount(network);
+    }
+
+    @Test
+    public void finalizeUpdateInSequenceDelegatesToService() {
+        Network network = mock(Network.class);
+
+        testOrchestrator.finalizeUpdateInSequence(network, false);
+
+        verify(testOrchestrator.networkUpdateSequenceService).finalizeUpdateInSequence(network, false);
+    }
+
+    @Test
+    public void getServicesNotSupportedInNewOfferingDelegatesToService() {
+        Network network = mock(Network.class);
+        List<String> services = Collections.singletonList(Service.StaticNat.getName());
+        when(testOrchestrator.networkServiceChangeCleanupService.getServicesNotSupportedInNewOffering(network, 2L)).thenReturn(services);
+
+        Assert.assertEquals(services, testOrchestrator.getServicesNotSupportedInNewOffering(network, 2L));
+
+        verify(testOrchestrator.networkServiceChangeCleanupService).getServicesNotSupportedInNewOffering(network, 2L);
+    }
+
+    @Test
+    public void cleanupConfigForServicesInNetworkDelegatesToService() {
+        Network network = mock(Network.class);
+        List<String> services = Collections.singletonList(Service.Firewall.getName());
+
+        testOrchestrator.cleanupConfigForServicesInNetwork(services, network);
+
+        verify(testOrchestrator.networkServiceChangeCleanupService).cleanupConfigForServicesInNetwork(services, network);
+    }
+
+    @Test
+    public void reprogramNetworkRulesDelegatesToService() throws ResourceUnavailableException {
+        Network network = mock(Network.class);
+        Account caller = mock(Account.class);
+        long networkId = 123L;
+        when(testOrchestrator.networkRuleReprogrammingService.reprogramNetworkRules(networkId, caller, network)).thenReturn(true);
+
+        Assert.assertTrue(testOrchestrator.reprogramNetworkRules(networkId, caller, network));
+
+        verify(testOrchestrator.networkRuleReprogrammingService).reprogramNetworkRules(networkId, caller, network);
     }
 
     @Test
@@ -406,7 +725,7 @@ public class NetworkOrchestratorTest extends TestCase {
 
     private void verifyAndAssert(String requestedIpv4Address, String ipv4Gateway, String ipv4Netmask, NicProfile nicProfile, int acquireLockAndCheckIfIpv4IsFreeTimes,
             int nextMacAddressTimes) {
-        verify(testOrchestrator, times(acquireLockAndCheckIfIpv4IsFreeTimes)).acquireLockAndCheckIfIpv4IsFree(Mockito.any(Network.class), Mockito.anyString());
+        verify(requestedNicIpReservationService, times(acquireLockAndCheckIfIpv4IsFreeTimes)).acquireLockAndCheckIfIpv4IsFree(Mockito.any(Network.class), Mockito.anyString());
         try {
             verify(testOrchestrator._networkModel, times(nextMacAddressTimes)).getNextAvailableMacAddressInNetwork(Mockito.anyLong());
         } catch (InsufficientAddressCapacityException e) {
@@ -464,7 +783,7 @@ public class NetworkOrchestratorTest extends TestCase {
         verify(testOrchestrator._ipAddressDao, Mockito.times(acquireLockTimes)).acquireInLockTable(Mockito.anyLong());
         verify(testOrchestrator._ipAddressDao, Mockito.times(releaseFromLockTimes)).releaseFromLockTable(Mockito.anyLong());
         verify(testOrchestrator._ipAddressDao, Mockito.times(updateTimes)).update(Mockito.anyLong(), Mockito.any(IPAddressVO.class));
-        verify(testOrchestrator, Mockito.times(validateTimes)).validateLockedRequestedIp(Mockito.any(IPAddressVO.class), Mockito.any(IPAddressVO.class));
+        verify(requestedNicIpReservationService, Mockito.times(validateTimes)).validateLockedRequestedIp(Mockito.any(IPAddressVO.class), Mockito.any(IPAddressVO.class));
     }
 
     @Test(expected = InvalidParameterValueException.class)
@@ -721,136 +1040,6 @@ public class NetworkOrchestratorTest extends TestCase {
     }
 
     @Test
-    public void testGetNetworkGatewayAndNetmaskForNicImportAdvancedZone() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        String ipAddress = "10.1.1.10";
-
-        String networkGateway = "10.1.1.1";
-        String networkNetmask = "255.255.255.0";
-        String networkCidr = "10.1.1.0/24";
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Advanced);
-        Mockito.when(network.getGateway()).thenReturn(networkGateway);
-        Mockito.when(network.getCidr()).thenReturn(networkCidr);
-        Pair<String, String> pair = testOrchestrator.getNetworkGatewayAndNetmaskForNicImport(network, dataCenter, ipAddress);
-        Assert.assertNotNull(pair);
-        Assert.assertEquals(networkGateway, pair.first());
-        Assert.assertEquals(networkNetmask, pair.second());
-    }
-
-    @Test
-    public void testGetNetworkGatewayAndNetmaskForNicImportBasicZone() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        IPAddressVO ipAddressVO = Mockito.mock(IPAddressVO.class);
-        String ipAddress = "172.1.1.10";
-
-        String defaultNetworkGateway = "172.1.1.1";
-        String defaultNetworkNetmask = "255.255.255.0";
-        VlanVO vlan = Mockito.mock(VlanVO.class);
-        Mockito.when(vlan.getVlanGateway()).thenReturn(defaultNetworkGateway);
-        Mockito.when(vlan.getVlanNetmask()).thenReturn(defaultNetworkNetmask);
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Basic);
-        Mockito.when(ipAddressVO.getVlanId()).thenReturn(1L);
-        Mockito.when(testOrchestrator._vlanDao.findById(1L)).thenReturn(vlan);
-        Mockito.when(testOrchestrator._ipAddressDao.findByIp(ipAddress)).thenReturn(ipAddressVO);
-        Pair<String, String> pair = testOrchestrator.getNetworkGatewayAndNetmaskForNicImport(network, dataCenter, ipAddress);
-        Assert.assertNotNull(pair);
-        Assert.assertEquals(defaultNetworkGateway, pair.first());
-        Assert.assertEquals(defaultNetworkNetmask, pair.second());
-    }
-
-    @Test
-    public void testGetGuestIpForNicImportL2Network() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.L2);
-        Assert.assertNull(testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses));
-    }
-
-    @Test
-    public void testGetGuestIpForNicImportAdvancedZone() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Isolated);
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Advanced);
-        String ipAddress = "10.1.10.10";
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(ipAddress);
-        Mockito.when(testOrchestrator._ipAddrMgr.acquireGuestIpAddress(network, ipAddress)).thenReturn(ipAddress);
-        String guestIp = testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses);
-        Assert.assertEquals(ipAddress, guestIp);
-    }
-
-    @Test
-    public void testGetGuestIpForNicImportBasicZoneAutomaticIP() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Shared);
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Basic);
-        long networkId = 1L;
-        long dataCenterId = 1L;
-        String freeIp = "172.10.10.10";
-        IPAddressVO ipAddressVO = Mockito.mock(IPAddressVO.class);
-        Ip ip = mock(Ip.class);
-        Mockito.when(ip.addr()).thenReturn(freeIp);
-        Mockito.when(ipAddressVO.getAddress()).thenReturn(ip);
-        Mockito.when(ipAddressVO.getState()).thenReturn(State.Free);
-        Mockito.when(network.getId()).thenReturn(networkId);
-        Mockito.when(dataCenter.getId()).thenReturn(dataCenterId);
-        Mockito.when(testOrchestrator._ipAddressDao.findBySourceNetworkIdAndDatacenterIdAndState(networkId, dataCenterId, State.Free)).thenReturn(ipAddressVO);
-        String ipAddress = testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses);
-        Assert.assertEquals(freeIp, ipAddress);
-    }
-
-    @Test
-    public void testGetGuestIpForNicImportBasicZoneManualIP() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Shared);
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Basic);
-        long networkId = 1L;
-        long dataCenterId = 1L;
-        String requestedIp = "172.10.10.10";
-        IPAddressVO ipAddressVO = Mockito.mock(IPAddressVO.class);
-        Ip ip = mock(Ip.class);
-        Mockito.when(ip.addr()).thenReturn(requestedIp);
-        Mockito.when(ipAddressVO.getAddress()).thenReturn(ip);
-        Mockito.when(ipAddressVO.getState()).thenReturn(State.Free);
-        Mockito.when(network.getId()).thenReturn(networkId);
-        Mockito.when(dataCenter.getId()).thenReturn(dataCenterId);
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(requestedIp);
-        Mockito.when(testOrchestrator._ipAddressDao.findByIpAndSourceNetworkId(networkId, requestedIp)).thenReturn(ipAddressVO);
-        String ipAddress = testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses);
-        Assert.assertEquals(requestedIp, ipAddress);
-    }
-
-    @Test(expected = CloudRuntimeException.class)
-    public void testGetGuestIpForNicImportBasicUsedIP() {
-        Network network = Mockito.mock(Network.class);
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Shared);
-        Mockito.when(dataCenter.getNetworkType()).thenReturn(DataCenter.NetworkType.Basic);
-        long networkId = 1L;
-        long dataCenterId = 1L;
-        String requestedIp = "172.10.10.10";
-        IPAddressVO ipAddressVO = Mockito.mock(IPAddressVO.class);
-        Ip ip = mock(Ip.class);
-        Mockito.when(ip.addr()).thenReturn(requestedIp);
-        Mockito.when(ipAddressVO.getAddress()).thenReturn(ip);
-        Mockito.when(ipAddressVO.getState()).thenReturn(State.Allocated);
-        Mockito.when(network.getId()).thenReturn(networkId);
-        Mockito.when(dataCenter.getId()).thenReturn(dataCenterId);
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(requestedIp);
-        Mockito.when(testOrchestrator._ipAddressDao.findByIp(requestedIp)).thenReturn(ipAddressVO);
-        testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses);
-    }
-
-    @Test
     public void testShutdownNetworkAcquireLockFailed() {
         ReservationContext reservationContext = Mockito.mock(ReservationContext.class);
         NetworkVO network = mock(NetworkVO.class);
@@ -897,117 +1086,44 @@ public class NetworkOrchestratorTest extends TestCase {
         verify(testOrchestrator._networksDao, times(1)).releaseFromLockTable(networkId);
     }
 
-    @Test(expected = InsufficientVirtualNetworkCapacityException.class)
-    public void testImportNicAcquireGuestIPFailed() throws Exception {
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        VirtualMachine vm = mock(VirtualMachine.class);
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Isolated);
-        Mockito.when(network.getNetworkOfferingId()).thenReturn(networkOfferingId);
-        long dataCenterId = 1L;
-        Mockito.when(network.getDataCenterId()).thenReturn(dataCenterId);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        String ipAddress = "10.1.10.10";
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(ipAddress);
-        Mockito.when(testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses)).thenReturn(null);
-        Mockito.when(testOrchestrator._networkModel.listNetworkOfferingServices(networkOfferingId)).thenReturn(Arrays.asList(Service.Dns, Service.Dhcp));
-        String macAddress = "02:01:01:82:00:01";
-        int deviceId = 0;
-        testOrchestrator.importNic(macAddress, deviceId, network, true, vm, ipAddresses, dataCenter, false);
-    }
+    @Test
+    public void testPrepareNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile vm = mock(VirtualMachineProfile.class);
+        DeployDestination dest = mock(DeployDestination.class);
 
-    @Test(expected = InsufficientVirtualNetworkCapacityException.class)
-    public void testImportNicAutoAcquireGuestIPFailed() throws Exception {
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        VirtualMachine vm = mock(VirtualMachine.class);
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getGuestType()).thenReturn(GuestType.Isolated);
-        Mockito.when(network.getNetworkOfferingId()).thenReturn(networkOfferingId);
-        long dataCenterId = 1L;
-        Mockito.when(network.getDataCenterId()).thenReturn(dataCenterId);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        String ipAddress = "auto";
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(ipAddress);
-        Mockito.when(testOrchestrator.getSelectedIpForNicImport(network, dataCenter, ipAddresses)).thenReturn(null);
-        Mockito.when(testOrchestrator._networkModel.listNetworkOfferingServices(networkOfferingId)).thenReturn(Arrays.asList(Service.Dns, Service.Dhcp));
-        String macAddress = "02:01:01:82:00:01";
-        int deviceId = 0;
-        testOrchestrator.importNic(macAddress, deviceId, network, true, vm, ipAddresses, dataCenter, false);
+        testOrchestrator.prepareNicForMigration(vm, dest);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).prepareNicForMigration(vm, dest);
     }
 
     @Test
-    public void testImportNicNoIP4Address() throws Exception {
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Long vmId = 1L;
-        Hypervisor.HypervisorType hypervisorType = Hypervisor.HypervisorType.KVM;
-        VirtualMachine vm = mock(VirtualMachine.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(vm.getHypervisorType()).thenReturn(hypervisorType);
-        Long networkId = 1L;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getId()).thenReturn(networkId);
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(null);
-        URI broadcastUri = URI.create("vlan://123");
-        NicVO nic = mock(NicVO.class);
-        Mockito.when(nic.getBroadcastUri()).thenReturn(broadcastUri);
-        String macAddress = "02:01:01:82:00:01";
-        int deviceId = 1;
-        Integer networkRate = 200;
-        Mockito.when(testOrchestrator._networkModel.getNetworkRate(networkId, vmId)).thenReturn(networkRate);
-        Mockito.when(testOrchestrator._networkModel.isSecurityGroupSupportedInNetwork(network)).thenReturn(false);
-        Mockito.when(testOrchestrator._networkModel.getNetworkTag(hypervisorType, network)).thenReturn("testtag");
-        try (MockedStatic<Transaction> transactionMocked = Mockito.mockStatic(Transaction.class)) {
-            transactionMocked.when(() -> Transaction.execute(any(TransactionCallback.class))).thenReturn(nic);
-            Pair<NicProfile, Integer> nicProfileIntegerPair = testOrchestrator.importNic(macAddress, deviceId, network, true, vm, ipAddresses, dataCenter, false);
-            verify(testOrchestrator._networkModel, times(1)).getNetworkRate(networkId, vmId);
-            verify(testOrchestrator._networkModel, times(1)).isSecurityGroupSupportedInNetwork(network);
-            verify(testOrchestrator._networkModel, times(1)).getNetworkTag(Hypervisor.HypervisorType.KVM, network);
-            assertEquals(deviceId, nicProfileIntegerPair.second().intValue());
-            NicProfile nicProfile = nicProfileIntegerPair.first();
-            assertEquals(broadcastUri, nicProfile.getBroadCastUri());
-            assertEquals(networkRate, nicProfile.getNetworkRate());
-            assertFalse(nicProfile.isSecurityGroupEnabled());
-            assertEquals("testtag", nicProfile.getName());
-        }
+    public void testPrepareAllNicsForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile vm = mock(VirtualMachineProfile.class);
+        DeployDestination dest = mock(DeployDestination.class);
+
+        testOrchestrator.prepareAllNicsForMigration(vm, dest);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).prepareAllNicsForMigration(vm, dest);
     }
 
     @Test
-    public void testImportNicWithIP4Address() throws Exception {
-        DataCenter dataCenter = Mockito.mock(DataCenter.class);
-        Long vmId = 1L;
-        Hypervisor.HypervisorType hypervisorType = Hypervisor.HypervisorType.KVM;
-        VirtualMachine vm = mock(VirtualMachine.class);
-        Mockito.when(vm.getId()).thenReturn(vmId);
-        Mockito.when(vm.getHypervisorType()).thenReturn(hypervisorType);
-        Long networkId = 1L;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getId()).thenReturn(networkId);
-        String ipAddress = "10.1.10.10";
-        Network.IpAddresses ipAddresses = Mockito.mock(Network.IpAddresses.class);
-        Mockito.when(ipAddresses.getIp4Address()).thenReturn(ipAddress);
-        URI broadcastUri = URI.create("vlan://123");
-        NicVO nic = mock(NicVO.class);
-        Mockito.when(nic.getBroadcastUri()).thenReturn(broadcastUri);
-        String macAddress = "02:01:01:82:00:01";
-        int deviceId = 1;
-        Integer networkRate = 200;
-        Mockito.when(testOrchestrator._networkModel.getNetworkRate(networkId, vmId)).thenReturn(networkRate);
-        Mockito.when(testOrchestrator._networkModel.isSecurityGroupSupportedInNetwork(network)).thenReturn(false);
-        Mockito.when(testOrchestrator._networkModel.getNetworkTag(hypervisorType, network)).thenReturn("testtag");
-        try (MockedStatic<Transaction> transactionMocked = Mockito.mockStatic(Transaction.class)) {
-            transactionMocked.when(() -> Transaction.execute(any(TransactionCallback.class))).thenReturn(nic);
-            Pair<NicProfile, Integer> nicProfileIntegerPair = testOrchestrator.importNic(macAddress, deviceId, network, true, vm, ipAddresses, dataCenter, false);
-            verify(testOrchestrator, times(1)).getSelectedIpForNicImport(network, dataCenter, ipAddresses);
-            verify(testOrchestrator._networkModel, times(1)).getNetworkRate(networkId, vmId);
-            verify(testOrchestrator._networkModel, times(1)).isSecurityGroupSupportedInNetwork(network);
-            verify(testOrchestrator._networkModel, times(1)).getNetworkTag(Hypervisor.HypervisorType.KVM, network);
-            assertEquals(deviceId, nicProfileIntegerPair.second().intValue());
-            NicProfile nicProfile = nicProfileIntegerPair.first();
-            assertEquals(broadcastUri, nicProfile.getBroadCastUri());
-            assertEquals(networkRate, nicProfile.getNetworkRate());
-            assertFalse(nicProfile.isSecurityGroupEnabled());
-            assertEquals("testtag", nicProfile.getName());
-        }
+    public void testCommitNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile src = mock(VirtualMachineProfile.class);
+        VirtualMachineProfile dst = mock(VirtualMachineProfile.class);
+
+        testOrchestrator.commitNicForMigration(src, dst);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).commitNicForMigration(src, dst);
     }
+
+    @Test
+    public void testRollbackNicForMigrationDelegatesToNicMigrationService() {
+        VirtualMachineProfile src = mock(VirtualMachineProfile.class);
+        VirtualMachineProfile dst = mock(VirtualMachineProfile.class);
+
+        testOrchestrator.rollbackNicForMigration(src, dst);
+
+        verify(testOrchestrator.nicMigrationService, times(1)).rollbackNicForMigration(src, dst);
+    }
+
 }

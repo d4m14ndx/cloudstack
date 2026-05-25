@@ -24,10 +24,10 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.Factory;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.Factory;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.cglib.proxy.MethodProxy;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

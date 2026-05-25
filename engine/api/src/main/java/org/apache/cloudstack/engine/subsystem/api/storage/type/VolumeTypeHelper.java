@@ -20,7 +20,7 @@ import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class VolumeTypeHelper {
 

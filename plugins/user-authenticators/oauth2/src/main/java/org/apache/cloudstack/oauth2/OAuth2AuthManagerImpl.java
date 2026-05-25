@@ -35,7 +35,7 @@ import org.apache.cloudstack.oauth2.dao.OauthProviderDao;
 import org.apache.cloudstack.oauth2.vo.OauthProviderVO;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;

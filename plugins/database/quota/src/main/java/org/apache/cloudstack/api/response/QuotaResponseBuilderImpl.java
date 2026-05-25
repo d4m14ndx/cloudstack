@@ -39,7 +39,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.domain.Domain;
 import com.cloud.domain.DomainVO;

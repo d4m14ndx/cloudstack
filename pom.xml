@@ -57,34 +57,34 @@
         <sonar.exclusions>api/src/main/java/org/apache/cloudstack/api/response/BackupOfferingResponse.java</sonar.exclusions>
 
         <!-- Build properties -->
-        <cs.jdk.version>11</cs.jdk.version>
+        <cs.jdk.version>21</cs.jdk.version>
         <cs.target.dir>target</cs.target.dir>
         <cs.replace.properties>build/replace.properties</cs.replace.properties>
         <argLine>-Djava.security.egd=file:/dev/./urandom -noverify --add-opens=java.base/java.lang=ALL-UNNAMED --add-exports=java.base/sun.security.x509=ALL-UNNAMED --add-exports=java.base/sun.security.provider=ALL-UNNAMED --add-opens=java.base/javax.net.ssl=ALL-UNNAMED</argLine>
 
         <!-- Plugins versions -->
-        <cs.antrun-plugin.version>1.8</cs.antrun-plugin.version>
-        <cs.builder-helper-plugin.version>3.0.0</cs.builder-helper-plugin.version>
+        <cs.antrun-plugin.version>3.1.0</cs.antrun-plugin.version>
+        <cs.builder-helper-plugin.version>3.6.0</cs.builder-helper-plugin.version>
         <cs.checkstyle-plugin.version>3.6.0</cs.checkstyle-plugin.version>
         <cs.jacoco-plugin.version>0.8.11</cs.jacoco-plugin.version>
-        <cs.compiler-plugin.version>3.8.1</cs.compiler-plugin.version>
+        <cs.compiler-plugin.version>3.13.0</cs.compiler-plugin.version>
         <cs.dependency-plugin.version>3.9.0</cs.dependency-plugin.version>
-        <cs.failsafe-plugin.version>2.22.2</cs.failsafe-plugin.version>
-        <cs.spotbugs.version>3.1.12</cs.spotbugs.version>
-        <cs.spotbugs-maven-plugin.version>3.1.12.2</cs.spotbugs-maven-plugin.version>
-        <cs.jar-plugin.version>3.2.0</cs.jar-plugin.version>
+        <cs.failsafe-plugin.version>3.5.2</cs.failsafe-plugin.version>
+        <cs.spotbugs.version>4.8.6</cs.spotbugs.version>
+        <cs.spotbugs-maven-plugin.version>4.8.6.4</cs.spotbugs-maven-plugin.version>
+        <cs.jar-plugin.version>3.4.2</cs.jar-plugin.version>
         <cs.pmd-plugin.version>3.28.0</cs.pmd-plugin.version>
         <cs.project-info-plugin.version>3.0.0</cs.project-info-plugin.version>
-        <cs.owasp.dependency-checker-plugin.version>7.4.4</cs.owasp.dependency-checker-plugin.version>
-        <cs.release-plugin.version>2.5.3</cs.release-plugin.version>
-        <cs.resources-plugin.version>3.1.0</cs.resources-plugin.version>
+        <cs.owasp.dependency-checker-plugin.version>11.1.1</cs.owasp.dependency-checker-plugin.version>
+        <cs.release-plugin.version>3.1.1</cs.release-plugin.version>
+        <cs.resources-plugin.version>3.3.1</cs.resources-plugin.version>
         <cs.site-plugin.version>3.21.0</cs.site-plugin.version>
-        <cs.surefire-plugin.version>2.22.2</cs.surefire-plugin.version>
+        <cs.surefire-plugin.version>3.5.2</cs.surefire-plugin.version>
         <cs.clover-maven-plugin.version>4.4.1</cs.clover-maven-plugin.version>
         <cs.exec-maven-plugin.version>3.2.0</cs.exec-maven-plugin.version>
 
         <!-- Logging versions -->
-        <cs.log4j.version>2.19.0</cs.log4j.version>
+        <cs.log4j.version>2.24.3</cs.log4j.version>
         <cs.reload4j.version>1.2.25</cs.reload4j.version>
         <cs.log4j.extras.version>1.2.17</cs.log4j.extras.version>
 
@@ -92,15 +92,15 @@
         <cs.codec.version>1.20.0</cs.codec.version>
         <cs.commons-cli.version>1.5.0</cs.commons-cli.version>
         <cs.commons-collections.version>4.4</cs.commons-collections.version>
-        <cs.commons-compress.version>1.26.0</cs.commons-compress.version>
+        <cs.commons-compress.version>1.27.1</cs.commons-compress.version>
         <cs.commons-exec.version>1.3</cs.commons-exec.version>
         <cs.commons-fileupload.version>1.4</cs.commons-fileupload.version>
         <cs.commons-httpclient.version>3.1</cs.commons-httpclient.version>
-        <cs.commons-io.version>2.8.0</cs.commons-io.version>
-        <cs.commons-lang3.version>3.11</cs.commons-lang3.version>
+        <cs.commons-io.version>2.18.0</cs.commons-io.version>
+        <cs.commons-lang3.version>3.17.0</cs.commons-lang3.version>
         <cs.commons-logging.version>1.2</cs.commons-logging.version>
-        <cs.commons-net.version>3.7.2</cs.commons-net.version>
-        <cs.commons-validator.version>1.6</cs.commons-validator.version>
+        <cs.commons-net.version>3.11.1</cs.commons-net.version>
+        <cs.commons-validator.version>1.9.0</cs.commons-validator.version>
         <cs.configuration.version>1.10</cs.configuration.version>
         <cs.daemon.version>1.3.3</cs.daemon.version>
         <cs.dbcp.version>2.9.0</cs.dbcp.version>
@@ -113,62 +113,61 @@
         <!-- Testing versions -->
         <!-- do not forget to also upgrade hamcrest library with junit -->
         <cs.dbunit.version>2.5.4</cs.dbunit.version>
-        <cs.hamcrest.version>1.3</cs.hamcrest.version>
+        <cs.hamcrest.version>2.2</cs.hamcrest.version>
         <cs.junit.version>4.13.2</cs.junit.version>
         <cs.junit.dataprovider.version>1.13.1</cs.junit.dataprovider.version>
-        <cs.junit.jupiter.version>5.9.1</cs.junit.jupiter.version>
-        <cs.guava-testlib.version>18.0</cs.guava-testlib.version>
+        <cs.junit.jupiter.version>5.11.4</cs.junit.jupiter.version>
+        <cs.guava-testlib.version>33.4.0-jre</cs.guava-testlib.version>
         <cs.mockito.version>5.16.1</cs.mockito.version>
         <cs.testng.version>7.1.0</cs.testng.version>
-        <cs.wiremock.version>2.27.2</cs.wiremock.version>
+        <cs.wiremock.version>3.10.0</cs.wiremock.version>
         <cs.xercesImpl.version>2.12.2</cs.xercesImpl.version>
-        <cs.assertj.version>3.23.1</cs.assertj.version>
+        <cs.assertj.version>3.27.0</cs.assertj.version>
 
         <!-- Dependencies versions -->
-        <cs.amqp-client.version>5.17.0</cs.amqp-client.version>
+        <cs.amqp-client.version>5.22.0</cs.amqp-client.version>
         <cs.apache-cloudstack-java-client.version>1.0.9</cs.apache-cloudstack-java-client.version>
         <cs.aspectjrt.version>1.9.19</cs.aspectjrt.version>
         <cs.aws.sdk.version>1.12.795</cs.aws.sdk.version>
         <cs.axiom.version>1.2.8</cs.axiom.version>
         <cs.axis2.version>1.6.4</cs.axis2.version>
         <cs.batik.version>1.14</cs.batik.version>
-        <cs.bcprov.version>1.70</cs.bcprov.version>
+        <cs.bcprov.version>1.79</cs.bcprov.version>
         <cs.cglib.version>3.3.0</cs.cglib.version>
         <cs.checkstyle-lib.version>8.18</cs.checkstyle-lib.version>
         <cs.cron-utils.version>9.2.0</cs.cron-utils.version>
-        <cs.cxf.version>3.2.14</cs.cxf.version>
+        <cs.cxf.version>4.0.5</cs.cxf.version>
         <cs.ehcache.version>2.6.11</cs.ehcache.version>
-        <cs.globodns-client.version>0.0.27</cs.globodns-client.version>
-        <cs.gmavenplus.version>3.0.2</cs.gmavenplus.version>
+        <cs.gmavenplus.version>4.0.1</cs.gmavenplus.version>
         <cs.google-http-client>1.42.3</cs.google-http-client>
-        <cs.groovy.version>2.4.17</cs.groovy.version>
-        <cs.gson.version>2.10.1</cs.gson.version>
-        <cs.guava.version>31.1-jre</cs.guava.version>
+        <cs.groovy.version>4.0.24</cs.groovy.version>
+        <cs.gson.version>2.11.0</cs.gson.version>
+        <cs.guava.version>33.4.0-jre</cs.guava.version>
         <cs.httpclient.version>4.5.14</cs.httpclient.version>
         <cs.httpcore.version>4.4.16</cs.httpcore.version>
         <cs.influxdb-java.version>2.25</cs.influxdb-java.version>
-        <cs.jackson.version>2.13.3</cs.jackson.version>
+        <cs.jackson.version>2.18.2</cs.jackson.version>
         <cs.jasypt.version>1.9.3</cs.jasypt.version>
         <cs.java-ipv6.version>0.17</cs.java-ipv6.version>
         <cs.javassist.version>3.27.0-GA</cs.javassist.version>
         <cs.maven-javadoc-plugin.version>3.1.1</cs.maven-javadoc-plugin.version>
-        <cs.javax.annotation.version>1.3.2</cs.javax.annotation.version>
-        <cs.jaxb.version>2.3.0</cs.jaxb.version>
-        <cs.jaxb.impl.version>2.3.9</cs.jaxb.impl.version>
-        <cs.jakarta.xml.bind.version>2.3.3</cs.jakarta.xml.bind.version>
+        <cs.javax.annotation.version>2.1.1</cs.javax.annotation.version>
+        <cs.jaxb.version>4.0.0</cs.jaxb.version>
+        <cs.jaxb.impl.version>4.0.5</cs.jaxb.impl.version>
+        <cs.jakarta.xml.bind.version>4.0.0</cs.jakarta.xml.bind.version>
         <cs.jaxws.version>2.3.7</cs.jaxws.version>
         <cs.jersey-client.version>2.26</cs.jersey-client.version>
-        <cs.jetty.version>9.4.58.v20250814</cs.jetty.version>
-        <cs.jetty-maven-plugin.version>9.4.27.v20200227</cs.jetty-maven-plugin.version>
-        <cs.jna.version>5.5.0</cs.jna.version>
+        <cs.jetty.version>11.0.24</cs.jetty.version>
+        <cs.jetty-maven-plugin.version>11.0.24</cs.jetty-maven-plugin.version>
+        <cs.jna.version>5.16.0</cs.jna.version>
         <cs.joda-time.version>2.12.5</cs.joda-time.version>
-        <cs.jpa.version>2.2.1</cs.jpa.version>
-        <cs.jsch.version>0.1.55</cs.jsch.version>
-        <cs.json.version>20231013</cs.json.version>
+        <cs.jpa.version>3.1.0</cs.jpa.version>
+        <cs.jsch.version>0.2.21</cs.jsch.version>
+        <cs.json.version>20240303</cs.json.version>
         <cs.jstl.version>1.2</cs.jstl.version>
-        <cs.kafka-clients.version>2.7.0</cs.kafka-clients.version>
+        <cs.kafka-clients.version>3.8.1</cs.kafka-clients.version>
         <cs.libvirt-java.version>0.5.3</cs.libvirt-java.version>
-        <cs.mail.version>1.5.0-b01</cs.mail.version>
+        <cs.mail.version>2.1.3</cs.mail.version>
         <cs.mustache.version>0.9.14</cs.mustache.version>
         <cs.mysql.version>8.0.33</cs.mysql.version>
         <cs.neethi.version>2.0.4</cs.neethi.version>
@@ -178,19 +177,21 @@
         <cs.java-linstor.version>0.6.1</cs.java-linstor.version>
         <cs.reflections.version>0.10.2</cs.reflections.version>
         <cs.servicemix.version>3.4.4_1</cs.servicemix.version>
-        <cs.servlet.version>4.0.1</cs.servlet.version>
+        <cs.servlet.version>6.0.0</cs.servlet.version>
         <cs.tink.version>1.7.0</cs.tink.version>
-        <cs.tomcat-embed-core.version>10.0.22</cs.tomcat-embed-core.version>
+        <cs.tomcat-embed-core.version>10.0.27</cs.tomcat-embed-core.version>
         <cs.trilead.version>build-217-jenkins-27</cs.trilead.version>
         <cs.vmware.api.version>8.0</cs.vmware.api.version>
         <cs.winrm4j.version>0.5.0</cs.winrm4j.version>
         <cs.xapi.version>8.1.0</cs.xapi.version>
         <cs.xmlrpc.version>3.1.3</cs.xmlrpc.version>
-        <cs.xstream.version>1.4.20</cs.xstream.version>
-        <org.springframework.version>5.3.26</org.springframework.version>
+        <cs.xstream.version>1.4.21</cs.xstream.version>
+        <org.springframework.version>6.1.14</org.springframework.version>
         <cs.ini.version>0.5.4</cs.ini.version>
-        <cs.caffeine.version>3.1.7</cs.caffeine.version>
-        <cs.protobuf.version>3.25.5</cs.protobuf.version>
+        <cs.caffeine.version>3.1.8</cs.caffeine.version>
+        <cs.protobuf.version>3.25.6</cs.protobuf.version>
+        <cs.micrometer.version>1.13.6</cs.micrometer.version>
+        <cs.opentelemetry.version>1.43.0</cs.opentelemetry.version>
     </properties>
 
     <distributionManagement>
@@ -275,7 +276,6 @@
         <module>framework</module>
         <module>client</module>
         <module>services</module>
-        <module>quickcloud</module>
     </modules>
 
     <dependencyManagement>
@@ -313,11 +313,6 @@
                 <type>bundle</type>
             </dependency>
             <dependency>
-                <groupId>com.globo.globodns</groupId>
-                <artifactId>globodns-client</artifactId>
-                <version>${cs.globodns-client.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>com.google.code.gson</groupId>
                 <artifactId>gson</artifactId>
                 <version>${cs.gson.version}</version>
@@ -338,7 +333,7 @@
                 <version>${cs.java-ipv6.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.jcraft</groupId>
+                <groupId>com.github.mwiede</groupId>
                 <artifactId>jsch</artifactId>
                 <version>${cs.jsch.version}</version>
             </dependency>
@@ -430,18 +425,18 @@
                 <version>${cs.commons-validator.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.annotation</groupId>
-                <artifactId>javax.annotation-api</artifactId>
+                <groupId>jakarta.annotation</groupId>
+                <artifactId>jakarta.annotation-api</artifactId>
                 <version>${cs.javax.annotation.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.mail</groupId>
-                <artifactId>mail</artifactId>
+                <groupId>jakarta.mail</groupId>
+                <artifactId>jakarta.mail-api</artifactId>
                 <version>${cs.mail.version}</version>
             </dependency>
             <dependency>
-                <groupId>javax.servlet</groupId>
-                <artifactId>javax.servlet-api</artifactId>
+                <groupId>jakarta.servlet</groupId>
+                <artifactId>jakarta.servlet-api</artifactId>
                 <version>${cs.servlet.version}</version>
             </dependency>
             <dependency>
@@ -462,6 +457,13 @@
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
+                <version>${cs.log4j.version}</version>
+            </dependency>
+            <dependency>
+                <!-- Provides JsonTemplateLayout for structured JSON logging.
+                     Activated when CLOUDSTACK_LOG_FORMAT=json. -->
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-layout-template-json</artifactId>
                 <version>${cs.log4j.version}</version>
             </dependency>
             <dependency>
@@ -574,31 +576,31 @@
             <dependency>
                 <groupId>org.aspectj</groupId>
                 <artifactId>aspectjtools</artifactId>
-                <version>1.8.13</version>
+                <version>${cs.aspectjrt.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.aspectj</groupId>
                 <artifactId>aspectjweaver</artifactId>
-                <version>1.8.13</version>
+                <version>${cs.aspectjrt.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcpkix-jdk15on</artifactId>
+                <artifactId>bcpkix-jdk18on</artifactId>
                 <version>${cs.bcprov.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
+                <artifactId>bcprov-jdk18on</artifactId>
                 <version>${cs.bcprov.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bctls-jdk15on</artifactId>
+                <artifactId>bctls-jdk18on</artifactId>
                 <version>${cs.bcprov.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-all</artifactId>
+                <groupId>org.apache.groovy</groupId>
+                <artifactId>groovy</artifactId>
                 <version>${cs.groovy.version}</version>
             </dependency>
             <dependency>
@@ -632,8 +634,8 @@
                 <version>${cs.jetty.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.eclipse.persistence</groupId>
-                <artifactId>javax.persistence</artifactId>
+                <groupId>jakarta.persistence</groupId>
+                <artifactId>jakarta.persistence-api</artifactId>
                 <version>${cs.jpa.version}</version>
             </dependency>
             <dependency>
@@ -673,11 +675,19 @@
             <dependency>
                 <groupId>org.owasp.esapi</groupId>
                 <artifactId>esapi</artifactId>
-                <version>2.1.0.1</version>
+                <version>2.5.5.0</version>
                 <exclusions>
                     <exclusion>
                         <groupId>log4j</groupId>
                         <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>xalan</groupId>
+                        <artifactId>xalan</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>xom</groupId>
+                        <artifactId>xom</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -743,6 +753,23 @@
                 <artifactId>java-linstor</artifactId>
                 <version>${cs.java-linstor.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-core</artifactId>
+                <version>${cs.micrometer.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-registry-prometheus</artifactId>
+                <version>${cs.micrometer.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${cs.opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -750,7 +777,7 @@
         <!-- hamcrest should always be the first -->
         <dependency>
             <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest-all</artifactId>
+            <artifactId>hamcrest</artifactId>
             <version>${cs.hamcrest.version}</version>
             <scope>test</scope>
         </dependency>
@@ -791,9 +818,9 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>javax.inject</groupId>
-            <artifactId>javax.inject</artifactId>
-            <version>1</version>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+            <version>2.0.1</version>
         </dependency>
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
@@ -844,6 +871,18 @@
                         <phase>none</phase>
                         <goals>
                             <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>mockito-agent-property</id>
+                        <goals>
+                            <goal>properties</goal>
                         </goals>
                     </execution>
                 </executions>
@@ -1074,8 +1113,6 @@
                             <exclude>tools/logo/apache_cloudstack.png</exclude>
                             <exclude>tools/marvin/Marvin.egg-info/*</exclude>
                             <exclude>tools/marvin/marvin/sandbox/advanced/sandbox.cfg</exclude>
-                            <exclude>tools/ngui/static/bootstrap/*</exclude>
-                            <exclude>tools/ngui/static/js/lib/*</exclude>
                             <exclude>tools/transifex/.tx/config</exclude>
                             <exclude>ui/.*</exclude>
                             <exclude>ui/.*/**</exclude>
@@ -1099,17 +1136,10 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${cs.compiler-plugin.version}</version>
                     <configuration>
-                        <source>${cs.jdk.version}</source>
-                        <target>${cs.jdk.version}</target>
+                        <release>${cs.jdk.version}</release>
                         <fork>true</fork>
                         <meminitial>128m</meminitial>
                         <maxmem>512m</maxmem>
-                        <compilerArgs>
-                            <arg>-XDignore.symbol.file=true</arg>
-                            <arg>--add-opens=java.base/java.lang=ALL-UNNAMED</arg>
-                            <arg>--add-exports=java.base/sun.security.x509=ALL-UNNAMED</arg>
-                            <arg>--add-exports=java.base/sun.security.provider=ALL-UNNAMED</arg>
-                        </compilerArgs>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -1206,6 +1236,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${cs.surefire-plugin.version}</version>
                     <configuration>
+                        <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                         <useSystemClassLoader>false</useSystemClassLoader>
                     </configuration>
                 </plugin>
@@ -1213,6 +1244,9 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${cs.failsafe-plugin.version}</version>
+                    <configuration>
+                        <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

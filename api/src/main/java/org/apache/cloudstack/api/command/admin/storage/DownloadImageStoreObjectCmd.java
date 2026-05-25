@@ -26,7 +26,7 @@ import org.apache.cloudstack.api.response.ImageStoreResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.storage.browser.StorageBrowser;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.nio.file.Path;
 
 @APICommand(name = "downloadImageStoreObject", description = "Download object at a specified path on an image store.",

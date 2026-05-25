@@ -32,7 +32,7 @@ import java.util.Timer;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.gpu.dao.VgpuProfileDao;

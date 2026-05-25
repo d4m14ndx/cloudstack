@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 

@@ -22,7 +22,7 @@ package org.apache.cloudstack.network.opendaylight.api.commands;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;

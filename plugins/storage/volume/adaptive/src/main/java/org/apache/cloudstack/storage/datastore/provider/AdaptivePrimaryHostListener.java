@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.storage.datastore.provider;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.host.Host;
 import com.cloud.host.HostVO;

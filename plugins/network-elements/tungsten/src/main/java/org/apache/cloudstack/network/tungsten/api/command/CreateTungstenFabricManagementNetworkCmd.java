@@ -34,7 +34,7 @@ import org.apache.cloudstack.api.response.PodResponse;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = CreateTungstenFabricManagementNetworkCmd.APINAME, description = "Create Tungsten-Fabric management network",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo =

@@ -83,7 +83,6 @@ COPY services /root/services
 COPY setup /root/setup
 COPY systemvm /root/systemvm
 COPY target /root/target
-COPY test/bindirbak /root/test/bindirbak
 COPY test/conf /root/test/conf
 COPY test/metadata /root/test/metadata
 COPY test/pom.xml /root/test/pom.xml

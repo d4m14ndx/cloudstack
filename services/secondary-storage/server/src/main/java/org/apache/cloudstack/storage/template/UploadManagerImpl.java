@@ -438,12 +438,8 @@ public class UploadManagerImpl extends ManagerBase implements UploadManager {
             Class<StorageLayer> clazz;
             try {
                 clazz = (Class<StorageLayer>)Class.forName(value);
-                _storage = clazz.newInstance();
-            } catch (ClassNotFoundException e) {
-                throw new ConfigurationException("Unable to instantiate " + value);
-            } catch (InstantiationException e) {
-                throw new ConfigurationException("Unable to instantiate " + value);
-            } catch (IllegalAccessException e) {
+                _storage = clazz.getDeclaredConstructor().newInstance();
+            } catch (ReflectiveOperationException e) {
                 throw new ConfigurationException("Unable to instantiate " + value);
             }
         }

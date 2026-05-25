@@ -18,14 +18,14 @@ package com.cloud.network.dao;
 
 import java.util.UUID;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PhysicalNetworkTrafficType;
@@ -63,6 +63,7 @@ public class PhysicalNetworkTrafficTypeVO implements PhysicalNetworkTrafficType 
     @Column(name = "hyperv_network_label")
     private String hypervNetworkLabel;
 
+    /** @deprecated OVM3 hypervisor plugin has been removed. Column retained for DB compatibility. */
     @Column(name = "ovm_network_label")
     private String ovm3NetworkLabel;
 
@@ -164,12 +165,4 @@ public class PhysicalNetworkTrafficTypeVO implements PhysicalNetworkTrafficType 
         return hypervNetworkLabel;
     }
 
-    public void setOvm3NetworkLabel(String ovm3NetworkLabel) {
-        this.ovm3NetworkLabel = ovm3NetworkLabel;
-    }
-
-    @Override
-    public String getOvm3NetworkLabel() {
-        return ovm3NetworkLabel;
-    }
 }

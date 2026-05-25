@@ -40,7 +40,7 @@ import org.apache.cloudstack.network.tungsten.service.TungstenService;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = ListTungstenFabricNicCmd.APINAME, description = "List Tungsten-Fabric nic", responseObject =
     TungstenFabricNicResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

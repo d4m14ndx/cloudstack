@@ -27,7 +27,7 @@ import org.apache.cloudstack.api.response.QuotaConfigureEmailResponse;
 import org.apache.cloudstack.api.response.QuotaResponseBuilder;
 import org.apache.cloudstack.quota.vo.QuotaEmailConfigurationVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaConfigureEmail", responseObject = QuotaConfigureEmailResponse.class, description = "Configure a quota email template", since = "4.20.0.0",
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

@@ -46,7 +46,7 @@ import org.apache.cloudstack.api.command.user.template.RegisterTemplateCmd;
 import org.apache.cloudstack.storage.command.TemplateOrVolumePostUploadCommand;
 import org.apache.cloudstack.storage.datastore.db.TemplateDataStoreVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Date;
 import java.util.List;
 

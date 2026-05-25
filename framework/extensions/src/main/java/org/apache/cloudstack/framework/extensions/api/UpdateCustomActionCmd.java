@@ -20,7 +20,7 @@ package org.apache.cloudstack.framework.extensions.api;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiCommandResourceType;

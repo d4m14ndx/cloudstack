@@ -32,7 +32,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.storage.SnapshotVO;
@@ -54,6 +54,14 @@ import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.cloudstack.framework.jobs.AsyncJob;
+
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+
 import org.apache.cloudstack.framework.jobs.AsyncJobDispatcher;
 import org.apache.cloudstack.framework.jobs.AsyncJobExecutionContext;
 import org.apache.cloudstack.framework.jobs.AsyncJobManager;
@@ -599,6 +607,37 @@ public class AsyncJobManagerImpl extends ManagerBase implements AsyncJobManager,
         throw new CloudRuntimeException("Unable to find dispatcher name: " + dispatcherName);
     }
 
+    private static final String JOB_TRACER_NAME = "org.apache.cloudstack.jobs";
+
+    /**
+     * Wraps async job execution in an OpenTelemetry SERVER span so individual
+     * jobs show up in trace stores. The span has no parent link to the
+     * originating API request (trace context isn't currently persisted with the
+     * job row) — each job execution is its own trace root for now.
+     *
+     * <p>If OpenTelemetry isn't initialized in this JVM,
+     * {@link GlobalOpenTelemetry#get()} returns the no-op instance and this
+     * helper degenerates to a plain {@code dispatcher.runJob(job)} call.
+     */
+    private void executeWithSpan(AsyncJob job, AsyncJobDispatcher jobDispatcher) {
+        Tracer tracer = GlobalOpenTelemetry.get().getTracer(JOB_TRACER_NAME);
+        Span span = tracer.spanBuilder("asyncjob " + job.getCmd())
+                .setSpanKind(SpanKind.INTERNAL)
+                .setAttribute("cloudstack.job.id", job.getId())
+                .setAttribute("cloudstack.job.cmd", job.getCmd() == null ? "" : job.getCmd())
+                .setAttribute("cloudstack.job.dispatcher", job.getDispatcher() == null ? "" : job.getDispatcher())
+                .startSpan();
+        try (Scope ignored = span.makeCurrent()) {
+            jobDispatcher.runJob(job);
+        } catch (Throwable t) {
+            span.recordException(t);
+            span.setStatus(StatusCode.ERROR, t.getClass().getSimpleName());
+            throw t;
+        } finally {
+            span.end();
+        }
+    }
+
     private AsyncJobDispatcher findWakeupDispatcher(AsyncJob job) {
         if (_jobDispatchers != null) {
             List<AsyncJobJoinMapVO> joinRecords = _joinMapDao.listJoinRecords(job.getId());
@@ -695,7 +734,7 @@ public class AsyncJobManagerImpl extends ManagerBase implements AsyncJobManager,
                     } else {
                         AsyncJobDispatcher jobDispatcher = getDispatcher(job.getDispatcher());
                         if (jobDispatcher != null) {
-                            jobDispatcher.runJob(job);
+                            executeWithSpan(job, jobDispatcher);
                         } else {
                             logger.error("Unable to find job dispatcher, job will be cancelled");
                             completeAsyncJob(job.getId(), JobInfo.Status.FAILED, ApiErrorCode.INTERNAL_ERROR.getHttpCode(), null);

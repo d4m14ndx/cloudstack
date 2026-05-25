@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.SecurityChecker;
 import org.apache.cloudstack.acl.SecurityChecker.AccessType;

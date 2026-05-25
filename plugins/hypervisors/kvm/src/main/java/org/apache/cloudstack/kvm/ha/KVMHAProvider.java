@@ -36,7 +36,7 @@ import org.apache.cloudstack.outofbandmanagement.OutOfBandManagement.PowerOperat
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementService;
 import org.joda.time.DateTime;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public final class KVMHAProvider extends HAAbstractHostProvider implements HAProvider<Host>, Configurable {
 

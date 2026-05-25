@@ -18,7 +18,7 @@
  */
 package org.apache.cloudstack.messagebus;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import junit.framework.TestCase;
 

@@ -14,9 +14,9 @@
  */
 package org.apache.cloudstack.utils.mailing;
 
-import com.sun.mail.smtp.SMTPMessage;
-import com.sun.mail.smtp.SMTPSSLTransport;
-import com.sun.mail.smtp.SMTPTransport;
+import org.eclipse.angus.mail.smtp.SMTPMessage;
+import org.eclipse.angus.mail.smtp.SMTPSSLTransport;
+import org.eclipse.angus.mail.smtp.SMTPTransport;
 
 import java.io.UnsupportedEncodingException;
 
@@ -24,13 +24,13 @@ import java.util.Date;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.MessagingException;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.URLName;
-import javax.mail.internet.InternetAddress;
+import jakarta.mail.Authenticator;
+import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
+import jakarta.mail.PasswordAuthentication;
+import jakarta.mail.Session;
+import jakarta.mail.URLName;
+import jakarta.mail.internet.InternetAddress;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.ArrayUtils;

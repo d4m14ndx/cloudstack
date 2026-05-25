@@ -52,7 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = ConfigTungstenFabricServiceCmd.APINAME, description = "Config Tungsten-Fabric service",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

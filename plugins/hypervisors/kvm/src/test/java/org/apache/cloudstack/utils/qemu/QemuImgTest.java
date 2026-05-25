@@ -39,6 +39,7 @@ import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.InOrder;
 import org.libvirt.Connect;
 import org.libvirt.LibvirtException;
 import org.mockito.Mockito;
@@ -48,21 +49,27 @@ import com.cloud.utils.script.Script;
 
 @RunWith(MockitoJUnitRunner.class)
 public class QemuImgTest {
+    private static boolean qemuImgAvailable;
+    private static boolean libVirtAvailable;
 
     @BeforeClass
     public static void setUp() {
-        Assume.assumeTrue("qemu-img not found", Script.runSimpleBashScript("command -v qemu-img") != null);
-        boolean libVirtAvailable = false;
+        qemuImgAvailable = Script.runSimpleBashScript("command -v qemu-img") != null;
         try {
             Connect conn = new Connect("qemu:///system", false);
             conn.getVersion();
             libVirtAvailable = true;
         } catch (LibvirtException | UnsatisfiedLinkError | ExceptionInInitializerError ignored) {}
+    }
+
+    private static void assumeQemuImgAndLibvirtAvailable() {
+        Assume.assumeTrue("qemu-img not found", qemuImgAvailable);
         Assume.assumeTrue("libvirt not available", libVirtAvailable);
     }
 
     @Test
     public void testCreateAndInfo() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         /* 10TB virtual_size */
@@ -90,6 +97,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateAndInfoWithOptions() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         /* 10TB virtual_size */
@@ -120,6 +128,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateWithSecretObject() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         Path testFile = Paths.get("/tmp/", UUID.randomUUID().toString()).normalize().toAbsolutePath();
         long size = 1<<30; // 1 Gi
 
@@ -147,6 +156,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateSparseVolume() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long size = 10 * 1024 * 1024L;
@@ -171,6 +181,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateAndResize() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long startSize = 20480;
@@ -200,6 +211,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateAndResizeDeltaPositive() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long startSize = 20480;
@@ -231,6 +243,7 @@ public class QemuImgTest {
     @Ignore
     @Test
     public void testCreateAndResizeDeltaNegative() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long startSize = 81920;
@@ -259,6 +272,7 @@ public class QemuImgTest {
 
     @Test(expected = QemuImgException.class)
     public void testCreateAndResizeFail() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long startSize = 20480;
@@ -279,6 +293,7 @@ public class QemuImgTest {
 
     @Test(expected = QemuImgException.class)
     public void testCreateAndResizeZero() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         long startSize = 20480;
@@ -295,6 +310,7 @@ public class QemuImgTest {
 
     @Test
     public void testCreateWithBackingFile() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String firstFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
         String secondFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
@@ -318,6 +334,7 @@ public class QemuImgTest {
 
     @Test
     public void testConvertBasic() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         long srcSize = 20480;
         String srcFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
         String destFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
@@ -343,6 +360,7 @@ public class QemuImgTest {
 
     @Test
     public void testConvertAdvanced() throws QemuImgException, LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         long srcSize = 4019200;
         String srcFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
         String destFileName = "/tmp/" + UUID.randomUUID() + ".qcow2";
@@ -392,6 +410,7 @@ public class QemuImgTest {
 
     @Test
     public void testCheckAndRepair() throws LibvirtException {
+        assumeQemuImgAndLibvirtAvailable();
         String filename = "/tmp/" + UUID.randomUUID() + ".qcow2";
 
         QemuImgFile file = new QemuImgFile(filename);
@@ -408,13 +427,83 @@ public class QemuImgTest {
     }
 
     @Test
+    public void bitmapAddBuildsAddCommand() throws LibvirtException, QemuImgException {
+        CapturingQemuImg qemu = new CapturingQemuImg();
+        QemuImgFile file = new QemuImgFile("/var/lib/cloudstack/primary/vol.qcow2", PhysicalDiskFormat.QCOW2);
+
+        qemu.bitmap(QemuImg.BitmapOperation.Add, file, "cs_bitmap");
+
+        InOrder inOrder = Mockito.inOrder(qemu.script);
+        inOrder.verify(qemu.script).add("bitmap");
+        inOrder.verify(qemu.script).add("--add");
+        inOrder.verify(qemu.script).add(file.getFileName());
+        inOrder.verify(qemu.script).add("cs_bitmap");
+        inOrder.verify(qemu.script).execute();
+    }
+
+    @Test
+    public void bitmapRemoveBuildsRemoveCommand() throws LibvirtException, QemuImgException {
+        CapturingQemuImg qemu = new CapturingQemuImg();
+        QemuImgFile file = new QemuImgFile("/var/lib/cloudstack/primary/vol.qcow2", PhysicalDiskFormat.QCOW2);
+
+        qemu.bitmap(QemuImg.BitmapOperation.Remove, file, "cs_bitmap");
+
+        InOrder inOrder = Mockito.inOrder(qemu.script);
+        inOrder.verify(qemu.script).add("bitmap");
+        inOrder.verify(qemu.script).add("--remove");
+        inOrder.verify(qemu.script).add(file.getFileName());
+        inOrder.verify(qemu.script).add("cs_bitmap");
+        inOrder.verify(qemu.script).execute();
+    }
+
+    @Test
+    public void bitmapWithImageOptionsAndSecretsBuildsEncryptedCommand() throws LibvirtException, QemuImgException {
+        CapturingQemuImg qemu = new CapturingQemuImg();
+        Map<QemuObject.ObjectParameter, String> objectParams = new HashMap<>();
+        objectParams.put(QemuObject.ObjectParameter.ID, "sec0");
+        objectParams.put(QemuObject.ObjectParameter.FILE, "/run/cloudstack/keys/vol.key");
+        QemuObject secretObject = new QemuObject(QemuObject.ObjectType.SECRET, objectParams);
+        QemuImageOptions imageOptions = new QemuImageOptions(PhysicalDiskFormat.QCOW2,
+                "/var/lib/cloudstack/primary/encrypted.qcow2", "sec0");
+
+        qemu.bitmap(QemuImg.BitmapOperation.Add, imageOptions, Collections.singletonList(secretObject), "cs_bitmap");
+
+        InOrder inOrder = Mockito.inOrder(qemu.script);
+        inOrder.verify(qemu.script).add("bitmap");
+        inOrder.verify(qemu.script).add("--add");
+        inOrder.verify(qemu.script).add(secretObject.toCommandFlag());
+        inOrder.verify(qemu.script).add(imageOptions.toCommandFlag());
+        inOrder.verify(qemu.script).add("cs_bitmap");
+        inOrder.verify(qemu.script).execute();
+    }
+
+    private static class CapturingQemuImg extends QemuImg {
+        private final Script script = Mockito.mock(Script.class);
+
+        private CapturingQemuImg() {
+            super();
+        }
+
+        @Override
+        protected Script newScript() {
+            return script;
+        }
+    }
+
+    private static class UnitQemuImg extends QemuImg {
+        private UnitQemuImg() {
+            super();
+        }
+    }
+
+    @Test
     public void addScriptOptionsFromMapAddsValidOptions() throws LibvirtException, QemuImgException {
         Script script = Mockito.mock(Script.class);
         Map<String, String> options = new HashMap<>();
         options.put("key1", "value1");
         options.put("key2", "value2");
 
-        QemuImg qemu = new QemuImg(0);
+        QemuImg qemu = new UnitQemuImg();
         qemu.addScriptOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.times(1)).add("-o");
@@ -426,7 +515,7 @@ public class QemuImgTest {
         Script script = Mockito.mock(Script.class);
         Map<String, String> options = new HashMap<>();
 
-        QemuImg qemu = new QemuImg(0);
+        QemuImg qemu = new UnitQemuImg();
         qemu.addScriptOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.never()).add(Mockito.anyString());
@@ -436,7 +525,7 @@ public class QemuImgTest {
     public void addScriptOptionsFromMapHandlesNullOptions() throws LibvirtException, QemuImgException {
         Script script = Mockito.mock(Script.class);
 
-        QemuImg qemu = new QemuImg(0);
+        QemuImg qemu = new UnitQemuImg();
         qemu.addScriptOptionsFromMap(null, script);
 
         Mockito.verify(script, Mockito.never()).add(Mockito.anyString());
@@ -448,7 +537,7 @@ public class QemuImgTest {
         Map<String, String> options = new HashMap<>();
         options.put("key1", "value1");
 
-        QemuImg qemu = new QemuImg(0);
+        QemuImg qemu = new UnitQemuImg();
         qemu.addScriptOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.times(1)).add("-o");
@@ -457,7 +546,7 @@ public class QemuImgTest {
 
     @Test
     public void getResizeOptionsFromConvertOptionsReturnsNullForEmptyOptions() throws LibvirtException, QemuImgException {
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         Map<String, String> options = new HashMap<>();
 
         Map<String, String> result = qemuImg.getResizeOptionsFromConvertOptions(options);
@@ -467,7 +556,7 @@ public class QemuImgTest {
 
     @Test
     public void getResizeOptionsFromConvertOptionsReturnsNullForNullOptions() throws LibvirtException, QemuImgException {
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
 
         Map<String, String> result = qemuImg.getResizeOptionsFromConvertOptions(null);
 
@@ -476,7 +565,7 @@ public class QemuImgTest {
 
     @Test
     public void getResizeOptionsFromConvertOptionsReturnsPreallocationOption() throws LibvirtException, QemuImgException {
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         Map<String, String> options = new HashMap<>();
         options.put(QemuImg.PREALLOCATION, "metadata");
 
@@ -489,7 +578,7 @@ public class QemuImgTest {
 
     @Test
     public void getResizeOptionsFromConvertOptionsIgnoresUnrelatedOptions() throws LibvirtException, QemuImgException {
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         Map<String, String> options = new HashMap<>();
         options.put("unrelatedKey", "unrelatedValue");
 
@@ -500,7 +589,7 @@ public class QemuImgTest {
 
     @Test
     public void getResizeOptionsFromConvertOptionsHandlesMixedOptions() throws LibvirtException, QemuImgException {
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         Map<String, String> options = new HashMap<>();
         options.put(QemuImg.PREALLOCATION, "full");
         options.put("unrelatedKey", "unrelatedValue");
@@ -518,7 +607,7 @@ public class QemuImgTest {
         Map<String, String> options = new HashMap<>();
         options.put(QemuImg.PREALLOCATION, "metadata");
 
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         qemuImg.addScriptResizeOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.times(1)).add("--preallocation=metadata");
@@ -531,7 +620,7 @@ public class QemuImgTest {
         Script script = Mockito.mock(Script.class);
         Map<String, String> options = new HashMap<>();
 
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         qemuImg.addScriptResizeOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.never()).add(Mockito.anyString());
@@ -541,7 +630,7 @@ public class QemuImgTest {
     public void addScriptResizeOptionsFromMapHandlesNullOptions() throws LibvirtException, QemuImgException {
         Script script = Mockito.mock(Script.class);
 
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         qemuImg.addScriptResizeOptionsFromMap(null, script);
 
         Mockito.verify(script, Mockito.never()).add(Mockito.anyString());
@@ -554,7 +643,7 @@ public class QemuImgTest {
         options.put(QemuImg.PREALLOCATION, "full");
         options.put("key", "value");
 
-        QemuImg qemuImg = new QemuImg(0);
+        QemuImg qemuImg = new UnitQemuImg();
         qemuImg.addScriptResizeOptionsFromMap(options, script);
 
         Mockito.verify(script, Mockito.times(1)).add("--preallocation=full");

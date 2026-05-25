@@ -36,10 +36,10 @@ import org.apache.cloudstack.api.auth.PluggableAPIAuthenticator;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.jetbrains.annotations.Nullable;
 
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;

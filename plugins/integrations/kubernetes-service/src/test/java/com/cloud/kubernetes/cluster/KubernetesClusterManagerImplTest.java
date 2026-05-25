@@ -25,16 +25,10 @@ import com.cloud.cpu.CPU;
 import com.cloud.dc.DataCenter;
 import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.PermissionDeniedException;
-import com.cloud.kubernetes.cluster.actionworkers.KubernetesClusterActionWorker;
 import com.cloud.kubernetes.cluster.dao.KubernetesClusterAffinityGroupMapDao;
 import com.cloud.kubernetes.cluster.dao.KubernetesClusterDao;
 import com.cloud.kubernetes.cluster.dao.KubernetesClusterVmMapDao;
 import com.cloud.kubernetes.version.KubernetesSupportedVersion;
-import com.cloud.network.Network;
-import com.cloud.network.dao.FirewallRulesDao;
-import com.cloud.network.rules.FirewallRule;
-import com.cloud.network.rules.FirewallRuleVO;
-import com.cloud.network.vpc.NetworkACL;
 import com.cloud.offering.ServiceOffering;
 import com.cloud.service.ServiceOfferingVO;
 import com.cloud.service.dao.ServiceOfferingDao;
@@ -44,7 +38,6 @@ import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.User;
 import com.cloud.utils.Pair;
-import com.cloud.utils.net.NetUtils;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.dao.VMInstanceDao;
 import com.cloud.host.HostVO;
@@ -70,7 +63,6 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -84,9 +76,6 @@ import static com.cloud.kubernetes.cluster.KubernetesServiceHelper.KubernetesClu
 
 @RunWith(MockitoJUnitRunner.class)
 public class KubernetesClusterManagerImplTest {
-
-    @Mock
-    FirewallRulesDao firewallRulesDao;
 
     @Mock
     VMTemplateDao templateDao;
@@ -118,82 +107,12 @@ public class KubernetesClusterManagerImplTest {
     @Mock
     private HostDao hostDao;
 
+    @Mock
+    private KubernetesClusterValidationService kubernetesClusterValidationService;
+
     @Spy
     @InjectMocks
     KubernetesClusterManagerImpl kubernetesClusterManager;
-
-    @Test
-    public void testValidateVpcTierAllocated() {
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getState()).thenReturn(Network.State.Allocated);
-        kubernetesClusterManager.validateVpcTier(network);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testValidateVpcTierDefaultDenyRule() {
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getState()).thenReturn(Network.State.Implemented);
-        Mockito.when(network.getNetworkACLId()).thenReturn(NetworkACL.DEFAULT_DENY);
-        kubernetesClusterManager.validateVpcTier(network);
-    }
-
-    @Test
-    public void testValidateVpcTierValid() {
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(network.getState()).thenReturn(Network.State.Implemented);
-        Mockito.when(network.getNetworkACLId()).thenReturn(NetworkACL.DEFAULT_ALLOW);
-        kubernetesClusterManager.validateVpcTier(network);
-    }
-
-    @Test
-    public void validateIsolatedNetworkIpRulesNoRules() {
-        long ipId = 1L;
-        FirewallRule.Purpose purpose = FirewallRule.Purpose.Firewall;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(firewallRulesDao.listByIpPurposeProtocolAndNotRevoked(ipId, purpose, NetUtils.TCP_PROTO)).thenReturn(new ArrayList<>());
-        kubernetesClusterManager.validateIsolatedNetworkIpRules(ipId, FirewallRule.Purpose.Firewall, network, 3);
-    }
-
-    private FirewallRuleVO createRule(int startPort, int endPort) {
-        FirewallRuleVO rule = new FirewallRuleVO(null, null, startPort, endPort, "tcp", 1, 1, 1, FirewallRule.Purpose.Firewall, List.of("0.0.0.0/0"), null, null, null, FirewallRule.TrafficType.Ingress);
-        return rule;
-    }
-
-    @Test
-    public void validateIsolatedNetworkIpRulesNoConflictingRules() {
-        long ipId = 1L;
-        FirewallRule.Purpose purpose = FirewallRule.Purpose.Firewall;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(firewallRulesDao.listByIpPurposeProtocolAndNotRevoked(ipId, purpose, NetUtils.TCP_PROTO)).thenReturn(List.of(createRule(80, 80), createRule(443, 443)));
-        kubernetesClusterManager.validateIsolatedNetworkIpRules(ipId, FirewallRule.Purpose.Firewall, network, 3);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void validateIsolatedNetworkIpRulesApiConflictingRules() {
-        long ipId = 1L;
-        FirewallRule.Purpose purpose = FirewallRule.Purpose.Firewall;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(firewallRulesDao.listByIpPurposeProtocolAndNotRevoked(ipId, purpose, NetUtils.TCP_PROTO)).thenReturn(List.of(createRule(6440, 6445), createRule(443, 443)));
-        kubernetesClusterManager.validateIsolatedNetworkIpRules(ipId, FirewallRule.Purpose.Firewall, network, 3);
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void validateIsolatedNetworkIpRulesSshConflictingRules() {
-        long ipId = 1L;
-        FirewallRule.Purpose purpose = FirewallRule.Purpose.Firewall;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(firewallRulesDao.listByIpPurposeProtocolAndNotRevoked(ipId, purpose, NetUtils.TCP_PROTO)).thenReturn(List.of(createRule(2200, KubernetesClusterActionWorker.CLUSTER_NODES_DEFAULT_START_SSH_PORT), createRule(443, 443)));
-        kubernetesClusterManager.validateIsolatedNetworkIpRules(ipId, FirewallRule.Purpose.Firewall, network, 3);
-    }
-
-    @Test
-    public void validateIsolatedNetworkIpRulesNearConflictingRules() {
-        long ipId = 1L;
-        FirewallRule.Purpose purpose = FirewallRule.Purpose.Firewall;
-        Network network = Mockito.mock(Network.class);
-        Mockito.when(firewallRulesDao.listByIpPurposeProtocolAndNotRevoked(ipId, purpose, NetUtils.TCP_PROTO)).thenReturn(List.of(createRule(2220, 2221), createRule(2225, 2227), createRule(6440, 6442), createRule(6444, 6446)));
-        kubernetesClusterManager.validateIsolatedNetworkIpRules(ipId, FirewallRule.Purpose.Firewall, network, 3);
-    }
 
     @Test
     public void testValidateKubernetesClusterScaleSizeNullNewSizeNoError() {

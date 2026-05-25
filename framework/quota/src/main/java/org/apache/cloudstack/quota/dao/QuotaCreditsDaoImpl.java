@@ -19,7 +19,7 @@ package org.apache.cloudstack.quota.dao;
 import java.util.Date;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.utils.db.Filter;

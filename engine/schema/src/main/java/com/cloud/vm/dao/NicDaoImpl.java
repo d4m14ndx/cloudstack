@@ -20,8 +20,8 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.springframework.stereotype.Component;

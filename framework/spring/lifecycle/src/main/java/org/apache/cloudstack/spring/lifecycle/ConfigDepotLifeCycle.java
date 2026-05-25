@@ -18,7 +18,7 @@
  */
 package org.apache.cloudstack.spring.lifecycle;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;

@@ -18,7 +18,7 @@
 //
 package org.apache.cloudstack.outofbandmanagement.driver.redfish;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.Configurable;

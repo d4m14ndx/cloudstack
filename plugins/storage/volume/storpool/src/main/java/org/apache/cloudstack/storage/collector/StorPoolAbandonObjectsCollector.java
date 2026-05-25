@@ -47,7 +47,7 @@ import org.apache.cloudstack.storage.datastore.util.StorPoolUtil.SpConnectionDes
 
 import org.apache.commons.collections.CollectionUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;

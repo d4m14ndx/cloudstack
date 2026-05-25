@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.command.admin.ratelimit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.ACL;

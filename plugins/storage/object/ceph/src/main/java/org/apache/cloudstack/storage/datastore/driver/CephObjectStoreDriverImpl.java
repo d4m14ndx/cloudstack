@@ -52,7 +52,7 @@ import org.twonote.rgwadmin4j.model.BucketInfo;
 import org.twonote.rgwadmin4j.model.S3Credential;
 import org.twonote.rgwadmin4j.model.User;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;

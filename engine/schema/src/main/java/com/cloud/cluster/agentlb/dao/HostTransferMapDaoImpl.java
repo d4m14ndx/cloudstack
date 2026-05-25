@@ -19,7 +19,7 @@ package com.cloud.cluster.agentlb.dao;
 import java.util.Date;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 import org.springframework.stereotype.Component;
 

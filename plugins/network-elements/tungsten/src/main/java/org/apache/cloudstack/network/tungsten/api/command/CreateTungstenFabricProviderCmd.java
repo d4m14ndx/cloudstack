@@ -33,7 +33,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricProviderResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenProviderService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = CreateTungstenFabricProviderCmd.APINAME, description = "Create Tungsten-Fabric provider in cloudstack",
     responseObject = TungstenFabricProviderResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

@@ -260,6 +260,7 @@ public class ApiConstants {
     public static final String FOR_VIRTUAL_NETWORK = "forvirtualnetwork";
     public static final String FOR_SYSTEM_VMS = "forsystemvms";
     public static final String FOR_PROVIDER = "forprovider";
+    public static final String FROM_CHECKPOINT_ID = "fromcheckpointid";
     public static final String FULL_PATH = "fullpath";
     public static final String GATEWAY = "gateway";
     public static final String IP6_GATEWAY = "ip6gateway";
@@ -332,6 +333,7 @@ public class ApiConstants {
     public static final String IS_2FA_VERIFIED = "is2faverified";
 
     public static final String IS_2FA_MANDATED = "is2famandated";
+    public static final String IS_ACTIVE = "isactive";
     public static final String IS_ASYNC = "isasync";
     public static final String IP_AVAILABLE = "ipavailable";
     public static final String IP_LIMIT = "iplimit";
@@ -606,6 +608,7 @@ public class ApiConstants {
     public static final String TIMEZONE = "timezone";
     public static final String TIMEZONEOFFSET = "timezoneoffset";
     public static final String TENANT_NAME = "tenantname";
+    public static final String TO_CHECKPOINT_ID = "tocheckpointid";
     public static final String TOTAL = "total";
     public static final String TOTAL_SUBNETS = "totalsubnets";
     public static final String TOTAL_QUOTA = "totalquota";
@@ -819,7 +822,6 @@ public class ApiConstants {
     public static final String KVM_NETWORK_LABEL = "kvmnetworklabel";
     public static final String VMWARE_NETWORK_LABEL = "vmwarenetworklabel";
     public static final String HYPERV_NETWORK_LABEL = "hypervnetworklabel";
-    public static final String OVM3_NETWORK_LABEL = "ovm3networklabel";
     public static final String NETWORK_SERVICE_PROVIDER_ID = "nspid";
     public static final String SERVICE_LIST = "servicelist";
     public static final String CAN_ENABLE_INDIVIDUAL_SERVICE = "canenableindividualservice";
@@ -1176,9 +1178,6 @@ public class ApiConstants {
     public static final String METADATA = "metadata";
     public static final String PHYSICAL_SIZE = "physicalsize";
     public static final String CHAIN_SIZE = "chainsize";
-    public static final String OVM3_POOL = "ovm3pool";
-    public static final String OVM3_CLUSTER = "ovm3cluster";
-    public static final String OVM3_VIP = "ovm3vip";
     public static final String CLEAN_UP_DETAILS = "cleanupdetails";
     public static final String CLEAN_UP_EXTERNAL_DETAILS = "cleanupexternaldetails";
     public static final String CLEAN_UP_EXTRA_CONFIG = "cleanupextraconfig";

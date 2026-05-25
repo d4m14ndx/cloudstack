@@ -44,7 +44,7 @@ import com.cloud.utils.db.SearchCriteria.Op;
 import com.cloud.utils.db.TransactionLegacy;
 import com.cloud.utils.db.JoinBuilder;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @Component
 @DB

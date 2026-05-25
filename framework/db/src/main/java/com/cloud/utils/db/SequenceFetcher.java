@@ -27,7 +27,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import javax.persistence.TableGenerator;
+import jakarta.persistence.TableGenerator;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

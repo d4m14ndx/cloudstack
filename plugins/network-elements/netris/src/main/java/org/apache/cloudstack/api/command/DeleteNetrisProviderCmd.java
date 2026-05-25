@@ -30,7 +30,7 @@ import org.apache.cloudstack.api.response.NetrisProviderResponse;
 import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.service.NetrisProviderService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import static org.apache.cloudstack.api.command.DeleteNetrisProviderCmd.APINAME;
 

@@ -27,7 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.dc.ClusterVO;
@@ -191,18 +191,6 @@ public class IndirectAgentLBServiceImpl extends ComponentLifecycleBase implement
 
     private List<Host> getAllAgentBasedHosts(long msId) {
         final List<HostVO> allHosts = hostDao.listHostsByMs(msId);
-        if (allHosts == null) {
-            return new ArrayList<>();
-        }
-        final List <Host> agentBasedHosts = new ArrayList<>();
-        for (final Host host : allHosts) {
-            conditionallyAddHost(agentBasedHosts, host);
-        }
-        return agentBasedHosts;
-    }
-
-    private List<Host> getAllAgentBasedHostsInDc(long msId, long dcId) {
-        final List<HostVO> allHosts = hostDao.listHostsByMsAndDc(msId, dcId);
         if (allHosts == null) {
             return new ArrayList<>();
         }

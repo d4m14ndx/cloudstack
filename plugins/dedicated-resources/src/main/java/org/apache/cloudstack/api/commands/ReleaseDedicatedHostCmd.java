@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.api.commands;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.APICommand;
@@ -67,8 +67,7 @@ public class ReleaseDedicatedHostCmd extends BaseAsyncCmd {
     public void execute() {
         boolean result = dedicatedService.releaseDedicatedResource(null, null, null, getHostId());
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to release dedicated Host");
         }

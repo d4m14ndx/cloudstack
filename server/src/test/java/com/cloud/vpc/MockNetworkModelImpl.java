@@ -51,7 +51,7 @@ import com.cloud.vm.Nic;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.VirtualMachine;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.util.ArrayList;
 import java.util.List;

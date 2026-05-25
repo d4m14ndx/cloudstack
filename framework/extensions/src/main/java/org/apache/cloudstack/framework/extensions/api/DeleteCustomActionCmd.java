@@ -17,7 +17,7 @@
 
 package org.apache.cloudstack.framework.extensions.api;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.RoleType;
 import org.apache.cloudstack.api.APICommand;

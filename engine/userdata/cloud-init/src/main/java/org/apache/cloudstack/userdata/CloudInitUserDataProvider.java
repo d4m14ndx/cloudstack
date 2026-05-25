@@ -27,13 +27,13 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
-import javax.mail.BodyPart;
-import javax.mail.MessagingException;
-import javax.mail.Multipart;
-import javax.mail.Session;
-import javax.mail.internet.MimeBodyPart;
-import javax.mail.internet.MimeMessage;
-import javax.mail.internet.MimeMultipart;
+import jakarta.mail.BodyPart;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Multipart;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeBodyPart;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.CollectionUtils;
@@ -41,7 +41,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.cloud.utils.component.AdapterBase;
 import com.cloud.utils.exception.CloudRuntimeException;
-import com.sun.mail.util.BASE64DecoderStream;
+import org.eclipse.angus.mail.util.BASE64DecoderStream;
 
 public class CloudInitUserDataProvider extends AdapterBase implements UserDataProvider {
 

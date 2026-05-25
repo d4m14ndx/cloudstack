@@ -24,7 +24,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
 
-import javax.mail.MessagingException;
+import jakarta.mail.MessagingException;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;

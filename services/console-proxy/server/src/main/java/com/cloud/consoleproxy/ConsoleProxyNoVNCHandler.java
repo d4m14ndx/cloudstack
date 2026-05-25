@@ -17,28 +17,24 @@
 package com.cloud.consoleproxy;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.Map;
-
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.websocket.api.Frame;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketClose;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketConnect;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketError;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketFrame;
 import org.eclipse.jetty.websocket.api.annotations.WebSocket;
-import org.eclipse.jetty.websocket.api.extensions.Frame;
-import org.eclipse.jetty.websocket.server.WebSocketHandler;
-import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
+import org.eclipse.jetty.websocket.server.JettyWebSocketServlet;
+import org.eclipse.jetty.websocket.server.JettyWebSocketServletFactory;
 
 @WebSocket
-public class ConsoleProxyNoVNCHandler extends WebSocketHandler {
+public class ConsoleProxyNoVNCHandler extends JettyWebSocketServlet {
 
     private ConsoleProxyNoVncClient viewer = null;
     protected Logger logger = LogManager.getLogger(getClass());
@@ -48,27 +44,8 @@ public class ConsoleProxyNoVNCHandler extends WebSocketHandler {
     }
 
     @Override
-    public void configure(WebSocketServletFactory webSocketServletFactory) {
+    protected void configure(JettyWebSocketServletFactory webSocketServletFactory) {
         webSocketServletFactory.register(ConsoleProxyNoVNCHandler.class);
-    }
-
-    @Override
-    public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
-            throws IOException, ServletException {
-
-        if (this.getWebSocketFactory().isUpgradeRequest(request, response)) {
-            response.addHeader("Sec-WebSocket-Protocol", "binary");
-            if (this.getWebSocketFactory().acceptWebSocket(request, response)) {
-                baseRequest.setHandled(true);
-                return;
-            }
-
-            if (response.isCommitted()) {
-                return;
-            }
-        }
-
-        super.handle(target, baseRequest, request, response);
     }
 
     @OnWebSocketConnect
@@ -92,7 +69,7 @@ public class ConsoleProxyNoVNCHandler extends WebSocketHandler {
         String sourceIP = queryMap.get("sourceIP");
         String websocketUrl = queryMap.get("websocketUrl");
         String sessionUuid = queryMap.get("sessionUuid");
-        String clientIp = session.getRemoteAddress().getAddress().getHostAddress();
+        String clientIp = ((InetSocketAddress) session.getRemoteAddress()).getAddress().getHostAddress();
         boolean sessionRequiresNewViewer = Boolean.parseBoolean(queryMap.get("sessionRequiresNewViewer"));
 
         if (tag == null)
@@ -175,7 +152,7 @@ public class ConsoleProxyNoVNCHandler extends WebSocketHandler {
 
     @OnWebSocketClose
     public void onClose(Session session, int statusCode, String reason) throws IOException, InterruptedException {
-        String sessionSourceIp = session.getRemoteAddress().getAddress().getHostAddress();
+        String sessionSourceIp = ((InetSocketAddress) session.getRemoteAddress()).getAddress().getHostAddress();
         logger.debug("Closing WebSocket session [source IP: {}, status code: {}].", sessionSourceIp, statusCode);
         if (viewer != null) {
             ConsoleProxy.removeViewer(viewer);

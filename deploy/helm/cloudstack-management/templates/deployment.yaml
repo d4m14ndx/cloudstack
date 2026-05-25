@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudstack-management.fullname" . }}
+  labels:
+    {{- include "cloudstack-management.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cloudstack-management.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudstack-management.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: cloudstack
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          env:
+            - name: CLOUDSTACK_LOG_FORMAT
+              value: {{ .Values.logFormat | quote }}
+            - name: JAVA_OPTS
+              value: {{ .Values.javaOpts | quote }}
+            - name: DB_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.database.user | quote }}
+            - name: DB_PASSWORD
+              {{- if .Values.database.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey }}
+              {{- else }}
+              value: {{ .Values.database.password | quote }}
+              {{- end }}
+            {{- if .Values.tracing.enabled }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.tracing.serviceName | quote }}
+            - name: OTEL_TRACES_EXPORTER
+              value: {{ .Values.tracing.exporter | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.tracing.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: {{ .Values.tracing.protocol | quote }}
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_traceidratio
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.tracing.samplerRatio | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.configOverride.enabled }}
+          volumeMounts:
+            {{- if .Values.configOverride.serverPropertiesConfigMap }}
+            - name: server-properties
+              mountPath: /etc/cloudstack/management/server.properties
+              subPath: server.properties
+              readOnly: true
+            {{- end }}
+            {{- if .Values.configOverride.dbPropertiesConfigMap }}
+            - name: db-properties
+              mountPath: /etc/cloudstack/management/db.properties
+              subPath: db.properties
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if .Values.configOverride.enabled }}
+      volumes:
+        {{- if .Values.configOverride.serverPropertiesConfigMap }}
+        - name: server-properties
+          configMap:
+            name: {{ .Values.configOverride.serverPropertiesConfigMap }}
+        {{- end }}
+        {{- if .Values.configOverride.dbPropertiesConfigMap }}
+        - name: db-properties
+          configMap:
+            name: {{ .Values.configOverride.dbPropertiesConfigMap }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

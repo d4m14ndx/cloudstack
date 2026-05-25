@@ -21,8 +21,8 @@ package org.apache.cloudstack.framework.sampleserver;
 import java.util.Timer;
 import java.util.TimerTask;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

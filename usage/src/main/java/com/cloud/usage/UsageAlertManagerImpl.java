@@ -19,7 +19,7 @@ package com.cloud.usage;
 import java.util.Date;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;

@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.extension.ExtensionResourceMap;

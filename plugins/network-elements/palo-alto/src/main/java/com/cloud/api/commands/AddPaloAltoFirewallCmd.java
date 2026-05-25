@@ -16,15 +16,15 @@
 // under the License.
 package com.cloud.api.commands;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.api.ApiErrorCode;
 import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
+import org.apache.cloudstack.api.command.NetworkElementApiExecutor;
 import org.apache.cloudstack.api.response.PhysicalNetworkResponse;
 import org.apache.cloudstack.context.CallContext;
 
@@ -32,12 +32,10 @@ import com.cloud.api.response.PaloAltoFirewallResponse;
 import com.cloud.event.EventTypes;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
-import com.cloud.exception.InvalidParameterValueException;
 import com.cloud.exception.ResourceAllocationException;
 import com.cloud.exception.ResourceUnavailableException;
 import com.cloud.network.dao.ExternalFirewallDeviceVO;
 import com.cloud.network.element.PaloAltoFirewallElementService;
-import com.cloud.utils.exception.CloudRuntimeException;
 
 @APICommand(name = "addPaloAltoFirewall", responseObject = PaloAltoFirewallResponse.class, description = "Adds a Palo Alto firewall device",
         requestHasSensitiveInfo = true, responseHasSensitiveInfo = false)
@@ -99,21 +97,14 @@ public class AddPaloAltoFirewallCmd extends BaseAsyncCmd {
     @Override
     public void execute() throws ResourceUnavailableException, InsufficientCapacityException, ServerApiException, ConcurrentOperationException,
         ResourceAllocationException {
-        try {
-            ExternalFirewallDeviceVO fwDeviceVO = _paFwService.addPaloAltoFirewall(this);
-            if (fwDeviceVO != null) {
-                PaloAltoFirewallResponse response = _paFwService.createPaloAltoFirewallResponse(fwDeviceVO);
-                response.setObjectName("pafirewall");
-                response.setResponseName(getCommandName());
-                this.setResponseObject(response);
-            } else {
-                throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to add Palo Alto firewall due to internal error.");
-            }
-        } catch (InvalidParameterValueException invalidParamExcp) {
-            throw new ServerApiException(ApiErrorCode.PARAM_ERROR, invalidParamExcp.getMessage());
-        } catch (CloudRuntimeException runtimeExcp) {
-            throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, runtimeExcp.getMessage());
-        }
+        NetworkElementApiExecutor.execute(() -> {
+            ExternalFirewallDeviceVO fwDeviceVO = NetworkElementApiExecutor.requireNonNull(_paFwService.addPaloAltoFirewall(this),
+                    "Failed to add Palo Alto firewall due to internal error.");
+            PaloAltoFirewallResponse response = _paFwService.createPaloAltoFirewallResponse(fwDeviceVO);
+            response.setObjectName("pafirewall");
+            response.setResponseName(getCommandName());
+            this.setResponseObject(response);
+        });
     }
 
     @Override

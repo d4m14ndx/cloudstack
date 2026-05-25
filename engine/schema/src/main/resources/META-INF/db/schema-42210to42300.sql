@@ -131,3 +131,43 @@ CREATE TABLE IF NOT EXISTS `cloud_usage`.`quota_tariff_usage` (
 -- Add the 'keep_mac_address_on_public_nic' column to the 'cloud.networks' and 'cloud.vpc' tables
 CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.networks', 'keep_mac_address_on_public_nic', 'TINYINT(1) NOT NULL DEFAULT 1');
 CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.vpc', 'keep_mac_address_on_public_nic', 'TINYINT(1) NOT NULL DEFAULT 1');
+
+-- Add checkpoint tracking fields to backups table for incremental backup support
+CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.backups', 'from_checkpoint_id', 'VARCHAR(255) DEFAULT NULL COMMENT "Previous active checkpoint id for incremental backups"');
+CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.backups', 'to_checkpoint_id', 'VARCHAR(255) DEFAULT NULL COMMENT "New checkpoint id created for the next incremental backup"');
+CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.backups', 'checkpoint_create_time', 'BIGINT DEFAULT NULL COMMENT "Checkpoint creation timestamp from libvirt"');
+CALL `cloud`.`IDEMPOTENT_ADD_COLUMN`('cloud.backups', 'host_id', 'BIGINT UNSIGNED DEFAULT NULL COMMENT "Host where backup is running"');
+
+-- Create image_transfer table for per-disk image transfers
+CREATE TABLE IF NOT EXISTS `cloud`.`image_transfer`(
+    `id` bigint unsigned NOT NULL auto_increment COMMENT 'id',
+    `uuid` varchar(40) NOT NULL COMMENT 'uuid',
+    `account_id` bigint unsigned NOT NULL COMMENT 'Account ID',
+    `domain_id` bigint unsigned NOT NULL COMMENT 'Domain ID',
+    `data_center_id` bigint unsigned NOT NULL COMMENT 'Data Center ID',
+    `backup_id` bigint unsigned COMMENT 'Backup ID',
+    `volume_id` bigint unsigned NOT NULL COMMENT 'Volume ID',
+    `host_id` bigint unsigned NOT NULL COMMENT 'Host ID',
+    `transfer_url` varchar(255) COMMENT 'ImageIO transfer URL',
+    `file` varchar(255) COMMENT 'File for the file backend',
+    `phase` varchar(20) NOT NULL COMMENT 'Transfer phase: initializing, transferring, finished, failed',
+    `socket` varchar(255) COMMENT 'Unix socket for nbd backend',
+    `direction` varchar(20) NOT NULL COMMENT 'Direction: upload, download',
+    `backend` varchar(20) NOT NULL COMMENT 'Backend: nbd, file',
+    `progress` int COMMENT 'Transfer progress percentage (0-100)',
+    `signed_ticket_id` varchar(255) COMMENT 'Signed ticket ID from ImageIO',
+    `created` datetime NOT NULL COMMENT 'date created',
+    `updated` datetime COMMENT 'date updated if not null',
+    `removed` datetime COMMENT 'date removed if not null',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uuid` (`uuid`),
+    CONSTRAINT `fk_image_transfer__backup_id` FOREIGN KEY (`backup_id`) REFERENCES `backups`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_image_transfer__volume_id` FOREIGN KEY (`volume_id`) REFERENCES `volumes`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_image_transfer__host_id` FOREIGN KEY (`host_id`) REFERENCES `host`(`id`) ON DELETE CASCADE,
+    INDEX `i_image_transfer__backup_id`(`backup_id`),
+    INDEX `i_image_transfer__volume_id`(`volume_id`),
+    INDEX `i_image_transfer__volume_id__phase`(`volume_id`, `phase`),
+    INDEX `i_image_transfer__phase__direction`(`phase`, `direction`),
+    INDEX `i_image_transfer__data_center_id__account_id`(`data_center_id`, `account_id`),
+    INDEX `i_image_transfer__data_center_id__domain_id`(`data_center_id`, `domain_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8;

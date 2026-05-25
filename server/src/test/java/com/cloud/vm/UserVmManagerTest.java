@@ -214,6 +214,8 @@ public class UserVmManagerTest {
     private NetworkOfferingVO _networkOfferingMock;
     @Mock
     private NetworkOrchestrationService _networkMgr;
+    @Mock
+    private VmServiceOfferingScaleService vmServiceOfferingScaleService;
 
     @Before
     public void setup() {
@@ -226,6 +228,52 @@ public class UserVmManagerTest {
 
         List<VMSnapshotVO> mockList = new ArrayList<>();
 
+        // Wire up the Phase 4 VmNicService extraction with the test's existing mocks
+        // so the updateNicIpForVirtualMachine tests below continue to work.
+        VmNicServiceImpl nicService = new VmNicServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "nicDao", _nicDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "itMgr", _itMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "ipAddrMgr", _ipAddrMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "ipAddressDao", _ipAddressDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vlanDao", _vlanDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "networkOfferingDao", _networkOfferingDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "dcDao", _dcDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "accountDao", _accountDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(nicService, "vmSnapshotDao", _vmSnapshotDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmNicService", nicService);
+        // Slice 4: wire a VmRootDiskValidatorImpl. validateRootDiskResize is pure
+        // (no DAOs needed), so an instance without injected dependencies is fine.
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmRootDiskValidator", new VmRootDiskValidatorImpl());
+        // Slice 5: wire VmUpdateValidatorImpl. upgradeVirtualMachine reaches into
+        // addCurrentDetailValueToInstanceDetailsMapIfNewValueWasNotSpecified, which
+        // now delegates here.
+        VmUpdateValidatorImpl updateValidator = new VmUpdateValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "userVmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(updateValidator, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmUpdateValidator", updateValidator);
+        // Slice 7: wire VmAssignmentValidatorImpl. testMoveVmToUser{1,2} exercise the
+        // assign-to-account flow which now routes through this validator. Only the
+        // AccountManager dependency is reached in the access-check failure path; the
+        // network/snapshot DAOs are only consulted after access succeeds, so the
+        // existing tests don't need DAO mocks here.
+        VmAssignmentValidatorImpl assignValidator = new VmAssignmentValidatorImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(assignValidator, "accountManager", _accountMgr);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmAssignmentValidator", assignValidator);
+        // Slice 15: wire VmCredentialResetServiceImpl so applyUserData /
+        // updateUserData / finalizeUserData / encryptAndStorePassword /
+        // removeEncryptedPasswordFromUserVmVoDetails wrappers work.
+        VmCredentialResetServiceImpl credentialResetService = new VmCredentialResetServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkModel", _networkModel);
+        org.springframework.test.util.ReflectionTestUtils.setField(credentialResetService, "networkDao", _networkDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmCredentialResetService", credentialResetService);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmServiceOfferingScaleService", vmServiceOfferingScaleService);
+        VmDeviceBusInfoServiceImpl deviceBusInfoService = new VmDeviceBusInfoServiceImpl();
+        org.springframework.test.util.ReflectionTestUtils.setField(deviceBusInfoService, "userVmDao", _vmDao);
+        org.springframework.test.util.ReflectionTestUtils.setField(_userVmMgr, "vmDeviceBusInfoService", deviceBusInfoService);
     }
 
     @Test
@@ -297,6 +345,8 @@ public class UserVmManagerTest {
         UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);
         //AccountVO(String accountName, long domainId, String networkDomain, short type, int regionId)
         lenient().doReturn(VirtualMachine.State.Running).when(_vmInstance).getState();
+        when(vmServiceOfferingScaleService.upgradeVirtualMachine(any(ScaleVMCmd.class)))
+                .thenThrow(new InvalidParameterValueException("incompatible hypervisor"));
 
         CallContext.register(user, account);
         try {
@@ -334,6 +384,8 @@ public class UserVmManagerTest {
         ServiceOffering so1 = getSvcoffering(512);
         lenient().when(_offeringDao.findById(anyLong())).thenReturn((ServiceOfferingVO)so1);
         lenient().when(_offeringDao.findByIdIncludingRemoved(anyLong(), anyLong())).thenReturn((ServiceOfferingVO)so1);
+        when(vmServiceOfferingScaleService.upgradeVirtualMachine(any(ScaleVMCmd.class)))
+                .thenThrow(new InvalidParameterValueException("equal service offerings"));
 
         Account account = new AccountVO("testaccount", 1L, "networkdomain", Account.Type.NORMAL, UUID.randomUUID().toString());
         UserVO user = new UserVO(1, "testuser", "password", "firstname", "lastName", "email", "timezone", UUID.randomUUID().toString(), User.Source.UNKNOWN);

@@ -42,7 +42,7 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "importVm",
         description = "Import virtual machine from a unmanaged host into CloudStack",

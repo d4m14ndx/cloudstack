@@ -103,7 +103,6 @@ public class DirectNetworkGuruTest {
         when(offering.getGuestType()).thenReturn(GuestType.Shared);
         when(offering.getTrafficType()).thenReturn(TrafficType.Guest);
         when(offering.getId()).thenReturn(42l);
-        when(ntwkOfferingSrvcDao.isProviderForNetworkOffering(offering.getId(), Network.Provider.NiciraNvp)).thenReturn(false);
     }
 
     @After

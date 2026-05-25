@@ -19,7 +19,7 @@ package com.cloud.api;
 import java.lang.reflect.Type;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
@@ -60,7 +60,7 @@ public class ApiAsyncJobDispatcher extends AdapterBase implements AsyncJobDispat
         BaseAsyncCmd cmdObj = null;
         try {
             Class<?> cmdClass = Class.forName(job.getCmd());
-            cmdObj = (BaseAsyncCmd)cmdClass.newInstance();
+            cmdObj = (BaseAsyncCmd)cmdClass.getDeclaredConstructor().newInstance();
             cmdObj = ComponentContext.inject(cmdObj);
             cmdObj.configure();
             cmdObj.setJob(job);

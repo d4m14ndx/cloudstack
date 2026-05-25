@@ -1635,8 +1635,10 @@ public class BackupManagerTest {
         Long backupOfferingId = 6L;
         Long backupId = 7L;
         Long templateId = 8L;
+        Long hostId = 9L;
         String templateUuid = "template-uuid1";
         String serviceOfferingUuid = "service-offering-uuid1";
+        String hostUuid = "host-uuid1";
 
         BackupVO backup = new BackupVO();
         ReflectionTestUtils.setField(backup, "id", backupId);
@@ -1648,6 +1650,9 @@ public class BackupManagerTest {
         backup.setBackupOfferingId(backupOfferingId);
         backup.setType("Full");
         backup.setBackupScheduleId(null);
+        backup.setFromCheckpointId("from-checkpoint-uuid");
+        backup.setToCheckpointId("to-checkpoint-uuid");
+        backup.setHostId(hostId);
 
         VMInstanceVO vm = new VMInstanceVO(vmId, 0L, "test-vm", "test-vm", VirtualMachine.Type.User,
                 0L, Hypervisor.HypervisorType.Simulator, 0L, domainId, accountId, 0L, false);
@@ -1675,6 +1680,9 @@ public class BackupManagerTest {
         Mockito.when(domainDao.findByIdIncludingRemoved(domainId)).thenReturn(domain);
         Mockito.when(dataCenterDao.findByIdIncludingRemoved(zoneId)).thenReturn(zone);
         Mockito.when(backupOfferingDao.findByIdIncludingRemoved(backupOfferingId)).thenReturn(offering);
+        HostVO host = Mockito.mock(HostVO.class);
+        Mockito.when(host.getUuid()).thenReturn(hostUuid);
+        Mockito.when(hostDao.findById(hostId)).thenReturn(host);
 
         VMTemplateVO template = mock(VMTemplateVO.class);
         when(template.getFormat()).thenReturn(Storage.ImageFormat.QCOW2);
@@ -1708,10 +1716,61 @@ public class BackupManagerTest {
         Assert.assertEquals("offering-uuid", response.getBackupOfferingId());
         Assert.assertEquals("test-offering", response.getBackupOffering());
         Assert.assertEquals("MANUAL", response.getIntervalType());
+        Assert.assertEquals("from-checkpoint-uuid", response.getFromCheckpointId());
+        Assert.assertEquals("to-checkpoint-uuid", response.getToCheckpointId());
+        Assert.assertEquals(hostUuid, response.getHostId());
         Assert.assertEquals("{serviceofferingid=service-offering-uuid1, isiso=false, hypervisor=Simulator, " +
                 "nics=[{\"networkid\":\"network-uuid1\",\"networkname\":\"network1\"}], serviceofferingname=service-offering1, " +
                 "templatename=template1, templateid=template-uuid1}", response.getVmDetails().toString());
         Assert.assertEquals(true, response.getVmOfferingRemoved());
+    }
+
+    @Test
+    public void testNewBackupResponseWithNullVeeamKvmFields() {
+        Long vmId = 1L;
+        Long accountId = 2L;
+        Long domainId = 3L;
+        Long zoneId = 4L;
+        Long backupOfferingId = 5L;
+        Long backupId = 6L;
+
+        BackupVO backup = new BackupVO();
+        ReflectionTestUtils.setField(backup, "id", backupId);
+        ReflectionTestUtils.setField(backup, "uuid", "backup-uuid");
+        backup.setVmId(vmId);
+        backup.setAccountId(accountId);
+        backup.setDomainId(domainId);
+        backup.setZoneId(zoneId);
+        backup.setBackupOfferingId(backupOfferingId);
+        backup.setType("Full");
+        backup.setBackupScheduleId(null);
+
+        AccountVO account = new AccountVO();
+        account.setUuid("account-uuid");
+        account.setAccountName("test-account");
+
+        DomainVO domain = new DomainVO();
+        domain.setUuid("domain-uuid");
+        domain.setName("test-domain");
+
+        DataCenterVO zone = new DataCenterVO(1L, "test-zone", null, null, null, null, null, null, null, null, DataCenter.NetworkType.Advanced, null, null);
+        zone.setUuid("zone-uuid");
+
+        BackupOfferingVO offering = Mockito.mock(BackupOfferingVO.class);
+        Mockito.when(offering.getUuid()).thenReturn("offering-uuid");
+        Mockito.when(offering.getName()).thenReturn("test-offering");
+
+        Mockito.when(accountDao.findByIdIncludingRemoved(accountId)).thenReturn(account);
+        Mockito.when(domainDao.findByIdIncludingRemoved(domainId)).thenReturn(domain);
+        Mockito.when(dataCenterDao.findByIdIncludingRemoved(zoneId)).thenReturn(zone);
+        Mockito.when(backupOfferingDao.findByIdIncludingRemoved(backupOfferingId)).thenReturn(offering);
+
+        BackupResponse response = backupManager.createBackupResponse(backup, false);
+
+        Assert.assertNull(response.getFromCheckpointId());
+        Assert.assertNull(response.getToCheckpointId());
+        Assert.assertNull(response.getHostId());
+        Mockito.verify(hostDao, never()).findById(any());
     }
 
     @Test

@@ -57,7 +57,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import java.util.List;
 import java.util.Map;

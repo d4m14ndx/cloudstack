@@ -33,7 +33,7 @@ import org.apache.cloudstack.storage.object.datastore.ObjectStoreProviderManager
 import org.apache.cloudstack.storage.object.store.lifecycle.ObjectStoreLifeCycle;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;

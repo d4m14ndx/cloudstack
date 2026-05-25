@@ -22,11 +22,11 @@ package com.cloud.utils;
 import java.lang.reflect.Method;
 import java.util.WeakHashMap;
 
-import net.sf.cglib.proxy.Callback;
-import net.sf.cglib.proxy.CallbackFilter;
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
+import org.springframework.cglib.proxy.Callback;
+import org.springframework.cglib.proxy.CallbackFilter;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.cglib.proxy.MethodProxy;
 
 /*
  * This helper class provides a way to retrieve Method in a strong-type way. It takes advantage of power of

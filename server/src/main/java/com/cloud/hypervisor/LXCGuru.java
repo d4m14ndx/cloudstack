@@ -18,7 +18,7 @@ package com.cloud.hypervisor;
 
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.host.HostVO;

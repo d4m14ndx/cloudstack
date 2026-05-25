@@ -227,7 +227,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public class TungstenServiceImpl extends ManagerBase implements TungstenService {
 

@@ -25,7 +25,7 @@ package com.cloud.baremetal.manager;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.agent.api.to.VirtualMachineTO;

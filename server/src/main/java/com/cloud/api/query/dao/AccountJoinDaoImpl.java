@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.springframework.stereotype.Component;

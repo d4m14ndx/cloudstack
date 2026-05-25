@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import messages from "../messages/en.json" with { type: "json" };
+
+const SETTINGS_PAGES = [
+  "index",
+  "profile",
+  "security",
+  "notifications",
+  "apiTokens",
+  "integrations",
+  "billing",
+  "advanced",
+] as const;
+
+const SETTINGS_INDEX_STATES = ["available", "related", "notConfigured"] as const;
+
+const SETTINGS_INDEX_SECTIONS = [
+  "profile",
+  "security",
+  "apiTokens",
+  "localization",
+  "notifications",
+  "sessions",
+  "account",
+] as const;
+
+const PROFILE_SETTINGS_MESSAGE_KEYS = [
+  "pages.profile.fields.username",
+  "pages.profile.fields.email",
+  "pages.profile.fields.account",
+  "pages.profile.fields.domain",
+  "pages.profile.fields.timezone",
+  "pages.profile.fields.source",
+  "pages.profile.summary.title",
+  "pages.profile.summary.role",
+  "pages.profile.summary.state",
+  "pages.profile.summary.apiKeyAccess",
+  "pages.profile.summary.twoFactor",
+  "pages.profile.states.enabled",
+  "pages.profile.states.disabled",
+  "pages.profile.apiKeyAccess.enabled",
+  "pages.profile.apiKeyAccess.disabled",
+  "pages.profile.apiKeyAccess.unknown",
+] as const;
+
+const API_TOKEN_MESSAGE_KEYS = [
+  "pages.apiTokens.current.title",
+  "pages.apiTokens.current.access",
+  "pages.apiTokens.current.apiKey",
+  "pages.apiTokens.current.secretKey",
+  "pages.apiTokens.generate.title",
+  "pages.apiTokens.generate.description",
+  "pages.apiTokens.generate.action",
+  "pages.apiTokens.generate.pending",
+  "pages.apiTokens.generate.success",
+  "pages.apiTokens.generate.error",
+  "pages.apiTokens.generate.apiKey",
+  "pages.apiTokens.generate.secretKey",
+  "pages.apiTokens.generate.oneTimeSecret",
+  "pages.apiTokens.access.enabled",
+  "pages.apiTokens.access.disabled",
+  "pages.apiTokens.access.unknown",
+] as const;
+
+function readSettingsMessage(key: string): string | undefined {
+  return key.split(".").reduce<unknown>((node, part) => {
+    if (!node || typeof node !== "object") {
+      return undefined;
+    }
+    return (node as Record<string, unknown>)[part];
+  }, (messages as Record<string, unknown>).Settings) as string | undefined;
+}
+
+test("settings pages resolve all English message keys", () => {
+  for (const page of SETTINGS_PAGES) {
+    assert.equal(typeof readSettingsMessage(`pages.${page}.metadataTitle`), "string", page);
+    assert.equal(typeof readSettingsMessage(`pages.${page}.title`), "string", page);
+    assert.equal(typeof readSettingsMessage(`pages.${page}.description`), "string", page);
+
+    if (page !== "index") {
+      assert.equal(typeof readSettingsMessage(`pages.${page}.emptyState.title`), "string", page);
+      assert.equal(typeof readSettingsMessage(`pages.${page}.emptyState.description`), "string", page);
+    }
+  }
+});
+
+test("settings index resolves section and state message keys", () => {
+  for (const state of SETTINGS_INDEX_STATES) {
+    assert.equal(typeof readSettingsMessage(`pages.index.states.${state}`), "string", state);
+  }
+
+  for (const section of SETTINGS_INDEX_SECTIONS) {
+    assert.equal(typeof readSettingsMessage(`pages.index.sections.${section}.title`), "string", section);
+    assert.equal(typeof readSettingsMessage(`pages.index.sections.${section}.description`), "string", section);
+  }
+});
+
+test("security settings resolve status-specific English message keys", () => {
+  for (const key of [
+    "summary.title",
+    "fields.source",
+    "fields.state",
+    "fields.apiKeyAccess",
+    "fields.twoFactorEnabled",
+    "fields.twoFactorMandated",
+    "fields.passwordChangeRequired",
+    "states.enabled",
+    "states.disabled",
+    "states.required",
+    "states.notRequired",
+    "access.enabled",
+    "access.disabled",
+    "access.unknown",
+    "badges.twoFactor",
+    "badges.apiKeyAccess",
+  ] as const) {
+    assert.equal(typeof readSettingsMessage(`pages.security.${key}`), "string", key);
+  }
+});
+
+test("settings profile resolves operational message keys", () => {
+  for (const key of PROFILE_SETTINGS_MESSAGE_KEYS) {
+    assert.equal(typeof readSettingsMessage(key), "string", key);
+  }
+});
+
+test("settings API token page resolves operational message keys", () => {
+  for (const key of API_TOKEN_MESSAGE_KEYS) {
+    assert.equal(typeof readSettingsMessage(key), "string", key);
+  }
+});

@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.api.ApiConstants;
@@ -164,7 +164,7 @@ public class BareMetalDiscoverer extends DiscovererBase implements Discoverer, R
             BareMetalResourceBase resource = null;
             if (resourceClassName != null) {
                 Class<?> clazz = Class.forName(resourceClassName);
-                resource = (BareMetalResourceBase) clazz.newInstance();
+                resource = (BareMetalResourceBase) clazz.getDeclaredConstructor().newInstance();
                 String externalUrl = _configDao.getValue(Config.ExternalBaremetalSystemUrl.key());
                 if (externalUrl == null) {
                     throw new IllegalArgumentException(String.format("You must specify ExternalBaremetalSystemUrl in global config page as ExternalBaremetalResourceClassName is not null"));

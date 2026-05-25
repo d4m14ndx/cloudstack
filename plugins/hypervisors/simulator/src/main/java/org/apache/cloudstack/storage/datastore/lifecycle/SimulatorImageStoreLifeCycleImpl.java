@@ -24,7 +24,7 @@ import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;

@@ -29,7 +29,7 @@ import org.apache.cloudstack.gui.theme.GuiTheme;
 import org.apache.cloudstack.gui.theme.GuiThemeJoin;
 import org.apache.cloudstack.gui.theme.GuiThemeService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 @APICommand(name = "updateGuiTheme", description = "Updates an existing GUI theme.", responseObject = GuiThemeResponse.class, entityType = {GuiTheme.class},

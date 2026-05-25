@@ -28,7 +28,7 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import com.cloud.utils.db.SearchCriteria.Op;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 @Component
 public class AutoScaleVmGroupStatisticsDaoImpl extends GenericDaoBase<AutoScaleVmGroupStatisticsVO, Long> implements AutoScaleVmGroupStatisticsDao {

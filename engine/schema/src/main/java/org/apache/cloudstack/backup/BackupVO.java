@@ -30,17 +30,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import javax.persistence.Column;
-import javax.persistence.Entity;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.Table;
-import javax.persistence.Temporal;
-import javax.persistence.TemporalType;
-import javax.persistence.Transient;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Temporal;
+import jakarta.persistence.TemporalType;
+import jakarta.persistence.Transient;
 
 @Entity
 @Table(name = "backups")
@@ -102,6 +102,18 @@ public class BackupVO implements Backup {
 
     @Column(name = "backup_schedule_id")
     private Long backupScheduleId;
+
+    @Column(name = "from_checkpoint_id")
+    private String fromCheckpointId;
+
+    @Column(name = "to_checkpoint_id")
+    private String toCheckpointId;
+
+    @Column(name = "checkpoint_create_time")
+    private Long checkpointCreateTime;
+
+    @Column(name = "host_id")
+    private Long hostId;
 
     @Transient
     Map<String, String> details;
@@ -287,5 +299,41 @@ public class BackupVO implements Backup {
 
     public void setBackupScheduleId(Long backupScheduleId) {
         this.backupScheduleId = backupScheduleId;
+    }
+
+    @Override
+    public String getFromCheckpointId() {
+        return fromCheckpointId;
+    }
+
+    public void setFromCheckpointId(String fromCheckpointId) {
+        this.fromCheckpointId = fromCheckpointId;
+    }
+
+    @Override
+    public String getToCheckpointId() {
+        return toCheckpointId;
+    }
+
+    public void setToCheckpointId(String toCheckpointId) {
+        this.toCheckpointId = toCheckpointId;
+    }
+
+    @Override
+    public Long getCheckpointCreateTime() {
+        return checkpointCreateTime;
+    }
+
+    public void setCheckpointCreateTime(Long checkpointCreateTime) {
+        this.checkpointCreateTime = checkpointCreateTime;
+    }
+
+    @Override
+    public Long getHostId() {
+        return hostId;
+    }
+
+    public void setHostId(Long hostId) {
+        this.hostId = hostId;
     }
 }

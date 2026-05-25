@@ -1,0 +1,183 @@
+# Local development stack: management server + MySQL + Phase 5 web dependencies.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose --profile auth up --build
+#
+# Then point a browser at http://localhost:8080/client
+# Phase 5 web UI at http://localhost:3000
+# Authentik local dev UI at http://authentik.localhost:9000 when the auth profile is enabled
+# Metrics at http://localhost:8080/client/metrics
+# Health at http://localhost:8080/client/health/ready
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: cloud
+      MYSQL_DATABASE: cloud
+      MYSQL_USER: cloud
+      MYSQL_PASSWORD: cloud
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --sql-mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  cloudstack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # Exercises the JSON logging path added in Phase 4 (CLOUDSTACK_LOG_FORMAT)
+      CLOUDSTACK_LOG_FORMAT: text
+      # OpenTelemetry: uncomment to export traces
+      # OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # OTEL_TRACES_EXPORTER: otlp
+      JAVA_OPTS: "-Xmx2g -Xms512m"
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    # Mount your own server.properties/db.properties to override defaults
+    # volumes:
+    #   - ./local-config/server.properties:/etc/cloudstack/management/server.properties:ro
+    #   - ./local-config/db.properties:/etc/cloudstack/management/db.properties:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/client/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+
+  # Phase 5 — new Next.js UI alongside the legacy Vue UI.
+  # Phase 5a: standalone preview (no backend wiring yet).
+  # Phase 5b+: depends_on redis + authentik, proxies to cloudstack:8080.
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_APP_ENV: local
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-phase5b-local-dev-replace-me}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-http://authentik.localhost:9000/application/o/cloudstack/}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-cloudstack-bff}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
+      CS_URL: ${CS_URL:-http://cloudstack:8080}
+      CS_SERVICE_APIKEY: ${CS_SERVICE_APIKEY:-}
+      CS_SERVICE_SECRETKEY: ${CS_SERVICE_SECRETKEY:-}
+      BFF_SESSION_TTL_SECONDS: ${BFF_SESSION_TTL_SECONDS:-28800}
+      CS_SESSION_REFRESH_MARGIN_SECONDS: ${CS_SESSION_REFRESH_MARGIN_SECONDS:-120}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Phase 5b — BFF/Auth.js session store for local development.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Phase 5b — local Authentik OIDC provider.
+  # Enable with: docker compose --profile auth up --build
+  authentik-postgres:
+    image: postgres:16-alpine
+    profiles: ["auth"]
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:-authentik}
+    volumes:
+      - authentik-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2025.4
+    profiles: ["auth"]
+    command: server
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-phase5b-local-dev-insecure-secret-key}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:-authentik}
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    networks:
+      default:
+        aliases:
+          - authentik.localhost
+    healthcheck:
+      test: ["CMD-SHELL", "ak healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2025.4
+    profiles: ["auth"]
+    command: worker
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-phase5b-local-dev-insecure-secret-key}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:-authentik}
+    volumes:
+      - authentik-media:/media
+      - authentik-templates:/templates
+
+volumes:
+  mysql-data:
+  redis-data:
+  authentik-postgres-data:
+  authentik-media:
+  authentik-templates:

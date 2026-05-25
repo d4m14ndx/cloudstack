@@ -18,7 +18,7 @@ package com.cloud.network.guru;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationService;
 

@@ -24,7 +24,7 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.lb.ApplicationLoadBalancerRuleVO;
 import org.apache.cloudstack.network.lb.InternalLoadBalancerVMManager;

@@ -16,7 +16,7 @@
 // under the License.
 package org.apache.cloudstack.storage.datastore;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.host.dao.HostDao;
 import com.cloud.hypervisor.Hypervisor;

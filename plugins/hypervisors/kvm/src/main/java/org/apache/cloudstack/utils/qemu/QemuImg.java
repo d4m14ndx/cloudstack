@@ -163,6 +163,9 @@ public class QemuImg {
         this(timeout, false, false);
     }
 
+    protected QemuImg() {
+    }
+
     /**
      * Sets the timeout of the scripts executed by this QemuImg object.
      *
@@ -978,7 +981,7 @@ public class QemuImg {
      * <br>
      * This method is a facade for 'qemu-img bitmap'.
      * <br>
-     * Currently only the {@link BitmapOperation#Remove} is implemented
+     * Currently only {@link BitmapOperation#Add} and {@link BitmapOperation#Remove} are implemented.
      *
      * @param bitmapOperation
      *         The operation to be performed
@@ -988,22 +991,66 @@ public class QemuImg {
      *         The name of the bitmap
      */
     public void bitmap(BitmapOperation bitmapOperation, QemuImgFile srcfile, String bitmapName) throws QemuImgException {
-        if (bitmapOperation != BitmapOperation.Remove) {
-            throw new QemuImgException("Operation not implemented.");
-        }
-        removeBitmap(srcfile, bitmapName);
-    }
-
-    private void removeBitmap(QemuImgFile srcFile, String bitmapName) throws QemuImgException {
-        final Script script = new Script(_qemuImgPath);
+        final Script script = newScript();
         script.add("bitmap");
-        script.add("--remove");
-        script.add(srcFile.getFileName());
+        script.add(getBitmapOperationFlag(bitmapOperation));
+        script.add(srcfile.getFileName());
         script.add(bitmapName);
 
         String result = script.execute();
         if (result != null) {
-            throw new QemuImgException(String.format("Exception while removing bitmap [%s] from file [%s]. Result is [%s].", srcFile.getFileName(), bitmapName, result));
+            throw new QemuImgException(String.format("Exception while running qemu-img bitmap operation [%s] on bitmap [%s]. Result is [%s].", bitmapOperation, bitmapName, result));
+        }
+    }
+
+    /**
+     * Perform one or more modifications of the persistent bitmap in {@code imageOptions}, including encrypted images.
+     *
+     * @param bitmapOperation
+     *         The operation to be performed
+     * @param imageOptions
+     *         Qemu style image options to identify the image, optionally including encrypted qcow2 key secret details
+     * @param qemuObjects
+     *         Qemu style objects, such as secret objects for encrypted images
+     * @param bitmapName
+     *         The name of the bitmap
+     */
+    public void bitmap(BitmapOperation bitmapOperation, QemuImageOptions imageOptions, List<QemuObject> qemuObjects, String bitmapName) throws QemuImgException {
+        executeBitmap(bitmapOperation, qemuObjects, imageOptions.toCommandFlag(), bitmapName);
+    }
+
+    private void executeBitmap(BitmapOperation bitmapOperation, List<QemuObject> qemuObjects, String[] imageCommandFlag, String bitmapName) throws QemuImgException {
+        final Script script = newScript();
+        script.add("bitmap");
+        script.add(getBitmapOperationFlag(bitmapOperation));
+
+        if (qemuObjects != null) {
+            for (QemuObject object : qemuObjects) {
+                script.add(object.toCommandFlag());
+            }
+        }
+
+        script.add(imageCommandFlag);
+        script.add(bitmapName);
+
+        String result = script.execute();
+        if (result != null) {
+            throw new QemuImgException(String.format("Exception while running qemu-img bitmap operation [%s] on bitmap [%s]. Result is [%s].", bitmapOperation, bitmapName, result));
+        }
+    }
+
+    protected Script newScript() {
+        return new Script(_qemuImgPath);
+    }
+
+    private String getBitmapOperationFlag(BitmapOperation bitmapOperation) throws QemuImgException {
+        switch (bitmapOperation) {
+            case Add:
+                return "--add";
+            case Remove:
+                return "--remove";
+            default:
+                throw new QemuImgException("Operation not implemented.");
         }
     }
 }

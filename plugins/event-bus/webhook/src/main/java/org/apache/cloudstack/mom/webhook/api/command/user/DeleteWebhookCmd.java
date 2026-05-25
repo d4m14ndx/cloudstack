@@ -17,7 +17,7 @@
 
 package org.apache.cloudstack.mom.webhook.api.command.user;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.acl.RoleType;
 import org.apache.cloudstack.api.APICommand;

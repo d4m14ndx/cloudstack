@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.resource.ResourceState;
 import org.apache.cloudstack.agent.lb.IndirectAgentLB;

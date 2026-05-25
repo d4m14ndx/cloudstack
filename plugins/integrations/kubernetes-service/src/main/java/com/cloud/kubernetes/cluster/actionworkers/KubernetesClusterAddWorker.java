@@ -49,7 +49,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.logging.log4j.Level;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;

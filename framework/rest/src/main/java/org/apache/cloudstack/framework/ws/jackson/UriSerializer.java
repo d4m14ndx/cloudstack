@@ -20,7 +20,7 @@ package org.apache.cloudstack.framework.ws.jackson;
 
 import java.io.IOException;
 
-import javax.ws.rs.core.UriBuilder;
+import jakarta.ws.rs.core.UriBuilder;
 
 import org.apache.cxf.jaxrs.impl.tl.ThreadLocalUriInfo;
 

@@ -27,7 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
-import javax.mail.MessagingException;
+import jakarta.mail.MessagingException;
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.backup.BackupManager;

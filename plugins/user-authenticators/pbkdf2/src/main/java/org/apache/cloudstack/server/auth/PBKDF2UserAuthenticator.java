@@ -23,7 +23,7 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.auth.UserAuthenticator;
 import org.apache.commons.lang3.StringUtils;

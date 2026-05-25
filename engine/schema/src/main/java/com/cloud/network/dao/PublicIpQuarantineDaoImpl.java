@@ -24,8 +24,8 @@ import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 @Component
 public class PublicIpQuarantineDaoImpl extends GenericDaoBase<PublicIpQuarantineVO, Long> implements PublicIpQuarantineDao {

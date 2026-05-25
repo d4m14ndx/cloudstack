@@ -20,11 +20,14 @@ package org.apache.cloudstack;
 
 import com.cloud.api.ApiServlet;
 import com.cloud.utils.StringUtils;
-import org.eclipse.jetty.server.NCSARequestLog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.RequestLog;
+import org.eclipse.jetty.server.RequestLogWriter;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.DateCache;
-import org.eclipse.jetty.util.component.LifeCycle;
+import org.eclipse.jetty.util.component.AbstractLifeCycle;
 
 import java.net.InetAddress;
 import java.util.Locale;
@@ -32,18 +35,30 @@ import java.util.TimeZone;
 
 import static org.apache.commons.configuration.DataConfiguration.DEFAULT_DATE_FORMAT;
 
-public class ACSRequestLog extends NCSARequestLog {
+public class ACSRequestLog extends AbstractLifeCycle implements RequestLog {
+    private static final Logger LOG = LogManager.getLogger(ACSRequestLog.class);
+
     private static final ThreadLocal<StringBuilder> buffers =
             ThreadLocal.withInitial(() -> new StringBuilder(256));
 
     private final DateCache dateCache;
+    private final RequestLogWriter writer;
 
     public ACSRequestLog() {
-        super();
-
         TimeZone timeZone = TimeZone.getTimeZone("GMT");
         Locale locale = Locale.getDefault();
         dateCache = new DateCache(DEFAULT_DATE_FORMAT, locale, timeZone);
+        writer = new RequestLogWriter();
+        writer.setTimeZone("GMT");
+        writer.setAppend(true);
+    }
+
+    public void setFilename(String filename) {
+        writer.setFilename(filename);
+    }
+
+    public void setAppend(boolean append) {
+        writer.setAppend(append);
     }
 
     @Override
@@ -66,20 +81,27 @@ public class ACSRequestLog extends NCSARequestLog {
                     .append("\" ")
                     .append(response.getStatus())
                     .append(" ")
-                    .append(response.getHttpChannel().getBytesWritten()) // apply filter here?
+                    .append(response.getHttpChannel().getBytesWritten())
                     .append(" \"-\" \"")
                     .append(request.getHeader("User-Agent"))
                     .append("\"");
 
-            write(sb.toString());
+            writer.write(sb.toString());
         } catch (Exception e) {
             LOG.warn("Unable to log request", e);
         }
     }
 
     @Override
-    protected void stop(LifeCycle lifeCycle) throws Exception {
+    protected void doStart() throws Exception {
+        writer.start();
+        super.doStart();
+    }
+
+    @Override
+    protected void doStop() throws Exception {
+        writer.stop();
         buffers.remove();
-        super.stop(lifeCycle);
+        super.doStop();
     }
 }

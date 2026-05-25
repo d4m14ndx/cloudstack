@@ -23,7 +23,7 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.QuotaEmailTemplateResponse;
 import org.apache.cloudstack.api.response.QuotaResponseBuilder;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "quotaEmailTemplateList", responseObject = QuotaEmailTemplateResponse.class, description = "Lists all quota email Templates", since = "4.7.0", requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
 public class QuotaEmailTemplateListCmd extends BaseListCmd {

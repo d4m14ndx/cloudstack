@@ -21,3 +21,15 @@ cloudstack/tools/docker/Dockerfile.smokedev
 .idea
 .git
 venv
+
+# Don't ship build outputs or local caches into the build context
+**/target
+**/node_modules
+**/.mvn
+**/*.iml
+**/.DS_Store
+docs
+ui/dist
+ui/node_modules
+tools/marvin/dist
+*.log

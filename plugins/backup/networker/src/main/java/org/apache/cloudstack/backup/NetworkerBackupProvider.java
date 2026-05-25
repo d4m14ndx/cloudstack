@@ -51,10 +51,11 @@ import org.apache.cloudstack.framework.config.Configurable;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
-import org.apache.xml.utils.URI;
 import org.apache.cloudstack.backup.networker.api.NetworkerBackup;
 
-import javax.inject.Inject;
+import java.net.URI;
+
+import jakarta.inject.Inject;
 
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
@@ -139,14 +140,11 @@ public class NetworkerBackupProvider extends AdapterBase implements BackupProvid
     private AgentManager agentMgr;
 
     private static String getUrlDomain(String url) throws URISyntaxException {
-        URI uri;
         try {
-            uri = new URI(url);
-        } catch (URI.MalformedURIException e) {
+            return new URI(url).getHost();
+        } catch (URISyntaxException e) {
             throw new CloudRuntimeException("Failed to cast URI");
         }
-
-        return uri.getHost();
     }
 
     @Override

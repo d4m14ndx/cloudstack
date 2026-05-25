@@ -36,7 +36,7 @@ import org.apache.cloudstack.api.ResourceDetail;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public abstract class ResourceDetailsDaoBase<R extends ResourceDetail> extends GenericDaoBase<R, Long> implements ResourceDetailsDao<R> {
 

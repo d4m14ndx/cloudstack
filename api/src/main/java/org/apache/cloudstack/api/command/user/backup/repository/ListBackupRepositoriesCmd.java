@@ -36,7 +36,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.backup.BackupRepository;
 import org.apache.cloudstack.backup.BackupRepositoryService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 

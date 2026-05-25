@@ -34,7 +34,7 @@ import org.apache.cloudstack.ha.HAResource;
 import org.apache.cloudstack.ha.provider.HAProvider;
 import org.apache.cloudstack.utils.identity.ManagementServerNode;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 public abstract class HAAbstractHostProvider extends AdapterBase implements HAProvider<Host> {
 

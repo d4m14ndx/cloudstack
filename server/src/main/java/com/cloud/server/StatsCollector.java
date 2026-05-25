@@ -44,7 +44,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.utils.DateUtil;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;

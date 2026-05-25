@@ -20,7 +20,7 @@ package org.apache.cloudstack.api;
 import java.util.EnumSet;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.InvalidParameterValueException;
 import org.apache.cloudstack.acl.RoleType;

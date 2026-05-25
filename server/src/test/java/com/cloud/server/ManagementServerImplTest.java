@@ -17,7 +17,6 @@
 package com.cloud.server;
 
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -32,12 +31,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
-import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -50,17 +46,17 @@ import java.util.List;
 
 import org.apache.cloudstack.annotation.dao.AnnotationDao;
 import org.apache.cloudstack.api.ApiConstants;
-import org.apache.cloudstack.api.BaseCmd;
+import org.apache.cloudstack.api.command.admin.cluster.ListClustersCmd;
 import org.apache.cloudstack.api.command.admin.config.ListCfgsByCmd;
+import org.apache.cloudstack.api.command.admin.pod.ListPodsByCmd;
+import org.apache.cloudstack.api.command.admin.vlan.ListVlanIpRangesCmd;
 import org.apache.cloudstack.api.command.admin.guest.AddGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.DeleteGuestOsCategoryCmd;
 import org.apache.cloudstack.api.command.admin.guest.UpdateGuestOsCategoryCmd;
+import org.apache.cloudstack.api.command.admin.host.ListHostsCmd;
 import org.apache.cloudstack.api.command.user.address.ListPublicIpAddressesCmd;
 import org.apache.cloudstack.api.command.user.guest.ListGuestOsCategoriesCmd;
 import org.apache.cloudstack.api.command.user.ssh.RegisterSSHKeyPairCmd;
-import org.apache.cloudstack.api.command.user.userdata.DeleteUserDataCmd;
-import org.apache.cloudstack.api.command.user.userdata.ListUserDataCmd;
-import org.apache.cloudstack.api.command.user.userdata.RegisterUserDataCmd;
 import org.apache.cloudstack.config.Configuration;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStore;
@@ -70,10 +66,13 @@ import org.apache.cloudstack.framework.config.ConfigKey;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.config.impl.ConfigurationVO;
 import org.apache.cloudstack.framework.extensions.manager.ExtensionsManager;
-import org.apache.cloudstack.userdata.UserDataManager;
-
 import com.cloud.cpu.CPU;
+import com.cloud.dc.ClusterVO;
+import com.cloud.dc.Pod;
+import com.cloud.dc.Vlan;
 import com.cloud.dc.Vlan.VlanType;
+import com.cloud.dc.dao.VlanDao;
+import com.cloud.dc.dao.VlanDetailsDao;
 import com.cloud.domain.dao.DomainDao;
 import com.cloud.api.ApiDBUtils;
 import com.cloud.exception.InvalidParameterValueException;
@@ -82,29 +81,40 @@ import com.cloud.host.Host;
 import com.cloud.host.HostVO;
 import com.cloud.host.dao.HostDetailsDao;
 import com.cloud.network.IpAddress;
+import com.cloud.network.IpAddressManager;
 import com.cloud.network.IpAddressManagerImpl;
+import com.cloud.network.NetworkModel;
+import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
+import com.cloud.network.dao.LoadBalancerDao;
+import com.cloud.network.dao.NetworkAccountDao;
+import com.cloud.network.dao.NetworkDao;
+import com.cloud.network.dao.NetworkDomainDao;
+import org.apache.cloudstack.resourcedetail.dao.GuestOsDetailsDao;
+
+import com.cloud.agent.AgentManager;
+import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.dao.HypervisorCapabilitiesDao;
+import com.cloud.network.vpc.dao.VpcDao;
 import com.cloud.storage.GuestOSCategoryVO;
 import com.cloud.storage.GuestOSVO;
 import com.cloud.storage.GuestOsCategory;
-import com.cloud.storage.VMTemplateVO;
+import com.cloud.storage.StoragePool;
 import com.cloud.storage.dao.GuestOSCategoryDao;
 import com.cloud.storage.dao.GuestOSDao;
+import com.cloud.storage.dao.GuestOSHypervisorDao;
 import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.tags.dao.ResourceTagDao;
 import com.cloud.user.Account;
 import com.cloud.user.AccountManager;
 import com.cloud.user.SSHKeyPair;
 import com.cloud.user.SSHKeyPairVO;
 import com.cloud.user.User;
-import com.cloud.user.UserData;
-import com.cloud.user.UserDataVO;
 import com.cloud.user.dao.SSHKeyPairDao;
-import com.cloud.user.dao.UserDataDao;
 import com.cloud.utils.Pair;
 import com.cloud.utils.db.Filter;
 import com.cloud.utils.db.SearchBuilder;
 import com.cloud.utils.db.SearchCriteria;
-import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.vm.UserVmVO;
 import com.cloud.vm.VMInstanceDetailVO;
 import com.cloud.vm.VirtualMachine;
@@ -140,9 +150,6 @@ public class ManagementServerImplTest {
     AccountManager accountManager;
 
     @Mock
-    UserDataDao userDataDao;
-
-    @Mock
     VMTemplateDao templateDao;
 
     @Mock
@@ -150,9 +157,6 @@ public class ManagementServerImplTest {
 
     @Mock
     UserVmDao userVmDao;
-
-    @Mock
-    UserDataManager userDataManager;
 
     @Mock
     VMInstanceDetailsDao vmInstanceDetailsDao;
@@ -176,11 +180,72 @@ public class ManagementServerImplTest {
     GuestOSDao guestOSDao;
 
     @Mock
+    GuestOSHypervisorDao guestOSHypervisorDao;
+
+    @Mock
+    HypervisorCapabilitiesDao hypervisorCapabilitiesDao;
+
+    @Mock
+    GuestOsDetailsDao guestOsDetailsDao;
+
+    @Mock
+    AgentManager agentMgr;
+
+    @Mock
+    HostDao hostDao;
+
+    @Mock
     ExtensionsManager extensionManager;
 
-    @Spy
-    @InjectMocks
-    ManagementServerImpl spy = new ManagementServerImpl();
+    @Mock
+    UserDataRegistryService userDataRegistryService;
+
+    @Mock
+    ClusterHostQueryService clusterHostQueryService;
+
+    @Mock
+    VolumeStoragePoolMigrationService volumeStoragePoolMigrationService;
+
+    @Mock
+    PodVlanListingService podVlanListingService;
+
+    @Mock
+    IPAddressDao publicIpAddressDao;
+
+    @Mock
+    VlanDao vlanDao;
+
+    @Mock
+    VlanDetailsDao vlanDetailsDao;
+
+    @Mock
+    NetworkDao networkDao;
+
+    @Mock
+    LoadBalancerDao loadBalancerDao;
+
+    @Mock
+    ResourceTagDao resourceTagDao;
+
+    @Mock
+    IpAddressManager ipAddressManager;
+
+    @Mock
+    NetworkAccountDao networkAccountDao;
+
+    @Mock
+    NetworkDomainDao networkDomainDao;
+
+    @Mock
+    NetworkModel networkModel;
+
+    @Mock
+    VpcDao vpcDao;
+
+    @Mock
+    com.cloud.user.dao.AccountDao accountDao;
+
+    ManagementServerImpl spy;
 
     @Mock
     HostAllocator hostAllocator;
@@ -203,20 +268,120 @@ public class ManagementServerImplTest {
     @Mock
     DeploymentPlanningManager deploymentPlanningManagerMock;
 
-    private AutoCloseable closeable;
     private MockedStatic<ApiDBUtils> apiDBUtilsMock;
 
     @Before
     public void setup() throws IllegalAccessException, NoSuchFieldException {
-        closeable = MockitoAnnotations.openMocks(this);
         CallContext.register(Mockito.mock(User.class), Mockito.mock(Account.class));
+        spy = Mockito.spy(new ManagementServerImpl());
         spy._accountMgr = accountManager;
-        spy.userDataDao = userDataDao;
         spy.templateDao = templateDao;
         spy._userVmDao = userVmDao;
-        spy.annotationDao = annotationDao;
+        spy._vmInstanceDetailsDao = vmInstanceDetailsDao;
         spy._detailsDao = hostDetailsDao;
-        spy.userDataManager = userDataManager;
+        ReflectionTestUtils.setField(spy, "_dpMgr", deploymentPlanningManagerMock);
+        ReflectionTestUtils.setField(spy, "extensionsManager", extensionManager);
+        ReflectionTestUtils.setField(spy, "userDataRegistryService", userDataRegistryService);
+
+        // SSH keypair slice: wire a real SshKeyPairServiceImpl backed by the
+        // same SSHKeyPairDao mock the existing register tests use, so the
+        // registerSSHKeyPair orchestration (which still lives on the god
+        // class) continues to call the real key-existence / persistence
+        // logic through its delegating wrappers.
+        SshKeyPairServiceImpl sshKeyPairService = new SshKeyPairServiceImpl();
+        ReflectionTestUtils.setField(sshKeyPairService, "sshKeyPairDao", sshKeyPairDao);
+        ReflectionTestUtils.setField(sshKeyPairService, "accountManager", accountManager);
+        ReflectionTestUtils.setField(sshKeyPairService, "annotationDao", annotationDao);
+        ReflectionTestUtils.setField(spy, "sshKeyPairService", sshKeyPairService);
+
+        // Audit-trail slice: wire a mock AuditTrailService so the
+        // archiveEvents/deleteEvents/searchForAlerts/archiveAlerts/
+        // deleteAlerts/listEventTypes delegating wrappers on the god class
+        // have a non-null collaborator. No existing tests exercise these
+        // methods yet; the focused tests live in AuditTrailServiceImplTest.
+        AuditTrailService auditTrailServiceMock = Mockito.mock(AuditTrailService.class);
+        ReflectionTestUtils.setField(spy, "auditTrailService", auditTrailServiceMock);
+
+        // Hypervisor capabilities slice: wire a mock
+        // HypervisorCapabilitiesService so the listHypervisorCapabilities
+        // and updateHypervisorCapabilities delegating wrappers on the god
+        // class have a non-null collaborator. Focused tests live in
+        // HypervisorCapabilitiesServiceImplTest.
+        HypervisorCapabilitiesService hypervisorCapabilitiesServiceMock =
+                Mockito.mock(HypervisorCapabilitiesService.class);
+        ReflectionTestUtils.setField(spy, "hypervisorCapabilitiesService",
+                hypervisorCapabilitiesServiceMock);
+
+        // System VM lifecycle slice: wire a mock SystemVmLifecycleService so
+        // the startSystemVM/stopSystemVM/rebootSystemVM/destroySystemVM/
+        // findSystemVMTypeById delegating wrappers on the god class have a
+        // non-null collaborator. Focused tests live in
+        // SystemVmLifecycleServiceImplTest.
+        SystemVmLifecycleService systemVmLifecycleServiceMock =
+                Mockito.mock(SystemVmLifecycleService.class);
+        ReflectionTestUtils.setField(spy, "systemVmLifecycleService",
+                systemVmLifecycleServiceMock);
+
+        // Configuration listing slice: wire a real ConfigurationListingServiceImpl
+        // backed by the existing configDao/configDepot/accountManager/domainDao mocks
+        // so the searchForConfigurations/listConfigurationGroups delegating wrappers
+        // on the god class have a non-null collaborator.  Focused tests live in
+        // ConfigurationListingServiceImplTest.
+        ConfigurationListingServiceImpl configurationListingServiceImpl =
+                new ConfigurationListingServiceImpl();
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configDao", configDao);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configGroupDao",
+                Mockito.mock(org.apache.cloudstack.framework.config.dao.ConfigurationGroupDao.class));
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configSubGroupDao",
+                Mockito.mock(org.apache.cloudstack.framework.config.dao.ConfigurationSubGroupDao.class));
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "configDepot", configDepot);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "accountManager", accountManager);
+        ReflectionTestUtils.setField(configurationListingServiceImpl, "domainDao", domainDao);
+        ReflectionTestUtils.setField(spy, "configurationListingService",
+                configurationListingServiceImpl);
+
+        // Infrastructure usage slice: wire a mock InfrastructureUsageService so
+        // the listCapacities/listTopConsumedResources/getMemoryOrCpuCapacityByHost
+        // delegating wrappers on the god class have a non-null collaborator.
+        // Focused tests live in InfrastructureUsageServiceImplTest.
+        InfrastructureUsageService infrastructureUsageServiceMock =
+                Mockito.mock(InfrastructureUsageService.class);
+        ReflectionTestUtils.setField(spy, "infrastructureUsageService",
+                infrastructureUsageServiceMock);
+
+        // GuestOS management slice: wire a real GuestOsManagementServiceImpl
+        // backed by the DAO mocks so that the delegating wrappers on the god
+        // class exercise the real logic in the migrated tests.
+        GuestOsManagementServiceImpl guestOsManagementService = new GuestOsManagementServiceImpl();
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSDao", guestOSDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSCategoryDao", guestOSCategoryDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOSHypervisorDao", guestOSHypervisorDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "hypervisorCapabilitiesDao", hypervisorCapabilitiesDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "guestOsDetailsDao", guestOsDetailsDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "agentMgr", agentMgr);
+        ReflectionTestUtils.setField(guestOsManagementService, "hostDao", hostDao);
+        ReflectionTestUtils.setField(guestOsManagementService, "templateDao", templateDao);
+        ReflectionTestUtils.setField(spy, "guestOsManagementService", guestOsManagementService);
+        ReflectionTestUtils.setField(spy, "clusterHostQueryService", clusterHostQueryService);
+        ReflectionTestUtils.setField(spy, "volumeStoragePoolMigrationService", volumeStoragePoolMigrationService);
+        ReflectionTestUtils.setField(spy, "podVlanListingService", podVlanListingService);
+
+        PublicIpAddressSearchServiceImpl publicIpAddressSearchService = new PublicIpAddressSearchServiceImpl();
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountMgr", accountManager);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_publicIpAddressDao", publicIpAddressDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_vlanDao", vlanDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "vlanDetailsDao", vlanDetailsDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_domainDao", domainDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_accountDao", accountDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "networkDao", networkDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_loadbalancerDao", loadBalancerDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_resourceTagDao", resourceTagDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_ipAddressMgr", ipAddressManager);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkAccountDao", networkAccountDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkDomainDao", networkDomainDao);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_networkMgr", networkModel);
+        ReflectionTestUtils.setField(publicIpAddressSearchService, "_vpcDao", vpcDao);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
 
         spy.setHostAllocators(List.of(hostAllocator));
 
@@ -233,7 +398,6 @@ public class ManagementServerImplTest {
             apiDBUtilsMock.close();
         }
         CallContext.unregister();
-        closeable.close();
     }
 
     private void overrideDefaultConfigValue(final ConfigKey configKey, final String name, final Object o) throws IllegalAccessException, NoSuchFieldException {
@@ -257,7 +421,7 @@ public class ManagementServerImplTest {
         Mockito.doReturn(publicKeyString).when(regCmd).getPublicKey();
         Mockito.doReturn("name").when(regCmd).getName();
 
-        spy._sshKeyPairDao = sshKeyPairDao;
+        // SSH keypair DAO is wired into the SshKeyPairServiceImpl in setUp()
         Mockito.doReturn(1L).when(account).getAccountId();
         Mockito.doReturn(1L).when(account).getDomainId();
         Mockito.doReturn(Mockito.mock(SSHKeyPairVO.class)).when(sshKeyPairDao).persist(any(SSHKeyPairVO.class));
@@ -276,7 +440,7 @@ public class ManagementServerImplTest {
 
         Mockito.lenient().doReturn(1L).when(account).getAccountId();
         Mockito.doReturn(1L).when(account).getAccountId();
-        spy._sshKeyPairDao = sshKeyPairDao;
+        // SSH keypair DAO is wired into the SshKeyPairServiceImpl in setUp()
 
 
         //Mocking the DAO object functions - NO object found in DB
@@ -385,253 +549,31 @@ public class ManagementServerImplTest {
     }
 
     @Test
-    public void testSuccessfulRegisterUserdata() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(account.getAccountId()).thenReturn(1L);
-            when(account.getDomainId()).thenReturn(2L);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
+    public void testSearchForIPAddressesDelegatesToPublicIpAddressSearchService() {
+        PublicIpAddressSearchService publicIpAddressSearchService = Mockito.mock(PublicIpAddressSearchService.class);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
+        ListPublicIpAddressesCmd cmd = Mockito.mock(ListPublicIpAddressesCmd.class);
+        Pair<List<? extends IpAddress>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(publicIpAddressSearchService.searchForIPAddresses(cmd)).thenReturn(expected);
 
-            String testUserData = "testUserdata";
-            RegisterUserDataCmd cmd = Mockito.mock(RegisterUserDataCmd.class);
-            when(cmd.getUserData()).thenReturn(testUserData);
-            when(cmd.getName()).thenReturn("testName");
-            when(cmd.getHttpMethod()).thenReturn(BaseCmd.HTTPMethod.GET);
+        Pair<List<? extends IpAddress>, Integer> result = spy.searchForIPAddresses(cmd);
 
-            when(userDataDao.findByName(account.getAccountId(), account.getDomainId(), "testName")).thenReturn(null);
-            when(userDataDao.findByUserData(account.getAccountId(), account.getDomainId(), testUserData)).thenReturn(null);
-            when(userDataManager.validateUserData(testUserData, BaseCmd.HTTPMethod.GET)).thenReturn(testUserData);
-
-            UserData userData = spy.registerUserData(cmd);
-            Assert.assertEquals("testName", userData.getName());
-            Assert.assertEquals("testUserdata", userData.getUserData());
-            Assert.assertEquals(1L, userData.getAccountId());
-            Assert.assertEquals(2L, userData.getDomainId());
-        }
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testRegisterExistingUserdata() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(account.getAccountId()).thenReturn(1L);
-            when(account.getDomainId()).thenReturn(2L);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
-
-            RegisterUserDataCmd cmd = Mockito.mock(RegisterUserDataCmd.class);
-            when(cmd.getUserData()).thenReturn("testUserdata");
-            when(cmd.getName()).thenReturn("testName");
-
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-            when(userDataDao.findByName(account.getAccountId(), account.getDomainId(), "testName")).thenReturn(null);
-            when(userDataDao.findByUserData(account.getAccountId(), account.getDomainId(), "testUserdata")).thenReturn(userData);
-
-            spy.registerUserData(cmd);
-        }
-    }
-
-    @Test(expected = InvalidParameterValueException.class)
-    public void testRegisterExistingName() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(account.getAccountId()).thenReturn(1L);
-            when(account.getDomainId()).thenReturn(2L);
-            Mockito.when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
-
-            RegisterUserDataCmd cmd = Mockito.mock(RegisterUserDataCmd.class);
-            when(cmd.getName()).thenReturn("testName");
-
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-            when(userDataDao.findByName(account.getAccountId(), account.getDomainId(), "testName")).thenReturn(userData);
-
-            spy.registerUserData(cmd);
-        }
+        Assert.assertSame(expected, result);
+        Mockito.verify(publicIpAddressSearchService).searchForIPAddresses(cmd);
     }
 
     @Test
-    public void testSuccessfulDeleteUserdata() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
+    public void testGetStatesForIpAddressSearchDelegatesToPublicIpAddressSearchService() {
+        PublicIpAddressSearchService publicIpAddressSearchService = Mockito.mock(PublicIpAddressSearchService.class);
+        ReflectionTestUtils.setField(spy, "publicIpAddressSearchService", publicIpAddressSearchService);
+        ListPublicIpAddressesCmd cmd = Mockito.mock(ListPublicIpAddressesCmd.class);
+        List<IpAddress.State> expected = Collections.singletonList(IpAddress.State.Allocated);
+        Mockito.when(publicIpAddressSearchService.getStatesForIpAddressSearch(cmd)).thenReturn(expected);
 
-            DeleteUserDataCmd cmd = Mockito.mock(DeleteUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getId()).thenReturn(1L);
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
+        List<IpAddress.State> result = spy.getStatesForIpAddressSearch(cmd);
 
-            Mockito.when(userData.getId()).thenReturn(1L);
-            when(userDataDao.findById(1L)).thenReturn(userData);
-            when(templateDao.findTemplatesLinkedToUserdata(1L)).thenReturn(new ArrayList<VMTemplateVO>());
-            when(userVmDao.findByUserDataId(1L)).thenReturn(new ArrayList<UserVmVO>());
-            when(userDataDao.remove(1L)).thenReturn(true);
-
-            boolean result = spy.deleteUserData(cmd);
-            Assert.assertEquals(true, result);
-        }
-    }
-
-    @Test(expected = CloudRuntimeException.class)
-    public void testDeleteUserdataLinkedToTemplate() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
-
-            DeleteUserDataCmd cmd = Mockito.mock(DeleteUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getId()).thenReturn(1L);
-
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-            Mockito.when(userData.getId()).thenReturn(1L);
-            when(userDataDao.findById(1L)).thenReturn(userData);
-
-            VMTemplateVO vmTemplateVO = Mockito.mock(VMTemplateVO.class);
-            List<VMTemplateVO> linkedTemplates = new ArrayList<>();
-            linkedTemplates.add(vmTemplateVO);
-            when(templateDao.findTemplatesLinkedToUserdata(1L)).thenReturn(linkedTemplates);
-
-            spy.deleteUserData(cmd);
-        }
-    }
-
-    @Test(expected = CloudRuntimeException.class)
-    public void testDeleteUserdataUsedByVM() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-            when(accountManager.finalizeOwner(nullable(Account.class), nullable(String.class), nullable(Long.class), nullable(Long.class))).thenReturn(account);
-
-            DeleteUserDataCmd cmd = Mockito.mock(DeleteUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getId()).thenReturn(1L);
-
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-            Mockito.when(userData.getId()).thenReturn(1L);
-            when(userDataDao.findById(1L)).thenReturn(userData);
-
-            when(templateDao.findTemplatesLinkedToUserdata(1L)).thenReturn(new ArrayList<VMTemplateVO>());
-
-            UserVmVO userVmVO = Mockito.mock(UserVmVO.class);
-            List<UserVmVO> vms = new ArrayList<>();
-            vms.add(userVmVO);
-            when(userVmDao.findByUserDataId(1L)).thenReturn(vms);
-
-            spy.deleteUserData(cmd);
-        }
-    }
-
-    @Test
-    public void testListUserDataById() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);;
-
-            ListUserDataCmd cmd = Mockito.mock(ListUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getId()).thenReturn(1L);
-            when(cmd.isRecursive()).thenReturn(false);
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-
-            SearchBuilder<UserDataVO> sb = Mockito.mock(SearchBuilder.class);
-            when(userDataDao.createSearchBuilder()).thenReturn(sb);
-            when(sb.entity()).thenReturn(userData);
-
-            SearchCriteria<UserDataVO> sc = Mockito.mock(SearchCriteria.class);
-            when(sb.create()).thenReturn(sc);
-
-            List<UserDataVO> userDataList = new ArrayList<UserDataVO>();
-            userDataList.add(userData);
-            Pair<List<UserDataVO>, Integer> result = new Pair(userDataList, 1);
-            when(userDataDao.searchAndCount(nullable(SearchCriteria.class), nullable(Filter.class))).thenReturn(result);
-
-            Pair<List<? extends UserData>, Integer> userdataResultList = spy.listUserDatas(cmd, false);
-
-            Assert.assertEquals(userdataResultList.first().get(0), userDataList.get(0));
-        }
-    }
-
-    @Test
-    public void testListUserDataByName() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-
-            ListUserDataCmd cmd = Mockito.mock(ListUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getName()).thenReturn("testSearchUserdataName");
-            when(cmd.isRecursive()).thenReturn(false);
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-
-            SearchBuilder<UserDataVO> sb = Mockito.mock(SearchBuilder.class);
-            when(userDataDao.createSearchBuilder()).thenReturn(sb);
-            when(sb.entity()).thenReturn(userData);
-
-            SearchCriteria<UserDataVO> sc = Mockito.mock(SearchCriteria.class);
-            when(sb.create()).thenReturn(sc);
-
-            List<UserDataVO> userDataList = new ArrayList<UserDataVO>();
-            userDataList.add(userData);
-            Pair<List<UserDataVO>, Integer> result = new Pair(userDataList, 1);
-            when(userDataDao.searchAndCount(nullable(SearchCriteria.class), nullable(Filter.class))).thenReturn(result);
-
-            Pair<List<? extends UserData>, Integer> userdataResultList = spy.listUserDatas(cmd, false);
-
-            Assert.assertEquals(userdataResultList.first().get(0), userDataList.get(0));
-        }
-    }
-
-    @Test
-    public void testListUserDataByKeyword() {
-        try (MockedStatic<CallContext> ignored = Mockito.mockStatic(CallContext.class)) {
-            CallContext callContextMock = Mockito.mock(CallContext.class);
-            when(CallContext.current()).thenReturn(callContextMock);
-            when(callContextMock.getCallingAccount()).thenReturn(account);
-
-            ListUserDataCmd cmd = Mockito.mock(ListUserDataCmd.class);
-            when(cmd.getAccountName()).thenReturn("testAccountName");
-            when(cmd.getDomainId()).thenReturn(1L);
-            when(cmd.getProjectId()).thenReturn(2L);
-            when(cmd.getKeyword()).thenReturn("testSearchUserdataKeyword");
-            when(cmd.isRecursive()).thenReturn(false);
-            UserDataVO userData = Mockito.mock(UserDataVO.class);
-
-            SearchBuilder<UserDataVO> sb = Mockito.mock(SearchBuilder.class);
-            when(userDataDao.createSearchBuilder()).thenReturn(sb);
-            when(sb.entity()).thenReturn(userData);
-
-            SearchCriteria<UserDataVO> sc = Mockito.mock(SearchCriteria.class);
-            when(sb.create()).thenReturn(sc);
-
-            List<UserDataVO> userDataList = new ArrayList<UserDataVO>();
-            userDataList.add(userData);
-            Pair<List<UserDataVO>, Integer> result = new Pair(userDataList, 1);
-            when(userDataDao.searchAndCount(nullable(SearchCriteria.class), nullable(Filter.class))).thenReturn(result);
-
-            Pair<List<? extends UserData>, Integer> userdataResultList = spy.listUserDatas(cmd, false);
-
-            Assert.assertEquals(userdataResultList.first().get(0), userDataList.get(0));
-        }
+        Assert.assertSame(expected, result);
+        Mockito.verify(publicIpAddressSearchService).getStatesForIpAddressSearch(cmd);
     }
 
     private UserVmVO mockFilterUefiHostsTestVm(String uefiValue) {
@@ -1089,5 +1031,121 @@ public class ManagementServerImplTest {
         spy.getCapableSuitableHosts(virtualMachineMock, virtualMachineProfileMock, dataCenterDeploymentMock, compatibleHosts, excludeListMock, hostMock);
 
         apiDBUtilsMock.verify(() -> ApiDBUtils.listZoneClustersArchs(Mockito.anyLong()), Mockito.never());
+    }
+
+    @Test
+    public void searchForClustersWrapperDelegatesToService() {
+        List<? extends com.cloud.org.Cluster> expected = List.of(Mockito.mock(ClusterVO.class));
+        Mockito.doReturn(expected).when(clusterHostQueryService).searchForClusters(11L, 2L, 20L, "KVM");
+
+        List<? extends com.cloud.org.Cluster> result = spy.searchForClusters(11L, 2L, 20L, "KVM");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForClusters(11L, 2L, 20L, "KVM");
+    }
+
+    @Test
+    public void searchForClustersCmdWrapperDelegatesToService() {
+        ListClustersCmd cmd = Mockito.mock(ListClustersCmd.class);
+        Pair<List<? extends com.cloud.org.Cluster>, Integer> expected = new Pair<>(List.of(Mockito.mock(ClusterVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForClusters(cmd)).thenReturn(expected);
+
+        Pair<List<? extends com.cloud.org.Cluster>, Integer> result = spy.searchForClusters(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForClusters(cmd);
+    }
+
+    @Test
+    public void searchForServersCmdWrapperDelegatesToService() {
+        ListHostsCmd cmd = Mockito.mock(ListHostsCmd.class);
+        Pair<List<? extends Host>, Integer> expected = new Pair<>(List.of(Mockito.mock(HostVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForServers(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Host>, Integer> result = spy.searchForServers(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForServers(cmd);
+    }
+
+    @Test
+    public void searchForServersHelperWrapperDelegatesToService() {
+        Pair<List<HostVO>, Integer> expected = new Pair<>(List.of(Mockito.mock(HostVO.class)), 1);
+        Mockito.when(clusterHostQueryService.searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L)).thenReturn(expected);
+
+        Pair<List<HostVO>, Integer> result = spy.searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(clusterHostQueryService).searchForServers(1L, 10L, "host-a", "Routing", "Up", 2L, 3L, 4L, 5L, "kw",
+                "Enabled", Boolean.TRUE, "KVM", "8.0", 99L);
+    }
+
+    @Test
+    public void listStoragePoolsForMigrationOfVolumeWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForMigrationOfVolume(11L, "fast")).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForMigrationOfVolume(11L, "fast");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForMigrationOfVolume(11L, "fast");
+    }
+
+    @Test
+    public void listStoragePoolsForSystemMigrationOfVolumeWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForSystemMigrationOfVolume(
+                11L, 22L, 33L, 44L, 55L, true, false)).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForSystemMigrationOfVolume(11L, 22L, 33L, 44L, 55L, true, false);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForSystemMigrationOfVolume(
+                11L, 22L, 33L, 44L, 55L, true, false);
+    }
+
+    @Test
+    public void listStoragePoolsForMigrationOfVolumeInternalWrapperDelegatesToService() {
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> expected =
+                new Pair<>(List.of(Mockito.mock(StoragePool.class)), List.of(Mockito.mock(StoragePool.class)));
+        Mockito.when(volumeStoragePoolMigrationService.listStoragePoolsForMigrationOfVolumeInternal(
+                11L, 22L, 33L, 44L, 55L, true, false, true, "fast")).thenReturn(expected);
+
+        Pair<List<? extends StoragePool>, List<? extends StoragePool>> result =
+                spy.listStoragePoolsForMigrationOfVolumeInternal(11L, 22L, 33L, 44L, 55L, true, false, true, "fast");
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(volumeStoragePoolMigrationService).listStoragePoolsForMigrationOfVolumeInternal(
+                11L, 22L, 33L, 44L, 55L, true, false, true, "fast");
+    }
+
+    @Test
+    public void searchForPodsWrapperDelegatesToPodVlanListingService() {
+        ListPodsByCmd cmd = Mockito.mock(ListPodsByCmd.class);
+        Pair<List<? extends Pod>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(podVlanListingService.searchForPods(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Pod>, Integer> result = spy.searchForPods(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(podVlanListingService).searchForPods(cmd);
+    }
+
+    @Test
+    public void searchForVlansWrapperDelegatesToPodVlanListingService() {
+        ListVlanIpRangesCmd cmd = Mockito.mock(ListVlanIpRangesCmd.class);
+        Pair<List<? extends Vlan>, Integer> expected = new Pair<>(Collections.emptyList(), 0);
+        Mockito.when(podVlanListingService.searchForVlans(cmd)).thenReturn(expected);
+
+        Pair<List<? extends Vlan>, Integer> result = spy.searchForVlans(cmd);
+
+        Assert.assertSame(expected, result);
+        Mockito.verify(podVlanListingService).searchForVlans(cmd);
     }
 }

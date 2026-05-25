@@ -26,7 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.dc.dao.ClusterDao;
@@ -102,10 +102,6 @@ public class OutOfBandManagementServiceImpl extends ManagerBase implements OutOf
 
     private static Cache<Long, Long> hostAlertCache;
     private static ExecutorService backgroundSyncBlockingExecutor;
-
-    private String getOutOfBandManagementHostLock(long id) {
-        return "oobm.host." + id;
-    }
 
     private void initializeDriversMap() {
         if (outOfBandManagementDriversMap.isEmpty() && outOfBandManagementDrivers != null && outOfBandManagementDrivers.size() > 0) {

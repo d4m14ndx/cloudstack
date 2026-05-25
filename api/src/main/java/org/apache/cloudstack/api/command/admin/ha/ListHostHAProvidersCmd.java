@@ -37,7 +37,7 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.ha.HAConfigManager;
 import org.apache.cloudstack.ha.HAResource;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;

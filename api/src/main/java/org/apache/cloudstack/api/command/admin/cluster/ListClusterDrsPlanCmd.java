@@ -28,7 +28,7 @@ import org.apache.cloudstack.api.response.ClusterResponse;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.cluster.ClusterDrsService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listClusterDrsPlan", description = "List DRS plans for a clusters",
             responseObject = ClusterDrsPlanResponse.class, since = "4.19.0", requestHasSensitiveInfo = false)

@@ -25,7 +25,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.event.ActionEventUtils;
 import org.apache.cloudstack.context.CallContext;

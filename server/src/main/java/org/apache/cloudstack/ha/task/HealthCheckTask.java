@@ -24,7 +24,7 @@ import org.apache.cloudstack.ha.HAResourceCounter;
 import org.apache.cloudstack.ha.provider.HACheckerException;
 import org.apache.cloudstack.ha.provider.HAProvider;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.concurrent.ExecutorService;
 
 public class HealthCheckTask extends BaseHATask {

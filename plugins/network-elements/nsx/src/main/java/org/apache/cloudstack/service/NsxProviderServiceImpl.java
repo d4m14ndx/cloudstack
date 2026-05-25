@@ -46,7 +46,7 @@ import org.apache.cloudstack.engine.orchestration.service.NetworkOrchestrationSe
 import org.apache.cloudstack.resource.NsxResource;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 import java.util.ArrayList;
 import java.util.List;

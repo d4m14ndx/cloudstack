@@ -36,7 +36,7 @@ import org.apache.cloudstack.api.response.VolumeForImportResponse;
 import org.apache.cloudstack.storage.volume.VolumeImportUnmanageService;
 import org.apache.cloudstack.storage.volume.VolumeOnStorageTO;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listVolumesForImport",
         description = "Lists unmanaged volumes on a storage pool",

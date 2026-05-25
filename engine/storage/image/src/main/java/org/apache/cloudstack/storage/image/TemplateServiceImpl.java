@@ -29,7 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.StorageUnavailableException;
 import org.apache.cloudstack.context.CallContext;

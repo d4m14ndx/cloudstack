@@ -50,16 +50,16 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.naming.ConfigurationException;
-import javax.persistence.AttributeConverter;
-import javax.persistence.AttributeOverride;
-import javax.persistence.Column;
-import javax.persistence.Convert;
-import javax.persistence.EmbeddedId;
-import javax.persistence.EntityExistsException;
-import javax.persistence.EnumType;
-import javax.persistence.Enumerated;
-import javax.persistence.Table;
-import javax.persistence.TableGenerator;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.EntityExistsException;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
+import jakarta.persistence.TableGenerator;
 
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.ObjectUtils;
@@ -80,12 +80,12 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.Ip;
 import com.cloud.utils.net.NetUtils;
 
-import net.sf.cglib.proxy.Callback;
-import net.sf.cglib.proxy.CallbackFilter;
-import net.sf.cglib.proxy.Enhancer;
-import net.sf.cglib.proxy.Factory;
-import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.NoOp;
+import org.springframework.cglib.proxy.Callback;
+import org.springframework.cglib.proxy.CallbackFilter;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.Factory;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.cglib.proxy.NoOp;
 import net.sf.ehcache.Cache;
 import net.sf.ehcache.CacheManager;
 import net.sf.ehcache.Element;
@@ -513,7 +513,7 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
                 if (st == SelectType.Entity) {
                     results.add((M)toEntityBean(rs, false));
                 } else if (st == SelectType.Fields || st == SelectType.Result) {
-                    M m = sc.getResultType().newInstance();
+                    M m = sc.getResultType().getDeclaredConstructor().newInstance();
                     for (int j = 1; j <= fields.size(); j++) {
                         setField(m, fields.get(j - 1), rs, j);
                     }
@@ -1908,11 +1908,13 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
     protected T toVO(ResultSet result, boolean cache) throws SQLException {
         T entity;
         try {
-            entity = _entityBeanType.newInstance();
+            entity = _entityBeanType.getDeclaredConstructor().newInstance();
         } catch (InstantiationException e1) {
             throw new CloudRuntimeException("Unable to instantiate entity", e1);
         } catch (IllegalAccessException e1) {
             throw new CloudRuntimeException("Illegal Access", e1);
+        } catch (ReflectiveOperationException e1) {
+            throw new CloudRuntimeException("Unable to instantiate entity", e1);
         }
         toEntityBean(result, entity);
         if (cache && _cache != null) {
@@ -1987,12 +1989,14 @@ public abstract class GenericDaoBase<T, ID extends Serializable> extends Compone
                     }
                 } else {
                     try {
-                        Collection coll = (Collection) ec.rawClass.newInstance();
+                        Collection coll = (Collection) ec.rawClass.getDeclaredConstructor().newInstance();
                         coll.addAll(lst);
                         attr.field.set(entity, coll);
                     } catch (IllegalAccessException e) {
                         throw new CloudRuntimeException("Come on we screen for this stuff, don't we?", e);
                     } catch (InstantiationException e) {
+                        throw new CloudRuntimeException("Never should happen", e);
+                    } catch (ReflectiveOperationException e) {
                         throw new CloudRuntimeException("Never should happen", e);
                     }
                 }

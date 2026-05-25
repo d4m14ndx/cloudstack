@@ -39,9 +39,7 @@ public class PhysicalNetworkTrafficTypeDaoImpl extends GenericDaoBase<PhysicalNe
     final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> xenAllFieldsSearch;
     final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> vmWareAllFieldsSearch;
     final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> simulatorAllFieldsSearch;
-    final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> ovmAllFieldsSearch;
     final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> hypervAllFieldsSearch;
-    final GenericSearchBuilder<PhysicalNetworkTrafficTypeVO, String> ovm3AllFieldsSearch;
 
     protected PhysicalNetworkTrafficTypeDaoImpl() {
         super();
@@ -80,17 +78,6 @@ public class PhysicalNetworkTrafficTypeDaoImpl extends GenericDaoBase<PhysicalNe
         simulatorAllFieldsSearch.selectFields(simulatorAllFieldsSearch.entity().getSimulatorNetworkLabel());
         simulatorAllFieldsSearch.done();
 
-        ovmAllFieldsSearch = createSearchBuilder(String.class);
-        ovmAllFieldsSearch.and("physicalNetworkId", ovmAllFieldsSearch.entity().getPhysicalNetworkId(), Op.EQ);
-        ovmAllFieldsSearch.and("trafficType", ovmAllFieldsSearch.entity().getTrafficType(), Op.EQ);
-        ovmAllFieldsSearch.selectFields(ovmAllFieldsSearch.entity().getSimulatorNetworkLabel());
-        ovmAllFieldsSearch.done();
-
-        ovm3AllFieldsSearch = createSearchBuilder(String.class);
-        ovm3AllFieldsSearch.and("physicalNetworkId", ovm3AllFieldsSearch.entity().getPhysicalNetworkId(), Op.EQ);
-        ovm3AllFieldsSearch.and("trafficType", ovm3AllFieldsSearch.entity().getTrafficType(), Op.EQ);
-        ovm3AllFieldsSearch.selectFields(ovm3AllFieldsSearch.entity().getOvm3NetworkLabel());
-        ovm3AllFieldsSearch.done();
     }
 
     @Override
@@ -123,14 +110,10 @@ public class PhysicalNetworkTrafficTypeDaoImpl extends GenericDaoBase<PhysicalNe
             sc = vmWareAllFieldsSearch.create();
         } else if (hType == HypervisorType.Simulator) {
             sc = simulatorAllFieldsSearch.create();
-        } else if (hType == HypervisorType.Ovm) {
-            sc = ovmAllFieldsSearch.create();
         } else if (hType == HypervisorType.BareMetal || hType == HypervisorType.External) {
             return null;
         } else if (hType == HypervisorType.Hyperv) {
             sc = hypervAllFieldsSearch.create();
-        } else if (hType == HypervisorType.Ovm3) {
-            sc = ovm3AllFieldsSearch.create();
         } else {
             assert (false) : "We don't handle this hypervisor type";
             return null;

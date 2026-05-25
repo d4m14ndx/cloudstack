@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
 
 import com.cloud.network.dao.NetworkDao;

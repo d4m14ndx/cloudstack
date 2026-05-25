@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;

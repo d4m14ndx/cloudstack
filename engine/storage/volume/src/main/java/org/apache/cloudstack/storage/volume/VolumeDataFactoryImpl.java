@@ -21,7 +21,7 @@ package org.apache.cloudstack.storage.volume;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.dao.VMTemplateDao;

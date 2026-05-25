@@ -34,7 +34,7 @@ import org.apache.cloudstack.direct.download.DirectDownloadCertificate;
 import org.apache.cloudstack.direct.download.DirectDownloadManager;
 import org.apache.cloudstack.direct.download.DirectDownloadManager.HostCertificateStatus;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 

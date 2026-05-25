@@ -34,7 +34,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricAddressGroupResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = CreateTungstenFabricAddressGroupCmd.APINAME, description = "Create Tungsten-Fabric address group",
     responseObject = TungstenFabricAddressGroupResponse.class, requestHasSensitiveInfo = false,

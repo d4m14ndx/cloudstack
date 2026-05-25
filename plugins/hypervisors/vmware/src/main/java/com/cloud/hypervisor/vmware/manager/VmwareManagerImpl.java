@@ -39,9 +39,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.ConfigurationException;
-import javax.persistence.EntityExistsException;
+import jakarta.persistence.EntityExistsException;
 
 import com.cloud.hypervisor.vmware.mo.VirtualMachineMO;
 import com.cloud.hypervisor.vmware.util.VmwareClient;

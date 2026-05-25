@@ -18,7 +18,7 @@ package com.cloud.network;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 
 import com.cloud.agent.api.StartupCommand;

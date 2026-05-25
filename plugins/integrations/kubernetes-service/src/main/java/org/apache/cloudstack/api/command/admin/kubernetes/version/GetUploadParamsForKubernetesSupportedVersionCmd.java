@@ -37,7 +37,7 @@ import org.apache.cloudstack.api.response.KubernetesSupportedVersionResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "getUploadParamsForKubernetesSupportedVersion",
         description = "Upload a supported Kubernetes version",

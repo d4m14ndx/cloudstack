@@ -31,7 +31,7 @@ import java.util.UUID;
 import java.util.Collections;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.dc.VlanDetailsVO;
 import com.cloud.dc.dao.VlanDetailsDao;

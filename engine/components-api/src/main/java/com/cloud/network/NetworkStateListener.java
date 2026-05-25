@@ -22,7 +22,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
 import org.apache.cloudstack.framework.events.EventDistributor;

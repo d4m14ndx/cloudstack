@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.storage.Upload;
 import org.apache.logging.log4j.Logger;

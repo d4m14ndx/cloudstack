@@ -29,7 +29,7 @@ import org.apache.cloudstack.api.response.NetrisProviderResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.service.NetrisProviderService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = ListNetrisProvidersCmd.APINAME, description = "list all Netris providers added to CloudStack",

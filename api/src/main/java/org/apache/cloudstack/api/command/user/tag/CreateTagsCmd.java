@@ -95,8 +95,7 @@ public class CreateTagsCmd extends BaseAsyncCmd {
         List<ResourceTag> tags = _taggedResourceService.createTags(getResourceIds(), getResourceType(), getTags(), getCustomer());
 
         if (tags != null && !tags.isEmpty()) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to create resource tag(s)");
         }

@@ -20,7 +20,7 @@ package org.apache.cloudstack.storage.datastore.driver;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.agent.api.storage.DeleteEntityDownloadURLCommand;
 import com.cloud.agent.api.to.DataObjectType;

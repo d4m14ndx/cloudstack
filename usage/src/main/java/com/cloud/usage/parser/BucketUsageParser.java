@@ -23,7 +23,7 @@ import com.cloud.user.AccountVO;
 import org.apache.cloudstack.usage.UsageTypes;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;

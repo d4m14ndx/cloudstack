@@ -18,7 +18,7 @@ package org.apache.cloudstack.ldap;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import javax.naming.directory.SearchControls;
 
 import org.apache.cloudstack.framework.config.ConfigKey;

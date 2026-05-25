@@ -28,7 +28,7 @@ import com.cloud.exception.ResourceUnavailableException;
 import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.api.response.PhysicalNetworkResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 @APICommand(name = "listBaremetalPxeServers", description = "List baremetal pxe server", responseObject = BaremetalPxeResponse.class,

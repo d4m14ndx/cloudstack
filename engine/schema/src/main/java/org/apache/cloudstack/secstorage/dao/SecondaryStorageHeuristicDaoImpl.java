@@ -24,7 +24,7 @@ import org.apache.cloudstack.secstorage.HeuristicVO;
 import org.apache.cloudstack.secstorage.heuristics.HeuristicType;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 @Component
 public class SecondaryStorageHeuristicDaoImpl extends GenericDaoBase<HeuristicVO, Long> implements SecondaryStorageHeuristicDao {

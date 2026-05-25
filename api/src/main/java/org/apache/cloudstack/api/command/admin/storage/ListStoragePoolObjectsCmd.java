@@ -25,7 +25,7 @@ import org.apache.cloudstack.api.response.StoragePoolResponse;
 import org.apache.cloudstack.storage.browser.DataStoreObjectResponse;
 import org.apache.cloudstack.storage.browser.StorageBrowser;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.nio.file.Path;
 
 

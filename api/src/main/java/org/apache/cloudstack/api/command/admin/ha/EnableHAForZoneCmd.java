@@ -38,7 +38,7 @@ import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.ha.HAConfigManager;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "enableHAForZone", description = "Enables HA for a zone",
         responseObject = SuccessResponse.class,

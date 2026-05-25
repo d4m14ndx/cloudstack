@@ -24,7 +24,7 @@ import org.apache.cloudstack.api.response.ListResponse;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.ClusterMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.List;
 
 import com.cloud.utils.Pair;

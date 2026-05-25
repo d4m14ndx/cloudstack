@@ -18,8 +18,8 @@ package org.apache.cloudstack.network.dao;
 
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import com.cloud.network.dao.NetworkDao;
 import com.cloud.network.dao.NetworkVO;

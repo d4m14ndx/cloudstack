@@ -27,7 +27,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.metrics.MetricsService;
 import org.apache.cloudstack.response.UsageServerMetricsResponse;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "listUsageServerMetrics", description = "Lists Usage Server metrics", responseObject = UsageServerMetricsResponse.class,
         requestHasSensitiveInfo = false, responseHasSensitiveInfo = false,  responseView = ResponseObject.ResponseView.Full,

@@ -18,7 +18,7 @@ package com.cloud.utils.db;
 
 import java.lang.reflect.Method;
 
-import net.sf.cglib.proxy.CallbackFilter;
+import org.springframework.cglib.proxy.CallbackFilter;
 
 public class UpdateFilter implements CallbackFilter {
     @Override

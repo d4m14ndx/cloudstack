@@ -17,8 +17,8 @@
 
 package org.apache.cloudstack.backup.dao;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import com.cloud.domain.DomainVO;
 import com.cloud.domain.dao.DomainDao;

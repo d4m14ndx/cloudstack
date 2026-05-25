@@ -35,7 +35,7 @@ import org.apache.cloudstack.api.response.ClusterResponse;
 import org.apache.cloudstack.cluster.ClusterDrsService;
 import org.apache.commons.collections.MapUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;

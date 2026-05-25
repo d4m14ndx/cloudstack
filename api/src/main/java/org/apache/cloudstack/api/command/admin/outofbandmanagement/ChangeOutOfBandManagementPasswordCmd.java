@@ -38,7 +38,7 @@ import org.apache.cloudstack.context.CallContext;
 import org.apache.cloudstack.outofbandmanagement.OutOfBandManagementService;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = "changeOutOfBandManagementPassword", description = "Changes out-of-band management interface password on the host and updates the interface configuration in CloudStack if the operation succeeds, else reverts the old password",
         responseObject = OutOfBandManagementResponse.class, requestHasSensitiveInfo = true, responseHasSensitiveInfo = false,

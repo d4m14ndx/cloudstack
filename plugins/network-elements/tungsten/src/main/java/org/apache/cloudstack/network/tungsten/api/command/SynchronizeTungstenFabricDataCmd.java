@@ -32,7 +32,7 @@ import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.network.tungsten.api.response.TungstenFabricProviderResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = SynchronizeTungstenFabricDataCmd.APINAME, description = "Synchronize Tungsten-Fabric data",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)

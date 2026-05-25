@@ -26,7 +26,6 @@ import com.cloud.user.Account;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
@@ -34,11 +33,11 @@ import org.apache.cloudstack.api.response.SuccessResponse;
 import org.apache.cloudstack.api.response.ZoneResponse;
 import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = DeleteTungstenFabricTagTypeCmd.APINAME, description = "Delete Tungsten-Fabric tag type",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
-public class DeleteTungstenFabricTagTypeCmd extends BaseAsyncCmd {
+public class DeleteTungstenFabricTagTypeCmd extends TungstenFabricAsyncCmd {
     public static final String APINAME = "deleteTungstenFabricTagType";
 
     @Inject
@@ -55,8 +54,7 @@ public class DeleteTungstenFabricTagTypeCmd extends BaseAsyncCmd {
         ConcurrentOperationException, ResourceAllocationException, NetworkRuleConflictException {
         boolean result = tungstenService.deleteTungstenTagType(zoneId, tagTypeUuid);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete Tungsten-Fabric tag type");
         }

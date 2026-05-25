@@ -26,7 +26,6 @@ import com.cloud.user.Account;
 import org.apache.cloudstack.api.APICommand;
 import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.ApiErrorCode;
-import org.apache.cloudstack.api.BaseAsyncCmd;
 import org.apache.cloudstack.api.BaseCmd;
 import org.apache.cloudstack.api.Parameter;
 import org.apache.cloudstack.api.ServerApiException;
@@ -36,11 +35,11 @@ import org.apache.cloudstack.network.tungsten.service.TungstenService;
 
 import java.util.List;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 @APICommand(name = DeleteTungstenFabricLogicalRouterCmd.APINAME, description = "Delete Tungsten-Fabric logical router",
     responseObject = SuccessResponse.class, requestHasSensitiveInfo = false, responseHasSensitiveInfo = false)
-public class DeleteTungstenFabricLogicalRouterCmd extends BaseAsyncCmd {
+public class DeleteTungstenFabricLogicalRouterCmd extends TungstenFabricAsyncCmd {
     public static final String APINAME = "deleteTungstenFabricLogicalRouter";
 
     @Inject
@@ -62,8 +61,7 @@ public class DeleteTungstenFabricLogicalRouterCmd extends BaseAsyncCmd {
 
         boolean result = tungstenService.deleteLogicalRouter(zoneId, logicalRouterUuid);
         if (result) {
-            SuccessResponse response = new SuccessResponse(getCommandName());
-            this.setResponseObject(response);
+            setSuccessResponse();
         } else {
             throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, "Failed to delete Tungsten-Fabric logical router");
         }

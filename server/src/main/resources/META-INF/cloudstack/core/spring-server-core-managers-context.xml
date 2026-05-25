@@ -59,6 +59,11 @@
         <property name="userTwoFactorAuthenticationProviders" value="#{userTwoFactorAuthenticatorsRegistry.registered}" />
     </bean>
 
+    <bean id="userUpdateServiceImpl" class="com.cloud.user.UserUpdateServiceImpl">
+        <property name="userPasswordEncoders"
+            value="#{userPasswordEncodersRegistry.registered}" />
+    </bean>
+
     <bean id="passwordPolicies" class="com.cloud.user.PasswordPolicyImpl" />
     <bean id="passwordReset" class="org.apache.cloudstack.user.UserPasswordResetManagerImpl" />
 
@@ -175,6 +180,11 @@
     <bean id="networkACLServiceImpl" class="com.cloud.network.vpc.NetworkACLServiceImpl" />
 
     <bean id="networkServiceImpl" class="com.cloud.network.NetworkServiceImpl" >
+        <property name="networkGurus" value="#{networkGurusRegistry.registered}" />
+        <property name="internalLoadBalancerElementServices" value="#{internalLoadBalancerElementServiceRegistry.registered}" />
+    </bean>
+
+    <bean id="physicalNetworkManagementServiceImpl" class="com.cloud.network.PhysicalNetworkManagementServiceImpl" >
         <property name="networkGurus" value="#{networkGurusRegistry.registered}" />
         <property name="internalLoadBalancerElementServices" value="#{internalLoadBalancerElementServiceRegistry.registered}" />
     </bean>
@@ -346,6 +356,8 @@
     </bean>
 
     <bean id="backupRepositoryService" class="org.apache.cloudstack.backup.BackupRepositoryServiceImpl" />
+
+    <bean id="kvmBackupExportService" class="org.apache.cloudstack.backup.KVMBackupExportServiceImpl" />
 
     <bean id="storageLayer" class="com.cloud.storage.JavaStorageLayer" />
 

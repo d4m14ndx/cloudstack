@@ -19,7 +19,7 @@ package com.cloud.network.router;
 
 import java.net.URI;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import com.cloud.exception.InsufficientAddressCapacityException;
 import com.cloud.vm.NicVO;
