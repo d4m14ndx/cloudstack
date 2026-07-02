@@ -83,20 +83,28 @@ import com.google.gson.JsonParser;
  * Conventions (see plugins/hypervisors/proxmox/CONTRACT.md):
  * <ul>
  *   <li>CloudStack volume/template {@code path} stores the PVE volid
- *       ({@code <storage>:<ownerVmid>/vm-<ownerVmid>-disk-<n>.qcow2} for file-based storages).</li>
+ *       ({@code <storage>:<ownerVmid>/vm-<ownerVmid>-disk-<n>.qcow2} for file-based storages,
+ *       {@code <storage>:vm-<ownerVmid>-disk-<n>} for raw block storages such as RBD).</li>
  *   <li>Templates on primary storage are owned by the reserved "template holder" vmid
  *       ({@code vmidBase - 1}); no actual PVE VM exists with that vmid.</li>
  *   <li>Secondary storage is NFS, mounted on the PVE node under
  *       {@code /mnt/cloudstack/sec/<md5-8 of url>}; mounts are cached (never unmounted eagerly).</li>
  * </ul>
  *
- * v1 targets PVE file-based storages (dir/NFS) holding qcow2 images.
+ * Storage-type handling: file-based storages (dir/NFS/CephFS) hold qcow2 images; raw block
+ * storages (rbd/lvmthin/zfspool) hold RAW images with extension-less PVE volume names. Ceph RBD
+ * is fully supported (snapshots via the rbd CLI, ownership reassignment via {@code rbd rename},
+ * qemu-img reads/writes the {@code rbd:<pool>/<image>:...} URIs that {@code pvesm path} reports).
+ * lvmthin/zfspool get raw allocation/copy support only; their snapshots and disk reassignment
+ * return clear not-supported errors.
  */
 public class ProxmoxStorageProcessor implements StorageProcessor {
 
     protected Logger logger = LogManager.getLogger(getClass());
 
     private static final String FORMAT_QCOW2 = "qcow2";
+    private static final String FORMAT_RAW = "raw";
+    private static final String TYPE_RBD = "rbd";
     private static final String SECONDARY_MOUNT_BASE = "/mnt/cloudstack/sec/";
     private static final String TEMPLATE_PROPERTIES = "template.properties";
     private static final int DEFAULT_SSH_TIMEOUT_SEC = 600;
@@ -108,6 +116,8 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
     private static final Pattern ACTIVE_DISK_KEY = Pattern.compile("^(scsi|virtio|sata|ide)\\d+$");
     private static final Pattern UNUSED_DISK_KEY = Pattern.compile("^unused\\d+$");
     private static final Pattern VOLID_VMID = Pattern.compile("(?:vm|base)-(\\d+)-");
+    /** Characters allowed in tokens (pool/image names, ceph conf/keyring paths, cephx ids, snapshot names) that are expanded unquoted inside remote shell commands. */
+    private static final Pattern SAFE_SHELL_TOKEN = Pattern.compile("[A-Za-z0-9._/+-]+");
 
     private final ProxmoxResource resource;
 
@@ -145,13 +155,14 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                 templateUuid = UUID.randomUUID().toString();
             }
             int holderVmid = templateHolderVmid();
-            String fileName = String.format("vm-%d-cstmpl-%s.qcow2", holderVmid, templateUuid);
+            boolean rawDest = isRawBlockStorage(storage);
+            String fileName = pveVolumeNameFor("cstmpl", holderVmid, templateUuid, storage);
 
             ProxmoxApiClient api = resource.getApiClient();
-            String volid = api.allocDiskImage(node, storage, holderVmid, fileName, virtualSize, FORMAT_QCOW2);
+            String volid = api.allocDiskImage(node, storage, holderVmid, fileName, virtualSize, allocFormatFor(storage));
             try {
                 String destPath = api.getVolumePath(node, volid);
-                executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", quoted(srcPath), quoted(destPath)), CONVERT_TIMEOUT_SEC);
+                convertIntoPrimaryVolume(quoted(srcPath), destPath, rawDest);
             } catch (RuntimeException e) {
                 tryFreeVolume(node, volid);
                 throw e;
@@ -160,7 +171,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             TemplateObjectTO newTemplate = new TemplateObjectTO();
             newTemplate.setPath(volid);
             newTemplate.setSize(virtualSize);
-            newTemplate.setFormat(ImageFormat.QCOW2);
+            newTemplate.setFormat(rawDest ? ImageFormat.RAW : ImageFormat.QCOW2);
             logger.debug("Copied template {} from secondary storage to primary storage as {}", srcTemplate.getPath(), volid);
             return new CopyCmdAnswer(newTemplate);
         } catch (Exception e) {
@@ -178,9 +189,9 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String node = resource.getNodeName();
             String templateVolid = template.getPath();
             String srcPath = resource.getApiClient().getVolumePath(node, templateVolid);
-            long templateSize = getQcow2VirtualSize(srcPath);
+            long templateSize = getVirtualSize(srcPath);
 
-            VolumeObjectTO newVolume = convertToNewPrimaryDisk(node, quoted(srcPath), templateSize, destVolume, destStore);
+            VolumeObjectTO newVolume = convertToNewPrimaryDisk(node, convertSourceArgsFor(templateVolid, srcPath), templateSize, destVolume, destStore);
             logger.debug("Cloned volume {} from base template {}", newVolume.getPath(), templateVolid);
             return new CopyCmdAnswer(newVolume);
         } catch (Exception e) {
@@ -202,7 +213,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String node = resource.getNodeName();
             String mountPoint = mountSecondaryStorage((NfsTO) srcStore);
             String srcPath = resolveSecondaryQcow2(mountPoint, srcVolume.getPath());
-            long srcSize = getQcow2VirtualSize(srcPath);
+            long srcSize = getVirtualSize(srcPath);
 
             VolumeObjectTO newVolume = convertToNewPrimaryDisk(node, quoted(srcPath), srcSize, destVolume, destStore);
             logger.debug("Copied volume {} from image cache to primary storage as {}", srcVolume.getPath(), newVolume.getPath());
@@ -224,7 +235,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         try {
             String node = resource.getNodeName();
             String srcPath = resource.getApiClient().getVolumePath(node, srcVolume.getPath());
-            long virtualSize = getQcow2VirtualSize(srcPath);
+            long virtualSize = getVirtualSize(srcPath);
 
             String mountPoint = mountSecondaryStorage((NfsTO) destStore);
             String destRelPath = trimSlashes(destVolume.getPath());
@@ -233,7 +244,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String destPath = destDir + "/" + fileName;
 
             executeOrFail("mkdir -p " + quoted(destDir), DEFAULT_SSH_TIMEOUT_SEC);
-            executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", quoted(srcPath), quoted(destPath)), CONVERT_TIMEOUT_SEC);
+            executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", convertSourceArgsFor(srcVolume.getPath(), srcPath), quoted(destPath)), CONVERT_TIMEOUT_SEC);
 
             VolumeObjectTO newVolume = new VolumeObjectTO();
             newVolume.setPath(destRelPath + "/" + fileName);
