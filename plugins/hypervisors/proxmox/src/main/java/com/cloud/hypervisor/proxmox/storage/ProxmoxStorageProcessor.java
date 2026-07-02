@@ -145,7 +145,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
 
             String mountPoint = mountSecondaryStorage((NfsTO) srcStore);
             String srcPath = resolveSecondaryQcow2(mountPoint, srcTemplate.getPath());
-            long virtualSize = getQcow2VirtualSize(srcPath);
+            long virtualSize = getVirtualSize(srcPath);
             if (virtualSize <= 0) {
                 return new CopyCmdAnswer("Could not determine virtual size of template file " + srcPath);
             }
@@ -269,7 +269,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         try {
             String node = resource.getNodeName();
             String srcPath = resource.getApiClient().getVolumePath(node, srcVolume.getPath());
-            return createTemplateOnSecondary(quoted(srcPath), destTemplate, (NfsTO) imageStore, "volume.name");
+            return createTemplateOnSecondary(convertSourceArgsFor(srcVolume.getPath(), srcPath), destTemplate, (NfsTO) imageStore, "volume.name");
         } catch (Exception e) {
             logger.error("Failed to create template from volume {}: {}", srcVolume.getPath(), e.getMessage(), e);
             return new CopyCmdAnswer(errorToString(e));
@@ -295,8 +295,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                 // snapshot still on primary storage: path is <volid>@<snapshotName>
                 Pair<String, String> volidAndSnap = parseSnapshotPath(srcSnapshot.getPath());
                 String node = resource.getNodeName();
-                String volPath = resource.getApiClient().getVolumePath(node, volidAndSnap.first());
-                convertSourceArgs = String.format("-f qcow2 -s %s %s", quoted(volidAndSnap.second()), quoted(volPath));
+                convertSourceArgs = snapshotConvertSourceArgs(node, volidAndSnap.first(), volidAndSnap.second());
             }
             return createTemplateOnSecondary(convertSourceArgs, destTemplate, (NfsTO) imageStore, "snapshot.name");
         } catch (Exception e) {
@@ -319,7 +318,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String snapshotName = volidAndSnap.second();
 
             String node = resource.getNodeName();
-            String volPath = resource.getApiClient().getVolumePath(node, volid);
+            String convertSourceArgs = snapshotConvertSourceArgs(node, volid, snapshotName);
 
             String mountPoint = mountSecondaryStorage((NfsTO) imageStore);
             String destRelPath = trimSlashes(destSnapshot.getPath());
@@ -328,7 +327,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String destPath = destDir + "/" + fileName;
 
             executeOrFail("mkdir -p " + quoted(destDir), DEFAULT_SSH_TIMEOUT_SEC);
-            executeOrFail(String.format("qemu-img convert -f qcow2 -O qcow2 -s %s %s %s", quoted(snapshotName), quoted(volPath), quoted(destPath)),
+            executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", convertSourceArgs, quoted(destPath)),
                     CONVERT_TIMEOUT_SEC);
 
             long physicalSize = getFileSize(destPath);
@@ -375,6 +374,9 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String localIsoDir = localIsoPath.substring(0, localIsoPath.lastIndexOf('/'));
 
             // Copy the ISO from secondary storage to the PVE iso storage once; cache by file name.
+            // This works for any file-backed iso-capable storage (dir/NFS/CephFS): `pvesm path`
+            // returns the node-local mounted path (e.g. /mnt/pve/<storage>/template/iso/... for
+            // NFS and CephFS storages), which cp/mv operate on directly.
             String mountPoint = mountSecondaryStorage((NfsTO) store);
             String srcIsoPath = mountPoint + "/" + isoInstallPath;
             validateRemotePath(srcIsoPath);
@@ -491,14 +493,14 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             }
             int holderVmid = templateHolderVmid();
             String uuid = volume.getUuid() != null ? volume.getUuid() : UUID.randomUUID().toString();
-            String fileName = String.format("vm-%d-disk-%s.qcow2", holderVmid, uuid);
+            String fileName = pveVolumeNameFor("disk", holderVmid, uuid, storage);
 
-            String volid = resource.getApiClient().allocDiskImage(node, storage, holderVmid, fileName, size, FORMAT_QCOW2);
+            String volid = resource.getApiClient().allocDiskImage(node, storage, holderVmid, fileName, size, allocFormatFor(storage));
 
             VolumeObjectTO newVolume = new VolumeObjectTO();
             newVolume.setPath(volid);
             newVolume.setSize(size);
-            newVolume.setFormat(ImageFormat.QCOW2);
+            newVolume.setFormat(isRawBlockStorage(storage) ? ImageFormat.RAW : ImageFormat.QCOW2);
             logger.debug("Created volume {} of size {} on storage {}", volid, size, storage);
             return new CreateObjectAnswer(newVolume);
         } catch (Exception e) {
@@ -536,13 +538,22 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                 }
             }
 
+            String storageType = storageTypeOfVolid(volid);
             String snapshotName = UUID.randomUUID().toString();
             String volPath = resource.getApiClient().getVolumePath(node, volid);
-            executeOrFail(String.format("qemu-img snapshot -c %s %s", quoted(snapshotName), quoted(volPath)), DEFAULT_SSH_TIMEOUT_SEC);
+            if (TYPE_RBD.equals(storageType)) {
+                RbdPathInfo rbd = parseRbdPath(volPath);
+                executeOrFail(buildRbdCliCommand(rbd, String.format("snap create '%s/%s@%s'", rbd.pool, rbd.image, validShellToken(snapshotName, "snapshot name"))),
+                        DEFAULT_SSH_TIMEOUT_SEC);
+            } else if (isRawBlockStorageType(storageType)) {
+                return new CreateObjectAnswer(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
+            } else {
+                executeOrFail(String.format("qemu-img snapshot -c %s %s", quoted(snapshotName), quoted(volPath)), DEFAULT_SSH_TIMEOUT_SEC);
+            }
 
             SnapshotObjectTO newSnapshot = new SnapshotObjectTO();
             newSnapshot.setPath(volid + "@" + snapshotName);
-            logger.debug("Created qcow2 internal snapshot {} on volume {}", snapshotName, volid);
+            logger.debug("Created {} snapshot {} on volume {}", TYPE_RBD.equals(storageType) ? "rbd" : "qcow2 internal", snapshotName, volid);
             return new CreateObjectAnswer(newSnapshot);
         } catch (Exception e) {
             logger.error("Failed to create snapshot of volume {}: {}", volume.getPath(), e.getMessage(), e);
@@ -602,14 +613,25 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             if (srcStore instanceof NfsTO) {
                 String mountPoint = mountSecondaryStorage((NfsTO) srcStore);
                 String srcPath = resolveSecondaryQcow2(mountPoint, srcSnapshot.getPath());
-                srcVirtualSize = getQcow2VirtualSize(srcPath);
+                srcVirtualSize = getVirtualSize(srcPath);
                 convertSourceArgs = quoted(srcPath);
             } else if (srcSnapshot.getPath() != null && srcSnapshot.getPath().contains("@")) {
                 // snapshot still on primary storage: <volid>@<snapshotName>
                 Pair<String, String> volidAndSnap = parseSnapshotPath(srcSnapshot.getPath());
-                String volPath = resource.getApiClient().getVolumePath(node, volidAndSnap.first());
-                srcVirtualSize = getQcow2VirtualSize(volPath);
-                convertSourceArgs = String.format("-f qcow2 -s %s %s", quoted(volidAndSnap.second()), quoted(volPath));
+                String volid = volidAndSnap.first();
+                String snapshotName = volidAndSnap.second();
+                String volPath = resource.getApiClient().getVolumePath(node, volid);
+                String storageType = storageTypeOfVolid(volid);
+                if (TYPE_RBD.equals(storageType)) {
+                    String snapPath = rbdPathWithSnapshot(volPath, snapshotName);
+                    srcVirtualSize = getVirtualSize(snapPath);
+                    convertSourceArgs = "-f raw " + quoted(snapPath);
+                } else if (isRawBlockStorageType(storageType)) {
+                    return new CopyCmdAnswer(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
+                } else {
+                    srcVirtualSize = getVirtualSize(volPath);
+                    convertSourceArgs = String.format("-f qcow2 -s %s %s", quoted(snapshotName), quoted(volPath));
+                }
             } else {
                 return new CopyCmdAnswer("Unsupported snapshot source for createVolumeFromSnapshot: " + srcSnapshot.getPath());
             }
@@ -651,10 +673,19 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             }
             validateRemotePath(volPath);
             validateRemotePath(snapshotName);
-            Pair<Boolean, String> result = resource.executeOnNode(
-                    String.format("qemu-img snapshot -d %s %s", quoted(snapshotName), quoted(volPath)), DEFAULT_SSH_TIMEOUT_SEC);
+            String storageType = storageTypeOfVolid(volid);
+            String deleteCommand;
+            if (TYPE_RBD.equals(storageType)) {
+                RbdPathInfo rbd = parseRbdPath(volPath);
+                deleteCommand = buildRbdCliCommand(rbd, String.format("snap rm '%s/%s@%s'", rbd.pool, rbd.image, validShellToken(snapshotName, "snapshot name")));
+            } else if (isRawBlockStorageType(storageType)) {
+                return new Answer(cmd, false, String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet; cannot delete snapshot %s", storageType, path));
+            } else {
+                deleteCommand = String.format("qemu-img snapshot -d %s %s", quoted(snapshotName), quoted(volPath));
+            }
+            Pair<Boolean, String> result = resource.executeOnNode(deleteCommand, DEFAULT_SSH_TIMEOUT_SEC);
             if (result != null && Boolean.TRUE.equals(result.first())) {
-                logger.debug("Deleted qcow2 internal snapshot {} on volume {}", snapshotName, volid);
+                logger.debug("Deleted snapshot {} on volume {}", snapshotName, volid);
                 return new Answer(cmd);
             }
             String output = result != null && result.second() != null ? result.second() : "";
@@ -711,14 +742,17 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
     }
 
     /**
-     * Allocates a new qcow2 disk image on the destination primary storage and fills it with
-     * {@code qemu-img convert} from the given (already quoted/validated) source arguments,
-     * growing the image afterwards when the requested volume size exceeds the source size.
+     * Allocates a new disk image on the destination primary storage (qcow2 on file storages, RAW
+     * on raw block storages) and fills it with {@code qemu-img convert} from the given (already
+     * quoted/validated) source arguments. Raw block volumes are allocated at their final size and
+     * converted in place ({@code -n}); qcow2 files are grown afterwards when the requested volume
+     * size exceeds the source size.
      */
     private VolumeObjectTO convertToNewPrimaryDisk(String node, String convertSourceArgs, long srcVirtualSize,
             VolumeObjectTO destVolume, PrimaryDataStoreTO destStore) {
         String storage = resource.getPveStorageId(destStore);
         verifyStorageSupportsImages(node, storage);
+        boolean rawDest = isRawBlockStorage(storage);
 
         long requestedSize = destVolume.getSize() != null ? destVolume.getSize() : 0L;
         long size = Math.max(srcVirtualSize, requestedSize);
@@ -728,14 +762,14 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
 
         int vmid = vmidForInstance(destVolume.getVmName(), templateHolderVmid());
         String uuid = destVolume.getUuid() != null ? destVolume.getUuid() : UUID.randomUUID().toString();
-        String fileName = String.format("vm-%d-disk-%s.qcow2", vmid, uuid);
+        String fileName = pveVolumeNameFor("disk", vmid, uuid, storage);
 
         ProxmoxApiClient api = resource.getApiClient();
-        String volid = api.allocDiskImage(node, storage, vmid, fileName, size, FORMAT_QCOW2);
+        String volid = api.allocDiskImage(node, storage, vmid, fileName, size, allocFormatFor(storage));
         try {
             String destPath = api.getVolumePath(node, volid);
-            executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", convertSourceArgs, quoted(destPath)), CONVERT_TIMEOUT_SEC);
-            if (requestedSize > srcVirtualSize) {
+            convertIntoPrimaryVolume(convertSourceArgs, destPath, rawDest);
+            if (!rawDest && requestedSize > srcVirtualSize) {
                 executeOrFail(String.format("qemu-img resize %s %d", quoted(destPath), requestedSize), DEFAULT_SSH_TIMEOUT_SEC);
             }
         } catch (RuntimeException e) {
@@ -746,8 +780,23 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         VolumeObjectTO newVolume = new VolumeObjectTO();
         newVolume.setPath(volid);
         newVolume.setSize(size);
-        newVolume.setFormat(ImageFormat.QCOW2);
+        newVolume.setFormat(rawDest ? ImageFormat.RAW : ImageFormat.QCOW2);
         return newVolume;
+    }
+
+    /**
+     * Runs the {@code qemu-img convert} that fills a freshly allocated primary-storage volume.
+     * Raw block destinations (rbd/lvmthin/zfspool) are written in place with {@code -n} (no
+     * create): the destination was pre-allocated at its final size and, for RBD, the destination
+     * path is a {@code rbd:<pool>/<image>:...} URI that qemu-img writes to directly. File
+     * destinations keep the qcow2 behavior (convert recreates the file).
+     */
+    private void convertIntoPrimaryVolume(String convertSourceArgs, String destPath, boolean rawDest) {
+        if (rawDest) {
+            executeOrFail(String.format("qemu-img convert -n -O raw %s %s", convertSourceArgs, quoted(destPath)), CONVERT_TIMEOUT_SEC);
+        } else {
+            executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", convertSourceArgs, quoted(destPath)), CONVERT_TIMEOUT_SEC);
+        }
     }
 
     /**
@@ -766,7 +815,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         executeOrFail("mkdir -p " + quoted(templateDir), DEFAULT_SSH_TIMEOUT_SEC);
         executeOrFail(String.format("qemu-img convert -O qcow2 %s %s", convertSourceArgs, quoted(destPath)), CONVERT_TIMEOUT_SEC);
 
-        long virtualSize = getQcow2VirtualSize(destPath);
+        long virtualSize = getVirtualSize(destPath);
         long physicalSize = getFileSize(destPath);
         writeTemplateProperties(templateDir, fileName, templateName, destTemplate, virtualSize, physicalSize, sourceNameProperty);
 
@@ -801,9 +850,10 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
     }
 
     /**
-     * Reassigns ownership of an unreferenced volume to another vmid by moving the backing file on
-     * a file-based (dir/NFS) PVE storage, since {@code move_disk} with target-vmid requires the
-     * disk to be referenced by a VM config and the template holder vmid has no VM.
+     * Reassigns ownership of an unreferenced volume to another vmid, since {@code move_disk} with
+     * target-vmid requires the disk to be referenced by a VM config and the template holder vmid
+     * has no VM. On file-based (dir/NFS) storages the backing file is moved; on RBD the image is
+     * renamed with the rbd CLI. Other raw block storages (lvmthin/zfspool) are not supported yet.
      *
      * @return the new volid
      */
@@ -834,22 +884,35 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             }
         }
 
+        String storageId = storageOfVolid(volid);
+        String storageType = resource.getStorageType(storageId);
+        String uuid = volumeUuid != null ? volumeUuid : UUID.randomUUID().toString();
         String srcPath = api.getVolumePath(node, volid);
         validateRemotePath(srcPath);
-        String ownerMarker = "/images/" + owner + "/";
-        int markerIndex = srcPath.indexOf(ownerMarker);
-        if (markerIndex < 0) {
-            throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s (path %s): ownership reassignment is only supported on file-based (dir/NFS) PVE storages", volid, srcPath));
+
+        String newVolid;
+        if (TYPE_RBD.equals(storageType)) {
+            RbdPathInfo rbd = parseRbdPath(srcPath);
+            String newImageName = String.format("vm-%d-disk-%s", vmid, shortId(uuid));
+            executeOrFail(buildRbdCliCommand(rbd, String.format("rename '%s/%s' '%s/%s'", rbd.pool, rbd.image, rbd.pool, newImageName)),
+                    DEFAULT_SSH_TIMEOUT_SEC);
+            newVolid = storageId + ":" + newImageName;
+        } else if (isRawBlockStorageType(storageType)) {
+            throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s: ownership reassignment on PVE storage type '%s' is not supported by the Proxmox plugin yet (supported: dir/NFS and RBD)", volid, storageType));
+        } else {
+            String ownerMarker = "/images/" + owner + "/";
+            int markerIndex = srcPath.indexOf(ownerMarker);
+            if (markerIndex < 0) {
+                throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s (path %s): unexpected layout for a file-based PVE storage", volid, srcPath));
+            }
+            String storageMount = srcPath.substring(0, markerIndex);
+            String newFileName = String.format("vm-%d-disk-%s.qcow2", vmid, uuid);
+            String destDir = storageMount + "/images/" + vmid;
+            String destPath = destDir + "/" + newFileName;
+
+            executeOrFail(String.format("mkdir -p %s && mv %s %s", quoted(destDir), quoted(srcPath), quoted(destPath)), DEFAULT_SSH_TIMEOUT_SEC);
+            newVolid = storageId + ":" + vmid + "/" + newFileName;
         }
-        String storageMount = srcPath.substring(0, markerIndex);
-        String uuid = volumeUuid != null ? volumeUuid : UUID.randomUUID().toString();
-        String newFileName = String.format("vm-%d-disk-%s.qcow2", vmid, uuid);
-        String destDir = storageMount + "/images/" + vmid;
-        String destPath = destDir + "/" + newFileName;
-
-        executeOrFail(String.format("mkdir -p %s && mv %s %s", quoted(destDir), quoted(srcPath), quoted(destPath)), DEFAULT_SSH_TIMEOUT_SEC);
-
-        String newVolid = storageOfVolid(volid) + ":" + vmid + "/" + newFileName;
         logger.debug("Reassigned volume {} from vmid {} to vmid {}; new volid {}", volid, owner, vmid, newVolid);
         return newVolid;
     }
@@ -989,7 +1052,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         return found;
     }
 
-    private long getQcow2VirtualSize(String filePath) {
+    private long getVirtualSize(String filePath) {
         String output = executeOrFail("qemu-img info -U --output=json " + quoted(filePath), DEFAULT_SSH_TIMEOUT_SEC);
         try {
             JsonObject info = JsonParser.parseString(output.trim()).getAsJsonObject();
@@ -1062,6 +1125,194 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             throw new CloudRuntimeException("Not a PVE volid: " + volid);
         }
         return volid.substring(0, colon);
+    }
+
+    // ---------------------------------------------------------------------
+    // Storage-type helpers: file-based storages (dir/nfs/cephfs) hold qcow2
+    // files, raw block storages (rbd/lvmthin/zfspool) hold RAW images.
+    // ---------------------------------------------------------------------
+
+    /** True for PVE storage types whose images are RAW block devices/objects rather than qcow2 files. */
+    public static boolean isRawBlockStorageType(String type) {
+        return TYPE_RBD.equals(type) || "lvmthin".equals(type) || "zfspool".equals(type);
+    }
+
+    private boolean isRawBlockStorage(String storageId) {
+        return isRawBlockStorageType(resource.getStorageType(storageId));
+    }
+
+    private String storageTypeOfVolid(String volid) {
+        return resource.getStorageType(storageOfVolid(volid));
+    }
+
+    /** PVE allocation format for new images on the given storage: raw on raw block storages, qcow2 on file storages. */
+    private String allocFormatFor(String storageId) {
+        return isRawBlockStorage(storageId) ? FORMAT_RAW : FORMAT_QCOW2;
+    }
+
+    /**
+     * PVE volume name for a new image owned by the given vmid: raw block storages take
+     * extension-less names with a short unique suffix ({@code vm-<vmid>-<kind>-<8charuuid>}),
+     * file storages take full-uuid qcow2 file names.
+     */
+    private String pveVolumeNameFor(String kind, int vmid, String uuid, String storageId) {
+        if (isRawBlockStorage(storageId)) {
+            return String.format("vm-%d-%s-%s", vmid, kind, shortId(uuid));
+        }
+        return String.format("vm-%d-%s-%s.qcow2", vmid, kind, uuid);
+    }
+
+    private String shortId(String uuid) {
+        String cleaned = uuid != null ? uuid.replaceAll("[^a-zA-Z0-9]", "") : "";
+        if (cleaned.isEmpty()) {
+            cleaned = Long.toHexString(System.nanoTime());
+        }
+        return cleaned.length() > 8 ? cleaned.substring(0, 8) : cleaned;
+    }
+
+    /**
+     * qemu-img source arguments for reading a primary-storage volume: raw block volumes get an
+     * explicit {@code -f raw}, file-based volumes let qemu-img probe the (qcow2) format.
+     */
+    private String convertSourceArgsFor(String volid, String volPath) {
+        if (isRawBlockStorage(storageOfVolid(volid))) {
+            return "-f raw " + quoted(volPath);
+        }
+        return quoted(volPath);
+    }
+
+    /**
+     * qemu-img source arguments for reading a snapshot of a primary-storage volume: qcow2
+     * internal snapshots via {@code -s}, rbd snapshots via the {@code @snap} path suffix.
+     * Snapshots on other raw block storages are not supported.
+     */
+    private String snapshotConvertSourceArgs(String node, String volid, String snapshotName) {
+        String volPath = resource.getApiClient().getVolumePath(node, volid);
+        String storageType = storageTypeOfVolid(volid);
+        if (TYPE_RBD.equals(storageType)) {
+            return "-f raw " + quoted(rbdPathWithSnapshot(volPath, snapshotName));
+        }
+        if (isRawBlockStorageType(storageType)) {
+            throw new CloudRuntimeException(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
+        }
+        return String.format("-f qcow2 -s %s %s", quoted(snapshotName), quoted(volPath));
+    }
+
+    // ---------------------------------------------------------------------
+    // Ceph RBD helpers. `pvesm path`/getVolumePath on rbd storages returns a
+    // qemu-usable URI: rbd:<pool>/<image>[:key=value[:key=value...]] whose
+    // option segments embed the cluster auth (conf=, id=, keyring=); ':' in
+    // option values is escaped as '\:'. qemu-img consumes the URI directly;
+    // the rbd CLI needs pool/image and auth flags parsed back out of it.
+    // ---------------------------------------------------------------------
+
+    /** Parsed form of a PVE rbd path URI. */
+    static final class RbdPathInfo {
+        final String pool;
+        final String image;
+        final String conf;     // ceph.conf path, nullable
+        final String id;       // cephx user (without the "client." prefix), nullable
+        final String keyring;  // keyring path, nullable
+
+        RbdPathInfo(String pool, String image, String conf, String id, String keyring) {
+            this.pool = pool;
+            this.image = image;
+            this.conf = conf;
+            this.id = id;
+            this.keyring = keyring;
+        }
+    }
+
+    static RbdPathInfo parseRbdPath(String rbdPath) {
+        if (rbdPath == null || !rbdPath.startsWith("rbd:")) {
+            throw new CloudRuntimeException("Not a PVE rbd path URI: " + rbdPath);
+        }
+        String[] segments = rbdPath.split("(?<!\\\\):");
+        if (segments.length < 2 || segments[1].indexOf('/') <= 0) {
+            throw new CloudRuntimeException("Malformed PVE rbd path URI (expected rbd:<pool>/<image>[:options]): " + rbdPath);
+        }
+        String poolAndImage = segments[1];
+        int slash = poolAndImage.indexOf('/');
+        String pool = validShellToken(poolAndImage.substring(0, slash), "rbd pool name");
+        String image = validShellToken(poolAndImage.substring(slash + 1), "rbd image name");
+        String conf = null;
+        String id = null;
+        String keyring = null;
+        for (int i = 2; i < segments.length; i++) {
+            int eq = segments[i].indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String key = segments[i].substring(0, eq);
+            String value = segments[i].substring(eq + 1).replace("\\:", ":");
+            if ("conf".equals(key)) {
+                conf = validShellToken(value, "ceph conf path");
+            } else if ("id".equals(key)) {
+                id = validShellToken(value, "cephx id");
+            } else if ("keyring".equals(key)) {
+                keyring = validShellToken(value, "ceph keyring path");
+            }
+        }
+        return new RbdPathInfo(pool, image, conf, id, keyring);
+    }
+
+    /**
+     * Inserts the {@code @<snapshot>} suffix into an rbd path URI right after the
+     * {@code <pool>/<image>} segment (before the first unescaped ':' option separator) so that
+     * qemu-img reads the snapshot instead of the live image.
+     */
+    static String rbdPathWithSnapshot(String rbdPath, String snapshotName) {
+        if (rbdPath == null || !rbdPath.startsWith("rbd:")) {
+            throw new CloudRuntimeException("Not a PVE rbd path URI: " + rbdPath);
+        }
+        validShellToken(snapshotName, "snapshot name");
+        for (int i = 4; i < rbdPath.length(); i++) {
+            if (rbdPath.charAt(i) == ':' && rbdPath.charAt(i - 1) != '\\') {
+                return rbdPath.substring(0, i) + "@" + snapshotName + rbdPath.substring(i);
+            }
+        }
+        return rbdPath + "@" + snapshotName;
+    }
+
+    /**
+     * Builds an SSH command that runs the rbd CLI with the cluster auth carried by the parsed
+     * {@code pvesm path} URI: {@code -c <conf>} / {@code --keyring <keyring>} are added only when
+     * those files exist on the node (hyper-converged and external Ceph keep them in different
+     * places), falling back to the node defaults (/etc/ceph/ceph.conf) otherwise. All tokens
+     * expanded into the command are validated against {@link #SAFE_SHELL_TOKEN}.
+     */
+    static String buildRbdCliCommand(RbdPathInfo rbd, String args) {
+        StringBuilder cmd = new StringBuilder("RBDAUTH=; ");
+        if (rbd.conf != null) {
+            cmd.append(String.format("[ -f '%s' ] && RBDAUTH=\"$RBDAUTH -c %s\"; ", rbd.conf, rbd.conf));
+        }
+        if (rbd.keyring != null) {
+            cmd.append(String.format("[ -f '%s' ] && RBDAUTH=\"$RBDAUTH --keyring %s\"; ", rbd.keyring, rbd.keyring));
+        }
+        if (rbd.id != null) {
+            cmd.append(String.format("RBDAUTH=\"$RBDAUTH -n client.%s\"; ", rbd.id));
+        }
+        cmd.append("rbd $RBDAUTH ").append(args);
+        return cmd.toString();
+    }
+
+    /**
+     * Builds the SSH command that resizes an RBD image, given the volume's {@code pvesm path}
+     * rbd URI, to the requested size (rounded up to whole MiB, the rbd CLI unit). Used by
+     * {@link ProxmoxResource} for resizing detached rbd volumes.
+     */
+    public static String buildRbdResizeCommand(String rbdPath, long newSizeBytes) {
+        RbdPathInfo rbd = parseRbdPath(rbdPath);
+        long sizeMib = (newSizeBytes + (1L << 20) - 1) >> 20;
+        return buildRbdCliCommand(rbd, String.format("resize --size %dM '%s/%s'", sizeMib, rbd.pool, rbd.image));
+    }
+
+    /** Rejects values that could break out of the remote shell commands they are embedded in. */
+    private static String validShellToken(String value, String what) {
+        if (value == null || !SAFE_SHELL_TOKEN.matcher(value).matches()) {
+            throw new CloudRuntimeException("Refusing to use " + what + " containing unsafe characters in a remote command: " + value);
+        }
+        return value;
     }
 
     private int ownerOfVolid(String volid) {

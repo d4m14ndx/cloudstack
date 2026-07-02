@@ -114,14 +114,14 @@ and the standard VM lifecycle.
 |---|---|
 | Host discovery (whole PVE cluster), stats, ping | ✅ |
 | VM lifecycle: deploy/start/stop/reboot/destroy/reconfigure | ✅ |
-| Volumes: create/attach/detach/resize/delete, templates → root disks | ✅ (file-based PVE storages: dir/NFS; RBD/LVM-thin partial) |
+| Volumes: create/attach/detach/resize/delete, templates → root disks | ✅ dir/NFS (qcow2) and **Ceph RBD** (raw, incl. external Ceph auth); lvmthin/zfspool basic ops only |
 | Templates: register (qcow2 via SSVM), create-from-volume/snapshot | ✅ |
 | System VMs: SSVM, Console Proxy, Virtual Router | ✅ (stock KVM systemvm template) |
 | Console access via Console Proxy | ✅ (VNC, password-protected) |
 | Live migration (shared storage) | ✅ (PVE `migrate` API) |
 | VM snapshots (disk / disk+memory) | ✅ |
-| Volume snapshots → secondary storage | ⚠️ offline volumes only in v1 |
-| ISO attach/detach | ✅ (requires one iso-capable PVE storage) |
+| Volume snapshots → secondary storage | ⚠️ offline volumes only in v1 (qemu-img on dir/NFS, `rbd snap` on Ceph) |
+| ISO attach/detach | ✅ (any iso-capable PVE storage, incl. CephFS) |
 | Security groups (basic zones) | ❌ roadmap (PVE firewall API) |
 | VXLAN isolation | ❌ roadmap (PVE SDN zones) |
 | Storage live-migration between pools | ⚠️ `move_disk` plumbing present, not wired to MigrateVolume yet |

@@ -200,6 +200,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     private ProxmoxApiClient _apiClient;
     private final Object _apiClientLock = new Object();
+    private final Map<String, String> _storageTypeCache = new HashMap<String, String>();
 
     private VirtualRoutingResource _vrResource;
     private StorageSubsystemCommandHandler _storageHandler;
@@ -397,6 +398,46 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         }
         int idx = trimmed.lastIndexOf('/');
         return idx >= 0 ? trimmed.substring(idx + 1) : trimmed;
+    }
+
+    /**
+     * Returns the PVE storage type (dir, nfs, rbd, cephfs, lvmthin, zfspool, ...) of the given
+     * storage id on this node. Types are cached for the lifetime of the resource: a PVE storage
+     * cannot change type in place.
+     */
+    public String getStorageType(String storageId) {
+        if (StringUtils.isBlank(storageId)) {
+            throw new CloudRuntimeException("Cannot determine the type of a blank PVE storage id");
+        }
+        synchronized (_storageTypeCache) {
+            String cached = _storageTypeCache.get(storageId);
+            if (cached != null) {
+                return cached;
+            }
+        }
+        JsonArray storages = getApiClient().listStorage(_nodeName);
+        String result = null;
+        synchronized (_storageTypeCache) {
+            for (JsonElement element : storages) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject storage = element.getAsJsonObject();
+                String id = jsonString(storage, "storage");
+                String type = jsonString(storage, "type");
+                if (id == null || type == null) {
+                    continue;
+                }
+                _storageTypeCache.put(id, type);
+                if (id.equals(storageId)) {
+                    result = type;
+                }
+            }
+        }
+        if (result == null) {
+            throw new CloudRuntimeException(String.format("Unable to determine the type of PVE storage '%s' on node %s", storageId, _nodeName));
+        }
+        return result;
     }
 
     @Override
@@ -1183,14 +1224,28 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                     }
                 }
             }
-            // Volume not attached (or VM gone): resize the image directly on the node.
+            // Volume not attached (or VM gone): resize the image directly on the node,
+            // with the resize tool picked by the storage type backing the volume.
             String path = api.getVolumePath(_nodeName, volid);
             if (StringUtils.isBlank(path)) {
                 return new ResizeVolumeAnswer(cmd, false, "Unable to resolve path of volume " + volid);
             }
-            Pair<Boolean, String> result = executeOnNode("qemu-img resize " + path + " " + newSize, 300);
-            if (!result.first()) {
-                return new ResizeVolumeAnswer(cmd, false, "qemu-img resize failed: " + result.second());
+            int colon = volid.indexOf(':');
+            String storageType = colon > 0 ? getStorageType(volid.substring(0, colon)) : null;
+            Pair<Boolean, String> result;
+            if ("rbd".equals(storageType)) {
+                result = executeOnNode(ProxmoxStorageProcessor.buildRbdResizeCommand(path, newSize), 300);
+                if (!result.first()) {
+                    return new ResizeVolumeAnswer(cmd, false, "rbd resize failed: " + result.second());
+                }
+            } else if (ProxmoxStorageProcessor.isRawBlockStorageType(storageType)) {
+                return new ResizeVolumeAnswer(cmd, false, String.format(
+                        "Resizing detached volumes on PVE storage type '%s' is not supported by the Proxmox plugin yet; attach the volume to an instance and retry", storageType));
+            } else {
+                result = executeOnNode("qemu-img resize " + path + " " + newSize, 300);
+                if (!result.first()) {
+                    return new ResizeVolumeAnswer(cmd, false, "qemu-img resize failed: " + result.second());
+                }
             }
             return new ResizeVolumeAnswer(cmd, true, "", newSize);
         } catch (Exception e) {
