@@ -289,7 +289,7 @@ export default {
           placeHolder: 'message.error.host.name',
           required: true,
           display: {
-            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Simulator', store.getters.customHypervisorName]
+            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Proxmox', 'Simulator', store.getters.customHypervisorName]
           }
         },
         {
@@ -298,7 +298,7 @@ export default {
           placeHolder: 'message.error.host.username',
           required: true,
           display: {
-            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Simulator', store.getters.customHypervisorName]
+            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Proxmox', 'Simulator', store.getters.customHypervisorName]
           }
         },
         {
@@ -319,7 +319,7 @@ export default {
             }
           }],
           display: {
-            hypervisor: ['BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Simulator']
+            hypervisor: ['BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Proxmox', 'Simulator']
           },
           alert: {
             message: 'message.add.host.sshkey',
@@ -335,7 +335,7 @@ export default {
           required: true,
           password: true,
           display: {
-            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Simulator', store.getters.customHypervisorName],
+            hypervisor: ['VMware', 'BareMetal', 'Ovm', 'Hyperv', 'KVM', 'XenServer', 'LXC', 'Proxmox', 'Simulator', store.getters.customHypervisorName],
             authmethod: 'password'
           }
         },
@@ -1045,6 +1045,11 @@ export default {
         protocols.push({
           id: 'datastorecluster',
           description: 'datastorecluster'
+        })
+      } else if (hypervisor === 'Proxmox') {
+        protocols.push({
+          id: 'PreSetup',
+          description: 'PreSetup'
         })
       } else if (hypervisor === 'Hyperv') {
         protocols.push({

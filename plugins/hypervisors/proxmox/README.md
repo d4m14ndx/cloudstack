@@ -68,6 +68,7 @@ and the standard VM lifecycle.
      re-adding an already-known node is a harmless no-op.
 3. Primary storage: *Add Primary Storage* → protocol `PreSetup`, path `/<pve-storage-id>`
    (the PVE storage must be enabled on every node in the cluster and support `images`).
+   In the zone wizard the PreSetup "SR Name-Label" field takes the PVE storage id.
 4. Secondary storage: standard NFS secondary storage.
 
 ### PVE node prerequisites

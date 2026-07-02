@@ -151,7 +151,7 @@ export default {
 
       this.items = []
       this.data = {}
-      const hypervisors = ['BareMetal', 'Hyperv', 'KVM', 'LXC', 'Ovm3', 'Simulator', 'VMware', 'XenServer']
+      const hypervisors = ['BareMetal', 'Hyperv', 'KVM', 'LXC', 'Ovm3', 'Proxmox', 'Simulator', 'VMware', 'XenServer']
       for (const hypervisor of hypervisors) {
         this.data[hypervisor] = {
           name: hypervisor,

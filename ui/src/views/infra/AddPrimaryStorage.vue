@@ -452,7 +452,7 @@ export default {
   inject: ['parentFetchData'],
   data () {
     return {
-      hypervisors: ['KVM', 'VMware', 'Hyperv', 'Any', 'Simulator'],
+      hypervisors: ['KVM', 'VMware', 'Hyperv', 'Proxmox', 'Any', 'Simulator'],
       protocols: [],
       providers: [],
       scope: 'cluster',
@@ -620,6 +620,8 @@ export default {
         }
       } else if (this.hypervisorType === 'Hyperv') {
         this.protocols = ['SMB']
+      } else if (this.hypervisorType === 'Proxmox') {
+        this.protocols = ['PreSetup']
       } else if (this.hypervisorType === 'Ovm') {
         this.protocols = ['nfs', 'ocfs2']
       } else if (this.hypervisorType === 'LXC') {

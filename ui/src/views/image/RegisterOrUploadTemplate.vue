@@ -944,6 +944,16 @@ export default {
             description: 'VMDK'
           })
           break
+        case 'Proxmox':
+          format.push({
+            id: 'QCOW2',
+            description: 'QCOW2'
+          })
+          format.push({
+            id: 'RAW',
+            description: 'RAW'
+          })
+          break
         case 'XenServer':
           this.hyperXenServerShow = true
           format.push({

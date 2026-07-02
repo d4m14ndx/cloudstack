@@ -1519,7 +1519,7 @@ export default {
         params['details[0].domain'] = this.prefillContent?.primaryStorageSMBDomain || null
       } else if (protocol === 'PreSetup') {
         let path = ''
-        if (this.stepData.clusterReturned.hypervisortype === 'XenServer') {
+        if (['XenServer', 'Proxmox'].includes(this.stepData.clusterReturned.hypervisortype)) {
           path = this.prefillContent?.primaryStorageSRLabel || ''
           server = 'localhost'
         } else {
