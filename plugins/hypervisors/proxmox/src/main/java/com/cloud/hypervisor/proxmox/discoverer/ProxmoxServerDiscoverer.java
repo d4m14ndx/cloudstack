@@ -49,6 +49,7 @@ import com.cloud.resource.DiscovererBase;
 import com.cloud.resource.ResourceStateAdapter;
 import com.cloud.resource.ServerResource;
 import com.cloud.resource.UnableDeleteHostException;
+import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
@@ -186,14 +187,16 @@ public class ProxmoxServerDiscoverer extends DiscovererBase implements Discovere
                 params.put("nodeAddress", nodeAddress);
                 if (tokenId != null) {
                     params.put("token.id", tokenId);
-                    params.put("token.secret", tokenSecret);
+                    // host_details only auto-encrypts the "password" key; other secrets must be
+                    // stored pre-encrypted and are decrypted in ProxmoxResource.configure()
+                    params.put("token.secret", DBEncryptionUtil.encrypt(tokenSecret));
                 } else {
                     params.put("username", apiUsername);
                     params.put("password", apiPassword);
                 }
                 params.put("ssh.username", sshUsername);
                 if (sshPassword != null) {
-                    params.put("ssh.password", sshPassword);
+                    params.put("ssh.password", DBEncryptionUtil.encrypt(sshPassword));
                 }
                 params.put("ssh.port", sshPort);
                 for (String key : PASSTHROUGH_URL_PARAMS) {

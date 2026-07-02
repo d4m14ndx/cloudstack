@@ -24,10 +24,8 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -139,6 +137,7 @@ import com.cloud.storage.template.TemplateProp;
 import com.cloud.utils.ExecutionResult;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
+import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.ssh.SshHelper;
@@ -219,7 +218,9 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         _username = (String) params.get("username");
         _password = (String) params.get("password");
         _tokenId = (String) params.get("token.id");
-        _tokenSecret = (String) params.get("token.secret");
+        // "token.secret" and "ssh.password" are stored encrypted in host_details (the details
+        // DAO only auto-encrypts the "password" key); the discoverer encrypts them on write
+        _tokenSecret = DBEncryptionUtil.decrypt((String) params.get("token.secret"));
 
         if (StringUtils.isBlank(_guid)) {
             throw new ConfigurationException("Unable to find the guid in configuration parameters");
@@ -235,7 +236,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         if (StringUtils.isNotBlank(value)) {
             _sshUsername = value;
         }
-        value = (String) params.get("ssh.password");
+        value = DBEncryptionUtil.decrypt((String) params.get("ssh.password"));
         if (StringUtils.isNotBlank(value)) {
             _sshPassword = value;
         } else {

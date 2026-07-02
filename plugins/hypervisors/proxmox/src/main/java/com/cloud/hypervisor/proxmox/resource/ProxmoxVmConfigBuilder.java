@@ -28,7 +28,6 @@ import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.storage.Volume;
-import com.cloud.vm.VirtualMachine;
 
 /**
  * Translates a CloudStack {@link VirtualMachineTO} into a Proxmox VE qemu VM
