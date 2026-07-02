@@ -25,6 +25,9 @@ INSERT INTO `cloud`.`vm_template` (id, uuid, unique_name, name, public, created,
     VALUES (3, UUID(), 'routing-3', 'SystemVM Template (KVM)', 0, now(), 'SYSTEM', 0, 64, 1, 'http://download.cloudstack.org/systemvm/4.6/systemvm64template-4.6.0-kvm.qcow2.bz2', 'c059b0d051e0cd6fbe9d5d4fc40c7e5d', 0, 'SystemVM Template (KVM)', 'QCOW2', 15, 0, 1, 'KVM' );
 
 INSERT INTO `cloud`.`vm_template` (id, uuid, unique_name, name, public, created, type, hvm, bits, account_id, url, checksum, enable_password, display_text, format, guest_os_id, featured, cross_zones, hypervisor_type)
+    VALUES (16, UUID(), 'routing-16', 'SystemVM Template (Proxmox)', 0, now(), 'SYSTEM', 0, 64, 1, 'http://download.cloudstack.org/systemvm/4.6/systemvm64template-4.6.0-kvm.qcow2.bz2', 'c059b0d051e0cd6fbe9d5d4fc40c7e5d', 0, 'SystemVM Template (Proxmox)', 'QCOW2', 15, 0, 1, 'Proxmox' );
+
+INSERT INTO `cloud`.`vm_template` (id, uuid, unique_name, name, public, created, type, hvm, bits, account_id, url, checksum, enable_password, display_text, format, guest_os_id, featured, cross_zones, hypervisor_type)
     VALUES (8, UUID(), 'routing-8', 'SystemVM Template (vSphere)', 0, now(), 'SYSTEM', 0, 64, 1, 'http://download.cloudstack.org/systemvm/4.6/systemvm64template-4.6.0-vmware.ova', '4b415224fe00b258f66cad9fce9f73fc', 0, 'SystemVM Template (vSphere)', 'OVA', 15, 0, 1, 'VMware' );
 
 INSERT INTO `cloud`.`vm_template` (id, uuid, unique_name, name, public, created, type, hvm, bits, account_id, url, checksum, enable_password, display_text, format, guest_os_id, featured, cross_zones, hypervisor_type)
