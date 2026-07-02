@@ -207,6 +207,9 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
 
         public static final Provider Nsx = new Provider("Nsx", false);
         public static final Provider Netris = new Provider("Netris", false);
+        // Mikrotik RouterOS CHR appliance providers (isolated networks and VPCs)
+        public static final Provider RouterOS = new Provider("RouterOS", false);
+        public static final Provider VpcRouterOS = new Provider("VpcRouterOS", false);
 
         private final String name;
         private final boolean isExternal;

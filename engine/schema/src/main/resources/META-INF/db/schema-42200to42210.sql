@@ -59,3 +59,23 @@ UPDATE `cloud`.`configuration`
 SET value = CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset your password. Please click the following link to reset your password:', '{{{resetLink}}}', 'If you did not request a password reset, please ignore this email.', '', 'Regards,', 'The CloudStack Team')
 WHERE name = 'user.password.reset.mail.template'
   AND value IN (CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset your password. Please click the following link to reset your password:', 'http://{{{resetLink}}}', 'If you did not request a password reset, please ignore this email.', '', 'Regards,', 'The CloudStack Team'), CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset your password. Please click the following link to reset your password:', '{{{domainUrl}}}{{{resetLink}}}', 'If you did not request a password reset, please ignore this email.', '', 'Regards,', 'The CloudStack Team'));
+
+-- Mikrotik RouterOS network plugin: appliances deployed as routers for isolated networks / VPCs
+CREATE TABLE IF NOT EXISTS `cloud`.`routeros_devices` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `uuid` varchar(40) NOT NULL COMMENT 'uuid',
+    `network_id` bigint unsigned DEFAULT NULL COMMENT 'isolated guest network served by this appliance',
+    `vpc_id` bigint unsigned DEFAULT NULL COMMENT 'VPC served by this appliance',
+    `vm_instance_id` bigint unsigned DEFAULT NULL COMMENT 'vm instance backing this appliance',
+    `api_url` varchar(255) DEFAULT NULL COMMENT 'RouterOS REST API base url',
+    `username` varchar(255) DEFAULT NULL COMMENT 'RouterOS API user',
+    `password` varchar(255) DEFAULT NULL COMMENT 'RouterOS API password (encrypted)',
+    `state` varchar(32) NOT NULL DEFAULT 'Allocated' COMMENT 'provisioning state of the appliance',
+    `created` datetime DEFAULT NULL COMMENT 'date created',
+    `removed` datetime DEFAULT NULL COMMENT 'date removed',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uc_routeros_devices__uuid` (`uuid`),
+    INDEX `i_routeros_devices__network_id` (`network_id`),
+    INDEX `i_routeros_devices__vpc_id` (`vpc_id`),
+    INDEX `i_routeros_devices__vm_instance_id` (`vm_instance_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
