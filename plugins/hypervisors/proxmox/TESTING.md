@@ -72,7 +72,7 @@ template):
 
 ```bash
 sudo /usr/share/cloudstack-common/scripts/storage/secondary/cloud-install-sys-tmplt \
-  -m /mnt/secondary -u https://download.cloudstack.org/systemvm/4.22/systemvmtemplate-4.22.1-x86_64-kvm.qcow2.bz2 \
+  -m /mnt/secondary -u https://download.cloudstack.org/systemvm/4.22/systemvmtemplate-4.22.0-x86_64-kvm.qcow2.bz2 \
   -h kvm -s <mgmt-secret-key> -F
 ```
 
