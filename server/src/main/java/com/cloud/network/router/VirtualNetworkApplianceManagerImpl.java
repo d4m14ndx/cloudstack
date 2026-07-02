@@ -1954,7 +1954,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 buf.append(createRedundantRouterArgs(controlNic, router));
 
                 // DOMR control command is sent over management server in VMware
-                if (dest.getHost().getHypervisorType() == HypervisorType.VMware || dest.getHost().getHypervisorType() == HypervisorType.Hyperv) {
+                if (dest.getHost().getHypervisorType() == HypervisorType.VMware || dest.getHost().getHypervisorType() == HypervisorType.Hyperv || dest.getHost().getHypervisorType() == HypervisorType.Proxmox) {
                     logger.info("Check if we need to add management server explicit route to DomR. pod cidr: " + dest.getPod().getCidrAddress() + "/"
                             + dest.getPod().getCidrSize() + ", pod gateway: " + dest.getPod().getGateway() + ", management host: "
                             + ApiServiceConfiguration.ManagementServerAddresses.value());
@@ -1974,7 +1974,7 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
 
                     if (dc.getNetworkType() == NetworkType.Basic) {
                         // ask domR to set up SSH on guest network
-                        if (profile.getHypervisorType() == HypervisorType.VMware) {
+                        if (profile.getHypervisorType() == HypervisorType.VMware || profile.getHypervisorType() == HypervisorType.Proxmox) {
                             buf.append(" sshonguest=false");
                         } else {
                             buf.append(" sshonguest=true");

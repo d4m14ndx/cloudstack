@@ -1335,7 +1335,7 @@ public class ConsoleProxyManagerImpl extends ManagerBase implements ConsoleProxy
             controlNic = managementNic;
         }
 
-        if(profile.getHypervisorType() == HypervisorType.Hyperv) {
+        if(profile.getHypervisorType() == HypervisorType.Hyperv || profile.getHypervisorType() == HypervisorType.Proxmox) {
             controlNic = managementNic;
         }
         CheckSshCommand check = new CheckSshCommand(profile.getInstanceName(), controlNic.getIPv4Address(), 3922);

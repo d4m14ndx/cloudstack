@@ -1160,6 +1160,8 @@ public class VolumeOrchestrator extends ManagerBase implements VolumeOrchestrati
             return ImageFormat.RAW;
         } else if (hyperType == HypervisorType.Hyperv) {
             return ImageFormat.VHDX;
+        } else if (hyperType == HypervisorType.Proxmox) {
+            return ImageFormat.QCOW2;
         } else {
             return null;
         }

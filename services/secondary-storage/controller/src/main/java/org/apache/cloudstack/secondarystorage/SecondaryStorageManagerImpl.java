@@ -1349,7 +1349,7 @@ public class SecondaryStorageManagerImpl extends ManagerBase implements Secondar
     }
 
     protected NicProfile verifySshAccessOnManagementNicForSystemVm(VirtualMachineProfile profile, NicProfile controlNic, NicProfile managementNic) {
-        if (profile.getHypervisorType() == HypervisorType.Hyperv) {
+        if (profile.getHypervisorType() == HypervisorType.Hyperv || profile.getHypervisorType() == HypervisorType.Proxmox) {
             return managementNic;
         }
 

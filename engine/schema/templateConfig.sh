@@ -35,6 +35,8 @@ function getGenericName() {
     echo "ovm"
   elif [[ "$hypervisor" == "lxc" ]]; then
     echo "kvm"
+  elif [[ "$hypervisor" == "proxmox" ]]; then
+    echo "kvm"
   elif [[ "$hypervisor" == "xenserver" ]]; then
     echo "xen"
   else
@@ -88,6 +90,7 @@ templates=( "kvm-x86_64:https://download.cloudstack.org/systemvm/${CS_VERSION}/s
             "xenserver:https://download.cloudstack.org/systemvm/$CS_VERSION/systemvmtemplate-$VERSION-x86_64-xen.vhd.bz2"
             "hyperv:https://download.cloudstack.org/systemvm/$CS_VERSION/systemvmtemplate-$VERSION-x86_64-hyperv.vhd.zip"
             "lxc:https://download.cloudstack.org/systemvm/$CS_VERSION/systemvmtemplate-$VERSION-x86_64-kvm.qcow2.bz2"
+            "proxmox:https://download.cloudstack.org/systemvm/$CS_VERSION/systemvmtemplate-$VERSION-x86_64-kvm.qcow2.bz2"
             "ovm3:https://download.cloudstack.org/systemvm/$CS_VERSION/systemvmtemplate-$VERSION-x86_64-ovm.raw.bz2" )
 
 PARENTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )/dist/systemvm-templates/"
