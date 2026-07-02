@@ -2,7 +2,7 @@
 
 This file is the single source of truth for cross-class signatures while the plugin is
 under initial development. All classes live in the `cloud-plugin-hypervisor-proxmox`
-Maven module. Target: CloudStack 4.21.0.0, Proxmox VE 8.x/9.x, Java 11 bytecode.
+Maven module. Target: CloudStack 4.22.1.0, Proxmox VE 8.x/9.x, Java 11 bytecode.
 
 ## Design summary
 

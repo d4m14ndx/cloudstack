@@ -1,7 +1,7 @@
 # Apache CloudStack — Native Proxmox VE Hypervisor Plugin
 
 This module adds **Proxmox VE 8.x/9.x** as a *native* hypervisor type in Apache
-CloudStack — a first-class peer of KVM/VMware/XenServer, not an Extensions Framework
+CloudStack 4.22 — a first-class peer of KVM/VMware/XenServer, not an Extensions Framework
 orchestrator. It supports the full CloudStack resource model: zones, pods, clusters,
 hosts, primary/secondary storage, **system VMs (SSVM, Console Proxy, Virtual Router)**,
 and the standard VM lifecycle.
@@ -118,6 +118,6 @@ mvn -pl plugins/hypervisors/proxmox -am -DskipTests install
 
 The module ships in `cloud-client-ui` (management server webapp) automatically via
 `client/pom.xml`. Core patches outside this module are deliberately tiny — see
-`git log` for the `proxmox-native-plugin` branch; the meaningful ones are the
+`git log` for the `proxmox-native-plugin-4.22` branch; the meaningful ones are the
 `HypervisorType.Proxmox` registration, system VM template maps, control-network
 selection, and `hypervisor_capabilities` seed rows.

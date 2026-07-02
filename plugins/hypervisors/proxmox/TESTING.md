@@ -28,7 +28,7 @@ On the management node (or build on a workstation and copy debs):
 
 ```bash
 sudo apt install openjdk-17-jdk maven python3 genisoimage nfs-common mysql-server
-git clone <your-fork> cloudstack && cd cloudstack && git checkout proxmox-native-plugin
+git clone <your-fork> cloudstack && cd cloudstack && git checkout proxmox-native-plugin-4.22
 mvn -DskipTests -P developer,systemvm clean install
 # deb packaging:
 dpkg-buildpackage -uc -us -b     # or: packaging/build-deb.sh
@@ -48,7 +48,7 @@ template):
 
 ```bash
 sudo /usr/share/cloudstack-common/scripts/storage/secondary/cloud-install-sys-tmplt \
-  -m /mnt/secondary -u https://download.cloudstack.org/systemvm/4.20/systemvmtemplate-4.20.2-x86_64-kvm.qcow2.bz2 \
+  -m /mnt/secondary -u https://download.cloudstack.org/systemvm/4.22/systemvmtemplate-4.22.1-x86_64-kvm.qcow2.bz2 \
   -h kvm -s <mgmt-secret-key> -F
 ```
 

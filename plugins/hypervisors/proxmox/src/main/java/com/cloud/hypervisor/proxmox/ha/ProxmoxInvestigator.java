@@ -54,7 +54,7 @@ public class ProxmoxInvestigator extends AdapterBase implements Investigator {
             throw new UnknownVM();
         }
 
-        Status status = isAgentAlive(host);
+        Status status = getHostAgentStatus(host);
         logger.debug("HA: investigated status {} for host {} while checking VM {}", status, host, vm);
         if (status == Status.Up) {
             return true;
@@ -63,7 +63,7 @@ public class ProxmoxInvestigator extends AdapterBase implements Investigator {
     }
 
     @Override
-    public Status isAgentAlive(Host agent) {
+    public Status getHostAgentStatus(Host agent) {
         if (agent.getHypervisorType() != HypervisorType.Proxmox) {
             return null;
         }
