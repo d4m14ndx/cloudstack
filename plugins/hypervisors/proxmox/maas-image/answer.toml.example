@@ -1,0 +1,22 @@
+[global]
+keyboard = "en-us"
+country = "au"
+fqdn = "pve-builder.local"
+mailto = "root@localhost"
+timezone = "UTC"
+root-password = "<CHANGE-ME>"
+root-ssh-keys = [
+    "<YOUR-SSH-PUBLIC-KEY>"
+]
+reboot-on-error = false
+
+[network]
+source = "from-dhcp"
+
+[disk-setup]
+filesystem = "ext4"
+disk-list = ["sda"]
+
+[first-boot]
+source = "from-iso"
+ordering = "network-online"

@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+# curtin-hooks - Curtin installation hooks for the Proxmox VE 9 dd image.
+#
+# Modeled on canonical/packer-maas sles15/curtin/curtin-hooks (dd-aware) and
+# debian/curtin_userdata_custom_amd64 late_commands (metadata URL copy).
+#
+# Runs in the MAAS ephemeral environment after curtin has dd-written the image
+# to the target disk. The image's root LV (pve/root) is mounted at
+# state['target']. Responsibilities:
+#   1. Write the MAAS datasource cloud-init config into the target
+#      (cfg['cloudconfig'] if provided, plus the ephemeral metadata URL).
+#   2. Apply the MAAS-configured networking to the target (the PVE installer
+#      baked the build VM's static 10.0.2.15 vmbr0 config, which is wrong for
+#      real nodes).
+#   3. UEFI: mount the ESP and register a 'proxmox' NVRAM boot entry for
+#      \EFI\proxmox\grubx64.efi via chrooted efibootmgr (Secure Boot is OFF).
+#      The ESP also carries EFI/BOOT/BOOTx64.efi as a firmware fallback.
+#   4. Remove /curtin from the target.
+
+import os
+import re
+import shutil
+import subprocess
+
+from curtin.config import load_command_config
+from curtin.log import LOG
+from curtin.paths import target_path
+from curtin.util import load_command_environment, ChrootableTarget
+from curtin.commands import curthooks
+
+EPHEMERAL_MAAS_CFG = "/etc/cloud/cloud.cfg.d/91_kernel_cmdline_url.cfg"
+GRUB_EFI_PATH = "\\EFI\\proxmox\\grubx64.efi"
+BOOT_LABEL = "proxmox"
+
+
+def write_metadata_url(target):
+    """Copy the MAAS metadata_url datasource stanza from the ephemeral
+    environment into the target, stripping the 'curtin' suffix — mirrors
+    packer-maas debian late_2:
+      grep -A2 datasource 91_kernel_cmdline_url.cfg | sed 's/curtin//'
+    """
+    if not os.path.isfile(EPHEMERAL_MAAS_CFG):
+        LOG.warning("%s not found in ephemeral env; skipping metadata URL copy",
+                    EPHEMERAL_MAAS_CFG)
+        return
+    with open(EPHEMERAL_MAAS_CFG) as f:
+        lines = f.readlines()
+    start = next((i for i, l in enumerate(lines) if "datasource" in l), None)
+    if start is None:
+        LOG.warning("no datasource stanza in %s", EPHEMERAL_MAAS_CFG)
+        return
+    stanza = [l.replace("curtin", "") for l in lines[start:start + 3]]
+    dst = target_path(target, "etc/cloud/cloud.cfg.d/91_maas_metadata_url.cfg")
+    with open(dst, "w") as f:
+        f.writelines(stanza)
+    LOG.info("wrote MAAS metadata URL config to %s", dst)
+
+
+def find_esp(target):
+    """Locate the EFI System Partition on the disk backing the pve VG.
+    Returns (esp_device, disk_device, partition_number)."""
+    pv = subprocess.check_output(
+        ["pvs", "--noheadings", "-o", "pv_name", "--select", "vg_name=pve"],
+        text=True).strip()
+    if not pv:
+        raise RuntimeError("could not find PV of the pve volume group")
+    disk = subprocess.check_output(
+        ["lsblk", "-no", "PKNAME", pv], text=True).strip().splitlines()[0]
+    disk_dev = "/dev/" + disk
+    out = subprocess.check_output(
+        ["lsblk", "-nlo", "NAME,FSTYPE,PARTTYPE", disk_dev], text=True)
+    for line in out.splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        name = fields[0]
+        if "vfat" in fields[1:] or \
+                "c12a7328-f81f-11d2-ba4b-00a0c8b0e309" in [x.lower() for x in fields[1:]]:
+            m = re.search(r"(\d+)$", name)
+            if m:
+                return "/dev/" + name, disk_dev, m.group(1)
+    raise RuntimeError("no ESP (vfat) partition found on %s" % disk_dev)
+
+
+def setup_uefi(target):
+    """Register a persistent 'proxmox' UEFI boot entry on the real node.
+    The build VM's OVMF NVRAM entry does not travel with the dd image."""
+    if not os.path.isdir("/sys/firmware/efi"):
+        LOG.info("not booted via UEFI; skipping EFI boot entry setup")
+        return
+    esp_dev, disk_dev, part_num = find_esp(target)
+    LOG.info("ESP=%s disk=%s part=%s", esp_dev, disk_dev, part_num)
+    esp_mnt = target_path(target, "boot/efi")
+    subprocess.check_call(["mount", esp_dev, esp_mnt])
+    try:
+        with ChrootableTarget(target=target) as in_chroot:
+            # Drop stale entries with our label to avoid duplicates.
+            existing, _ = in_chroot.subp(["efibootmgr"], capture=True)
+            for line in existing.splitlines():
+                m = re.match(r"^Boot([0-9A-Fa-f]{4})\*?\s+%s$" % BOOT_LABEL,
+                             line.strip())
+                if m:
+                    in_chroot.subp(["efibootmgr", "-b", m.group(1), "-B"])
+            in_chroot.subp([
+                "efibootmgr", "-c",
+                "-d", disk_dev,
+                "-p", part_num,
+                "-L", BOOT_LABEL,
+                "-l", GRUB_EFI_PATH,
+            ])
+            out, _ = in_chroot.subp(["efibootmgr"], capture=True)
+            LOG.info("efibootmgr after setup:\n%s", out)
+    finally:
+        subprocess.call(["umount", esp_mnt])
+
+
+def curthook(cfg, target, state):
+    """Configure cloud-init datasource, networking and UEFI boot entry."""
+    LOG.info("Running Proxmox VE dd-image curtin hooks")
+
+    # cloud-init MAAS datasource: config pushed by MAAS via curtin config,
+    # plus the metadata URL visible in the ephemeral environment.
+    if cfg.get("cloudconfig"):
+        curthooks.handle_cloudconfig(
+            cfg["cloudconfig"],
+            base_dir=target_path(target, "etc/cloud/cloud.cfg.d"))
+    write_metadata_url(target)
+
+    # Networking: overwrite the installer-baked build-VM config with the
+    # MAAS-provided per-node network configuration.
+    curthooks.apply_networking(target, state)
+
+    setup_uefi(target)
+
+
+def cleanup():
+    """Remove curtin-hooks so it's as if we were never here."""
+    curtin_dir = os.path.dirname(__file__)
+    shutil.rmtree(curtin_dir)
+
+
+def main():
+    state = load_command_environment()
+    config = load_command_config(None, state)
+    target = state["target"]
+
+    curthook(config, target, state)
+    cleanup()
+
+
+if __name__ == "__main__":
+    main()
