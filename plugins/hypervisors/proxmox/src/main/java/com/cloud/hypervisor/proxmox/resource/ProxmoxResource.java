@@ -1113,6 +1113,11 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return new MigrateAnswer(cmd, true, "VM already on target node", null);
             }
             api.migrateVm(sourceNode, vmid, targetNode, true, _migrateWithLocalDisks, getTaskTimeoutMs());
+            // The VNC password is runtime state of the source QEMU process and does not
+            // survive live migration; the destination starts with password=on but unset.
+            if (cmd.getVirtualMachine() != null && cmd.getVirtualMachine().getVncPassword() != null) {
+                setVncPassword(targetNode, vmid, cmd.getVirtualMachine().getVncPassword());
+            }
             return new MigrateAnswer(cmd, true, "migration succeeded", null);
         } catch (Exception e) {
             logger.error("MigrateCommand failed for VM " + vmName, e);
