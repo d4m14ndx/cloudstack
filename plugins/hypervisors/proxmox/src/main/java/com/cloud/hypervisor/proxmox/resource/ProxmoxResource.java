@@ -36,6 +36,7 @@ import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.storage.command.StorageSubSystemCommand;
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
+import org.apache.cloudstack.storage.to.TemplateObjectTO;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Duration;
 
@@ -122,6 +123,7 @@ import com.cloud.agent.api.routing.SetSourceNatCommand;
 import com.cloud.agent.api.storage.ResizeVolumeAnswer;
 import com.cloud.agent.api.storage.ResizeVolumeCommand;
 import com.cloud.agent.api.to.DataStoreTO;
+import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.IpAddressTO;
 import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.StorageFilerTO;
@@ -139,6 +141,7 @@ import com.cloud.hypervisor.proxmox.storage.ProxmoxStorageProcessor;
 import com.cloud.hypervisor.proxmox.storage.ProxmoxStorageSubsystemCommandHandler;
 import com.cloud.resource.ServerResource;
 import com.cloud.resource.ServerResourceBase;
+import com.cloud.storage.Volume;
 import com.cloud.storage.resource.StorageSubsystemCommandHandler;
 import com.cloud.storage.template.TemplateProp;
 import com.cloud.utils.ExecutionResult;
@@ -216,6 +219,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     private VirtualRoutingResource _vrResource;
     private StorageSubsystemCommandHandler _storageHandler;
+    private ProxmoxStorageProcessor _storageProcessor;
 
     @Override
     public boolean configure(String name, Map<String, Object> params) throws ConfigurationException {
@@ -277,7 +281,8 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             throw new ConfigurationException("Unable to configure VirtualRoutingResource");
         }
 
-        _storageHandler = new ProxmoxStorageSubsystemCommandHandler(new ProxmoxStorageProcessor(this));
+        _storageProcessor = new ProxmoxStorageProcessor(this);
+        _storageHandler = new ProxmoxStorageSubsystemCommandHandler(_storageProcessor);
 
         logger.info("Configured ProxmoxResource for node " + _nodeName + " (" + _nodeAddress + "), guid " + _guid);
         return true;
@@ -802,8 +807,14 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         try {
             Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, vmid, this);
             String node = api.findNodeOfVm(vmid);
-            if (node == null) {
+            boolean createVm = node == null;
+            if (createVm) {
                 node = _nodeName;
+            }
+            // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
+            // arrives here as an ISO DiskTO and must be staged and inserted before boot.
+            insertAttachedIso(spec, node, config);
+            if (createVm) {
                 api.createVm(node, vmid, config, getTaskTimeoutMs());
             } else {
                 api.setVmConfig(node, vmid, config);
@@ -829,6 +840,27 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         } catch (Exception e) {
             logger.error("StartCommand failed for VM " + spec.getName() + " (vmid " + vmid + ")", e);
             return new StartAnswer(cmd, e.getMessage());
+        }
+    }
+
+    /**
+     * Stages the ISO recorded against the VM (if any) onto a PVE iso-content storage and
+     * points ide2 at it, so a VM started with an ISO attached in the CloudStack DB boots
+     * with the medium inserted, matching attachIso behavior on running VMs.
+     */
+    private void insertAttachedIso(VirtualMachineTO spec, String node, Map<String, Object> config) {
+        if (spec.getDisks() == null) {
+            return;
+        }
+        for (DiskTO disk : spec.getDisks()) {
+            if (disk.getType() != Volume.Type.ISO || !(disk.getData() instanceof TemplateObjectTO)) {
+                continue;
+            }
+            TemplateObjectTO iso = (TemplateObjectTO) disk.getData();
+            if (StringUtils.isBlank(iso.getPath()) || iso.getDataStore() == null) {
+                continue; // empty cdrom placeholder
+            }
+            config.put("ide2", _storageProcessor.stageIso(iso, node) + ",media=cdrom");
         }
     }
 

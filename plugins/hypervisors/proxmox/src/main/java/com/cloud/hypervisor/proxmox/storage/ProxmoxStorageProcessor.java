@@ -342,53 +342,65 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         }
     }
 
+    /**
+     * Makes an ISO from NFS secondary storage available on a PVE iso-content storage
+     * (copied once, cached by file name) and returns its PVE volid. Shared iso storages
+     * are preferred so the staged file is visible cluster-wide. Used by both the live
+     * attach path and StartCommand, which must re-insert an ISO attached while the VM
+     * was stopped.
+     */
+    public String stageIso(TemplateObjectTO iso, String node) {
+        DataStoreTO store = iso.getDataStore();
+        if (!(store instanceof NfsTO)) {
+            throw new CloudRuntimeException("Attaching ISOs is only supported from NFS secondary storage by the Proxmox plugin (v1)");
+        }
+        String isoInstallPath = trimSlashes(iso.getPath());
+        String fileName = isoInstallPath.substring(isoInstallPath.lastIndexOf('/') + 1);
+        if (!fileName.toLowerCase().endsWith(".iso")) {
+            throw new CloudRuntimeException("ISO file name '" + fileName + "' does not end with .iso; Proxmox VE requires the .iso extension");
+        }
+
+        String isoStorage = findIsoCapableStorage(node);
+        if (isoStorage == null) {
+            throw new CloudRuntimeException(String.format("No PVE storage on node '%s' supports the 'iso' content type; add 'ISO image' content to a storage in the PVE datacenter storage configuration", node));
+        }
+
+        String isoVolid = isoStorage + ":iso/" + fileName;
+        String localIsoPath = executeOrFail("pvesm path " + quoted(isoVolid), DEFAULT_SSH_TIMEOUT_SEC).trim();
+        validateRemotePath(localIsoPath);
+        if (!localIsoPath.startsWith("/") || localIsoPath.lastIndexOf('/') == 0) {
+            throw new CloudRuntimeException("Unexpected local path for ISO volume " + isoVolid + ": " + localIsoPath);
+        }
+        String localIsoDir = localIsoPath.substring(0, localIsoPath.lastIndexOf('/'));
+
+        // Copy the ISO from secondary storage to the PVE iso storage once; cache by file name.
+        // This works for any file-backed iso-capable storage (dir/NFS/CephFS): `pvesm path`
+        // returns the node-local mounted path (e.g. /mnt/pve/<storage>/template/iso/... for
+        // NFS and CephFS storages), which cp/mv operate on directly.
+        String mountPoint = mountSecondaryStorage((NfsTO) store);
+        String srcIsoPath = mountPoint + "/" + isoInstallPath;
+        validateRemotePath(srcIsoPath);
+        String copyCommand = String.format("if [ ! -f %s ]; then mkdir -p %s && cp %s %s && mv %s %s; fi",
+                quoted(localIsoPath), quoted(localIsoDir), quoted(srcIsoPath), quoted(localIsoPath + ".part"),
+                quoted(localIsoPath + ".part"), quoted(localIsoPath));
+        executeOrFail(copyCommand, CONVERT_TIMEOUT_SEC);
+        return isoVolid;
+    }
+
     @Override
     public Answer attachIso(AttachCommand cmd) {
         DiskTO disk = cmd.getDisk();
         TemplateObjectTO iso = (TemplateObjectTO) disk.getData();
-        DataStoreTO store = iso.getDataStore();
-        if (!(store instanceof NfsTO)) {
-            return new AttachAnswer("Attaching ISOs is only supported from NFS secondary storage by the Proxmox plugin (v1)");
-        }
         try {
             int vmid = resource.vmidOfInstanceName(cmd.getVmName());
             String node = nodeOfVm(vmid);
 
-            String isoInstallPath = trimSlashes(iso.getPath());
-            String fileName = isoInstallPath.substring(isoInstallPath.lastIndexOf('/') + 1);
-            if (!fileName.toLowerCase().endsWith(".iso")) {
-                return new AttachAnswer("ISO file name '" + fileName + "' does not end with .iso; Proxmox VE requires the .iso extension");
-            }
-
-            String isoStorage = findIsoCapableStorage(node);
-            if (isoStorage == null) {
-                return new AttachAnswer(String.format("No PVE storage on node '%s' supports the 'iso' content type; add 'ISO image' content to a storage in the PVE datacenter storage configuration", node));
-            }
-
-            String isoVolid = isoStorage + ":iso/" + fileName;
-            String localIsoPath = executeOrFail("pvesm path " + quoted(isoVolid), DEFAULT_SSH_TIMEOUT_SEC).trim();
-            validateRemotePath(localIsoPath);
-            if (!localIsoPath.startsWith("/") || localIsoPath.lastIndexOf('/') == 0) {
-                return new AttachAnswer("Unexpected local path for ISO volume " + isoVolid + ": " + localIsoPath);
-            }
-            String localIsoDir = localIsoPath.substring(0, localIsoPath.lastIndexOf('/'));
-
-            // Copy the ISO from secondary storage to the PVE iso storage once; cache by file name.
-            // This works for any file-backed iso-capable storage (dir/NFS/CephFS): `pvesm path`
-            // returns the node-local mounted path (e.g. /mnt/pve/<storage>/template/iso/... for
-            // NFS and CephFS storages), which cp/mv operate on directly.
-            String mountPoint = mountSecondaryStorage((NfsTO) store);
-            String srcIsoPath = mountPoint + "/" + isoInstallPath;
-            validateRemotePath(srcIsoPath);
-            String copyCommand = String.format("if [ ! -f %s ]; then mkdir -p %s && cp %s %s && mv %s %s; fi",
-                    quoted(localIsoPath), quoted(localIsoDir), quoted(srcIsoPath), quoted(localIsoPath + ".part"),
-                    quoted(localIsoPath + ".part"), quoted(localIsoPath));
-            executeOrFail(copyCommand, CONVERT_TIMEOUT_SEC);
+            String isoVolid = stageIso(iso, node);
 
             Map<String, Object> params = new HashMap<>();
             params.put("ide2", isoVolid + ",media=cdrom");
             resource.getApiClient().setVmConfig(node, vmid, params);
-            logger.debug("Attached ISO {} to VM {} (vmid {}) as {}", fileName, cmd.getVmName(), vmid, isoVolid);
+            logger.debug("Attached ISO {} to VM {} (vmid {}) as {}", iso.getPath(), cmd.getVmName(), vmid, isoVolid);
             return new AttachAnswer(disk);
         } catch (Exception e) {
             logger.error("Failed to attach ISO {} to VM {}: {}", iso.getPath(), cmd.getVmName(), e.getMessage(), e);
@@ -1059,6 +1071,9 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
 
     private String findIsoCapableStorage(String node) {
         JsonArray storages = resource.getApiClient().listStorage(node);
+        // Prefer shared storages (CephFS/NFS): an ISO on a node-local storage pins the VM to
+        // that node — PVE refuses to live-migrate a VM whose cdrom volume the target can't see.
+        String localFallback = null;
         for (JsonElement element : storages) {
             JsonObject storage = element.getAsJsonObject();
             String content = storage.has("content") ? storage.get("content").getAsString() : "";
@@ -1072,9 +1087,14 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             if (storage.has("active") && storage.get("active").getAsInt() == 0) {
                 continue;
             }
-            return storage.get("storage").getAsString();
+            if (storage.has("shared") && storage.get("shared").getAsInt() == 1) {
+                return storage.get("storage").getAsString();
+            }
+            if (localFallback == null) {
+                localFallback = storage.get("storage").getAsString();
+            }
         }
-        return null;
+        return localFallback;
     }
 
     private void verifyStorageSupportsImages(String node, String storage) {
