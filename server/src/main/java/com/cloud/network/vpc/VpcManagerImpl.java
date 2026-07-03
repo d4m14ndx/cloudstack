@@ -348,6 +348,7 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         hTypes.add(HypervisorType.Hyperv);
         hTypes.add(HypervisorType.Ovm3);
         hTypes.add(HypervisorType.External);
+        hTypes.add(HypervisorType.Proxmox);
     }
 
     private void checkVpcDns(VpcOffering vpcOffering, String ip4Dns1, String ip4Dns2, String ip6Dns1, String ip6Dns2) {
