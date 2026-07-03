@@ -29,6 +29,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.naming.ConfigurationException;
 
@@ -103,6 +105,7 @@ import com.cloud.agent.api.StopAnswer;
 import com.cloud.agent.api.StopCommand;
 import com.cloud.agent.api.UnPlugNicAnswer;
 import com.cloud.agent.api.UnPlugNicCommand;
+import com.cloud.agent.api.UnregisterVMCommand;
 import com.cloud.agent.api.VmDiskStatsEntry;
 import com.cloud.agent.api.VmNetworkStatsEntry;
 import com.cloud.agent.api.VmStatsEntry;
@@ -128,6 +131,7 @@ import com.cloud.exception.InternalErrorException;
 import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.proxmox.api.ProxmoxApiClient;
+import com.cloud.hypervisor.proxmox.api.ProxmoxApiException;
 import com.cloud.hypervisor.proxmox.storage.ProxmoxStorageProcessor;
 import com.cloud.hypervisor.proxmox.storage.ProxmoxStorageSubsystemCommandHandler;
 import com.cloud.resource.ServerResource;
@@ -666,6 +670,8 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return execute((RevertToVMSnapshotCommand) cmd);
             } else if (clz == NetworkUsageCommand.class) {
                 return execute((NetworkUsageCommand) cmd);
+            } else if (clz == UnregisterVMCommand.class) {
+                return execute((UnregisterVMCommand) cmd);
             } else {
                 return Answer.createUnsupportedCommandAnswer(cmd);
             }
@@ -1230,6 +1236,9 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             if (StringUtils.isBlank(path)) {
                 return new ResizeVolumeAnswer(cmd, false, "Unable to resolve path of volume " + volid);
             }
+            if (path.contains("'")) {
+                return new ResizeVolumeAnswer(cmd, false, "Refusing to resize volume with unsafe path " + path);
+            }
             int colon = volid.indexOf(':');
             String storageType = colon > 0 ? getStorageType(volid.substring(0, colon)) : null;
             Pair<Boolean, String> result;
@@ -1242,7 +1251,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return new ResizeVolumeAnswer(cmd, false, String.format(
                         "Resizing detached volumes on PVE storage type '%s' is not supported by the Proxmox plugin yet; attach the volume to an instance and retry", storageType));
             } else {
-                result = executeOnNode("qemu-img resize " + path + " " + newSize, 300);
+                result = executeOnNode("qemu-img resize '" + path + "' " + newSize, 300);
                 if (!result.first()) {
                     return new ResizeVolumeAnswer(cmd, false, "qemu-img resize failed: " + result.second());
                 }
@@ -1483,6 +1492,79 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             logger.error("RevertToVMSnapshotCommand failed for VM " + cmd.getVmName(), e);
             return new RevertToVMSnapshotAnswer(cmd, false, e.getMessage());
         }
+    }
+
+    /**
+     * Sent by ProxmoxGuru.finalizeExpunge when a CloudStack instance is expunged: removes the
+     * leftover PVE VM definition (PVE VM configs are persistent, VMware model). By this point
+     * CloudStack has detached the data disks (handing them to the template-holder vmid) and
+     * freed the root disk, so the config should reference no owned volumes any more. That is
+     * re-checked before destroying, because PVE's destroy also frees every owned volume still
+     * referenced in the config. On any doubt the VM shell is left behind and success is
+     * returned: a leaked, stopped VM definition is harmless, a destroyed volume is not.
+     */
+    protected Answer execute(UnregisterVMCommand cmd) {
+        String vmName = cmd.getVmName();
+        ProxmoxApiClient api = getApiClient();
+        try {
+            Integer vmid = findVmid(vmName);
+            String node = vmid != null ? api.findNodeOfVm(vmid) : null;
+            if (vmid == null || node == null) {
+                return new Answer(cmd, true, "VM " + vmName + " already gone from PVE");
+            }
+            JsonObject status = api.getVmStatus(node, vmid);
+            if ("running".equalsIgnoreCase(jsonString(status, "status"))) {
+                logger.warn("Not destroying PVE VM {} ({}): it is unexpectedly still running; leaving the definition behind", vmid, vmName);
+                return new Answer(cmd, true, "left running PVE VM " + vmid + " in place");
+            }
+            String ownedVolid = findReferencedOwnedVolume(api, node, vmid);
+            if (ownedVolid != null) {
+                logger.warn("Not destroying PVE VM {} ({}): its config still references owned volume {} which PVE would destroy with it; leaving the definition behind",
+                        vmid, vmName, ownedVolid);
+                return new Answer(cmd, true, "left PVE VM " + vmid + " in place to protect volume " + ownedVolid);
+            }
+            api.destroyVm(node, vmid, getTaskTimeoutMs());
+            logger.debug("Destroyed PVE VM {} of expunged instance {}", vmid, vmName);
+            return new Answer(cmd, true, "destroyed PVE VM " + vmid);
+        } catch (Exception e) {
+            logger.warn("Unable to destroy the PVE VM of expunged instance " + vmName + "; leaving it behind", e);
+            return new Answer(cmd, true, "left PVE VM behind: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Returns the volid of a disk in the VM config that is owned by this vmid (name carries
+     * {@code vm-<vmid>-}/{@code base-<vmid>-}) and still exists on storage, or null. Dangling
+     * entries whose volume is gone are ignored; volumes whose existence cannot be determined
+     * count as existing (conservative: the caller then refuses to destroy the VM).
+     */
+    private String findReferencedOwnedVolume(ProxmoxApiClient api, String node, int vmid) {
+        JsonObject config = api.getVmConfig(node, vmid);
+        Pattern ownerPattern = Pattern.compile("(?:vm|base)-(\\d+)-");
+        for (Map.Entry<String, JsonElement> entry : config.entrySet()) {
+            if (!entry.getKey().matches("(scsi|virtio|ide|sata|unused)\\d+") || !entry.getValue().isJsonPrimitive()) {
+                continue;
+            }
+            String volid = entry.getValue().getAsString().split(",")[0].trim();
+            if (volid.indexOf(':') <= 0) {
+                continue; // e.g. "none" cdrom entries
+            }
+            Matcher matcher = ownerPattern.matcher(volid.substring(volid.indexOf(':') + 1));
+            if (!matcher.find() || Integer.parseInt(matcher.group(1)) != vmid) {
+                continue;
+            }
+            try {
+                api.getVolumePath(node, volid);
+                return volid;
+            } catch (ProxmoxApiException e) {
+                String message = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                boolean gone = e.getStatusCode() == 404 || message.contains("does not exist") || message.contains("no such") || message.contains("not found");
+                if (!gone) {
+                    return volid;
+                }
+            }
+        }
+        return null;
     }
 
     protected Answer execute(NetworkUsageCommand cmd) {

@@ -139,6 +139,12 @@ public class ProxmoxServerDiscoverer extends DiscovererBase implements Discovere
             // by default assume the node root password equals the API password
             sshPassword = password;
         }
+        if (tokenId != null) {
+            logger.warn("Adding Proxmox cluster with API-token authentication: PVE restricts the qemu 'args' option "
+                    + "(used for the CloudStack console VNC listener) to root@pam, so VM starts may be rejected for tokens; "
+                    + "prefer root@pam password authentication if that happens.{}",
+                    sshPassword == null ? " Also, no sshpassword=... URL parameter was given, so node SSH operations will fail." : "");
+        }
         String sshPort = urlParams.getOrDefault("sshport", DEFAULT_SSH_PORT);
 
         int apiPort = uri.getPort() > 0 ? uri.getPort() : DEFAULT_API_PORT;

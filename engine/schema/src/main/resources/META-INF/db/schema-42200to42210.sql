@@ -60,5 +60,10 @@ SET value = CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset 
 WHERE name = 'user.password.reset.mail.template'
   AND value IN (CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset your password. Please click the following link to reset your password:', 'http://{{{resetLink}}}', 'If you did not request a password reset, please ignore this email.', '', 'Regards,', 'The CloudStack Team'), CONCAT_WS('\n', 'Hello {{username}}!', 'You have requested to reset your password. Please click the following link to reset your password:', '{{{domainUrl}}}{{{resetLink}}}', 'If you did not request a password reset, please ignore this email.', '', 'Regards,', 'The CloudStack Team'));
 
--- Proxmox hypervisor capabilities: enable storage motion and VM snapshots
+-- Proxmox hypervisor capabilities. Upgraded deployments never ran the create-schema seeds,
+-- so insert the rows here as well (fresh installs hit the IGNORE), then enable storage motion
+-- and VM snapshots on all of them.
+INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_data_volumes_limit) VALUES (UUID(), 'Proxmox', 'default', 50, 0, 13);
+INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_data_volumes_limit) VALUES (UUID(), 'Proxmox', '8.0', 100, 0, 13);
+INSERT IGNORE INTO `cloud`.`hypervisor_capabilities`(uuid, hypervisor_type, hypervisor_version, max_guests_limit, security_group_enabled, max_data_volumes_limit) VALUES (UUID(), 'Proxmox', '9.0', 100, 0, 13);
 UPDATE `cloud`.`hypervisor_capabilities` SET storage_motion_supported=1, vm_snapshot_enabled=1 WHERE hypervisor_type='Proxmox';

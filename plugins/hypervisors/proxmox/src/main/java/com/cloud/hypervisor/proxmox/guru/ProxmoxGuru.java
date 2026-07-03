@@ -16,11 +16,17 @@
 // under the License.
 package com.cloud.hypervisor.proxmox.guru;
 
+import java.util.Collections;
+import java.util.List;
+
+import com.cloud.agent.api.Command;
+import com.cloud.agent.api.UnregisterVMCommand;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.hypervisor.HypervisorGuru;
 import com.cloud.hypervisor.HypervisorGuruBase;
 import com.cloud.template.VirtualMachineTemplate.BootloaderType;
+import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineProfile;
 
 /**
@@ -49,5 +55,17 @@ public class ProxmoxGuru extends HypervisorGuruBase implements HypervisorGuru {
     @Override
     public boolean trackVmHostChange() {
         return true;
+    }
+
+    /**
+     * PVE VM definitions are persistent (VMware model), so expunging a CloudStack instance must
+     * remove the leftover VM shell from the PVE cluster. This runs at the end of the expunge,
+     * after the data disks were detached (handed to the template-holder vmid) and the root disk
+     * was freed; ProxmoxResource re-checks that no owned volumes are still referenced before it
+     * destroys the VM.
+     */
+    @Override
+    public List<Command> finalizeExpunge(VirtualMachine vm) {
+        return Collections.singletonList(new UnregisterVMCommand(vm.getInstanceName()));
     }
 }
