@@ -965,7 +965,7 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
         if (srcData.getHypervisorType() == HypervisorType.XenServer) {
             return copySnapshotToTemplateFromNfsToNfsXenserver(cmd, srcData, srcDataStore, destData, destDataStore);
-        } else if (srcData.getHypervisorType() == HypervisorType.KVM) {
+        } else if (srcData.getHypervisorType() == HypervisorType.KVM || srcData.getHypervisorType() == HypervisorType.Proxmox) {
             File srcFile = getFile(srcData.getPath(), srcDataStore.getUrl(), _nfsVersion);
             File destFile = getFile(destData.getPath(), destDataStore.getUrl(), _nfsVersion);
 
@@ -980,6 +980,15 @@ public class NfsSecondaryStorageResource extends ServerResourceBase implements S
 
             // get snapshot file name
             String templateName = srcFile.getName();
+            if (srcData.getHypervisorType() == HypervisorType.Proxmox) {
+                // the Proxmox plugin exports snapshots to secondary as qcow2 regardless of the
+                // volume format (ProxmoxStorageProcessor.backupSnapshot), with a .qcow2 suffix
+                // the extension-appending below and the template processor both expect absent
+                srcFormat = ImageFormat.QCOW2;
+                if (templateName.endsWith(".qcow2")) {
+                    templateName = templateName.substring(0, templateName.length() - ".qcow2".length());
+                }
+            }
             // add kvm file extension for copied template name
             String fileName = templateName + "." + srcFormat.getFileExtension();
             String destFileFullPath = destFile.getAbsolutePath() + File.separator + fileName;
