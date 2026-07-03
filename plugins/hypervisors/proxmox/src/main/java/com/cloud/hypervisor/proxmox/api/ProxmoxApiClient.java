@@ -394,15 +394,18 @@ public class ProxmoxApiClient {
     }
 
     /**
-     * Allocates a disk image on a storage. The size is sent in kibibytes (rounded up), which PVE
-     * accepts as a "K"-suffixed size. Returns the volid of the new volume.
+     * Allocates a disk image on a storage. The size is sent as a bare kibibyte value (rounded
+     * up) — PVE's API treats unsuffixed sizes as KiB and rejects a "K" suffix. Returns the
+     * volid of the new volume.
      */
     public String allocDiskImage(String node, String storage, int ownerVmid,
                                  String filename, long sizeBytes, String format) {
         Map<String, Object> params = new LinkedHashMap<String, Object>();
         params.put("vmid", ownerVmid);
         params.put("filename", filename);
-        params.put("size", String.valueOf((sizeBytes + 1023) / 1024) + "K");
+        // PVE's content-alloc 'size' is denominated in KiB and only accepts M/G suffixes
+        // (a "K" suffix fails the API's regex validation) — send a bare KiB value.
+        params.put("size", String.valueOf((sizeBytes + 1023) / 1024));
         params.put("format", format);
         JsonElement data = post("/nodes/" + node + "/storage/" + storage + "/content", params);
         if (data == null || data.isJsonNull()) {
