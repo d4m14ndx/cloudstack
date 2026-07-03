@@ -809,7 +809,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             try {
                 if (spec.getType() != VirtualMachine.Type.User) {
                     patchSystemVm(spec, node, vmid);
-                    deliverSystemVmPatchFiles(spec);
+                    deliverSystemVmPatchFiles(spec, node, vmid);
                 }
                 if (StringUtils.isNotBlank(spec.getVncPassword())) {
                     setVncPassword(node, vmid, spec.getVncPassword());
@@ -834,12 +834,17 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
      * VMware StartCommand flow: the system VM template ships without the agent code, so
      * without this step /usr/local/cloud/systemvm never exists and cloud.service cannot start.
      */
-    private void deliverSystemVmPatchFiles(VirtualMachineTO spec) throws Exception {
+    private void deliverSystemVmPatchFiles(VirtualMachineTO spec, String node, int vmid) throws Exception {
         String controlIp = getControlIp(spec.getNics());
         if (controlIp == null) {
             throw new CloudRuntimeException("No control/management IP on system VM " + spec.getName() + " to deliver the patch files to");
         }
+        // The firewall fix must be retried together with the connect attempts: right after the
+        // boot-args are written the guest is still inside cloud-early-config, so the control IP
+        // is not assigned yet (the interface lookup finds nothing) and the template's
+        // iptables-restore would flush a too-early rule insert anyway.
         for (int count = 0; count < 60; count++) {
+            openSshdFirewallForControlIp(spec, node, vmid, controlIp);
             if (_vrResource.connect(controlIp, 1, 5000)) {
                 break;
             }
@@ -847,6 +852,36 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         FileUtil.scpPatchFiles(controlIp, VRScripts.CONFIG_CACHE_LOCATION, DEFAULT_DOMR_SSH_PORT, getSystemVmKeyFile(), systemVmPatchFiles, BASEPATH);
         if (!_vrResource.isSystemVMSetup(spec.getName(), controlIp)) {
             throw new CloudRuntimeException("System VM " + spec.getName() + " did not finish setup after the patch files were delivered");
+        }
+    }
+
+    /**
+     * The system VM template's init.sh auto-detects the hypervisor with virt-what, which
+     * reports "kvm" on Proxmox, so it firewalls sshd port 3922 to the link-local control
+     * interface (eth0) — an interface that carries no IP here because the management server,
+     * not a host agent, drives the VM. Insert an ACCEPT for 3922 on the interface that holds
+     * the control IP through the qemu guest agent before trying to SSH in. Idempotent, and a
+     * no-op for virtual routers whose control NIC is already the firewalled one.
+     */
+    private void openSshdFirewallForControlIp(VirtualMachineTO spec, String node, int vmid, String controlIp) {
+        String rule = "-p tcp -m state --state NEW --dport 3922 -j ACCEPT";
+        // On flat networks the management and public NICs can share a subnet; Linux ARP flux
+        // then lets the public NIC answer ARP for the control IP, packets arrive on the wrong
+        // interface and the per-interface 3922 rule never matches. Pin ARP to the owning NIC.
+        String guestScript = "sysctl -w net.ipv4.conf.all.arp_ignore=1 >/dev/null 2>&1; "
+                + "sysctl -w net.ipv4.conf.all.arp_announce=2 >/dev/null 2>&1; "
+                + "dev=$(ip -o -4 addr show to " + controlIp + "/32 | awk \"{print \\$2; exit}\"); "
+                + "[ -n \"$dev\" ] && { iptables -C INPUT -i \"$dev\" " + rule + " 2>/dev/null"
+                + " || iptables -I INPUT -i \"$dev\" " + rule + "; "
+                // also fix the persisted rule (like setup_sshd does for vmware/hyperv) so a
+                // later iptables-restore does not drop 3922 back to the IP-less eth0
+                + "[ -f /etc/iptables/rules.v4 ] && sed -i \"/3922/s/-i eth[0-9]*/-i $dev/\" /etc/iptables/rules.v4; }";
+        String nodeCommand = "pvesh create /nodes/" + node + "/qemu/" + vmid
+                + "/agent/exec --command /bin/sh --command -c --command '" + guestScript + "'";
+        Pair<Boolean, String> result = executeOnNode(nodeCommand);
+        if (!result.first()) {
+            logger.warn("Could not open the system VM sshd firewall for " + spec.getName() + " (vmid " + vmid
+                    + ") via the guest agent, patch file delivery may time out: " + result.second());
         }
     }
 
