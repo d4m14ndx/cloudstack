@@ -132,6 +132,7 @@ import com.cloud.agent.resource.virtualnetwork.VirtualRoutingResource;
 import com.cloud.exception.InternalErrorException;
 import com.cloud.host.Host;
 import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.network.Networks.TrafficType;
 import com.cloud.hypervisor.proxmox.api.ProxmoxApiClient;
 import com.cloud.hypervisor.proxmox.api.ProxmoxApiException;
 import com.cloud.hypervisor.proxmox.storage.ProxmoxStorageProcessor;
@@ -808,6 +809,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             try {
                 if (spec.getType() != VirtualMachine.Type.User) {
                     patchSystemVm(spec, node, vmid);
+                    deliverSystemVmPatchFiles(spec);
                 }
                 if (StringUtils.isNotBlank(spec.getVncPassword())) {
                     setVncPassword(node, vmid, spec.getVncPassword());
@@ -823,6 +825,46 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             logger.error("StartCommand failed for VM " + spec.getName() + " (vmid " + vmid + ")", e);
             return new StartAnswer(cmd, e.getMessage());
         }
+    }
+
+    /**
+     * After the boot-args are in place, deliver the CloudStack agent code (agent.zip,
+     * cloud-scripts.tgz, patch-sysvms.sh) to the freshly booted system VM over SSH and wait
+     * for the guest's postinit to unpack it. Mirrors LibvirtStartCommandWrapper and the
+     * VMware StartCommand flow: the system VM template ships without the agent code, so
+     * without this step /usr/local/cloud/systemvm never exists and cloud.service cannot start.
+     */
+    private void deliverSystemVmPatchFiles(VirtualMachineTO spec) throws Exception {
+        String controlIp = getControlIp(spec.getNics());
+        if (controlIp == null) {
+            throw new CloudRuntimeException("No control/management IP on system VM " + spec.getName() + " to deliver the patch files to");
+        }
+        for (int count = 0; count < 60; count++) {
+            if (_vrResource.connect(controlIp, 1, 5000)) {
+                break;
+            }
+        }
+        FileUtil.scpPatchFiles(controlIp, VRScripts.CONFIG_CACHE_LOCATION, DEFAULT_DOMR_SSH_PORT, getSystemVmKeyFile(), systemVmPatchFiles, BASEPATH);
+        if (!_vrResource.isSystemVMSetup(spec.getName(), controlIp)) {
+            throw new CloudRuntimeException("System VM " + spec.getName() + " did not finish setup after the patch files were delivered");
+        }
+    }
+
+    /**
+     * The control NIC of Proxmox SSVM/CPVM instances intentionally carries no IP (see
+     * ControlNetworkGuru), so fall through to the management NIC; virtual routers get a
+     * management-range IP on their control NIC. Mirrors VmwareResource.getControlIp.
+     */
+    private String getControlIp(NicTO[] nics) {
+        if (nics == null) {
+            return null;
+        }
+        for (NicTO nic : nics) {
+            if ((TrafficType.Management == nic.getType() || TrafficType.Control == nic.getType()) && nic.getIp() != null) {
+                return nic.getIp();
+            }
+        }
+        return null;
     }
 
     private void setVncPassword(String node, int vmid, String password) {
