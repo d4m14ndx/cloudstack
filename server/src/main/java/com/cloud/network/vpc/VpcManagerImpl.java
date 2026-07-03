@@ -330,7 +330,7 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
     private List<VpcProvider> vpcElements = null;
     private final List<Service> nonSupportedServices = Arrays.asList(Service.SecurityGroup, Service.Firewall);
     private final List<Provider> supportedProviders = Arrays.asList(Provider.VPCVirtualRouter, Provider.NiciraNvp, Provider.InternalLbVm, Provider.Netscaler,
-            Provider.JuniperContrailVpcRouter, Provider.Ovs, Provider.BigSwitchBcf, Provider.ConfigDrive, Provider.Nsx, Provider.Netris);
+            Provider.JuniperContrailVpcRouter, Provider.Ovs, Provider.BigSwitchBcf, Provider.ConfigDrive, Provider.Nsx, Provider.Netris, Provider.VpcRouterOS);
 
     int _cleanupInterval;
     int _maxNetworks;
@@ -1380,8 +1380,12 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         String sourceNatIP = cmd.getSourceNatIP();
         boolean forNsx = isVpcForProvider(Provider.Nsx, vpc);
         boolean forNetris = isVpcForProvider(Provider.Netris, vpc);
+        // A RouterOS-backed VPC has no CloudStack virtual router to trigger source
+        // NAT IP allocation, so allocate it up front (like the VR path, from the
+        // normal public IP pool) so the RouterOS appliance can be deployed.
+        boolean forRouterOS = isVpcForProvider(Provider.VpcRouterOS, vpc);
         try {
-            if (sourceNatIP != null || forNsx || forNetris) {
+            if (sourceNatIP != null || forNsx || forNetris || forRouterOS) {
                 if (forNsx || forNetris) {
                     logger.info("Provided source NAT IP will be ignored in an NSX-enabled or Netris-enabled zone");
                     sourceNatIP = null;
@@ -2259,6 +2263,11 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
             vpcElements = new ArrayList<VpcProvider>();
             vpcElements.add((VpcProvider) _ntwkModel.getElementImplementingProvider(Provider.VPCVirtualRouter.getName()));
             vpcElements.add((VpcProvider) _ntwkModel.getElementImplementingProvider(Provider.JuniperContrailVpcRouter.getName()));
+            // The RouterOS VPC element is only present when the mikrotik-routeros plugin is deployed.
+            final NetworkElement routerOSElement = _ntwkModel.getElementImplementingProvider(Provider.VpcRouterOS.getName());
+            if (routerOSElement instanceof VpcProvider) {
+                vpcElements.add((VpcProvider) routerOSElement);
+            }
         }
 
         if (vpcElements == null) {
@@ -3585,11 +3594,13 @@ public class VpcManagerImpl extends ManagerBase implements VpcManager, VpcProvis
         return (Objects.nonNull(vpcOffSvcProvidersMap.get(Network.Service.SourceNat))
                 && (vpcOffSvcProvidersMap.get(Network.Service.SourceNat).contains(Network.Provider.VPCVirtualRouter)
                 || vpcOffSvcProvidersMap.get(Service.SourceNat).contains(Provider.Nsx)
-                || vpcOffSvcProvidersMap.get(Service.SourceNat).contains(Provider.Netris)))
+                || vpcOffSvcProvidersMap.get(Service.SourceNat).contains(Provider.Netris)
+                || vpcOffSvcProvidersMap.get(Service.SourceNat).contains(Provider.VpcRouterOS)))
                 || (Objects.nonNull(vpcOffSvcProvidersMap.get(Network.Service.Gateway))
                     && (vpcOffSvcProvidersMap.get(Service.Gateway).contains(Network.Provider.VPCVirtualRouter)
                     || vpcOffSvcProvidersMap.get(Service.Gateway).contains(Provider.Nsx)
-                    || vpcOffSvcProvidersMap.get(Service.Gateway).contains(Network.Provider.Netris)));
+                    || vpcOffSvcProvidersMap.get(Service.Gateway).contains(Network.Provider.Netris)
+                    || vpcOffSvcProvidersMap.get(Service.Gateway).contains(Provider.VpcRouterOS)));
     }
 
      @Override

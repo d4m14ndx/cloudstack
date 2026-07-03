@@ -207,9 +207,12 @@ public interface Network extends ControlledEntity, StateObject<Network.State>, I
 
         public static final Provider Nsx = new Provider("Nsx", false);
         public static final Provider Netris = new Provider("Netris", false);
-        // Mikrotik RouterOS CHR appliance providers (isolated networks and VPCs)
-        public static final Provider RouterOS = new Provider("RouterOS", false);
-        public static final Provider VpcRouterOS = new Provider("VpcRouterOS", false);
+        // Mikrotik RouterOS CHR appliance providers (isolated networks and VPCs).
+        // needCleanupOnShutdown=false: like VirtualRouter, the appliance VM is the
+        // only resource and it is stopped/destroyed directly, so a plain shutdown
+        // needs no separate cleanup pass.
+        public static final Provider RouterOS = new Provider("RouterOS", false, false);
+        public static final Provider VpcRouterOS = new Provider("VpcRouterOS", false, false);
 
         private final String name;
         private final boolean isExternal;
