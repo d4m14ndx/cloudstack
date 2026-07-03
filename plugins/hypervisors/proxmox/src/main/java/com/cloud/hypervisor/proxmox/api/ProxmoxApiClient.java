@@ -223,6 +223,15 @@ public class ProxmoxApiClient {
     }
 
     /**
+     * Lists the qemu VMs of a single node with their live status. Unlike
+     * {@link #getClusterResources}, which serves pvestatd-cached data that can lag
+     * reality by ~10 seconds, this endpoint checks the QEMU pidfiles on the node.
+     */
+    public JsonArray listNodeVms(String node) {
+        return get("/nodes/" + node + "/qemu").getAsJsonArray();
+    }
+
+    /**
      * Returns the corosync cluster name, or the node name when this is a standalone node.
      */
     public String getClusterName() {

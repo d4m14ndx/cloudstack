@@ -578,15 +578,15 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     private HashMap<String, HostVmStateReportEntry> getHostVmStateReport() {
         HashMap<String, HostVmStateReportEntry> report = new HashMap<String, HostVmStateReportEntry>();
-        JsonArray vms = getApiClient().getClusterResources("vm");
+        // Deliberately per-node live status, not /cluster/resources: the cluster view is
+        // pvestatd-cached and can lag ~10s. A stale PowerOff report for a VM that just
+        // started makes the power sync "clean up" the VM with an out-of-band StopCommand.
+        JsonArray vms = getApiClient().listNodeVms(_nodeName);
         if (vms == null) {
             return report;
         }
         for (JsonElement e : vms) {
             JsonObject vm = e.getAsJsonObject();
-            if (!"qemu".equals(jsonString(vm, "type")) || !_nodeName.equals(jsonString(vm, "node"))) {
-                continue;
-            }
             String vmName = jsonString(vm, "name");
             if (StringUtils.isBlank(vmName)) {
                 continue;
