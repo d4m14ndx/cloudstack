@@ -44,7 +44,9 @@ import com.cloud.network.vpc.StaticRouteProfile;
 import com.cloud.network.vpc.Vpc;
 import com.cloud.offering.NetworkOffering;
 import com.cloud.utils.net.NetUtils;
+import com.cloud.vm.NicProfile;
 import com.cloud.vm.ReservationContext;
+import com.cloud.vm.VirtualMachineProfile;
 
 /**
  * VPC flavour of the RouterOS element: one CHR appliance per VPC routes all
@@ -112,7 +114,22 @@ public class RouterOSVpcElement extends RouterOSElement implements VpcProvider, 
         if (!canHandle(network, null)) {
             return true;
         }
+        // Tier shutdown removes the tier plumbing from the shared VPC appliance;
+        // the appliance itself is only torn down by shutdownVpc.
         return _routerOSMgr.removeVpcTier(network);
+    }
+
+    /**
+     * The VPC appliance is deployed by {@link #implementVpc}, not per user-VM
+     * NIC. Overriding {@code prepare} as a no-op prevents the inherited
+     * {@link RouterOSElement#prepare} from deploying a duplicate appliance and
+     * allocating a stray source-NAT IP for every user VM NIC in each tier
+     * (NetworkOrchestrator.prepareNic invokes prepare per NIC).
+     */
+    @Override
+    public boolean prepare(final Network network, final NicProfile nic, final VirtualMachineProfile vm, final DeployDestination dest, final ReservationContext context)
+            throws ConcurrentOperationException, ResourceUnavailableException, InsufficientCapacityException {
+        return true;
     }
 
     @Override
@@ -175,17 +192,23 @@ public class RouterOSVpcElement extends RouterOSElement implements VpcProvider, 
     }
 
     // ------------------------------------------------------------------
-    // Site2SiteVpnServiceProvider (stub)
+    // Site2SiteVpnServiceProvider
+    //
+    // Site-to-site VPN is not advertised in the capability map, so an offering
+    // can never select VpcRouterOS for it. The Site2SiteVpnManager calls these
+    // SPI methods on registered providers, so they must be safe "not handled"
+    // no-ops (returning false, like VpcVirtualRouterElement) rather than
+    // throwing.
     // ------------------------------------------------------------------
 
     @Override
     public boolean startSite2SiteVpn(final Site2SiteVpnConnection conn) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support site-to-site VPN yet");
+        return false;
     }
 
     @Override
     public boolean stopSite2SiteVpn(final Site2SiteVpnConnection conn) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support site-to-site VPN yet");
+        return false;
     }
 
     // ------------------------------------------------------------------
@@ -222,10 +245,13 @@ public class RouterOSVpcElement extends RouterOSElement implements VpcProvider, 
     }
 
     /**
-     * The firewall service does not apply inside VPCs (ACLs are used instead).
+     * The firewall service does not apply inside VPCs (network ACLs are used
+     * instead), so VpcRouterOS never advertises the Firewall service and
+     * FirewallManagerImpl never routes firewall rules here. Return the "not
+     * handled" no-op rather than throwing, so this is safe even if invoked.
      */
     @Override
     public boolean applyFWRules(final Network network, final List<? extends FirewallRule> rules) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " uses network ACLs inside VPCs; the Firewall service is not available");
+        return false;
     }
 }

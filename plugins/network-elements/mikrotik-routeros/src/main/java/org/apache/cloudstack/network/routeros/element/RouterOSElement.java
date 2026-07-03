@@ -32,7 +32,6 @@ import com.cloud.deploy.DeployDestination;
 import com.cloud.exception.ConcurrentOperationException;
 import com.cloud.exception.InsufficientCapacityException;
 import com.cloud.exception.ResourceUnavailableException;
-import com.cloud.exception.UnsupportedServiceException;
 import com.cloud.network.Network;
 import com.cloud.network.Network.Capability;
 import com.cloud.network.Network.Provider;
@@ -72,8 +71,12 @@ import com.cloud.vm.VirtualMachineProfile;
  * router for Gateway/DHCP/SourceNat/StaticNat/PortForwarding/Firewall.
  *
  * Load balancing, remote access VPN and UserData are intentionally not
- * declared in the capability map and their provider methods raise
- * {@link UnsupportedServiceException} so misconfiguration fails loudly.
+ * declared in the capability map, so an offering can never select RouterOS for
+ * them and a RouterOS-owned network never needs them. Because core managers
+ * call the corresponding SPI methods on every registered provider for a
+ * network (regardless of ownership), those methods are safe "not handled"
+ * no-ops here rather than throwing, exactly as {@code VirtualRouterElement}
+ * behaves.
  */
 public class RouterOSElement extends AdapterBase implements NetworkElement, DhcpServiceProvider, FirewallServiceProvider, SourceNatServiceProvider,
         StaticNatServiceProvider, PortForwardingServiceProvider, IpDeployer, LoadBalancingServiceProvider, RemoteAccessVPNServiceProvider,
@@ -152,7 +155,13 @@ public class RouterOSElement extends AdapterBase implements NetworkElement, Dhcp
         if (!canHandle(network, null)) {
             return true;
         }
-        return _routerOSMgr.destroyForNetwork(network);
+        // Mirror the VirtualRouter contract: a plain shutdown stops the appliance,
+        // only a cleanup shutdown destroys it (the provider is registered with
+        // needCleanupOnShutdown=false, so cleanup=true means an explicit teardown).
+        if (cleanup) {
+            return _routerOSMgr.destroyForNetwork(network);
+        }
+        return _routerOSMgr.stopForNetwork(network);
     }
 
     @Override
@@ -285,17 +294,29 @@ public class RouterOSElement extends AdapterBase implements NetworkElement, Dhcp
     }
 
     // ------------------------------------------------------------------
-    // Honest stubs: services this provider does not (yet) implement
+    // Services this provider does not implement.
+    //
+    // RouterOS never advertises Lb / Vpn / UserData in its capability map, so
+    // an offering can never select it for those services and a RouterOS-owned
+    // network never reaches these methods. However, core managers
+    // (LoadBalancingRulesManagerImpl, RemoteAccessVpnManagerImpl, ...) call
+    // these SPI methods on EVERY registered provider for a network, regardless
+    // of which provider actually owns the service. These methods must therefore
+    // be safe "not handled" no-ops for foreign networks (mirroring
+    // VirtualRouterElement), not loud failures that would break LB/VPN
+    // cloud-wide the moment this jar loads.
     // ------------------------------------------------------------------
 
     @Override
     public boolean applyLBRules(final Network network, final List<LoadBalancingRule> rules) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support load balancing; use a dedicated LB provider in the network offering");
+        // RouterOS never owns the Lb service; nothing to do for any network.
+        return true;
     }
 
     @Override
     public boolean validateLBRule(final Network network, final LoadBalancingRule rule) {
-        throw new UnsupportedServiceException(getName() + " does not support load balancing; use a dedicated LB provider in the network offering");
+        // Called on all providers; RouterOS does not handle LB, so it does not object.
+        return true;
     }
 
     @Override
@@ -310,38 +331,42 @@ public class RouterOSElement extends AdapterBase implements NetworkElement, Dhcp
 
     @Override
     public String[] applyVpnUsers(final RemoteAccessVpn vpn, final List<? extends VpnUser> users) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support remote access VPN");
+        // RouterOS does not handle remote access VPN; return the null-array no-op sentinel used by VirtualRouterElement.
+        return null;
     }
 
     @Override
     public boolean startVpn(final RemoteAccessVpn vpn) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support remote access VPN");
+        // Not handled by RouterOS.
+        return false;
     }
 
     @Override
     public boolean stopVpn(final RemoteAccessVpn vpn) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support remote access VPN");
+        // Not handled by RouterOS.
+        return false;
     }
 
     @Override
     public boolean addPasswordAndUserdata(final Network network, final NicProfile nic, final VirtualMachineProfile vm, final DeployDestination dest,
             final ReservationContext context) throws ConcurrentOperationException, InsufficientCapacityException, ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support the UserData service; use ConfigDrive in the network offering");
+        // RouterOS does not provide the UserData service (use ConfigDrive); safe no-op for foreign networks.
+        return true;
     }
 
     @Override
     public boolean savePassword(final Network network, final NicProfile nic, final VirtualMachineProfile vm) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support the UserData service; use ConfigDrive in the network offering");
+        return true;
     }
 
     @Override
     public boolean saveUserData(final Network network, final NicProfile nic, final VirtualMachineProfile vm) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support the UserData service; use ConfigDrive in the network offering");
+        return true;
     }
 
     @Override
     public boolean saveSSHKey(final Network network, final NicProfile nic, final VirtualMachineProfile vm, final String sshPublicKey) throws ResourceUnavailableException {
-        throw new UnsupportedServiceException(getName() + " does not support the UserData service; use ConfigDrive in the network offering");
+        return true;
     }
 
     @Override
