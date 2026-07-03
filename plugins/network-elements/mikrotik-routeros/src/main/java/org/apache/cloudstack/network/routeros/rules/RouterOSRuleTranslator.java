@@ -114,24 +114,33 @@ public class RouterOSRuleTranslator {
      * base rule set accepts marked dst-nat connections in the forward chain
      * and drops unmarked ones.
      *
-     * Egress rules become plain accept rules in the forward chain towards the
-     * public interface.
+     * Egress rules become forward-chain rules towards the public interface. The
+     * action follows CloudStack egress semantics relative to the network's
+     * default egress policy: when the default policy is <em>Allow</em> the user
+     * egress rules are <em>deny</em> rules, and when the default policy is
+     * <em>Deny</em> the user egress rules are <em>accept</em> rules. The caller
+     * must insert them ahead of the per-network egress-default rule
+     * ({@code cs-net-<uuid>-egress-default}) via {@code place-before}.
      *
      * @param publicIp the public IP the rule is bound to (ingress only, may be null for egress)
      * @param publicInterface RouterOS interface name of the public uplink
+     * @param egressDefaultPolicyAllow true when the offering's default egress policy is Allow
      */
-    public List<RouterOSRule> translateFirewallRule(final FirewallRule rule, final String publicIp, final String publicInterface) {
+    public List<RouterOSRule> translateFirewallRule(final FirewallRule rule, final String publicIp, final String publicInterface,
+            final boolean egressDefaultPolicyAllow) {
         final String comment = firewallRuleComment(rule);
         final List<RouterOSRule> result = new ArrayList<>();
         if (rule.getTrafficType() == FirewallRule.TrafficType.Egress) {
+            // default Allow => user egress rules block (drop); default Deny => user egress rules permit (accept)
+            final String action = egressDefaultPolicyAllow ? "drop" : "accept";
             final List<String> sourceCidrs = cidrsOrAny(rule.getSourceCidrList());
             final List<String> destCidrs = rule.getDestinationCidrList();
             for (final String sourceCidr : sourceCidrs) {
                 if (destCidrs == null || destCidrs.isEmpty()) {
-                    result.add(egressFilterRule(rule, sourceCidr, null, publicInterface, comment));
+                    result.add(egressFilterRule(rule, sourceCidr, null, publicInterface, comment, action));
                 } else {
                     for (final String destCidr : destCidrs) {
-                        result.add(egressFilterRule(rule, sourceCidr, destCidr, publicInterface, comment));
+                        result.add(egressFilterRule(rule, sourceCidr, destCidr, publicInterface, comment, action));
                     }
                 }
             }
@@ -155,10 +164,11 @@ public class RouterOSRuleTranslator {
         return result;
     }
 
-    private RouterOSRule egressFilterRule(final FirewallRule rule, final String sourceCidr, final String destCidr, final String publicInterface, final String comment) {
+    private RouterOSRule egressFilterRule(final FirewallRule rule, final String sourceCidr, final String destCidr, final String publicInterface,
+            final String comment, final String action) {
         final Map<String, String> params = new LinkedHashMap<>();
         params.put("chain", "forward");
-        params.put("action", "accept");
+        params.put("action", action);
         params.put("out-interface", publicInterface);
         if (!isAnyCidr(sourceCidr)) {
             params.put("src-address", sourceCidr);
@@ -327,7 +337,8 @@ public class RouterOSRuleTranslator {
         if (protocol == null) {
             return null;
         }
-        switch (protocol.toLowerCase()) {
+        final String normalized = protocol.trim().toLowerCase();
+        switch (normalized) {
             case PROTO_TCP:
                 return PROTO_TCP;
             case PROTO_UDP:
@@ -338,6 +349,12 @@ public class RouterOSRuleTranslator {
             case "any":
                 return null;
             default:
+                // CloudStack network ACLs allow arbitrary IP protocol numbers
+                // (e.g. "47" for GRE). RouterOS accepts a numeric protocol
+                // matcher, so pass those through verbatim rather than failing.
+                if (normalized.matches("\\d+")) {
+                    return normalized;
+                }
                 throw new IllegalArgumentException("Protocol '" + protocol + "' is not supported by the RouterOS provider");
         }
     }
@@ -365,9 +382,17 @@ public class RouterOSRuleTranslator {
         params.put("protocol", routerOsProtocol);
         if (PROTO_ICMP.equals(routerOsProtocol)) {
             if (icmpType != null && icmpType >= 0) {
-                final int code = icmpCode != null && icmpCode >= 0 ? icmpCode : 0;
-                params.put("icmp-options", icmpType + ":" + code);
+                if (icmpCode != null && icmpCode >= 0) {
+                    // specific type + code
+                    params.put("icmp-options", icmpType + ":" + icmpCode);
+                } else {
+                    // any code for this type: the RouterOS icmp-options matcher is
+                    // "type:code", so match the type across the full code range
+                    // rather than pinning code 0.
+                    params.put("icmp-options", icmpType + ":0-255");
+                }
             }
+            // icmpType < 0 (any type) => no icmp-options matcher at all
             return;
         }
         final String range = portRange(portStart, portEnd);
