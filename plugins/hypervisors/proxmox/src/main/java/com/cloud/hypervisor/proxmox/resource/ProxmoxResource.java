@@ -909,7 +909,15 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     private void setVncPassword(String node, int vmid, String password) {
         try {
-            getApiClient().monitorCommand(node, vmid, "set_password vnc " + password);
+            // PVE runs its own VNC server on a unix socket, which qemu names "default"; the
+            // TCP display we add through args: is always the second one, auto-named "vnc2".
+            // Without -d the password lands on PVE's display and console auth on ours fails.
+            String response = getApiClient().monitorCommand(node, vmid,
+                    "set_password vnc " + password + " -d vnc2");
+            if (StringUtils.isNotBlank(response)) {
+                // the monitor endpoint reports HMP errors as body text with HTTP 200
+                logger.warn("set_password on vmid " + vmid + " display vnc2 returned: " + response);
+            }
         } catch (Exception e) {
             logger.warn("Unable to set VNC password of vmid " + vmid + " on node " + node, e);
         }
