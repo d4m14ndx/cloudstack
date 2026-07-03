@@ -45,17 +45,22 @@ Two providers are registered:
 | Firewall (egress)  | implemented           | n/a (ACLs)          | forward-chain accept rules towards the public interface + default policy rule from the offering |
 | Network ACL        | n/a                   | implemented         | ordered filter rules per tier interface, anchored with `place-before` ahead of per-tier default-drop rules |
 | VPC static routes  | n/a                   | implemented         | `/ip/route` entries |
-| Load balancing     | **stub — fails loudly** | **stub — fails loudly** | roadmap (RouterOS has no native L7 LB; script-based L4 balancing is being evaluated) |
-| Remote access VPN  | **stub — fails loudly** | **stub — fails loudly** | roadmap |
-| Site-to-site VPN   | n/a                   | **stub — fails loudly** | roadmap (RouterOS IPsec is a natural fit) |
-| UserData           | **stub — fails loudly** | **stub — fails loudly** | use the ConfigDrive provider in the offering |
-| VPC private gateway| n/a                   | **stub — fails loudly** | roadmap |
+| Load balancing     | not supported         | not supported       | roadmap (RouterOS has no native L7 LB; script-based L4 balancing is being evaluated) |
+| Remote access VPN  | not supported         | not supported       | roadmap |
+| Site-to-site VPN   | n/a                   | not supported       | roadmap (RouterOS IPsec is a natural fit) |
+| UserData           | not supported         | not supported       | use the ConfigDrive provider in the offering |
+| VPC private gateway| n/a                   | not supported (fails on use) | roadmap |
 | Redundant router / HA | not supported      | not supported       | roadmap (VRRP between two CHRs) |
 
 Unsupported services are deliberately **not** advertised in the capability
 maps, so network offerings selecting them with this provider are rejected up
-front; the corresponding provider methods additionally throw
-`UnsupportedServiceException` as a second line of defence.
+front. Because core managers (load balancing, remote-access/site-to-site VPN,
+firewall) invoke the corresponding SPI methods on **every** registered provider
+for a network regardless of ownership, those methods are implemented as safe
+"not handled" no-ops (mirroring `VirtualRouterElement`) rather than throwing —
+throwing there would break LB/VPN cloud-wide the moment this jar is loaded. VPC
+private gateways are not a capability-gated service, so an explicit attempt to
+create one on a RouterOS VPC still fails loudly (that single operation only).
 
 ## Architecture
 

@@ -91,44 +91,71 @@ public class RouterOSElementTest {
         assertFalse("Firewall service is replaced by ACLs inside VPCs", capabilities.containsKey(Service.Firewall));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testLoadBalancingFailsLoudly() throws Exception {
-        element.applyLBRules(null, null);
+    // Load balancing / remote-access VPN / UserData are not advertised in the
+    // capability map, so RouterOS is never selected for them. But core managers
+    // call these SPI methods on EVERY registered provider for a network, so they
+    // must be safe "not handled" no-ops (mirroring VirtualRouterElement) rather
+    // than throwing, or they would break LB/VPN cloud-wide.
+
+    @Test
+    public void testLoadBalancingIsNonThrowingNoOp() throws Exception {
+        assertTrue("applyLBRules must be a no-op returning true for foreign networks", element.applyLBRules(null, null));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testLbValidationFailsLoudly() {
-        element.validateLBRule(null, null);
+    @Test
+    public void testLbValidationReturnsTrueWhenNotHandled() {
+        // LoadBalancingRulesManagerImpl calls validateLBRule on all providers unguarded.
+        assertTrue("validateLBRule must return true (no objection) when not handled", element.validateLBRule(null, null));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testRemoteAccessVpnFailsLoudly() throws Exception {
-        element.startVpn(null);
+    @Test
+    public void testRemoteAccessVpnStartIsNonThrowingNoOp() throws Exception {
+        assertFalse("startVpn must return false when not handled", element.startVpn(null));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testVpnUsersFailLoudly() throws Exception {
-        element.applyVpnUsers(null, null);
+    @Test
+    public void testRemoteAccessVpnStopIsNonThrowingNoOp() throws Exception {
+        assertFalse("stopVpn must return false when not handled", element.stopVpn(null));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testUserDataFailsLoudly() throws Exception {
-        element.savePassword(null, null, null);
+    @Test
+    public void testVpnUsersReturnNullWhenNotHandled() throws Exception {
+        assertNull("applyVpnUsers must return the null-array no-op sentinel", element.applyVpnUsers(null, null));
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testSite2SiteVpnFailsLoudly() throws Exception {
-        vpcElement.startSite2SiteVpn(null);
+    @Test
+    public void testUserDataIsNonThrowingNoOp() throws Exception {
+        assertTrue("savePassword must be a safe no-op", element.savePassword(null, null, null));
+        assertTrue("saveUserData must be a safe no-op", element.saveUserData(null, null, null));
+        assertTrue("saveSSHKey must be a safe no-op", element.saveSSHKey(null, null, null, null));
+    }
+
+    @Test
+    public void testSite2SiteVpnIsNonThrowingNoOp() throws Exception {
+        assertFalse("startSite2SiteVpn must return false when not handled", vpcElement.startSite2SiteVpn(null));
+        assertFalse("stopSite2SiteVpn must return false when not handled", vpcElement.stopSite2SiteVpn(null));
     }
 
     @Test(expected = UnsupportedServiceException.class)
     public void testPrivateGatewayFailsLoudly() throws Exception {
+        // Private gateways are not a capability-gated service, so an explicit
+        // create on a RouterOS VPC genuinely fails (only this operation, not cloud-wide).
         vpcElement.createPrivateGateway(null);
     }
 
-    @Test(expected = UnsupportedServiceException.class)
-    public void testVpcFirewallServiceFailsLoudly() throws Exception {
-        vpcElement.applyFWRules(null, null);
+    @Test
+    public void testVpcFirewallServiceIsNonThrowingNoOp() throws Exception {
+        // VPCs use network ACLs; VpcRouterOS never advertises Firewall, and
+        // FirewallManagerImpl guards the call, so this returns the not-handled no-op.
+        assertFalse(vpcElement.applyFWRules(null, null));
+    }
+
+    @Test
+    public void testVpcElementDoesNotDeployPerNicAppliance() throws Exception {
+        // prepare() must be a no-op for VPC tiers: the appliance is deployed by
+        // implementVpc, not per user-VM NIC. A no-op returns true without touching
+        // the (null) manager, so no NPE and no duplicate deploy.
+        assertTrue(vpcElement.prepare(null, null, null, null, null));
     }
 
     @Test

@@ -62,7 +62,7 @@ public class RouterOSRuleTranslatorTest {
     @Test
     public void testIngressTcpRuleBecomesPreroutingConnectionMark() {
         final FirewallRule rule = firewallRule("f1", FirewallRule.TrafficType.Ingress, "tcp", 80, 90, Arrays.asList("192.168.10.0/24"));
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
 
         assertEquals(1, rules.size());
         final RouterOSRule mark = rules.get(0);
@@ -81,7 +81,7 @@ public class RouterOSRuleTranslatorTest {
     @Test
     public void testIngressRuleWithMultipleCidrsEmitsOneMarkPerCidr() {
         final FirewallRule rule = firewallRule("f2", FirewallRule.TrafficType.Ingress, "udp", 53, 53, Arrays.asList("10.0.0.0/8", "172.16.0.0/12"));
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
         assertEquals(2, rules.size());
         assertEquals("10.0.0.0/8", rules.get(0).getParam("src-address"));
         assertEquals("172.16.0.0/12", rules.get(1).getParam("src-address"));
@@ -93,7 +93,7 @@ public class RouterOSRuleTranslatorTest {
     @Test
     public void testIngressRuleWithoutCidrMatchesAnySource() {
         final FirewallRule rule = firewallRule("f3", FirewallRule.TrafficType.Ingress, "tcp", 22, null, null);
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
         assertEquals(1, rules.size());
         assertNull(rules.get(0).getParam("src-address"));
         assertEquals("22", rules.get(0).getParam("dst-port"));
@@ -104,7 +104,7 @@ public class RouterOSRuleTranslatorTest {
         final FirewallRule rule = firewallRule("f4", FirewallRule.TrafficType.Ingress, "icmp", null, null, null);
         when(rule.getIcmpType()).thenReturn(8);
         when(rule.getIcmpCode()).thenReturn(0);
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
         assertEquals("icmp", rules.get(0).getParam("protocol"));
         assertEquals("8:0", rules.get(0).getParam("icmp-options"));
         assertNull(rules.get(0).getParam("dst-port"));
@@ -115,15 +115,26 @@ public class RouterOSRuleTranslatorTest {
         final FirewallRule rule = firewallRule("f5", FirewallRule.TrafficType.Ingress, "icmp", null, null, null);
         when(rule.getIcmpType()).thenReturn(-1);
         when(rule.getIcmpCode()).thenReturn(-1);
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
         assertEquals("icmp", rules.get(0).getParam("protocol"));
         assertNull(rules.get(0).getParam("icmp-options"));
     }
 
     @Test
+    public void testIngressIcmpTypeWithAnyCodeMatchesFullCodeRange() {
+        // type>=0 but code=-1 (any code) must match the whole code range, not pin code 0
+        final FirewallRule rule = firewallRule("f5b", FirewallRule.TrafficType.Ingress, "icmp", null, null, null);
+        when(rule.getIcmpType()).thenReturn(8);
+        when(rule.getIcmpCode()).thenReturn(-1);
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
+        assertEquals("icmp", rules.get(0).getParam("protocol"));
+        assertEquals("8:0-255", rules.get(0).getParam("icmp-options"));
+    }
+
+    @Test
     public void testAllProtocolOmitsProtocolMatcher() {
         final FirewallRule rule = firewallRule("f6", FirewallRule.TrafficType.Ingress, "all", null, null, null);
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, "203.0.113.10", "ether1", false);
         assertNull(rules.get(0).getParam("protocol"));
         assertNull(rules.get(0).getParam("dst-port"));
     }
@@ -133,9 +144,10 @@ public class RouterOSRuleTranslatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    public void testEgressRuleBecomesForwardAcceptTowardsPublicInterface() {
+    public void testEgressRuleWithDefaultDenyPolicyBecomesForwardAccept() {
+        // default egress policy Deny => user egress rules permit (accept)
         final FirewallRule rule = firewallRule("e1", FirewallRule.TrafficType.Egress, "tcp", 443, 443, Arrays.asList("10.1.1.0/24"));
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1", false);
         assertEquals(1, rules.size());
         final RouterOSRule filter = rules.get(0);
         assertEquals(RouterOSRuleTranslator.RouterOSApiPaths.FIREWALL_FILTER, filter.getPath());
@@ -148,10 +160,21 @@ public class RouterOSRuleTranslatorTest {
     }
 
     @Test
+    public void testEgressRuleWithDefaultAllowPolicyBecomesForwardDrop() {
+        // default egress policy Allow => user egress rules block (drop)
+        final FirewallRule rule = firewallRule("e1d", FirewallRule.TrafficType.Egress, "tcp", 443, 443, Arrays.asList("10.1.1.0/24"));
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1", true);
+        assertEquals(1, rules.size());
+        assertEquals("drop", rules.get(0).getParam("action"));
+        assertEquals("forward", rules.get(0).getParam("chain"));
+        assertEquals("ether1", rules.get(0).getParam("out-interface"));
+    }
+
+    @Test
     public void testEgressRuleWithDestinationCidrs() {
         final FirewallRule rule = firewallRule("e2", FirewallRule.TrafficType.Egress, "tcp", 25, 25, Arrays.asList("10.1.1.0/24"));
         when(rule.getDestinationCidrList()).thenReturn(Arrays.asList("198.51.100.0/24", "192.0.2.0/24"));
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1", false);
         assertEquals(2, rules.size());
         assertEquals("198.51.100.0/24", rules.get(0).getParam("dst-address"));
         assertEquals("192.0.2.0/24", rules.get(1).getParam("dst-address"));
@@ -160,7 +183,7 @@ public class RouterOSRuleTranslatorTest {
     @Test
     public void testEgressAnyCidrOmitsAddressMatchers() {
         final FirewallRule rule = firewallRule("e3", FirewallRule.TrafficType.Egress, "all", null, null, Arrays.asList("0.0.0.0/0"));
-        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1");
+        final List<RouterOSRule> rules = translator.translateFirewallRule(rule, null, "ether1", false);
         assertEquals(1, rules.size());
         assertNull(rules.get(0).getParam("src-address"));
         assertNull(rules.get(0).getParam("dst-address"));
@@ -384,6 +407,23 @@ public class RouterOSRuleTranslatorTest {
     @Test(expected = IllegalArgumentException.class)
     public void testUnknownProtocolIsRejected() {
         RouterOSRuleTranslator.toRouterOSProtocol("gre");
+    }
+
+    @Test
+    public void testNumericProtocolIsPassedThrough() {
+        // CloudStack network ACLs allow numeric IP protocols (e.g. 47 = GRE); RouterOS accepts them.
+        assertEquals("47", RouterOSRuleTranslator.toRouterOSProtocol("47"));
+        assertEquals("50", RouterOSRuleTranslator.toRouterOSProtocol("50"));
+    }
+
+    @Test
+    public void testNumericProtocolAclItemTranslatesInsteadOfThrowing() {
+        final NetworkACLItem item = aclItem("gre1", 15, NetworkACLItem.TrafficType.Ingress, NetworkACLItem.Action.Allow, "47", null, null,
+                Arrays.asList("0.0.0.0/0"), NetworkACLItem.State.Add);
+        final List<RouterOSRule> rules = translator.translateAclItem(item, "net1", "ether2", "10.1.1.0/24");
+        assertEquals(1, rules.size());
+        assertEquals("47", rules.get(0).getParam("protocol"));
+        assertNull(rules.get(0).getParam("dst-port"));
     }
 
     @Test
