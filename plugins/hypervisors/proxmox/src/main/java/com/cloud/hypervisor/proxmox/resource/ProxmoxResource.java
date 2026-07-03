@@ -810,6 +810,12 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             boolean createVm = node == null;
             if (createVm) {
                 node = _nodeName;
+            } else if (!node.equals(_nodeName) && !isNodeOnline(node)) {
+                // HA restart after a node death: the vmid config is still pinned to the dead
+                // node in pmxcfs, where node-scoped API calls can no longer reach it. Steal
+                // the config file the way PVE HA recovery does, then run the VM here.
+                stealVmConfig(node, vmid);
+                node = _nodeName;
             }
             // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
             // arrives here as an ISO DiskTO and must be staged and inserted before boot.
@@ -1175,6 +1181,40 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         return null;
     }
 
+    /**
+     * Whether a PVE cluster member is online according to the corosync view served by this
+     * resource's (healthy) node. A node absent from the listing is not a cluster member and
+     * counts as offline.
+     */
+    private boolean isNodeOnline(String node) {
+        JsonElement data = getApiClient().get("/cluster/status");
+        if (data != null && data.isJsonArray()) {
+            for (JsonElement e : data.getAsJsonArray()) {
+                JsonObject entry = e.getAsJsonObject();
+                if ("node".equals(jsonString(entry, "type")) && node.equals(jsonString(entry, "name"))) {
+                    return jsonLong(entry, "online", 0) == 1;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Moves a vmid's config file from a dead node's pmxcfs directory to this node's, the same
+     * config-steal PVE HA recovery performs. Only safe while the cluster is quorate and the
+     * owning node is offline; the caller checks both.
+     */
+    private void stealVmConfig(String deadNode, int vmid) {
+        String conf = vmid + ".conf";
+        Pair<Boolean, String> result = executeOnNode("mv /etc/pve/nodes/" + deadNode + "/qemu-server/" + conf
+                + " /etc/pve/nodes/" + _nodeName + "/qemu-server/" + conf);
+        if (!result.first()) {
+            throw new CloudRuntimeException("Unable to take over vmid " + vmid + " from offline node " + deadNode
+                    + ": " + result.second());
+        }
+        logger.info("Took over vmid " + vmid + " from offline node " + deadNode + " onto " + _nodeName);
+    }
+
     protected Answer execute(CheckOnHostCommand cmd) {
         try {
             ProxmoxApiClient api = getApiClient();
@@ -1219,6 +1259,16 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             }
             String node = api.findNodeOfVm(vmid);
             if (node == null) {
+                return new FenceAnswer(cmd);
+            }
+            if (!isNodeOnline(node)) {
+                // Node-scoped API calls are proxied to the owning node, so a stop request
+                // for a VM on a dead node fails forever and HA never gets past fencing.
+                // pmxcfs pins a vmid to its node — the VM cannot have moved — and losing
+                // quorum cut the node off from pmxcfs; storage safety on restart comes from
+                // RBD exclusive-lock stealing. Declare the fence done.
+                logger.info("Node " + node + " owning VM " + vmName + " (vmid " + vmid
+                        + ") is offline in the quorate cluster view, considering the VM fenced");
                 return new FenceAnswer(cmd);
             }
             try {
