@@ -7382,7 +7382,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 vm.getHypervisorType().equals(HypervisorType.Hyperv) ||
                 vm.getHypervisorType().equals(HypervisorType.LXC) ||
                 vm.getHypervisorType().equals(HypervisorType.Simulator) ||
-                vm.getHypervisorType().equals(HypervisorType.Ovm3));
+                vm.getHypervisorType().equals(HypervisorType.Ovm3) ||
+                vm.getHypervisorType().equals(HypervisorType.Proxmox));
     }
 
     private boolean checkIfHostIsDedicated(HostVO host) {
