@@ -116,7 +116,11 @@ public class ControlNetworkGuru extends PodBasedNetworkGuru implements NetworkGu
     public NicProfile allocate(Network config, NicProfile nic, VirtualMachineProfile vm) throws InsufficientVirtualNetworkCapacityException,
         InsufficientAddressCapacityException {
 
-        if (vm.getHypervisorType() == HypervisorType.VMware && !isRouterVm(vm)) {
+        if ((vm.getHypervisorType() == HypervisorType.VMware || vm.getHypervisorType() == HypervisorType.Proxmox) && !isRouterVm(vm)) {
+            // Agentless hypervisors (VMware, Proxmox): the management server reaches the SSVM/CPVM
+            // control channel directly, so the control NIC must NOT get a host-local link-local
+            // address (which the mgmt server cannot route to). Leaving it without an IP makes the
+            // system VM bind its control sshd to the management NIC instead.
             NicProfile nicProf = new NicProfile(Nic.ReservationStrategy.Create, null, null, null, null);
             String mac = networkModel.getNextAvailableMacAddressInNetwork(config.getId());
             nicProf.setMacAddress(mac);
