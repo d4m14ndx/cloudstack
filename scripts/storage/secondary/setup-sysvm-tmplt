@@ -79,12 +79,15 @@ if [[ "$hyper" == "kvm" ]]; then
     ext="ova"
   elif [[ "$hyper" == "lxc" ]]; then
     ext="qcow2"
+  elif [[ "$hyper" == "proxmox" ]]; then
+    ext="qcow2"
+    qemuimgcmd=$(which qemu-img)
   elif [[ "$hyper" == "hyperv" ]]; then
     ext="vhd"
   elif [[ "$hyper" == "ovm3" ]]; then
     ext="raw"
   else
-    failed 2 "Please add a correct hypervisor name like: kvm|vmware|xenserver|hyperv|ovm3"
+    failed 2 "Please add a correct hypervisor name like: kvm|vmware|xenserver|hyperv|ovm3|proxmox"
 fi
 
 

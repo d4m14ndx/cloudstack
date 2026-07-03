@@ -67,7 +67,6 @@ public class ProxmoxVmConfigBuilder {
         config.put("serial0", "socket");
         config.put("vga", "std");
 
-        String isoVolid = null;
         if (spec.getDisks() != null) {
             for (DiskTO disk : spec.getDisks()) {
                 if (disk.getType() == Volume.Type.ROOT || disk.getType() == Volume.Type.DATADISK) {
@@ -77,19 +76,18 @@ public class ProxmoxVmConfigBuilder {
                     }
                     long seq = disk.getDiskSeq() != null ? disk.getDiskSeq() : 0L;
                     config.put("scsi" + seq, volid + ",iothread=1,discard=on");
-                } else if (disk.getType() == Volume.Type.ISO) {
-                    String volid = getDiskVolid(disk);
-                    if (StringUtils.isNotBlank(volid)) {
-                        isoVolid = volid;
-                    }
                 }
+                // ISO disks are intentionally NOT wired into ide2 here. An ISO DiskTO
+                // carries an NFS/secondary-storage install path (data.getPath()), not a PVE
+                // volid, so emitting "ide2=<nfs-path>,media=cdrom" would make createVm/
+                // setVmConfig reject the config and the VM would fail to start. The empty
+                // cdrom drive below is a placeholder; the storage processor's attachIso path
+                // copies the ISO into an iso-capable PVE storage and then sets the real
+                // "<storage>:iso/<file>" volid on ide2 via setVmConfig after the VM exists.
             }
         }
-        if (isoVolid != null) {
-            config.put("ide2", isoVolid + ",media=cdrom");
-        } else {
-            config.put("ide2", "none,media=cdrom");
-        }
+        // Always start with an empty cdrom; attachIso replaces this with the real volid.
+        config.put("ide2", "none,media=cdrom");
         config.put("boot", "order=scsi0;ide2;net0");
 
         if (spec.getNics() != null) {

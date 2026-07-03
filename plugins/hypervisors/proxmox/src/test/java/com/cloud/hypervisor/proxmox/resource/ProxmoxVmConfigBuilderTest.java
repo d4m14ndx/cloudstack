@@ -194,16 +194,20 @@ public class ProxmoxVmConfigBuilderTest {
     }
 
     @Test
-    public void testIsoDiskMapsToIde2Cdrom() {
+    public void testIsoDiskDoesNotWireIntoIde2() {
+        // The builder must never place an ISO DiskTO path (an NFS/secondary-storage install
+        // path, not a PVE volid) into ide2. It always emits an empty cdrom drive; the storage
+        // processor's attachIso sets the real "<storage>:iso/<file>" volid after the VM exists.
         VirtualMachineTO spec = userVm("CentOS 8");
         spec.setDisks(new DiskTO[] {
                 disk(Volume.Type.ROOT, "local-lvm:vm-10005-disk-0", 0L),
-                isoDisk("local:iso/systemvm.iso"),
+                isoDisk("/mnt/secondary/template/tmpl/1/3/systemvm.iso"),
         });
 
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
-        assertEquals("local:iso/systemvm.iso,media=cdrom", config.get("ide2"));
+        assertEquals("none,media=cdrom", config.get("ide2"));
+        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
     }
 
     @Test

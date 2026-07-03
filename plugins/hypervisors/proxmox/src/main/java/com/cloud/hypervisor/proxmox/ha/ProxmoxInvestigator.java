@@ -22,6 +22,7 @@ import javax.inject.Inject;
 
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.CheckOnHostAnswer;
 import com.cloud.agent.api.CheckOnHostCommand;
 import com.cloud.ha.Investigator;
 import com.cloud.host.Host;
@@ -73,9 +74,7 @@ public class ProxmoxInvestigator extends AdapterBase implements Investigator {
         Status hostStatus = null;
         try {
             Answer answer = _agentMgr.easySend(agent.getId(), cmd);
-            if (answer != null) {
-                hostStatus = answer.getResult() ? Status.Down : Status.Up;
-            }
+            hostStatus = interpretCheckOnHostAnswer(answer);
         } catch (Exception e) {
             logger.debug("Failed to send command to host: {}", agent, e);
         }
@@ -92,8 +91,9 @@ public class ProxmoxInvestigator extends AdapterBase implements Investigator {
             logger.debug("Investigating host: {} via neighbouring host: {}", agent, neighbor);
             try {
                 Answer answer = _agentMgr.easySend(neighbor.getId(), cmd);
-                if (answer != null) {
-                    neighbourStatus = answer.getResult() ? Status.Down : Status.Up;
+                Status answerStatus = interpretCheckOnHostAnswer(answer);
+                if (answerStatus != null) {
+                    neighbourStatus = answerStatus;
                     logger.debug("Neighbouring host: {} returned status: {} for the investigated host: {}", neighbor, neighbourStatus, agent);
                     if (neighbourStatus == Status.Up) {
                         break;
@@ -113,5 +113,41 @@ public class ProxmoxInvestigator extends AdapterBase implements Investigator {
 
         logger.debug("HA: investigated status {} for host {}", hostStatus, agent);
         return hostStatus;
+    }
+
+    /**
+     * Maps a {@link CheckOnHostAnswer} to a host {@link Status}, mirroring the KVM idiom
+     * (see KVMHostActivityChecker). Note that CheckOnHostAnswer#getResult() is ALWAYS true
+     * for a determined/undetermined reply and only false on the error constructor, so it
+     * cannot be used as the aliveness signal. Aliveness lives in isDetermined()/isAlive():
+     * <ul>
+     *   <li>null answer (no reply from the agent) -&gt; null (Disconnected, keep looking)</li>
+     *   <li>error answer (getResult()==false) -&gt; Disconnected (transport/API failure)</li>
+     *   <li>undetermined (not quorate / no IP / node not found) -&gt; null (keep looking)</li>
+     *   <li>determined &amp; alive -&gt; Up</li>
+     *   <li>determined &amp; not alive -&gt; Down</li>
+     * </ul>
+     * Returning null signals the caller to keep polling neighbours rather than fencing a
+     * host whose state a given responder simply could not determine.
+     */
+    private Status interpretCheckOnHostAnswer(Answer answer) {
+        if (answer == null) {
+            return null;
+        }
+        if (!(answer instanceof CheckOnHostAnswer)) {
+            // Non-CheckOnHostAnswer (e.g. an error/unsupported answer) means the responder
+            // could not check; treat as disconnected rather than a definitive Down.
+            return Status.Disconnected;
+        }
+        CheckOnHostAnswer checkAnswer = (CheckOnHostAnswer) answer;
+        if (!answer.getResult()) {
+            // Error constructor: the responder failed to run the check at all.
+            return Status.Disconnected;
+        }
+        if (!checkAnswer.isDetermined()) {
+            // The responder replied but could not determine aliveness; keep looking.
+            return null;
+        }
+        return checkAnswer.isAlive() ? Status.Up : Status.Down;
     }
 }
