@@ -4743,7 +4743,10 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         if (host == null || volumeStoragePool == null) {
             return false;
         }
-        boolean sendCommand = HypervisorType.VMware.equals(host.getHypervisorType());
+        // VMware and Proxmox keep persistent hypervisor-side VM definitions, so attach/detach
+        // must reach the hypervisor even for stopped VMs to keep those definitions in sync
+        boolean sendCommand = HypervisorType.VMware.equals(host.getHypervisorType())
+                || HypervisorType.Proxmox.equals(host.getHypervisorType());
         if (HypervisorType.XenServer.equals(host.getHypervisorType()) &&
                 volumeStoragePool.isManaged()) {
             sendCommand = true;

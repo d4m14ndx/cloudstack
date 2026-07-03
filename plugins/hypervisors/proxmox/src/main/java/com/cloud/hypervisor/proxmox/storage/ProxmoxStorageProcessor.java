@@ -419,19 +419,41 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         VolumeObjectTO volume = (VolumeObjectTO) disk.getData();
         try {
             int vmid = resource.vmidOfInstanceName(cmd.getVmName());
-            String node = nodeOfVm(vmid);
             ProxmoxApiClient api = resource.getApiClient();
 
             String volid = volume.getPath();
             if (volid == null || volid.isEmpty()) {
                 return new AttachAnswer("Volume " + volume.getUuid() + " has no PVE volid path");
             }
+
+            String node = api.findNodeOfVm(vmid);
+            if (node == null) {
+                // The VM has not been created in PVE yet (stopped instance that never started):
+                // the disk list of the next StartCommand wires the volume into the config.
+                logger.info("PVE VM {} does not exist yet; volume {} will be attached by the next start of {}", vmid, volid, cmd.getVmName());
+                return new AttachAnswer(disk);
+            }
+
+            // Volumes are attached under their existing volid, never renamed to the target vmid:
+            // CloudStack does not persist path changes from attach answers, so a rename here would
+            // silently diverge the DB from PVE and break every later detach/delete of the volume.
+            // PVE only derives ownership from the name; referencing a foreign-owned volid is fine.
             int owner = ownerOfVolid(volid);
-            if (owner != vmid) {
-                volid = reassignVolumeOwner(node, volid, owner, vmid, volume.getUuid());
+            if (owner != vmid && owner != templateHolderVmid()) {
+                ensureNotHeldByOwnerVm(volid, owner);
             }
 
             JsonObject config = api.getVmConfig(node, vmid);
+            String attachedKey = findDiskKey(config, volid, ACTIVE_DISK_KEY);
+            if (attachedKey != null) {
+                // already attached (e.g. a retried command): report the existing slot
+                long existingSlot = Long.parseLong(attachedKey.replaceAll("\\D", ""));
+                volume.setDeviceId(existingSlot);
+                disk.setDiskSeq(existingSlot);
+                logger.info("Volume {} is already attached to PVE VM {} as {}", volid, vmid, attachedKey);
+                return new AttachAnswer(disk);
+            }
+
             int slot = findFreeScsiSlot(config, disk.getDiskSeq());
             if (slot < 0) {
                 return new AttachAnswer(String.format("No free scsi slot (scsi%d..scsi%d) on PVE VM %d to attach volume %s",
@@ -442,9 +464,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             params.put("scsi" + slot, volid);
             api.setVmConfig(node, vmid, params);
 
-            volume.setPath(volid);
             volume.setDeviceId((long) slot);
-            disk.setPath(volid);
             disk.setDiskSeq((long) slot);
             logger.debug("Attached volume {} to VM {} (vmid {}) as scsi{}", volid, cmd.getVmName(), vmid, slot);
             return new AttachAnswer(disk);
@@ -454,27 +474,113 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         }
     }
 
+    /**
+     * Guards attaching a volume whose volid still names another VM as its PVE owner: while that
+     * VM exists and references the volume (attached, or parked as an unusedN entry), attaching it
+     * elsewhere risks double use now and data loss later, because PVE frees owned volumes that
+     * are still referenced when the owning VM (or its unusedN entry) is deleted. Detach renames
+     * volumes to the template holder; hitting this guard means that hand-off never happened.
+     */
+    private void ensureNotHeldByOwnerVm(String volid, int owner) {
+        ProxmoxApiClient api = resource.getApiClient();
+        JsonObject ownerConfig;
+        try {
+            String ownerNode = api.findNodeOfVm(owner);
+            if (ownerNode == null) {
+                // owner VM is gone; CloudStack never reuses vmids, so the name is only historical
+                return;
+            }
+            ownerConfig = api.getVmConfig(ownerNode, owner);
+        } catch (Exception e) {
+            logger.warn("Could not inspect PVE VM {} (the owner named by volid {}); assuming the volume is free: {}", owner, volid, e.getMessage());
+            return;
+        }
+        String activeKey = findDiskKey(ownerConfig, volid, ACTIVE_DISK_KEY);
+        if (activeKey != null) {
+            throw new CloudRuntimeException(String.format("Volume %s is still attached as %s of PVE VM %d; detach it there before attaching it elsewhere", volid, activeKey, owner));
+        }
+        String unusedKey = findDiskKey(ownerConfig, volid, UNUSED_DISK_KEY);
+        if (unusedKey != null) {
+            throw new CloudRuntimeException(String.format(
+                    "Volume %s is still parked as %s in the config of PVE VM %d and would be destroyed together with that VM; move it out of that config (e.g. qm disk move --target-vmid) before attaching it to another instance",
+                    volid, unusedKey, owner));
+        }
+    }
+
     @Override
     public Answer dettachVolume(DettachCommand cmd) {
         DiskTO disk = cmd.getDisk();
         VolumeObjectTO volume = (VolumeObjectTO) disk.getData();
         try {
             int vmid = resource.vmidOfInstanceName(cmd.getVmName());
-            String node = nodeOfVm(vmid);
             String volid = volume.getPath();
             if (volid == null || volid.isEmpty()) {
                 return new DettachAnswer("Volume " + volume.getUuid() + " has no PVE volid path");
             }
-            boolean removed = removeVolumeReference(node, vmid, volid);
-            if (!removed) {
-                logger.info("Volume {} is not referenced by PVE VM {}; treating detach as already done", volid, vmid);
-            } else {
-                logger.debug("Detached volume {} from VM {} (vmid {})", volid, cmd.getVmName(), vmid);
+            ProxmoxApiClient api = resource.getApiClient();
+            String node = api.findNodeOfVm(vmid);
+            if (node == null) {
+                logger.info("PVE VM {} no longer exists; treating detach of volume {} as already done", vmid, volid);
+                return new DettachAnswer(disk);
             }
-            return new DettachAnswer(disk);
+
+            JsonObject config = api.getVmConfig(node, vmid);
+            String diskKey = findDiskKey(config, volid, ACTIVE_DISK_KEY);
+            if (diskKey != null) {
+                api.unlinkDisk(node, vmid, diskKey, false);
+                config = api.getVmConfig(node, vmid);
+                if (findDiskKey(config, volid, ACTIVE_DISK_KEY) != null) {
+                    // e.g. hotplug disabled on a running VM: the unlink is queued as a pending
+                    // change and the guest still uses the disk; do not report a successful detach.
+                    return new DettachAnswer(String.format("PVE VM %d did not release %s (%s); the change may be pending until the instance is stopped",
+                            vmid, diskKey, volid));
+                }
+            }
+
+            // De-referencing a volume the VM owns parks it as an unusedN entry. That entry must
+            // never be deleted through the PVE API while the volume exists ("unlink of unused[n]
+            // always cause physical removal"), and a volume left parked is destroyed together
+            // with its VM. Instead, hand the volume back to the reserved template-holder vmid by
+            // renaming it, and report the new volid for CloudStack to persist ("volumePath").
+            DettachAnswer answer = new DettachAnswer(disk);
+            String unusedKey = findDiskKey(config, volid, UNUSED_DISK_KEY);
+            if (unusedKey != null) {
+                String storageType = storageTypeOfVolid(volid);
+                if (isRawBlockStorageType(storageType) && !TYPE_RBD.equals(storageType)) {
+                    logger.warn("Volume {} stays parked as {} of PVE VM {}: the Proxmox plugin cannot reassign ownership on storage type '{}' yet;"
+                            + " the volume can only be re-attached to the same instance and is destroyed if that PVE VM is deleted",
+                            volid, unusedKey, vmid, storageType);
+                } else {
+                    String newVolid = renameVolumeOwner(node, volid, templateHolderVmid(), volume.getUuid());
+                    dropDanglingUnusedEntry(node, vmid, unusedKey, volid);
+                    volume.setPath(newVolid);
+                    disk.setPath(newVolid);
+                    answer.setContextParam("volumePath", newVolid);
+                }
+            } else if (diskKey == null) {
+                logger.info("Volume {} is not referenced by PVE VM {}; treating detach as already done", volid, vmid);
+            }
+            logger.debug("Detached volume {} from VM {} (vmid {})", volid, cmd.getVmName(), vmid);
+            return answer;
         } catch (Exception e) {
             logger.error("Failed to detach volume {} from VM {}: {}", volume.getPath(), cmd.getVmName(), e.getMessage(), e);
             return new DettachAnswer(errorToString(e));
+        }
+    }
+
+    /**
+     * Best-effort removal of an unusedN entry whose volume has already been renamed away. PVE
+     * couples deleting an unused entry with freeing the volume it points to; since the recorded
+     * volid no longer resolves, this either just drops the entry or fails without touching any
+     * data, in which case the dangling entry stays behind (harmless, but logged).
+     */
+    private void dropDanglingUnusedEntry(String node, int vmid, String unusedKey, String oldVolid) {
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("delete", unusedKey);
+            resource.getApiClient().setVmConfig(node, vmid, params);
+        } catch (Exception e) {
+            logger.info("Could not remove the dangling config entry {} ({}) of PVE VM {}: {}", unusedKey, oldVolid, vmid, e.getMessage());
         }
     }
 
@@ -578,7 +684,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                 if (owner != templateHolderVmid()) {
                     String ownerNode = resource.getApiClient().findNodeOfVm(owner);
                     if (ownerNode != null) {
-                        removeVolumeReference(ownerNode, owner, volid);
+                        dropVolumeReferencesForDelete(ownerNode, owner, volid);
                         node = ownerNode;
                     }
                 }
@@ -850,40 +956,16 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
     }
 
     /**
-     * Reassigns ownership of an unreferenced volume to another vmid, since {@code move_disk} with
-     * target-vmid requires the disk to be referenced by a VM config and the template holder vmid
-     * has no VM. On file-based (dir/NFS) storages the backing file is moved; on RBD the image is
-     * renamed with the rbd CLI. Other raw block storages (lvmthin/zfspool) are not supported yet.
+     * Renames a volume to a new owner vmid (PVE derives volume ownership from the
+     * {@code vm-<vmid>-} name prefix). Used on detach to hand volumes back to the reserved
+     * template-holder vmid so they no longer share the lifecycle of the VM they were created
+     * for. On file-based (dir/NFS/CephFS) storages the backing file is moved; on RBD the image
+     * is renamed with the rbd CLI. Other raw block storages (lvmthin/zfspool) are not supported.
      *
      * @return the new volid
      */
-    private String reassignVolumeOwner(String node, String volid, int owner, int vmid, String volumeUuid) {
+    private String renameVolumeOwner(String node, String volid, int newOwnerVmid, String volumeUuid) {
         ProxmoxApiClient api = resource.getApiClient();
-
-        if (owner != templateHolderVmid()) {
-            // Safety: never move a file out from under a VM config that still references it.
-            try {
-                String ownerNode = api.findNodeOfVm(owner);
-                if (ownerNode != null) {
-                    JsonObject ownerConfig = api.getVmConfig(ownerNode, owner);
-                    String activeKey = findDiskKey(ownerConfig, volid, ACTIVE_DISK_KEY);
-                    if (activeKey != null) {
-                        throw new CloudRuntimeException(String.format("Volume %s is still attached as %s of PVE VM %d; detach it before attaching elsewhere", volid, activeKey, owner));
-                    }
-                    String unusedKey = findDiskKey(ownerConfig, volid, UNUSED_DISK_KEY);
-                    if (unusedKey != null) {
-                        Map<String, Object> params = new HashMap<>();
-                        params.put("delete", unusedKey);
-                        api.setVmConfig(ownerNode, owner, params);
-                    }
-                }
-            } catch (CloudRuntimeException e) {
-                throw e;
-            } catch (Exception e) {
-                logger.debug("Could not inspect previous owner VM {} of volume {}: {}", owner, volid, e.getMessage());
-            }
-        }
-
         String storageId = storageOfVolid(volid);
         String storageType = resource.getStorageType(storageId);
         String uuid = volumeUuid != null ? volumeUuid : UUID.randomUUID().toString();
@@ -893,37 +975,42 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         String newVolid;
         if (TYPE_RBD.equals(storageType)) {
             RbdPathInfo rbd = parseRbdPath(srcPath);
-            String newImageName = String.format("vm-%d-disk-%s", vmid, shortId(uuid));
+            String newImageName = String.format("vm-%d-disk-%s", newOwnerVmid, shortId(uuid));
             executeOrFail(buildRbdCliCommand(rbd, String.format("rename '%s/%s' '%s/%s'", rbd.pool, rbd.image, rbd.pool, newImageName)),
                     DEFAULT_SSH_TIMEOUT_SEC);
             newVolid = storageId + ":" + newImageName;
         } else if (isRawBlockStorageType(storageType)) {
-            throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s: ownership reassignment on PVE storage type '%s' is not supported by the Proxmox plugin yet (supported: dir/NFS and RBD)", volid, storageType));
+            throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s: ownership reassignment on PVE storage type '%s' is not supported by the Proxmox plugin yet (supported: dir/NFS/CephFS and RBD)", volid, storageType));
         } else {
+            int owner = ownerOfVolid(volid);
             String ownerMarker = "/images/" + owner + "/";
             int markerIndex = srcPath.indexOf(ownerMarker);
             if (markerIndex < 0) {
                 throw new CloudRuntimeException(String.format("Cannot reassign owner of volume %s (path %s): unexpected layout for a file-based PVE storage", volid, srcPath));
             }
             String storageMount = srcPath.substring(0, markerIndex);
-            String newFileName = String.format("vm-%d-disk-%s.qcow2", vmid, uuid);
-            String destDir = storageMount + "/images/" + vmid;
+            String newFileName = String.format("vm-%d-disk-%s.qcow2", newOwnerVmid, uuid);
+            String destDir = storageMount + "/images/" + newOwnerVmid;
             String destPath = destDir + "/" + newFileName;
 
             executeOrFail(String.format("mkdir -p %s && mv %s %s", quoted(destDir), quoted(srcPath), quoted(destPath)), DEFAULT_SSH_TIMEOUT_SEC);
-            newVolid = storageId + ":" + vmid + "/" + newFileName;
+            newVolid = storageId + ":" + newOwnerVmid + "/" + newFileName;
         }
-        logger.debug("Reassigned volume {} from vmid {} to vmid {}; new volid {}", volid, owner, vmid, newVolid);
+        logger.debug("Renamed volume {} to owner vmid {}; new volid {}", volid, newOwnerVmid, newVolid);
         return newVolid;
     }
 
     /**
-     * Unlinks the config entry referencing the given volid (attached disk becomes unusedN) and then
-     * removes the resulting unused entry while keeping the volume on storage.
+     * Drops the config references of a volume that is about to be deleted. Unlinking the active
+     * entry parks an owned volume as unusedN, and deleting that unusedN entry makes PVE free the
+     * volume right there ("unlink of unused[n] always cause physical removal") — which is exactly
+     * what the caller wants here, so the following storage-level free may 404. Must ONLY be used
+     * on the volume-deletion path; detach uses {@link #dettachVolume} semantics that preserve the
+     * volume.
      *
      * @return true if any reference was found and removed
      */
-    private boolean removeVolumeReference(String node, int vmid, String volid) {
+    private boolean dropVolumeReferencesForDelete(String node, int vmid, String volid) {
         ProxmoxApiClient api = resource.getApiClient();
         JsonObject config = api.getVmConfig(node, vmid);
         String diskKey = findDiskKey(config, volid, ACTIVE_DISK_KEY);

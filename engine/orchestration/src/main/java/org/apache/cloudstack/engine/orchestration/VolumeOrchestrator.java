@@ -1343,7 +1343,7 @@ public class VolumeOrchestrator extends ManagerBase implements VolumeOrchestrati
                         toBeExpunged.add(vol);
                     } else {
                         logger.debug("Detaching volume [{}].", volumeToString);
-                        if (vm.getHypervisorType().equals(HypervisorType.VMware)) {
+                        if (vm.getHypervisorType().equals(HypervisorType.VMware) || vm.getHypervisorType().equals(HypervisorType.Proxmox)) {
                             _volumeApiService.detachVolumeViaDestroyVM(vmId, vol.getId());
                         }
                         _volsDao.detachVolume(vol.getId());
