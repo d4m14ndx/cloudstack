@@ -268,7 +268,12 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         _apiPort = parseApiPort(_url);
 
         _vrResource = new VirtualRoutingResource(this);
-        if (!_vrResource.configure(name, params)) {
+        // Our params carry ssh.port for SSH to the PVE node (22), but VirtualRoutingResource
+        // reads the same key as the system VM control port for its connect() probe. Hand it a
+        // copy pinned to the system VM sshd port, or every control-channel probe dials port 22.
+        Map<String, Object> vrParams = new HashMap<>(params);
+        vrParams.put("ssh.port", String.valueOf(DEFAULT_DOMR_SSH_PORT));
+        if (!_vrResource.configure(name, vrParams)) {
             throw new ConfigurationException("Unable to configure VirtualRoutingResource");
         }
 
