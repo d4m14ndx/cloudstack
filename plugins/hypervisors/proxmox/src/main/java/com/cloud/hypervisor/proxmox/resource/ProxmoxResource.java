@@ -810,11 +810,18 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             boolean createVm = node == null;
             if (createVm) {
                 node = _nodeName;
-            } else if (!node.equals(_nodeName) && !isNodeOnline(node)) {
-                // HA restart after a node death: the vmid config is still pinned to the dead
-                // node in pmxcfs, where node-scoped API calls can no longer reach it. Steal
-                // the config file the way PVE HA recovery does, then run the VM here.
-                stealVmConfig(node, vmid);
+            } else if (!node.equals(_nodeName)) {
+                // CloudStack placed the VM on this host, but the vmid config is pinned to
+                // another node (left there by a migration or a node death). Starting it where
+                // the config happens to live would silently diverge from CloudStack's host_id
+                // record — the VM then dies invisibly with the wrong node. Bring the config
+                // here instead: an offline migration when the owner is reachable (a config
+                // move on shared storage), the PVE-HA-style config steal when it is dead.
+                if (isNodeOnline(node)) {
+                    api.migrateVm(node, vmid, _nodeName, false, _migrateWithLocalDisks, getTaskTimeoutMs());
+                } else {
+                    stealVmConfig(node, vmid);
+                }
                 node = _nodeName;
             }
             // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
