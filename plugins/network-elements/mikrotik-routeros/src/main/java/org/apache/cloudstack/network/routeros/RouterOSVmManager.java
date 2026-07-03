@@ -51,7 +51,8 @@ public interface RouterOSVmManager extends Manager {
             "Port of the RouterOS REST API (www-ssl service) on deployed CHR appliances", true);
     ConfigKey<String> RouterOSApiUser = new ConfigKey<>("Network", String.class, "routeros.api.user", "admin",
             "RouterOS user the management server authenticates with", true);
-    ConfigKey<String> RouterOSTemplatePassword = new ConfigKey<>("Network", String.class, "routeros.template.password", "",
+    // Category "Secure" marks the value as secret so it is masked in listConfigurations and stored encrypted.
+    ConfigKey<String> RouterOSTemplatePassword = new ConfigKey<>("Secure", String.class, "routeros.template.password", "",
             "Initial password of the RouterOS API user as baked into the CHR template; rotated to a generated per-appliance secret during provisioning", true);
     ConfigKey<Integer> RouterOSApiTimeout = new ConfigKey<>("Network", Integer.class, "routeros.api.timeout", "30",
             "HTTP timeout in seconds for RouterOS REST API calls", true);
@@ -72,6 +73,8 @@ public interface RouterOSVmManager extends Manager {
     boolean destroyForNetwork(Network network) throws ResourceUnavailableException, ConcurrentOperationException;
 
     boolean destroyForVpc(Vpc vpc) throws ResourceUnavailableException, ConcurrentOperationException;
+
+    boolean stopForNetwork(Network network) throws ResourceUnavailableException, ConcurrentOperationException;
 
     boolean applyFirewallRules(Network network, List<? extends FirewallRule> rules) throws ResourceUnavailableException;
 

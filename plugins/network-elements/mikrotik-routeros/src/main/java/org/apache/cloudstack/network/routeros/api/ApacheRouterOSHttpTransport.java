@@ -42,6 +42,7 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 
@@ -51,30 +52,54 @@ import org.apache.http.util.EntityUtils;
  * appliance is only ever addressed on infrastructure networks controlled by
  * the operator and the API port is firewalled to the management server CIDR
  * during provisioning.
+ *
+ * A single pooled {@link CloseableHttpClient} is shared across all transport
+ * instances (and therefore all appliances) for the lifetime of the JVM: a new
+ * transport is created for every {@code createApiClient} call and the poll loop
+ * during provisioning builds several per iteration, so a per-instance client
+ * (never closed) previously leaked connections/threads. Only the per-request
+ * authorization header and timeout differ between callers, so both are applied
+ * per request rather than per client.
  */
 public class ApacheRouterOSHttpTransport implements RouterOSHttpTransport {
 
-    private final CloseableHttpClient httpClient;
+    private static volatile CloseableHttpClient sharedClient;
+
     private final String authorizationHeader;
+    private final int timeoutSeconds;
 
     public ApacheRouterOSHttpTransport(final String username, final String password, final int timeoutSeconds) {
-        try {
-            final SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, TrustAllStrategy.INSTANCE).build();
-            final SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
-            final RequestConfig requestConfig = RequestConfig.custom()
-                    .setConnectTimeout(timeoutSeconds * 1000)
-                    .setConnectionRequestTimeout(timeoutSeconds * 1000)
-                    .setSocketTimeout(timeoutSeconds * 1000)
-                    .build();
-            httpClient = HttpClients.custom()
-                    .setSSLSocketFactory(socketFactory)
-                    .setDefaultRequestConfig(requestConfig)
-                    .build();
-        } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException e) {
-            throw new RouterOSApiException("Failed to initialize TLS context for the RouterOS API client", e);
-        }
+        this.timeoutSeconds = timeoutSeconds;
+        // Initialize the shared client on first use.
+        sharedClient();
         final String credentials = username + ":" + (password == null ? "" : password);
         authorizationHeader = "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static CloseableHttpClient sharedClient() {
+        CloseableHttpClient client = sharedClient;
+        if (client == null) {
+            synchronized (ApacheRouterOSHttpTransport.class) {
+                client = sharedClient;
+                if (client == null) {
+                    try {
+                        final SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, TrustAllStrategy.INSTANCE).build();
+                        final SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+                        final PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+                        connectionManager.setMaxTotal(50);
+                        connectionManager.setDefaultMaxPerRoute(10);
+                        client = HttpClients.custom()
+                                .setSSLSocketFactory(socketFactory)
+                                .setConnectionManager(connectionManager)
+                                .build();
+                        sharedClient = client;
+                    } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException e) {
+                        throw new RouterOSApiException("Failed to initialize TLS context for the RouterOS API client", e);
+                    }
+                }
+            }
+        }
+        return client;
     }
 
     @Override
@@ -82,7 +107,12 @@ public class ApacheRouterOSHttpTransport implements RouterOSHttpTransport {
         final HttpRequestBase httpRequest = buildRequest(request);
         httpRequest.setHeader(HttpHeaders.AUTHORIZATION, authorizationHeader);
         httpRequest.setHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.getMimeType());
-        try (CloseableHttpResponse response = httpClient.execute(httpRequest)) {
+        httpRequest.setConfig(RequestConfig.custom()
+                .setConnectTimeout(timeoutSeconds * 1000)
+                .setConnectionRequestTimeout(timeoutSeconds * 1000)
+                .setSocketTimeout(timeoutSeconds * 1000)
+                .build());
+        try (CloseableHttpResponse response = sharedClient().execute(httpRequest)) {
             final int status = response.getStatusLine().getStatusCode();
             final String body = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
             return new Response(status, body);
@@ -118,6 +148,8 @@ public class ApacheRouterOSHttpTransport implements RouterOSHttpTransport {
 
     @Override
     public void close() throws IOException {
-        httpClient.close();
+        // The HTTP client is shared across all transports/appliances for the JVM
+        // lifetime (see sharedClient()); an individual transport must not close it.
+        // Its pooling connection manager reclaims idle connections on its own.
     }
 }

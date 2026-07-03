@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
 /**
@@ -324,7 +325,10 @@ public class RouterOSApiClient {
         try {
             final Map<String, String> resource = systemResource();
             return resource != null && resource.containsKey("version");
-        } catch (final RouterOSApiException e) {
+        } catch (final RuntimeException e) {
+            // RouterOSApiException on transport/HTTP errors, but also
+            // JsonParseException if a device answers 2xx with a malformed body;
+            // either way it is simply "not reachable / not ready".
             LOGGER.debug("RouterOS API at {} not reachable: {}", baseUrl, e.getMessage());
             return false;
         }
@@ -372,7 +376,7 @@ public class RouterOSApiClient {
         if (body == null || body.trim().isEmpty()) {
             return result;
         }
-        final JsonElement root = JsonParser.parseString(body);
+        final JsonElement root = parseJson(body);
         if (root.isJsonArray()) {
             final JsonArray array = root.getAsJsonArray();
             for (final JsonElement element : array) {
@@ -390,12 +394,27 @@ public class RouterOSApiClient {
         if (body == null || body.trim().isEmpty()) {
             return Collections.emptyMap();
         }
-        final JsonElement root = JsonParser.parseString(body);
+        final JsonElement root = parseJson(body);
         if (root.isJsonObject()) {
             return toStringMap(root.getAsJsonObject());
         }
-        final List<Map<String, String>> list = parseObjectList(body);
-        return list.isEmpty() ? Collections.emptyMap() : list.get(0);
+        return root.isJsonArray() && root.getAsJsonArray().size() > 0 && root.getAsJsonArray().get(0).isJsonObject()
+                ? toStringMap(root.getAsJsonArray().get(0).getAsJsonObject())
+                : Collections.emptyMap();
+    }
+
+    /**
+     * Parse a RouterOS REST body, wrapping malformed JSON in a
+     * {@link RouterOSApiException} so it does not escape as a raw
+     * {@link JsonParseException} from callers that only guard against
+     * RouterOSApiException.
+     */
+    private static JsonElement parseJson(final String body) {
+        try {
+            return JsonParser.parseString(body);
+        } catch (final JsonParseException e) {
+            throw new RouterOSApiException("RouterOS API returned a malformed JSON body: " + e.getMessage(), e);
+        }
     }
 
     private static Map<String, String> toStringMap(final JsonObject object) {

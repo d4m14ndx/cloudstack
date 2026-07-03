@@ -37,6 +37,7 @@ import org.apache.cloudstack.network.routeros.rules.RouterOSRule;
 import org.apache.cloudstack.network.routeros.rules.RouterOSRuleTranslator;
 
 import com.cloud.configuration.Config;
+import com.cloud.configuration.ConfigurationManagerImpl;
 import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.dao.DataCenterDao;
@@ -202,6 +203,14 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         try {
             RouterOSDeviceVO device = _routerOSDeviceDao.findByNetworkId(network.getId());
+            // If the backing VM was expunged out from under us (e.g. an admin deleted
+            // the instance), the stale device row would otherwise brick the network:
+            // startAppliance would throw forever. Drop it and re-allocate.
+            if (device != null && !applianceVmExists(device)) {
+                logger.warn("RouterOS appliance {} has no backing instance (it was likely expunged); re-deploying", device);
+                _routerOSDeviceDao.remove(device.getId());
+                device = null;
+            }
             if (device == null) {
                 final Account networkOwner = _accountMgr.getAccount(network.getAccountId());
                 final PublicIp sourceNatIp = _ipAddrMgr.assignSourceNatIpAddressToGuestNetwork(networkOwner, network);
@@ -224,6 +233,11 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public RouterOSDeviceVO deployForVpc(final Vpc vpc, final DeployDestination dest)
             throws InsufficientCapacityException, ResourceUnavailableException, ConcurrentOperationException {
         RouterOSDeviceVO device = _routerOSDeviceDao.findByVpcId(vpc.getId());
+        if (device != null && !applianceVmExists(device)) {
+            logger.warn("RouterOS appliance {} has no backing instance (it was likely expunged); re-deploying", device);
+            _routerOSDeviceDao.remove(device.getId());
+            device = null;
+        }
         if (device == null) {
             final IPAddressVO sourceNatIp = findVpcSourceNatIp(vpc);
             final PublicIp publicIp = PublicIp.createFromAddrAndVlan(sourceNatIp, _vlanDao.findById(sourceNatIp.getVlanId()));
@@ -234,6 +248,18 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         startAppliance(device);
         provisionDevice(device, true);
         return device;
+    }
+
+    /**
+     * @return true when the instance backing the device still exists (has not
+     * been expunged out from under the plugin).
+     */
+    protected boolean applianceVmExists(final RouterOSDeviceVO device) {
+        if (device.getVmInstanceId() == null) {
+            return false;
+        }
+        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        return vm != null && vm.getState() != VirtualMachine.State.Expunging;
     }
 
     @Override
@@ -301,6 +327,12 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return destroyDevice(device);
     }
 
+    @Override
+    public boolean stopForNetwork(final Network network) throws ResourceUnavailableException, ConcurrentOperationException {
+        final RouterOSDeviceVO device = _routerOSDeviceDao.findByNetworkId(network.getId());
+        return stopDevice(device);
+    }
+
     protected boolean destroyDevice(final RouterOSDeviceVO device) throws ResourceUnavailableException, ConcurrentOperationException {
         if (device == null) {
             return true;
@@ -312,6 +344,23 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             _userVmDao.remove(vm.getId());
         }
         _routerOSDeviceDao.remove(device.getId());
+        return true;
+    }
+
+    /**
+     * Stop the backing appliance VM without destroying it, mirroring the
+     * VirtualRouter contract for a non-cleanup shutdown (the device row and its
+     * programmed configuration are preserved for a later re-implement).
+     */
+    protected boolean stopDevice(final RouterOSDeviceVO device) throws ResourceUnavailableException {
+        if (device == null) {
+            return true;
+        }
+        final UserVmVO vm = device.getVmInstanceId() == null ? null : _userVmDao.findById(device.getVmInstanceId());
+        if (vm != null && vm.getState() == VirtualMachine.State.Running) {
+            logger.debug("Stopping RouterOS appliance {} backing device {}", vm.getInstanceName(), device);
+            _itMgr.stop(vm.getUuid());
+        }
         return true;
     }
 
@@ -368,7 +417,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                     "(or point the global setting '%s' at an existing template) before using the RouterOS provider.", RouterOSTemplateName.value(),
                     RouterOSTemplateName.key()));
         }
-        final ServiceOfferingVO offering = findServiceOffering();
+        final ServiceOfferingVO offering = findServiceOffering(plan.getDataCenterId());
         final Account systemAccount = _accountMgr.getSystemAccount();
 
         final long id = _userVmDao.getNextInSequence(Long.class, "id");
@@ -388,7 +437,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return device;
     }
 
-    protected ServiceOfferingVO findServiceOffering() {
+    protected ServiceOfferingVO findServiceOffering(final long zoneId) {
         final String uuid = RouterOSServiceOfferingUuid.value();
         if (uuid != null && !uuid.isEmpty()) {
             final ServiceOfferingVO offering = _serviceOfferingDao.findByUuid(uuid);
@@ -398,7 +447,10 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             }
             return offering;
         }
-        final ServiceOfferingVO offering = _serviceOfferingDao.findDefaultSystemOffering(DEFAULT_OFFERING_UNIQUE_NAME, false);
+        // Honor the zone-scoped system.vm.use.local.storage setting (mirrors InternalLoadBalancerVMManagerImpl)
+        // rather than hardcoding shared storage.
+        final Boolean useLocalStorage = ConfigurationManagerImpl.SystemVMUseLocalStorage.valueIn(zoneId);
+        final ServiceOfferingVO offering = _serviceOfferingDao.findDefaultSystemOffering(DEFAULT_OFFERING_UNIQUE_NAME, useLocalStorage);
         if (offering == null) {
             throw new CloudRuntimeException("The default RouterOS CHR service offering is missing; set '" + RouterOSServiceOfferingUuid.key() + "'");
         }
@@ -527,7 +579,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (publicNic == null) {
             throw new CloudRuntimeException("RouterOS appliance " + device + " has no public NIC");
         }
-        final String publicInterface = interfaceName(publicNic);
+        final String publicInterface = interfaceName(client, publicNic);
 
         // public IP + default route
         final IPAddressVO publicIp = _ipAddressDao.findByIpAndDcId(vm.getDataCenterId(), publicNic.getIPv4Address());
@@ -569,8 +621,8 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             return;
         }
         final NicVO publicNic = getNicByTrafficType(vm.getId(), TrafficType.Public);
-        final String guestInterface = interfaceName(guestNic);
-        final String publicInterface = interfaceName(publicNic);
+        final String guestInterface = interfaceName(client, guestNic);
+        final String publicInterface = interfaceName(client, publicNic);
         final String networkUuid = network.getUuid();
         final String gatewayCidr = network.getGateway() + "/" + NetUtils.getCidrSize(NetUtils.getCidrNetmask(network.getCidr()));
 
@@ -668,17 +720,51 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
-        final String publicInterface = publicInterfaceName(device);
+        final String publicInterface = publicInterfaceName(client, device);
+        final NetworkOffering offering = _networkOfferingDao.findById(network.getNetworkOfferingId());
+        final boolean egressDefaultPolicyAllow = offering != null && offering.isEgressDefaultPolicy();
+        // Anchor for user egress rules: they must precede the per-network egress-default rule
+        // (RouterOS is first-match), which programGuestNetwork already programs from the offering.
+        final String egressAnchorId = egressDefaultRuleId(client, network);
         for (final FirewallRule rule : rules) {
+            // The default egress policy rule (FirewallRuleType.System) is pushed by
+            // NetworkOrchestrator on every implement with a fresh UUID; keying it on
+            // cs-fw-<uuid> would orphan one rule per restart and its revoke would be a
+            // no-op. The per-network egress-default rule is already maintained (with a
+            // stable comment) by programGuestNetwork, so skip the System rule here.
+            if (rule.getType() == FirewallRule.FirewallRuleType.System) {
+                continue;
+            }
             final String comment = RouterOSRuleTranslator.firewallRuleComment(rule);
             if (rule.getState() == FirewallRule.State.Revoke) {
                 client.removeByComment(comment, RouterOSApiClient.PATH_FIREWALL_FILTER, RouterOSApiClient.PATH_FIREWALL_MANGLE);
             } else {
                 final String publicIp = publicIpOf(rule);
-                client.ensureRules(comment, _translator.translateFirewallRule(rule, publicIp, publicInterface));
+                final List<RouterOSRule> translated = new ArrayList<>();
+                for (final RouterOSRule fwRule : _translator.translateFirewallRule(rule, publicIp, publicInterface, egressDefaultPolicyAllow)) {
+                    // only egress forward-filter rules need to sit ahead of the egress-default rule
+                    if (egressAnchorId != null && rule.getTrafficType() == FirewallRule.TrafficType.Egress
+                            && RouterOSApiClient.PATH_FIREWALL_FILTER.equals(fwRule.getPath())) {
+                        translated.add(fwRule.withPlaceBefore(egressAnchorId));
+                    } else {
+                        translated.add(fwRule);
+                    }
+                }
+                client.ensureRules(comment, translated);
             }
         }
         return true;
+    }
+
+    /**
+     * @return the RouterOS .id of the per-network egress-default rule
+     * ({@code cs-net-<uuid>-egress-default}) so user egress rules can be
+     * inserted ahead of it, or null when there is none.
+     */
+    protected String egressDefaultRuleId(final RouterOSApiClient client, final Network network) {
+        final List<Map<String, String>> anchor = client.listByComment(RouterOSApiClient.PATH_FIREWALL_FILTER,
+                RouterOSRuleTranslator.networkComment(network.getUuid(), "egress-default"));
+        return anchor.isEmpty() ? null : anchor.get(0).get(RouterOSApiClient.ID_FIELD);
     }
 
     @Override
@@ -706,16 +792,40 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        // The per-network masquerade/source-NAT rule (cs-net-<uuid>-srcnat) is a
+        // catch-all in the srcnat chain; RouterOS is first-match, so a static
+        // NAT's 1:1 src-nat rule must be inserted BEFORE it or it never applies.
+        final String srcNatAnchorId = networkSrcNatRuleId(client, network);
         for (final StaticNat rule : rules) {
             final String comment = RouterOSRuleTranslator.staticNatComment(rule);
             if (rule.isForRevoke()) {
                 client.removeNatRulesByComment(comment);
             } else {
                 final IPAddressVO ip = _ipAddressDao.findById(rule.getSourceIpAddressId());
-                client.ensureRules(comment, _translator.translateStaticNat(rule, ip.getAddress().addr()));
+                final List<RouterOSRule> pair = new ArrayList<>();
+                for (final RouterOSRule natRule : _translator.translateStaticNat(rule, ip.getAddress().addr())) {
+                    // anchor only the srcnat leg ahead of the network source-NAT rule
+                    if (srcNatAnchorId != null && "srcnat".equals(natRule.getParam("chain"))) {
+                        pair.add(natRule.withPlaceBefore(srcNatAnchorId));
+                    } else {
+                        pair.add(natRule);
+                    }
+                }
+                client.ensureRules(comment, pair);
             }
         }
         return true;
+    }
+
+    /**
+     * @return the RouterOS .id of the per-network source-NAT rule
+     * ({@code cs-net-<uuid>-srcnat}) so static-NAT src-nat rules can be inserted
+     * ahead of it, or null when the network has no source-NAT rule.
+     */
+    protected String networkSrcNatRuleId(final RouterOSApiClient client, final Network network) {
+        final List<Map<String, String>> anchor = client.listByComment(RouterOSApiClient.PATH_FIREWALL_NAT,
+                RouterOSRuleTranslator.networkComment(network.getUuid(), "srcnat"));
+        return anchor.isEmpty() ? null : anchor.get(0).get(RouterOSApiClient.ID_FIELD);
     }
 
     @Override
@@ -725,7 +835,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
-        final String publicInterface = publicInterfaceName(device);
+        final String publicInterface = publicInterfaceName(client, device);
         for (final PublicIpAddress ip : ips) {
             final String comment = RouterOSRuleTranslator.publicIpComment(ip.getUuid());
             if (ip.getState() == IpAddress.State.Releasing) {
@@ -747,7 +857,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (tierNic == null) {
             throw new ResourceUnavailableException("The RouterOS appliance has no NIC in the tier network yet", Network.class, network.getId());
         }
-        final String tierInterface = interfaceName(tierNic);
+        final String tierInterface = interfaceName(client, tierNic);
         final String networkUuid = network.getUuid();
 
         // ensure the default drop anchors exist and grab their ids for place-before
@@ -761,10 +871,12 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             }
         }
 
-        // full resync of the tier ACL: remove all items, re-add ordered by number ahead of the anchors
-        client.removeByCommentPrefix(RouterOSApiClient.PATH_FIREWALL_FILTER, RouterOSRuleTranslator.aclItemCommentPrefix(networkUuid));
+        // Full resync of the tier ACL. Translate ALL items FIRST (ordered by number,
+        // ahead of the anchors) so that a translation failure (e.g. an unexpected
+        // protocol) aborts before we have wiped the tier's existing ACL rules.
         final List<NetworkACLItem> sorted = new ArrayList<>(rules);
         sorted.sort((a, b) -> Integer.compare(a.getNumber(), b.getNumber()));
+        final List<RouterOSRule> toAdd = new ArrayList<>();
         for (final NetworkACLItem item : sorted) {
             if (item.getState() == NetworkACLItem.State.Revoke) {
                 continue;
@@ -774,8 +886,13 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                 if (anchorId != null) {
                     rule = rule.withPlaceBefore(anchorId);
                 }
-                client.add(rule.getPath(), rule.getParams());
+                toAdd.add(rule);
             }
+        }
+        // Only now that every item translated cleanly do we remove the old set and re-add.
+        client.removeByCommentPrefix(RouterOSApiClient.PATH_FIREWALL_FILTER, RouterOSRuleTranslator.aclItemCommentPrefix(networkUuid));
+        for (final RouterOSRule rule : toAdd) {
+            client.add(rule.getPath(), rule.getParams());
         }
         return true;
     }
@@ -810,7 +927,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         try {
             final RouterOSApiClient client = getActiveClient(device, null);
-            final String publicInterface = publicInterfaceName(device);
+            final String publicInterface = publicInterfaceName(client, device);
             final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
             for (final Network tier : _networkDao.listByVpc(vpc.getId())) {
                 if (_nicDao.findByNtwkIdAndInstanceId(tier.getId(), vm.getId()) == null || !isOurs(tier, Network.Service.SourceNat)) {
@@ -839,7 +956,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (guestNic == null) {
             throw new ResourceUnavailableException("The RouterOS appliance has no NIC in the guest network yet", Network.class, network.getId());
         }
-        configureDhcp(client, network, interfaceName(guestNic));
+        configureDhcp(client, network, interfaceName(client, guestNic));
         return true;
     }
 
@@ -961,12 +1078,48 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return interfaceName(publicNic);
     }
 
+    protected String publicInterfaceName(final RouterOSApiClient client, final RouterOSDeviceVO device) {
+        final NicVO publicNic = getNicByTrafficType(device.getVmInstanceId(), TrafficType.Public);
+        if (publicNic == null) {
+            throw new CloudRuntimeException("RouterOS appliance " + device + " has no public NIC");
+        }
+        return interfaceName(client, publicNic);
+    }
+
     /**
-     * RouterOS names interfaces ether1..N in device order; CloudStack NIC
-     * device ids start at 0.
+     * Positional fallback: RouterOS names interfaces ether1..N in device order;
+     * CloudStack NIC device ids start at 0. Used only when the RouterOS
+     * interface cannot be resolved by MAC (e.g. before the appliance is
+     * reachable).
      */
     protected String interfaceName(final NicVO nic) {
         return "ether" + (nic.getDeviceId() + 1);
+    }
+
+    /**
+     * Resolve the RouterOS interface name for a NIC by matching its MAC address
+     * against {@code /interface}. VPC tier hot-plug/unplug can reorder ether
+     * interfaces, so device-id arithmetic ({@link #interfaceName(NicVO)}) drifts;
+     * the MAC is stable. Falls back to the positional name when the interface
+     * cannot be resolved by MAC.
+     */
+    protected String interfaceName(final RouterOSApiClient client, final NicVO nic) {
+        final String mac = nic.getMacAddress();
+        if (client != null && mac != null && !mac.isEmpty()) {
+            try {
+                for (final Map<String, String> iface : client.listInterfaces()) {
+                    final String ifaceMac = iface.get("mac-address");
+                    final String ifaceName = iface.get("name");
+                    if (ifaceMac != null && ifaceName != null && ifaceMac.equalsIgnoreCase(mac)) {
+                        return ifaceName;
+                    }
+                }
+                logger.warn("No RouterOS interface with MAC {} found; falling back to positional name for NIC {}", mac, nic.getUuid());
+            } catch (final RuntimeException e) {
+                logger.warn("Failed to resolve RouterOS interface by MAC {}; falling back to positional name: {}", mac, e.getMessage());
+            }
+        }
+        return interfaceName(nic);
     }
 
     protected String publicIpOf(final FirewallRule rule) {
