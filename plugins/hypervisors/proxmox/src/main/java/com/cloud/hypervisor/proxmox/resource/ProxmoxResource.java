@@ -82,6 +82,8 @@ import com.cloud.agent.api.ModifyStoragePoolAnswer;
 import com.cloud.agent.api.ModifyStoragePoolCommand;
 import com.cloud.agent.api.NetworkUsageAnswer;
 import com.cloud.agent.api.NetworkUsageCommand;
+import com.cloud.agent.api.PatchSystemVmAnswer;
+import com.cloud.agent.api.PatchSystemVmCommand;
 import com.cloud.agent.api.PingCommand;
 import com.cloud.agent.api.PingRoutingCommand;
 import com.cloud.agent.api.PingTestCommand;
@@ -139,12 +141,14 @@ import com.cloud.resource.ServerResourceBase;
 import com.cloud.storage.resource.StorageSubsystemCommandHandler;
 import com.cloud.storage.template.TemplateProp;
 import com.cloud.utils.ExecutionResult;
+import com.cloud.utils.FileUtil;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.ssh.SshHelper;
+import com.cloud.utils.validation.ChecksumUtil;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.PowerState;
 import com.cloud.vm.snapshot.VMSnapshot;
@@ -177,6 +181,9 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     private static final String RELATIVE_SYSTEMVM_KEY_PATH = "scripts/vm/systemvm/id_rsa.cloud";
     private static final String DEFAULT_SYSTEMVM_KEY_PATH = "/usr/share/cloudstack-common/scripts/vm/systemvm/id_rsa.cloud";
+    // Base path on the management server where the system VM patch files (agent.zip,
+    // cloud-scripts.tgz, patch-sysvms.sh) live; mirrors VmwareResource.BASEPATH.
+    public static final String BASEPATH = "/usr/share/cloudstack-common/vms/";
 
     private static volatile File s_systemVmKeyFile = null;
     private static final Object s_systemVmKeyFileLock = new Object();
@@ -672,6 +679,8 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return execute((NetworkUsageCommand) cmd);
             } else if (clz == UnregisterVMCommand.class) {
                 return execute((UnregisterVMCommand) cmd);
+            } else if (clz == PatchSystemVmCommand.class) {
+                return execute((PatchSystemVmCommand) cmd);
             } else {
                 return Answer.createUnsupportedCommandAnswer(cmd);
             }
@@ -1702,6 +1711,86 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             logger.debug(script + " execution result: " + result.first().toString());
         }
         return new ExecutionResult(result.first(), result.second());
+    }
+
+    /**
+     * Fetch the running system VM template version and the checksum of its cloud-scripts
+     * over SSH (get_template_version.sh). Mirrors VmwareResource.getSystemVmVersionAndChecksum.
+     * The details are returned as "version&checksum".
+     */
+    private ExecutionResult getSystemVmVersionAndChecksum(String controlIp) {
+        ExecutionResult result;
+        try {
+            result = executeInVR(controlIp, VRScripts.VERSION, null);
+            if (!result.isSuccess()) {
+                String errMsg = String.format("GetSystemVMVersionCmd on %s failed, message %s", controlIp, result.getDetails());
+                logger.error(errMsg);
+                throw new CloudRuntimeException(errMsg);
+            }
+        } catch (final Exception e) {
+            final String msg = "GetSystemVMVersionCmd failed due to " + e;
+            logger.error(msg, e);
+            throw new CloudRuntimeException(msg, e);
+        }
+        return result;
+    }
+
+    /**
+     * Deliver the CloudStack agent code (agent.zip + cloud-scripts.tgz + patch-sysvms.sh) to a
+     * freshly booted system VM (SSVM/CPVM) over SSH and run the patch script so cloud.service can
+     * start and the agent connects back. Mirrors VmwareResource.execute(PatchSystemVmCommand),
+     * but reaches the system VM on its management-network control IP (ROUTER_IP) using the
+     * systemvm SSH key resolved by getSystemVmKeyFile() rather than the invoking user's key.
+     */
+    private Answer execute(PatchSystemVmCommand cmd) {
+        String controlIp = cmd.getAccessDetail(NetworkElementCommand.ROUTER_IP);
+        String sysVMName = cmd.getAccessDetail(NetworkElementCommand.ROUTER_NAME);
+        File pemFile = getSystemVmKeyFile();
+        ExecutionResult result;
+        try {
+            result = getSystemVmVersionAndChecksum(controlIp);
+            FileUtil.scpPatchFiles(controlIp, VRScripts.CONFIG_CACHE_LOCATION, DEFAULT_DOMR_SSH_PORT, pemFile, systemVmPatchFiles, BASEPATH);
+        } catch (CloudRuntimeException e) {
+            return new PatchSystemVmAnswer(cmd, e.getMessage());
+        }
+
+        final String[] lines = result.getDetails().split("&");
+        // TODO: do we fail, or patch anyway??
+        if (lines.length != 2) {
+            return new PatchSystemVmAnswer(cmd, result.getDetails());
+        }
+
+        String scriptChecksum = lines[1].trim();
+        String checksum = ChecksumUtil.calculateCurrentChecksum(sysVMName, "vms/cloud-scripts.tgz").trim();
+
+        if (!StringUtils.isEmpty(checksum) && checksum.equals(scriptChecksum) && !cmd.isForced()) {
+            String msg = String.format("No change in the scripts checksum, not patching systemVM %s", sysVMName);
+            logger.info(msg);
+            return new PatchSystemVmAnswer(cmd, msg, lines[0], lines[1]);
+        }
+
+        Pair<Boolean, String> patchResult;
+        try {
+            patchResult = SshHelper.sshExecute(controlIp, DEFAULT_DOMR_SSH_PORT, "root",
+                    pemFile, null, "/var/cache/cloud/patch-sysvms.sh", 10000, 10000, 600000);
+        } catch (Exception e) {
+            return new PatchSystemVmAnswer(cmd, e.getMessage());
+        }
+
+        String scriptVersion = lines[1];
+        if (StringUtils.isNotEmpty(patchResult.second())) {
+            String res = patchResult.second().replace("\n", " ");
+            String[] output = res.split(":");
+            if (output.length != 2) {
+                logger.warn("Failed to get the latest script version");
+            } else {
+                scriptVersion = output[1].split(" ")[0];
+            }
+        }
+        if (patchResult.first()) {
+            return new PatchSystemVmAnswer(cmd, String.format("Successfully patched systemVM %s ", sysVMName), lines[0], scriptVersion);
+        }
+        return new PatchSystemVmAnswer(cmd, patchResult.second());
     }
 
     @Override
