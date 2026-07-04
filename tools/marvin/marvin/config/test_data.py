@@ -1017,6 +1017,17 @@ test_data = {
             "ispublic": "True",
             "isextractable": "True"
         },
+        "proxmox": {
+            "name": "tiny-proxmox",
+            "displaytext": "tiny proxmox",
+            "format": "qcow2",
+            "hypervisor": "proxmox",
+            "ostype": "Other Linux (64-bit)",
+            "url": "http://dl.openvm.eu/cloudstack/macchinina/x86_64/macchinina-kvm.qcow2.bz2",
+            "requireshvm": "True",
+            "ispublic": "True",
+            "isextractable": "True"
+        },
         "xenserver": {
             "name": "tiny-xen",
             "displaytext": "tiny xen",
