@@ -33,7 +33,8 @@ from marvin.lib.base import (Account,
                              Zone)
 from marvin.lib.common import (get_domain,
                                get_zone,
-                               get_template)
+                               get_template,
+                               get_test_template)
 from nose.plugins.attrib import attr
 import urllib.request, urllib.parse, urllib.error
 #Import System modules
@@ -63,6 +64,20 @@ class TestCreateTemplateWithChecksum(cloudstackTestCase):
 
         if "kvm" in self.hypervisor.lower():
             self.test_template = registerTemplate.registerTemplateCmd()
+            self.test_template = registerTemplate.registerTemplateCmd()
+            self.test_template.checksum = "{SHA-1}" + "6952e58f39b470bd166ace11ffd20bf479bed936"
+            self.test_template.hypervisor = self.hypervisor
+            self.test_template.zoneid = self.zone.id
+            self.test_template.name = 'test sha-2333'
+            self.test_template.displaytext = 'test sha-1'
+            self.test_template.url = "http://dl.openvm.eu/cloudstack/macchinina/x86_64/macchinina-kvm.qcow2.bz2"
+            self.test_template.format = "QCOW2"
+            self.test_template.ostypeid = self.getOsType("Other Linux (64-bit)")
+            self.md5 = "88c60fd500ce7ced985cf845df0db9da"
+            self.sha256 = "bc4cc040bbab843000fab78db6cb4a33f3a06ae1ced2cf563d36b38c7fee3049"
+
+        if "proxmox" in self.hypervisor.lower():
+            # same artifact as the KVM case: Proxmox consumes QCOW2 templates
             self.test_template = registerTemplate.registerTemplateCmd()
             self.test_template.checksum = "{SHA-1}" + "6952e58f39b470bd166ace11ffd20bf479bed936"
             self.test_template.hypervisor = self.hypervisor
@@ -286,13 +301,13 @@ class TestCreateTemplate(cloudstackTestCase):
                                     cls.services["disk_offering"]
                                     )
             cls._cleanup.append(cls.disk_offering)
-            template = get_template(
+            template = get_test_template(
                             cls.apiclient,
                             cls.zone.id,
-                            cls.services["ostype"]
+                            cls.hypervisor
                             )
             if template == FAILED:
-                assert False, "get_template() failed to return template with description %s" % cls.services["ostype"]
+                assert False, "get_test_template() failed to return template for hypervisor %s" % cls.hypervisor
 
             cls.services["template"]["ostypeid"] = template.ostypeid
             cls.services["template_2"]["ostypeid"] = template.ostypeid
@@ -485,13 +500,13 @@ class TestTemplates(cloudstackTestCase):
                                     cls.apiclient,
                                     cls.services["disk_offering"]
                                     )
-        template = get_template(
+        template = get_test_template(
                             cls.apiclient,
                             cls.zone.id,
-                            cls.services["ostype"]
+                            cls.hypervisor
                             )
         if template == FAILED:
-            assert False, "get_template() failed to return template with description %s" % cls.services["ostype"]
+            assert False, "get_test_template() failed to return template for hypervisor %s" % cls.hypervisor
 
         cls.services["virtual_machine"]["zoneid"] = cls.zone.id
         cls.services["volume"]["diskoffering"] = cls.disk_offering.id
