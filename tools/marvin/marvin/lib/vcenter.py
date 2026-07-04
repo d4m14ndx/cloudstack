@@ -24,7 +24,10 @@ import time
 import json
 
 if hasattr(ssl, '_create_unverified_context'):
-    ssl._create_default_https_context = ssl._create_unverified_context()
+    # Assign the factory itself, not an instance: urllib calls
+    # ssl._create_default_https_context() to build a fresh context per
+    # connection, and an SSLContext instance is not callable.
+    ssl._create_default_https_context = ssl._create_unverified_context
 
 class Vcenter():
 

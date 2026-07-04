@@ -382,7 +382,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
     protected Gson _gson;
 
     private static final List<HypervisorType> SupportedHypervisorsForVolResize = Arrays.asList(HypervisorType.KVM, HypervisorType.XenServer,
-            HypervisorType.VMware, HypervisorType.Simulator, HypervisorType.Any, HypervisorType.None);
+            HypervisorType.VMware, HypervisorType.Proxmox, HypervisorType.Simulator, HypervisorType.Any, HypervisorType.None);
     private List<StoragePoolAllocator> _storagePoolAllocators;
 
     private List<HypervisorType> supportingDefaultHV;
