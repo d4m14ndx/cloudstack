@@ -1360,6 +1360,12 @@ class CsForwardingRules(CsDataBag):
         return None
 
     def getDeviceByIp(self, ipa):
+        # Prefer the device that carries the address itself: when several interfaces
+        # share one subnet (management and public on a flat network), the subnet test
+        # is ambiguous and can bind firewall rules to the wrong device.
+        for interface in self.config.address().get_interfaces():
+            if interface.get_ip() == ipa:
+                return interface.get_device()
         for interface in self.config.address().get_interfaces():
             if interface.ip_in_subnet(ipa):
                 return interface.get_device()
