@@ -452,7 +452,7 @@ class TestSSVMs(cloudstackTestCase):
 
         self.debug("Running SSVM check script")
 
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and
             # Hyper-V
             result = get_process_status(
@@ -494,7 +494,7 @@ class TestSSVMs(cloudstackTestCase):
         )
 
         # Check status of cloud service
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and
             # Hyper-V
             retries = 3
@@ -552,7 +552,7 @@ class TestSSVMs(cloudstackTestCase):
 
         linklocal_ip = None
         # Check status of cloud service
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and
             # Hyper-V
             linklocal_ip = ssvm.privateip
@@ -647,7 +647,7 @@ class TestSSVMs(cloudstackTestCase):
 
         self.debug("Checking cloud process status")
 
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and
             # Hyper-V
             result = get_process_status(
@@ -685,7 +685,7 @@ class TestSSVMs(cloudstackTestCase):
 
         linklocal_ip = None
         # Check status of cloud service
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and
             # Hyper-V
             linklocal_ip = cpvm.privateip
@@ -1308,7 +1308,7 @@ class TestSSVMs(cloudstackTestCase):
         ssvm = list_ssvm_response[0]
         image_stores_response = ImageStore.list(self.apiclient,zoneid=self.zone.id)
 
-        if self.hypervisor.lower() in ('vmware', 'hyperv'):
+        if self.hypervisor.lower() in ('vmware', 'hyperv', 'proxmox'):
             # SSH into SSVMs is done via management server for Vmware and Hyper-V
             result = get_process_status(
                 self.apiclient.connection.mgtSvr,
