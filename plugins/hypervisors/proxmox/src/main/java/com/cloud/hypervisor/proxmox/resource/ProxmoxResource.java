@@ -22,6 +22,7 @@ import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -152,11 +153,13 @@ import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.Pair;
 import com.cloud.utils.crypt.DBEncryptionUtil;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.net.NetUtils;
 import com.cloud.utils.script.Script;
 import com.cloud.utils.ssh.SshHelper;
 import com.cloud.utils.validation.ChecksumUtil;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.PowerState;
+import com.cloud.vm.VirtualMachineName;
 import com.cloud.vm.snapshot.VMSnapshot;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -897,7 +900,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         // is not assigned yet (the interface lookup finds nothing) and the template's
         // iptables-restore would flush a too-early rule insert anyway.
         for (int count = 0; count < 60; count++) {
-            openSshdFirewallForControlIp(spec, node, vmid, controlIp);
+            openSshdFirewallForControlIp(spec.getName(), node, vmid, controlIp);
             if (_vrResource.connect(controlIp, 1, 5000)) {
                 break;
             }
@@ -916,7 +919,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
      * the control IP through the qemu guest agent before trying to SSH in. Idempotent, and a
      * no-op for virtual routers whose control NIC is already the firewalled one.
      */
-    private void openSshdFirewallForControlIp(VirtualMachineTO spec, String node, int vmid, String controlIp) {
+    private void openSshdFirewallForControlIp(String vmName, String node, int vmid, String controlIp) {
         String rule = "-p tcp -m state --state NEW --dport 3922 -j ACCEPT";
         // On flat networks the management and public NICs can share a subnet; Linux ARP flux
         // then lets the public NIC answer ARP for the control IP, packets arrive on the wrong
@@ -933,7 +936,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 + "/agent/exec --command /bin/sh --command -c --command '" + guestScript + "'";
         Pair<Boolean, String> result = executeOnNode(nodeCommand);
         if (!result.first()) {
-            logger.warn("Could not open the system VM sshd firewall for " + spec.getName() + " (vmid " + vmid
+            logger.warn("Could not open the system VM sshd firewall for " + vmName + " (vmid " + vmid
                     + ") via the guest agent, patch file delivery may time out: " + result.second());
         }
     }
@@ -1175,10 +1178,104 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return new RebootAnswer(cmd, "VM " + vmName + " not found in cluster", false);
             }
             api.rebootVm(node, vmid, getTaskTimeoutMs());
+            if (VirtualMachineName.isValidConsoleProxyName(vmName) || VirtualMachineName.isValidSecStorageVmName(vmName, null)) {
+                reopenControlSshAfterReboot(vmName, node, vmid);
+            }
             return new RebootAnswer(cmd, "reboot succeeded", true);
         } catch (Exception e) {
             logger.error("RebootCommand failed for VM " + vmName, e);
             return new RebootAnswer(cmd, e.getMessage(), false);
+        }
+    }
+
+    /**
+     * A rebooted CPVM/SSVM re-runs the template's early-config, which regenerates the guest
+     * firewall with sshd port 3922 pinned back to the IP-less link-local interface (the KVM
+     * layout — virt-what reports "kvm" on Proxmox), wiping the control-interface rule that
+     * StartCommand inserted. The agent still connects (outbound), so the VM looks healthy,
+     * but the management server can no longer SSH in. Re-open the firewall after every
+     * reboot; RebootCommand does not carry the NIC layout, so the control IP is recovered
+     * from the guest's own on-disk boot args (which a plain reboot preserves).
+     */
+    private void reopenControlSshAfterReboot(String vmName, String node, int vmid) {
+        try {
+            waitForGuestAgent(vmName, node, vmid);
+            String controlIp = readGuestControlIp(node, vmid);
+            if (controlIp == null) {
+                logger.warn("Could not determine the control IP of rebooted system VM {} (vmid {}) from its boot"
+                        + " args; the management server may be unable to SSH into it until it is stopped and started",
+                        vmName, vmid);
+                return;
+            }
+            // early-config wipes the firewall late in the boot, so an insert can land too soon
+            // and be flushed again; retry until sshd on the control IP actually accepts
+            for (int count = 0; count < 24; count++) {
+                openSshdFirewallForControlIp(vmName, node, vmid, controlIp);
+                if (_vrResource.connect(controlIp, 1, 5000)) {
+                    logger.info("Reopened the control SSH firewall of system VM {} (vmid {}) on {} after reboot",
+                            vmName, vmid, controlIp);
+                    return;
+                }
+            }
+            logger.warn("SSH to rebooted system VM {} (vmid {}) on control IP {} still fails after reopening its"
+                    + " firewall", vmName, vmid, controlIp);
+        } catch (Exception e) {
+            logger.warn("Could not reopen the control SSH firewall of system VM " + vmName + " (vmid " + vmid
+                    + ") after reboot", e);
+        }
+    }
+
+    /**
+     * Reads the control/management IP a system VM is actually configured with from its
+     * on-disk /var/cache/cloud/cmdline: the ethNip= argument that falls inside mgmtcidr=.
+     * The control NIC itself is written as eth0ip=0.0.0.0 on Proxmox (see ControlNetworkGuru),
+     * so the management-network address is the one the management server can SSH to.
+     */
+    private String readGuestControlIp(String node, int vmid) {
+        try {
+            JsonElement data = getApiClient().get("/nodes/" + node + "/qemu/" + vmid + "/agent/file-read?file="
+                    + URLEncoder.encode("/var/cache/cloud/cmdline", StandardCharsets.UTF_8));
+            String content = data != null && data.isJsonObject() ? jsonString(data.getAsJsonObject(), "content") : null;
+            if (content == null) {
+                return null;
+            }
+            String mgmtCidr = null;
+            String eth1Ip = null;
+            List<String> nicIps = new ArrayList<>();
+            for (String arg : content.trim().split("\\s+")) {
+                int eq = arg.indexOf('=');
+                if (eq <= 0) {
+                    continue;
+                }
+                String key = arg.substring(0, eq);
+                String value = arg.substring(eq + 1);
+                if ("mgmtcidr".equals(key)) {
+                    mgmtCidr = value;
+                } else if (key.matches("eth\\d+ip") && !"0.0.0.0".equals(value)) {
+                    nicIps.add(value);
+                    if ("eth1ip".equals(key)) {
+                        eth1Ip = value;
+                    }
+                }
+            }
+            // The management NIC of a CPVM/SSVM is deviceId 1 by construction (control eth0,
+            // management eth1, public eth2), so eth1ip is authoritative. Only fall back to
+            // matching against mgmtcidr when it is absent — on flat networks the public IP
+            // lives in the same subnet as the management range, making the cidr test ambiguous.
+            if (eth1Ip != null) {
+                return eth1Ip;
+            }
+            if (mgmtCidr != null) {
+                for (String ip : nicIps) {
+                    if (NetUtils.isIpWithInCidrRange(ip, mgmtCidr)) {
+                        return ip;
+                    }
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            logger.debug("Could not read the boot args of vmid {} via the guest agent: {}", vmid, e.getMessage());
+            return null;
         }
     }
 
