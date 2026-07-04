@@ -1282,7 +1282,16 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             if (node == null) {
                 return new RebootAnswer(cmd, "VM " + vmName + " not found in cluster", false);
             }
-            api.rebootVm(node, vmid, getTaskTimeoutMs());
+            try {
+                api.rebootVm(node, vmid, getTaskTimeoutMs());
+            } catch (Exception e) {
+                // A PVE reboot needs guest cooperation (qemu-guest-agent or ACPI); a guest
+                // with neither times the task out. CloudStack expects a reboot to work for
+                // any guest — mirror the VMware resource and escalate to a hard reset.
+                logger.warn("Guest-cooperative reboot of VM {} (vmid {}) failed ({}); falling back to a hard reset",
+                        vmName, vmid, e.getMessage());
+                api.resetVm(node, vmid, getTaskTimeoutMs());
+            }
             if (VirtualMachineName.isValidConsoleProxyName(vmName) || VirtualMachineName.isValidSecStorageVmName(vmName, null)) {
                 reopenControlSshAfterReboot(vmName, node, vmid);
             }
