@@ -748,7 +748,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                     return new CopyCmdAnswer(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
                 } else {
                     srcVirtualSize = getVirtualSize(volPath);
-                    convertSourceArgs = String.format("-f qcow2 -s %s %s", quoted(snapshotName), quoted(volPath));
+                    convertSourceArgs = String.format("-f qcow2 -l %s %s", quoted("snapshot.name=" + snapshotName), quoted(volPath));
                 }
             } else {
                 return new CopyCmdAnswer("Unsupported snapshot source for createVolumeFromSnapshot: " + srcSnapshot.getPath());
@@ -1290,7 +1290,8 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
 
     /**
      * qemu-img source arguments for reading a snapshot of a primary-storage volume: qcow2
-     * internal snapshots via {@code -s}, rbd snapshots via the {@code @snap} path suffix.
+     * internal snapshots via {@code -l snapshot.name=} (the {@code -s} spelling was removed from
+     * qemu-img convert), rbd snapshots via the {@code @snap} path suffix.
      * Snapshots on other raw block storages are not supported.
      */
     private String snapshotConvertSourceArgs(String node, String volid, String snapshotName) {
@@ -1302,7 +1303,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         if (isRawBlockStorageType(storageType)) {
             throw new CloudRuntimeException(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
         }
-        return String.format("-f qcow2 -s %s %s", quoted(snapshotName), quoted(volPath));
+        return String.format("-f qcow2 -l %s %s", quoted("snapshot.name=" + snapshotName), quoted(volPath));
     }
 
     // ---------------------------------------------------------------------
