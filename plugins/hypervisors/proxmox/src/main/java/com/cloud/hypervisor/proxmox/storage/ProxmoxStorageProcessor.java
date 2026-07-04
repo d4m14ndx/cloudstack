@@ -641,9 +641,10 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String storageType = storageTypeOfVolid(volid);
 
             boolean vmRunning = false;
+            int vmid = -1;
             if (vmName != null && !vmName.isEmpty()) {
                 try {
-                    int vmid = requireVmid(vmName);
+                    vmid = requireVmid(vmName);
                     String vmNode = resource.getApiClient().findNodeOfVm(vmid);
                     if (vmNode != null) {
                         node = vmNode;
@@ -655,18 +656,13 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                             vmName, volid, e.getMessage());
                 }
             }
-            if (vmRunning && !TYPE_RBD.equals(storageType)) {
-                // A ceph snapshot of an in-use image is crash-consistent (same contract as the
-                // KVM plugin), but an external qemu-img snapshot of a file a running QEMU has
-                // open for writing would corrupt it.
-                return new CreateObjectAnswer(String.format(
-                        "Online volume snapshots are not supported on PVE storage type '%s'; stop the instance or use VM snapshots instead", storageType));
-            }
 
             String snapshotName = UUID.randomUUID().toString();
             String volPath = resource.getApiClient().getVolumePath(node, volid);
             if (TYPE_RBD.equals(storageType)) {
                 if (vmRunning) {
+                    // a ceph snapshot of an in-use image is crash-consistent, the same
+                    // contract the KVM plugin offers for online RBD snapshots
                     logger.debug("Volume {} is attached to running VM {}; taking a crash-consistent rbd snapshot", volid, vmName);
                 }
                 RbdPathInfo rbd = parseRbdPath(volPath);
@@ -674,6 +670,22 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                         DEFAULT_SSH_TIMEOUT_SEC);
             } else if (isRawBlockStorageType(storageType)) {
                 return new CreateObjectAnswer(String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet", storageType));
+            } else if (vmRunning) {
+                // qcow2 held open by a running QEMU: an external qemu-img write would corrupt
+                // it, so have that QEMU create the internal snapshot itself via the monitor —
+                // the same mechanism libvirt uses for online disk snapshots on KVM.
+                JsonObject config = resource.getApiClient().getVmConfig(node, vmid);
+                String diskKey = findDiskKey(config, volid, ACTIVE_DISK_KEY);
+                if (diskKey == null) {
+                    return new CreateObjectAnswer(String.format(
+                            "Volume %s is not an active disk of running PVE VM %d; cannot take an online snapshot", volid, vmid));
+                }
+                String out = resource.getApiClient().monitorCommand(node, vmid,
+                        String.format("snapshot_blkdev_internal drive-%s %s", diskKey, snapshotName));
+                if (out != null && out.toLowerCase().contains("error")) {
+                    return new CreateObjectAnswer(String.format(
+                            "QEMU refused the online snapshot of %s (drive-%s) on PVE VM %d: %s", volid, diskKey, vmid, out.trim()));
+                }
             } else {
                 executeOrFail(String.format("qemu-img snapshot -c %s %s", quoted(snapshotName), quoted(volPath)), DEFAULT_SSH_TIMEOUT_SEC);
             }
@@ -808,6 +820,34 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             } else if (isRawBlockStorageType(storageType)) {
                 return new Answer(cmd, false, String.format("Volume snapshots on PVE storage type '%s' are not supported by the Proxmox plugin yet; cannot delete snapshot %s", storageType, path));
             } else {
+                // If the owning VM is running with this volume attached, the running QEMU must
+                // delete the internal snapshot itself (see createSnapshot); external qemu-img
+                // writes on the in-use file would corrupt it.
+                try {
+                    int owner = ownerOfVolid(volid);
+                    String vmNode = resource.getApiClient().findNodeOfVm(owner);
+                    if (vmNode != null) {
+                        JsonObject status = resource.getApiClient().getVmStatus(vmNode, owner);
+                        if (status.has("status") && "running".equals(status.get("status").getAsString())) {
+                            JsonObject config = resource.getApiClient().getVmConfig(vmNode, owner);
+                            String diskKey = findDiskKey(config, volid, ACTIVE_DISK_KEY);
+                            if (diskKey != null) {
+                                String out = resource.getApiClient().monitorCommand(vmNode, owner,
+                                        String.format("snapshot_delete_blkdev_internal drive-%s %s", diskKey, snapshotName));
+                                String lower = out == null ? "" : out.toLowerCase();
+                                if (lower.contains("not found") || lower.contains("does not exist") || !lower.contains("error")) {
+                                    logger.debug("Deleted snapshot {} on volume {} via the running QEMU of PVE VM {}", snapshotName, volid, owner);
+                                    return new Answer(cmd);
+                                }
+                                return new Answer(cmd, false, String.format(
+                                        "QEMU refused to delete snapshot %s of %s (drive-%s) on PVE VM %d: %s", snapshotName, volid, diskKey, owner, out.trim()));
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Could not delete snapshot {} of {} through a running owner VM; falling back to qemu-img: {}",
+                            snapshotName, volid, e.getMessage());
+                }
                 deleteCommand = String.format("qemu-img snapshot -d %s %s", quoted(snapshotName), quoted(volPath));
             }
             Pair<Boolean, String> result = resource.executeOnNode(deleteCommand, DEFAULT_SSH_TIMEOUT_SEC);
