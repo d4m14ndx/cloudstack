@@ -27,8 +27,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -181,6 +183,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
     private static final int PATCH_RETRY_COUNT = 5;
     private static final long PATCH_RETRY_SLEEP_MS = 3000L;
     private static final long PATCH_AGENT_WAIT_MS = 180000L;
+    private static final long GUEST_IP_WAIT_MS = 300000L;
     private static final int MAX_NIC_SLOTS = 32;
 
     private static final String RELATIVE_SYSTEMVM_KEY_PATH = "scripts/vm/systemvm/id_rsa.cloud";
@@ -986,17 +989,37 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
      * needed.
      */
     private void patchSystemVm(VirtualMachineTO spec, String node, int vmid) {
-        String cmdline = spec.getBootArgs() == null ? "" : spec.getBootArgs();
         ProxmoxApiClient api = getApiClient();
+        waitForGuestAgent(spec.getName(), node, vmid);
+        writeSystemVmBootArgs(spec, node, vmid);
 
+        // A reused root disk (any stop/start cycle — system VM IPs are re-allocated on every
+        // start) still carries the previous boot's cmdline, and the guest's early-config
+        // consumes it before the write above can land. The corrected cmdline is on disk now,
+        // so one reboot makes the guest configure the IPs CloudStack actually allocated.
+        String controlIp = getControlIp(spec.getNics());
+        if (controlIp == null || waitForGuestControlIp(spec.getName(), node, vmid, controlIp)) {
+            return;
+        }
+        logger.info("System VM {} (vmid {}) came up with stale boot args (control IP {} not applied);"
+                + " rebooting it once to pick up the rewritten cmdline", spec.getName(), vmid, controlIp);
+        api.rebootVm(node, vmid, getTaskTimeoutMs());
+        waitForGuestAgent(spec.getName(), node, vmid);
+        writeSystemVmBootArgs(spec, node, vmid);
+        if (!waitForGuestControlIp(spec.getName(), node, vmid, controlIp)) {
+            throw new CloudRuntimeException("System VM " + spec.getName() + " (vmid " + vmid
+                    + ") did not apply its control IP " + controlIp + " even after a reboot with corrected boot args");
+        }
+    }
+
+    private void waitForGuestAgent(String vmName, String node, int vmid) {
+        ProxmoxApiClient api = getApiClient();
         long deadline = System.currentTimeMillis() + PATCH_AGENT_WAIT_MS;
-        boolean agentUp = false;
         Exception lastPingError = null;
         while (System.currentTimeMillis() < deadline) {
             try {
                 api.post("/nodes/" + node + "/qemu/" + vmid + "/agent/ping", new HashMap<>());
-                agentUp = true;
-                break;
+                return;
             } catch (Exception e) {
                 lastPingError = e;
                 try {
@@ -1004,16 +1027,18 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new CloudRuntimeException("Interrupted while waiting for the guest agent of system VM "
-                            + spec.getName());
+                            + vmName);
                 }
             }
         }
-        if (!agentUp) {
-            throw new CloudRuntimeException("Guest agent of system VM " + spec.getName() + " (vmid " + vmid
-                    + ") did not come up within " + (PATCH_AGENT_WAIT_MS / 1000) + "s: "
-                    + (lastPingError != null ? lastPingError.getMessage() : "unknown"));
-        }
+        throw new CloudRuntimeException("Guest agent of system VM " + vmName + " (vmid " + vmid
+                + ") did not come up within " + (PATCH_AGENT_WAIT_MS / 1000) + "s: "
+                + (lastPingError != null ? lastPingError.getMessage() : "unknown"));
+    }
 
+    private void writeSystemVmBootArgs(VirtualMachineTO spec, String node, int vmid) {
+        String cmdline = spec.getBootArgs() == null ? "" : spec.getBootArgs();
+        ProxmoxApiClient api = getApiClient();
         CloudRuntimeException lastWriteError = null;
         for (int attempt = 1; attempt <= PATCH_RETRY_COUNT; attempt++) {
             try {
@@ -1038,6 +1063,69 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         }
         throw lastWriteError != null ? lastWriteError
                 : new CloudRuntimeException("Unable to patch boot args of system VM " + spec.getName());
+    }
+
+    /**
+     * Waits until the guest reports the expected control IP on some interface. A fresh
+     * template boot assigns it only after early-config finishes waiting for the (not yet
+     * delivered) patch files, so the budget is generous. Returns false when the guest instead
+     * settles on other addresses — the fingerprint of a stale cmdline from a reused disk.
+     */
+    private boolean waitForGuestControlIp(String vmName, String node, int vmid, String controlIp) {
+        long deadline = System.currentTimeMillis() + GUEST_IP_WAIT_MS;
+        int wrongConfigPolls = 0;
+        while (System.currentTimeMillis() < deadline) {
+            Set<String> ips = getGuestIpv4Addresses(node, vmid);
+            if (ips.contains(controlIp)) {
+                return true;
+            }
+            if (!ips.isEmpty()) {
+                // the guest has configured global addresses that do not include the expected
+                // control IP; require a few stable polls so a half-configured fresh boot
+                // (interfaces coming up one by one) is not mistaken for stale config
+                if (++wrongConfigPolls >= 3) {
+                    return false;
+                }
+            }
+            try {
+                Thread.sleep(PATCH_RETRY_SLEEP_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new CloudRuntimeException("Interrupted while waiting for the control IP of system VM " + vmName);
+            }
+        }
+        return false;
+    }
+
+    /** Global (non-loopback, non-link-local) IPv4 addresses currently applied inside the guest. */
+    private Set<String> getGuestIpv4Addresses(String node, int vmid) {
+        Set<String> ips = new HashSet<>();
+        try {
+            JsonElement data = getApiClient().get("/nodes/" + node + "/qemu/" + vmid + "/agent/network-get-interfaces");
+            JsonObject result = data != null && data.isJsonObject() ? data.getAsJsonObject() : null;
+            JsonElement ifaces = result != null ? result.get("result") : null;
+            if (ifaces != null && ifaces.isJsonArray()) {
+                for (JsonElement ifaceEl : ifaces.getAsJsonArray()) {
+                    JsonElement addrs = ifaceEl.getAsJsonObject().get("ip-addresses");
+                    if (addrs == null || !addrs.isJsonArray()) {
+                        continue;
+                    }
+                    for (JsonElement addrEl : addrs.getAsJsonArray()) {
+                        JsonObject addr = addrEl.getAsJsonObject();
+                        if (!"ipv4".equals(jsonString(addr, "ip-address-type"))) {
+                            continue;
+                        }
+                        String ip = jsonString(addr, "ip-address");
+                        if (ip != null && !ip.startsWith("127.") && !ip.startsWith("169.254.")) {
+                            ips.add(ip);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not read guest addresses of vmid {} via the agent: {}", vmid, e.getMessage());
+        }
+        return ips;
     }
 
     protected Answer execute(StopCommand cmd) {
