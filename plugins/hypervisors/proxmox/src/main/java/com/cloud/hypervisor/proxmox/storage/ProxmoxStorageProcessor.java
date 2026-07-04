@@ -638,7 +638,9 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
             String volid = volume.getPath();
             String node = resource.getNodeName();
             String vmName = snapshot.getVmName() != null ? snapshot.getVmName() : volume.getVmName();
+            String storageType = storageTypeOfVolid(volid);
 
+            boolean vmRunning = false;
             if (vmName != null && !vmName.isEmpty()) {
                 try {
                     int vmid = requireVmid(vmName);
@@ -646,20 +648,27 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                     if (vmNode != null) {
                         node = vmNode;
                         JsonObject status = resource.getApiClient().getVmStatus(vmNode, vmid);
-                        if (status.has("status") && "running".equals(status.get("status").getAsString())) {
-                            return new CreateObjectAnswer("Online volume snapshots are not supported by the Proxmox plugin (v1); stop the instance or use VM snapshots instead");
-                        }
+                        vmRunning = status.has("status") && "running".equals(status.get("status").getAsString());
                     }
                 } catch (Exception e) {
                     logger.debug("Could not determine run state of VM {} while snapshotting volume {}; assuming it is not running: {}",
                             vmName, volid, e.getMessage());
                 }
             }
+            if (vmRunning && !TYPE_RBD.equals(storageType)) {
+                // A ceph snapshot of an in-use image is crash-consistent (same contract as the
+                // KVM plugin), but an external qemu-img snapshot of a file a running QEMU has
+                // open for writing would corrupt it.
+                return new CreateObjectAnswer(String.format(
+                        "Online volume snapshots are not supported on PVE storage type '%s'; stop the instance or use VM snapshots instead", storageType));
+            }
 
-            String storageType = storageTypeOfVolid(volid);
             String snapshotName = UUID.randomUUID().toString();
             String volPath = resource.getApiClient().getVolumePath(node, volid);
             if (TYPE_RBD.equals(storageType)) {
+                if (vmRunning) {
+                    logger.debug("Volume {} is attached to running VM {}; taking a crash-consistent rbd snapshot", volid, vmName);
+                }
                 RbdPathInfo rbd = parseRbdPath(volPath);
                 executeOrFail(buildRbdCliCommand(rbd, String.format("snap create '%s/%s@%s'", rbd.pool, rbd.image, validShellToken(snapshotName, "snapshot name"))),
                         DEFAULT_SSH_TIMEOUT_SEC);
