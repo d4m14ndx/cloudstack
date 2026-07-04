@@ -97,7 +97,7 @@ public class ProxmoxVmConfigBuilderTest {
         assertEquals(Long.valueOf(2048L), config.get("memory"));
         assertEquals(Long.valueOf(1024L), config.get("balloon"));
         assertEquals("l26", config.get("ostype"));
-        assertEquals("virtio-scsi-single", config.get("scsihw"));
+        assertEquals("virtio-scsi-pci", config.get("scsihw"));
         assertEquals(Integer.valueOf(1), config.get("agent"));
         assertEquals(Integer.valueOf(0), config.get("onboot"));
         assertEquals(Integer.valueOf(0), config.get("protection"));
@@ -140,8 +140,8 @@ public class ProxmoxVmConfigBuilderTest {
 
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
-        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
-        assertEquals("local-lvm:vm-10005-disk-1,iothread=1,discard=on", config.get("scsi1"));
+        assertEquals("local-lvm:vm-10005-disk-0,discard=on", config.get("scsi0"));
+        assertEquals("local-lvm:vm-10005-disk-1,discard=on", config.get("scsi1"));
     }
 
     @Test
@@ -155,7 +155,7 @@ public class ProxmoxVmConfigBuilderTest {
 
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
-        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
+        assertEquals("local-lvm:vm-10005-disk-0,discard=on", config.get("scsi0"));
     }
 
     @Test
@@ -168,7 +168,7 @@ public class ProxmoxVmConfigBuilderTest {
 
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
-        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
+        assertEquals("local-lvm:vm-10005-disk-0,discard=on", config.get("scsi0"));
     }
 
     @Test
@@ -190,7 +190,7 @@ public class ProxmoxVmConfigBuilderTest {
 
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
-        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
+        assertEquals("local-lvm:vm-10005-disk-0,discard=on", config.get("scsi0"));
     }
 
     @Test
@@ -207,7 +207,7 @@ public class ProxmoxVmConfigBuilderTest {
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
 
         assertEquals("none,media=cdrom", config.get("ide2"));
-        assertEquals("local-lvm:vm-10005-disk-0,iothread=1,discard=on", config.get("scsi0"));
+        assertEquals("local-lvm:vm-10005-disk-0,discard=on", config.get("scsi0"));
     }
 
     @Test

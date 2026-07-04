@@ -60,7 +60,12 @@ public class ProxmoxVmConfigBuilder {
         config.put("memory", spec.getMaxRam() / MIB);
         config.put("balloon", spec.getMinRam() / MIB);
         config.put("ostype", isWindows(spec.getOs()) ? "win11" : "l26");
-        config.put("scsihw", "virtio-scsi-single");
+        // Shared controller, not virtio-scsi-single: with one controller per disk a
+        // hot-detach becomes a PCI unplug the guest must acknowledge ("error on
+        // hot-unplugging device 'virtioscsiN' - still busy in guest?"), while on a
+        // shared controller it is a SCSI-bus removal that needs no guest support —
+        // matching how libvirt attaches disks on KVM.
+        config.put("scsihw", "virtio-scsi-pci");
         config.put("agent", 1);
         config.put("onboot", 0);
         config.put("protection", 0);
@@ -75,7 +80,7 @@ public class ProxmoxVmConfigBuilder {
                         continue;
                     }
                     long seq = disk.getDiskSeq() != null ? disk.getDiskSeq() : 0L;
-                    config.put("scsi" + seq, volid + ",iothread=1,discard=on");
+                    config.put("scsi" + seq, volid + ",discard=on");
                 }
                 // ISO disks are intentionally NOT wired into ide2 here. An ISO DiskTO
                 // carries an NFS/secondary-storage install path (data.getPath()), not a PVE
