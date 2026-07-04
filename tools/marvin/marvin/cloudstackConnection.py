@@ -144,7 +144,10 @@ class CSConnection(object):
                 [str.lower(r[0]),
                  str.lower(
                      urllib.parse.quote_plus(str(r[1]), safe="*")
-                ).replace("+", "%20")]
+                # Python 3.7+ never percent-encodes '~' (RFC 3986 unreserved), but the
+                # server verifies the signature with java.net.URLEncoder, which does;
+                # re-encode it or any parameter containing '~' fails with 401.
+                ).replace("+", "%20").replace("~", "%7e")]
             ) for r in params]
         )
         signature = base64.encodebytes(
