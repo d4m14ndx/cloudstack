@@ -1039,13 +1039,13 @@ class TestCopyAndDeleteTemplatesAcrossZones(cloudstackTestCase):
                 cls.services["disk_offering"]
             )
             cls._cleanup.append(cls.disk_offering)
-            cls.template = get_template(
+            cls.template = get_test_template(
                 cls.apiclient,
                 cls.zone.id,
-                cls.services["ostype"]
+                cls.hypervisor
             )
             if cls.template == FAILED:
-                assert False, "get_template() failed to return template with description %s" % cls.services["ostype"]
+                assert False, "get_test_template() failed to return template for hypervisor %s" % cls.hypervisor
 
             cls.services["template"]["ostypeid"] = cls.template.ostypeid
             cls.services["template_2"]["ostypeid"] = cls.template.ostypeid
