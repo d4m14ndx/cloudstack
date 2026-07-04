@@ -371,6 +371,7 @@ def is_snapshot_on_nfs(apiclient, dbconn, config, zoneid, snapshotid):
     snapshot_extensions = {"vmware": ".ovf",
                             "kvm": "",
                             "xenserver": "",
+                            "proxmox": "",
                             "simulator":""}
 
     qresultset = dbconn.execute(
