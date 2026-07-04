@@ -1342,13 +1342,19 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         final String conf;     // ceph.conf path, nullable
         final String id;       // cephx user (without the "client." prefix), nullable
         final String keyring;  // keyring path, nullable
+        final String monHost;  // comma-separated monitor list, nullable
 
         RbdPathInfo(String pool, String image, String conf, String id, String keyring) {
+            this(pool, image, conf, id, keyring, null);
+        }
+
+        RbdPathInfo(String pool, String image, String conf, String id, String keyring, String monHost) {
             this.pool = pool;
             this.image = image;
             this.conf = conf;
             this.id = id;
             this.keyring = keyring;
+            this.monHost = monHost;
         }
     }
 
@@ -1367,6 +1373,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         String conf = null;
         String id = null;
         String keyring = null;
+        String monHost = null;
         for (int i = 2; i < segments.length; i++) {
             int eq = segments[i].indexOf('=');
             if (eq <= 0) {
@@ -1380,9 +1387,11 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
                 id = validShellToken(value, "cephx id");
             } else if ("keyring".equals(key)) {
                 keyring = validShellToken(value, "ceph keyring path");
+            } else if ("mon_host".equals(key)) {
+                monHost = validMonHostList(value);
             }
         }
-        return new RbdPathInfo(pool, image, conf, id, keyring);
+        return new RbdPathInfo(pool, image, conf, id, keyring, monHost);
     }
 
     /**
@@ -1418,11 +1427,28 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         if (rbd.keyring != null) {
             cmd.append(String.format("[ -f '%s' ] && RBDAUTH=\"$RBDAUTH --keyring %s\"; ", rbd.keyring, rbd.keyring));
         }
+        if (rbd.monHost != null) {
+            // External Ceph: the referenced conf file usually does not exist on the client
+            // node, so the monitor list from the path URI is the only way the CLI can find
+            // the cluster (hyper-converged nodes fall back to /etc/ceph/ceph.conf).
+            cmd.append(String.format("RBDAUTH=\"$RBDAUTH -m %s\"; ", rbd.monHost));
+        }
         if (rbd.id != null) {
             cmd.append(String.format("RBDAUTH=\"$RBDAUTH -n client.%s\"; ", rbd.id));
         }
         cmd.append("rbd $RBDAUTH ").append(args);
         return cmd.toString();
+    }
+
+    private static final Pattern SAFE_MON_HOST = Pattern.compile("^[A-Za-z0-9._,:\\[\\]-]+$");
+
+    /** Normalizes a PVE mon_host option (';'-separated) to the rbd CLI's comma-separated list. */
+    private static String validMonHostList(String value) {
+        String normalized = value.replace(';', ',');
+        if (!SAFE_MON_HOST.matcher(normalized).matches()) {
+            throw new CloudRuntimeException("Unsafe mon_host list in rbd path URI: " + value);
+        }
+        return normalized;
     }
 
     /**

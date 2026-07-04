@@ -293,4 +293,32 @@ public class ProxmoxStorageProcessorTest {
         verify(api, never()).getVmConfig(anyString(), anyInt());
         verify(api, never()).setVmConfig(anyString(), anyInt(), any());
     }
+
+    @Test
+    public void testParseRbdPathCarriesMonHostForExternalCeph() {
+        // external-Ceph client nodes have no local ceph.conf and the conf= file referenced
+        // by the URI does not exist there; the mon_host list is the CLI's only way in
+        ProxmoxStorageProcessor.RbdPathInfo rbd = ProxmoxStorageProcessor.parseRbdPath(
+                "rbd:cs-rbd-b/vm-9999-disk-1:conf=/etc/pve/priv/ceph/cs-rbd-remote.conf"
+                        + ":mon_host=192.168.65.200;192.168.65.209;192.168.65.204"
+                        + ":auth_supported=cephx:id=cloudstack-b:keyring=/etc/pve/priv/ceph/cs-rbd-remote.keyring");
+
+        assertEquals("cs-rbd-b", rbd.pool);
+        assertEquals("vm-9999-disk-1", rbd.image);
+        assertEquals("cloudstack-b", rbd.id);
+        assertEquals("192.168.65.200,192.168.65.209,192.168.65.204", rbd.monHost);
+
+        String cmd = ProxmoxStorageProcessor.buildRbdCliCommand(rbd, "snap create 'cs-rbd-b/vm-9999-disk-1@s1'");
+        assertTrue(cmd, cmd.contains("-m 192.168.65.200,192.168.65.209,192.168.65.204"));
+        assertTrue(cmd, cmd.indexOf("-m ") < cmd.indexOf("-n client.cloudstack-b"));
+    }
+
+    @Test
+    public void testParseRbdPathWithoutMonHostAddsNoMonitorFlag() {
+        ProxmoxStorageProcessor.RbdPathInfo rbd = ProxmoxStorageProcessor.parseRbdPath(
+                "rbd:cs-rbd/vm-9999-disk-1:conf=/etc/pve/ceph.conf:id=admin:keyring=/etc/pve/priv/ceph/cs-rbd.keyring");
+        assertNull(rbd.monHost);
+        String cmd = ProxmoxStorageProcessor.buildRbdCliCommand(rbd, "info 'cs-rbd/vm-9999-disk-1'");
+        assertFalse(cmd, cmd.contains(" -m "));
+    }
 }
