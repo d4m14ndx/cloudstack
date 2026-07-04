@@ -78,11 +78,14 @@
                         v-model:value="form.sourceHypervisor"
                         @change="selected => { onSelectHypervisor(selected.target.value) }"
                         buttonStyle="solid">
-                        <a-radio-button value="vmware" style="width: 50%; text-align: center">
+                        <a-radio-button value="vmware" style="width: 33.33%; text-align: center">
                           VMware
                         </a-radio-button>
-                        <a-radio-button value="kvm" style="width: 50%; text-align: center">
+                        <a-radio-button value="kvm" style="width: 33.33%; text-align: center">
                           KVM
+                        </a-radio-button>
+                        <a-radio-button value="proxmox" style="width: 33.33%; text-align: center">
+                          Proxmox
                         </a-radio-button>
                       </a-radio-group>
                     </a-form-item>
@@ -587,7 +590,8 @@ export default {
         label: 'Manage/Unmanage existing instances',
         sourceDestHypervisors: {
           vmware: 'vmware',
-          kvm: 'kvm'
+          kvm: 'kvm',
+          proxmox: 'proxmox'
         },
         wizardTitle: this.$t('label.desc.importexportinstancewizard'),
         wizardDescription: this.$t('message.desc.importexportinstancewizard')

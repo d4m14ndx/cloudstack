@@ -37,6 +37,10 @@ public interface VmDetailConstants {
     String PLATFORM = "platform";
     String TIME_OFFSET = "timeoffset";
 
+    // Proxmox specific (internal): PVE vmid of an imported VM whose id does not follow
+    // the plugin's vmid-from-instance-name convention
+    String PROXMOX_VM_ID = "proxmox.vmid";
+
     // KVM specific (internal)
     String KVM_VNC_PORT = "kvm.vnc.port";
     String KVM_VNC_ADDRESS = "kvm.vnc.address";

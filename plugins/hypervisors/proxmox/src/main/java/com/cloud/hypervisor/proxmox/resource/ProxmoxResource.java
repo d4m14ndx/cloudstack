@@ -27,6 +27,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -34,12 +35,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.naming.ConfigurationException;
 
 import org.apache.cloudstack.storage.command.StorageSubSystemCommand;
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
 import org.apache.cloudstack.storage.to.TemplateObjectTO;
+import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 import org.apache.commons.lang3.StringUtils;
 import org.joda.time.Duration;
 
@@ -71,6 +74,8 @@ import com.cloud.agent.api.GetVmNetworkStatsAnswer;
 import com.cloud.agent.api.GetVmNetworkStatsCommand;
 import com.cloud.agent.api.GetVmStatsAnswer;
 import com.cloud.agent.api.GetVmStatsCommand;
+import com.cloud.agent.api.GetUnmanagedInstancesAnswer;
+import com.cloud.agent.api.GetUnmanagedInstancesCommand;
 import com.cloud.agent.api.GetVncPortAnswer;
 import com.cloud.agent.api.GetVncPortCommand;
 import com.cloud.agent.api.GetVolumeStatsAnswer;
@@ -95,6 +100,8 @@ import com.cloud.agent.api.PlugNicAnswer;
 import com.cloud.agent.api.PlugNicCommand;
 import com.cloud.agent.api.PrepareForMigrationAnswer;
 import com.cloud.agent.api.PrepareForMigrationCommand;
+import com.cloud.agent.api.PrepareUnmanageVMInstanceAnswer;
+import com.cloud.agent.api.PrepareUnmanageVMInstanceCommand;
 import com.cloud.agent.api.ReadyAnswer;
 import com.cloud.agent.api.ReadyCommand;
 import com.cloud.agent.api.RebootAnswer;
@@ -160,6 +167,7 @@ import com.cloud.utils.validation.ChecksumUtil;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachine.PowerState;
 import com.cloud.vm.VirtualMachineName;
+import com.cloud.vm.VmDetailConstants;
 import com.cloud.vm.snapshot.VMSnapshot;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -381,17 +389,47 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
     }
 
     /**
-     * Resolves the vmid for an instance name: first by parsing the name and
-     * verifying the vmid exists in the cluster, then by name lookup. Returns
-     * null when the VM is nowhere to be found.
+     * Resolves the vmid for an instance name against the cluster inventory. The PVE name
+     * attribute is authoritative: every VM this plugin creates carries its instance name
+     * there, and imported VMs keep their original PVE name as their instance name. The
+     * vmid-from-instance-name convention only confirms a match, never overrides a name —
+     * an imported name that happens to contain digits (say web-01) must not be misread
+     * as the vmid of an unrelated CloudStack VM. Returns null when the VM is nowhere to
+     * be found.
      */
     public Integer findVmid(String name) {
-        ProxmoxApiClient api = getApiClient();
-        Integer vmid = tryParseVmid(name);
-        if (vmid != null && api.findNodeOfVm(vmid) != null) {
-            return vmid;
+        if (name == null) {
+            return null;
         }
-        return api.findVmidByName(name);
+        JsonArray vms = getApiClient().getClusterResources("vm");
+        Integer parsed = tryParseVmid(name);
+        Integer byName = null;
+        boolean parsedMatchesName = false;
+        for (JsonElement element : vms) {
+            JsonObject vm = element.getAsJsonObject();
+            if (!vm.has("vmid") || !"qemu".equals(jsonString(vm, "type"))) {
+                continue;
+            }
+            int vmid = vm.get("vmid").getAsInt();
+            String pveName = jsonString(vm, "name");
+            if (name.equals(pveName)) {
+                if (byName != null && byName != vmid) {
+                    throw new CloudRuntimeException("More than one Proxmox VM (vmids " + byName + ", " + vmid
+                            + ") carries the name " + name + "; refusing an ambiguous match");
+                }
+                byName = vmid;
+            }
+            if (parsed != null && vmid == parsed && (pveName == null || pveName.equals(name))) {
+                parsedMatchesName = true;
+            }
+        }
+        if (byName != null) {
+            return byName;
+        }
+        if (parsed != null && parsedMatchesName) {
+            return parsed;
+        }
+        return null;
     }
 
     public Pair<Boolean, String> executeOnNode(String command) {
@@ -696,6 +734,10 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return execute((NetworkUsageCommand) cmd);
             } else if (clz == UnregisterVMCommand.class) {
                 return execute((UnregisterVMCommand) cmd);
+            } else if (clz == GetUnmanagedInstancesCommand.class) {
+                return execute((GetUnmanagedInstancesCommand) cmd);
+            } else if (clz == PrepareUnmanageVMInstanceCommand.class) {
+                return execute((PrepareUnmanageVMInstanceCommand) cmd);
             } else if (clz == PatchSystemVmCommand.class) {
                 return execute((PatchSystemVmCommand) cmd);
             } else {
@@ -808,27 +850,20 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
 
     protected Answer execute(StartCommand cmd) {
         VirtualMachineTO spec = cmd.getVirtualMachine();
-        int vmid = vmidOf(spec);
+        Integer adoptedVmid = adoptedVmidOf(spec);
+        int vmid = adoptedVmid != null ? adoptedVmid : vmidOf(spec);
         ProxmoxApiClient api = getApiClient();
         try {
-            Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, vmid, this);
             String node = api.findNodeOfVm(vmid);
+            if (adoptedVmid != null) {
+                return startAdoptedVm(cmd, spec, node, vmid);
+            }
+            Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, vmid, this);
             boolean createVm = node == null;
             if (createVm) {
                 node = _nodeName;
-            } else if (!node.equals(_nodeName)) {
-                // CloudStack placed the VM on this host, but the vmid config is pinned to
-                // another node (left there by a migration or a node death). Starting it where
-                // the config happens to live would silently diverge from CloudStack's host_id
-                // record — the VM then dies invisibly with the wrong node. Bring the config
-                // here instead: an offline migration when the owner is reachable (a config
-                // move on shared storage), the PVE-HA-style config steal when it is dead.
-                if (isNodeOnline(node)) {
-                    api.migrateVm(node, vmid, _nodeName, false, _migrateWithLocalDisks, getTaskTimeoutMs());
-                } else {
-                    stealVmConfig(node, vmid);
-                }
-                node = _nodeName;
+            } else {
+                node = bringVmConfigToThisNode(node, vmid);
             }
             // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
             // arrives here as an ISO DiskTO and must be staged and inserted before boot.
@@ -860,6 +895,76 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             logger.error("StartCommand failed for VM " + spec.getName() + " (vmid " + vmid + ")", e);
             return new StartAnswer(cmd, e.getMessage());
         }
+    }
+
+    /**
+     * The PVE vmid recorded against an imported VM, or null for a VM this plugin created
+     * itself (whose vmid follows the vmid-from-instance-name convention instead).
+     */
+    private Integer adoptedVmidOf(VirtualMachineTO spec) {
+        Map<String, String> details = spec.getDetails();
+        String raw = details != null ? details.get(VmDetailConstants.PROXMOX_VM_ID) : null;
+        if (StringUtils.isBlank(raw)) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(raw.trim());
+        } catch (NumberFormatException e) {
+            logger.warn("Ignoring malformed {} detail '{}' on VM {}", VmDetailConstants.PROXMOX_VM_ID, raw, spec.getName());
+            return null;
+        }
+    }
+
+    /**
+     * CloudStack placed the VM on this host, but the vmid config is pinned to another node
+     * (left there by a migration or a node death). Starting it where the config happens to
+     * live would silently diverge from CloudStack's host_id record — the VM then dies
+     * invisibly with the wrong node. Bring the config here instead: an offline migration
+     * when the owner is reachable (a config move on shared storage), the PVE-HA-style
+     * config steal when it is dead.
+     */
+    private String bringVmConfigToThisNode(String node, int vmid) {
+        if (!node.equals(_nodeName)) {
+            if (isNodeOnline(node)) {
+                getApiClient().migrateVm(node, vmid, _nodeName, false, _migrateWithLocalDisks, getTaskTimeoutMs());
+            } else {
+                stealVmConfig(node, vmid);
+            }
+        }
+        return _nodeName;
+    }
+
+    /**
+     * Starts a VM that was imported into CloudStack rather than created by this plugin.
+     * Its PVE config is the imported one and stays untouched (rebuilding it to this
+     * plugin's conventions would rewire the guest's device topology), so only runtime
+     * essentials are applied: a CloudStack-attached ISO and the console VNC password.
+     */
+    private Answer startAdoptedVm(StartCommand cmd, VirtualMachineTO spec, String node, int vmid) {
+        ProxmoxApiClient api = getApiClient();
+        if (node == null) {
+            return new StartAnswer(cmd, "Imported VM " + spec.getName() + " (vmid " + vmid + ") no longer exists in the Proxmox cluster");
+        }
+        node = bringVmConfigToThisNode(node, vmid);
+        Map<String, Object> isoPatch = new HashMap<>();
+        insertAttachedIso(spec, node, isoPatch);
+        if (!isoPatch.isEmpty()) {
+            String ide2 = jsonString(api.getVmConfig(node, vmid), "ide2");
+            if (ide2 != null && !ide2.startsWith("none") && !ide2.contains("media=cdrom")) {
+                logger.warn("Not inserting the attached ISO into imported VM {} (vmid {}): its ide2 slot holds {} which is not a cdrom", spec.getName(), vmid, ide2);
+            } else {
+                api.setVmConfig(node, vmid, isoPatch);
+            }
+        }
+        api.startVm(node, vmid, getTaskTimeoutMs());
+        if (StringUtils.isNotBlank(spec.getVncPassword())) {
+            try {
+                setVncPassword(node, vmid, spec.getVncPassword());
+            } catch (Exception e) {
+                logger.warn("Unable to set the VNC password of imported VM {} (vmid {}) after start", spec.getName(), vmid, e);
+            }
+        }
+        return new StartAnswer(cmd);
     }
 
     /**
@@ -1907,6 +2012,241 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         } catch (Exception e) {
             logger.warn("Unable to destroy the PVE VM of expunged instance " + vmName + "; leaving it behind", e);
             return new Answer(cmd, true, "left PVE VM behind: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Lists the qemu VMs on this node that CloudStack does not manage, for the
+     * Import-Export Instances feature. Templates are excluded, and so are VMs without a
+     * PVE name attribute: the name is the key every other part of this plugin resolves a
+     * VM by (power reports, command dispatch), so a nameless VM cannot be safely adopted —
+     * give it a name in PVE first.
+     */
+    protected Answer execute(GetUnmanagedInstancesCommand cmd) {
+        ProxmoxApiClient api = getApiClient();
+        HashMap<String, UnmanagedInstanceTO> unmanagedInstances = new HashMap<>();
+        try {
+            JsonArray vms = api.listNodeVms(_nodeName);
+            for (JsonElement element : vms) {
+                JsonObject vm = element.getAsJsonObject();
+                if (!vm.has("vmid") || jsonLong(vm, "template", 0) == 1) {
+                    continue;
+                }
+                int vmid = vm.get("vmid").getAsInt();
+                String name = jsonString(vm, "name");
+                if (StringUtils.isBlank(name)) {
+                    logger.debug("Skipping unmanaged PVE VM {} on {}: it has no name attribute", vmid, _nodeName);
+                    continue;
+                }
+                if (StringUtils.isNotBlank(cmd.getInstanceName()) && !cmd.getInstanceName().equals(name)) {
+                    continue;
+                }
+                if (cmd.hasManagedInstance(name)) {
+                    continue;
+                }
+                UnmanagedInstanceTO instance = getUnmanagedInstance(api, vmid, name, jsonString(vm, "status"));
+                if (instance != null) {
+                    unmanagedInstances.put(name, instance);
+                }
+            }
+            return new GetUnmanagedInstancesAnswer(cmd, "OK", unmanagedInstances);
+        } catch (Exception e) {
+            logger.error("GetUnmanagedInstancesCommand failed on node " + _nodeName, e);
+            return new GetUnmanagedInstancesAnswer(cmd, e.getMessage());
+        }
+    }
+
+    protected Answer execute(PrepareUnmanageVMInstanceCommand cmd) {
+        String instanceName = cmd.getInstanceName();
+        logger.debug("Verifying VM {} exists in the Proxmox cluster before unmanaging it", instanceName);
+        try {
+            if (findVmid(instanceName) == null) {
+                return new PrepareUnmanageVMInstanceAnswer(cmd, false, "VM " + instanceName + " not found in the Proxmox cluster");
+            }
+            return new PrepareUnmanageVMInstanceAnswer(cmd, true, "OK");
+        } catch (Exception e) {
+            logger.error("PrepareUnmanageVMInstanceCommand failed for VM " + instanceName, e);
+            return new PrepareUnmanageVMInstanceAnswer(cmd, false, e.getMessage());
+        }
+    }
+
+    /**
+     * Builds the transfer object describing one unmanaged PVE VM from its config. The
+     * vmid travels in the path field — the import flow persists it as the {@code
+     * proxmox.vmid} VM detail, because an imported vmid does not follow the plugin's
+     * vmid-from-instance-name convention. Datastore host/path mirror how PreSetup
+     * primary storage pools are registered (localhost + /&lt;pve-storage-id&gt;), so the
+     * management server can match each disk to its pool exactly.
+     */
+    private UnmanagedInstanceTO getUnmanagedInstance(ProxmoxApiClient api, int vmid, String name, String status) {
+        try {
+            JsonObject config = api.getVmConfig(_nodeName, vmid);
+            UnmanagedInstanceTO instance = new UnmanagedInstanceTO();
+            instance.setName(name);
+            instance.setInternalCSName(name);
+            instance.setPath(String.valueOf(vmid));
+            instance.setPowerState("running".equalsIgnoreCase(status)
+                    ? UnmanagedInstanceTO.PowerState.PowerOn : UnmanagedInstanceTO.PowerState.PowerOff);
+            int cores = (int) jsonLong(config, "cores", 1);
+            int sockets = (int) jsonLong(config, "sockets", 1);
+            instance.setCpuCores(cores * sockets);
+            instance.setCpuCoresPerSocket(cores);
+            instance.setMemory((int) jsonLong(config, "memory", 512));
+            instance.setOperatingSystem(pveOsTypeToDisplayName(jsonString(config, "ostype")));
+            instance.setOperatingSystemId(jsonString(config, "ostype"));
+            instance.setHypervisorType(HypervisorType.Proxmox.name());
+            instance.setClusterName(api.getClusterName());
+            instance.setHostName(_nodeName);
+            if ("ovmf".equalsIgnoreCase(jsonString(config, "bios"))) {
+                instance.setBootType("UEFI");
+                String efidisk = jsonString(config, "efidisk0");
+                instance.setBootMode(efidisk != null && efidisk.contains("pre-enrolled-keys=1") ? "SECURE" : "LEGACY");
+            } else {
+                instance.setBootType("BIOS");
+                instance.setBootMode("LEGACY");
+            }
+            instance.setDisks(getUnmanagedInstanceDisks(config, vmid, name));
+            instance.setNics(getUnmanagedInstanceNics(config));
+            return instance;
+        } catch (Exception e) {
+            logger.warn("Unable to describe unmanaged PVE VM {} ({}) on {}", vmid, name, _nodeName, e);
+            return null;
+        }
+    }
+
+    private List<UnmanagedInstanceTO.Disk> getUnmanagedInstanceDisks(JsonObject config, int vmid, String vmName) {
+        List<UnmanagedInstanceTO.Disk> disks = new ArrayList<>();
+        for (String key : sortedConfigKeys(config, "(scsi|virtio|sata|ide)\\d+")) {
+            String value = config.get(key).getAsString();
+            if (value.contains("media=cdrom")) {
+                continue;
+            }
+            String volid = value.split(",")[0].trim();
+            int colon = volid.indexOf(':');
+            if (colon <= 0) {
+                logger.warn("Skipping disk {} of unmanaged PVE VM {} ({}): '{}' is not a storage-backed volume", key, vmid, vmName, volid);
+                continue;
+            }
+            UnmanagedInstanceTO.Disk disk = new UnmanagedInstanceTO.Disk();
+            disk.setDiskId(key);
+            disk.setLabel(key);
+            disk.setController(key.replaceAll("\\d+$", ""));
+            disk.setControllerUnit(0);
+            disk.setPosition(Integer.parseInt(key.replaceAll("^\\D+", "")));
+            disk.setCapacity(parsePveSize(configOption(value, "size")));
+            disk.setImagePath(volid);
+            disk.setFileBaseName(volid);
+            String storage = volid.substring(0, colon);
+            disk.setDatastoreName(storage);
+            disk.setDatastoreHost("localhost");
+            disk.setDatastorePath("/" + storage);
+            disk.setDatastoreType("PreSetup");
+            disk.setDatastorePort(0);
+            disks.add(disk);
+        }
+        return disks;
+    }
+
+    private List<UnmanagedInstanceTO.Nic> getUnmanagedInstanceNics(JsonObject config) {
+        List<UnmanagedInstanceTO.Nic> nics = new ArrayList<>();
+        for (String key : sortedConfigKeys(config, "net\\d+")) {
+            String value = config.get(key).getAsString();
+            String first = value.split(",")[0].trim();
+            int eq = first.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            UnmanagedInstanceTO.Nic nic = new UnmanagedInstanceTO.Nic();
+            nic.setNicId(key);
+            nic.setAdapterType(first.substring(0, eq));
+            nic.setMacAddress(first.substring(eq + 1));
+            nic.setNetwork(configOption(value, "bridge"));
+            String tag = configOption(value, "tag");
+            if (tag != null) {
+                nic.setVlan(Integer.valueOf(tag));
+            }
+            nics.add(nic);
+        }
+        return nics;
+    }
+
+    /** Config keys matching the pattern, ordered by name then index (scsi0, scsi1, virtio0...). */
+    private static List<String> sortedConfigKeys(JsonObject config, String pattern) {
+        return config.entrySet().stream()
+                .map(Map.Entry::getKey)
+                .filter(k -> k.matches(pattern))
+                .sorted(Comparator.comparing((String k) -> k.replaceAll("\\d+$", ""))
+                        .thenComparingInt(k -> Integer.parseInt(k.replaceAll("^\\D+", ""))))
+                .collect(Collectors.toList());
+    }
+
+    /** The value of a {@code key=value} option in a PVE config value string, or null. */
+    private static String configOption(String value, String key) {
+        for (String part : value.split(",")) {
+            String[] kv = part.trim().split("=", 2);
+            if (kv.length == 2 && kv[0].equals(key)) {
+                return kv[1];
+            }
+        }
+        return null;
+    }
+
+    /** Parses a PVE size string (32G, 1536M, plain bytes) into bytes; null when absent. */
+    private static Long parsePveSize(String size) {
+        if (StringUtils.isBlank(size)) {
+            return null;
+        }
+        char unit = size.charAt(size.length() - 1);
+        if (Character.isDigit(unit)) {
+            return Long.parseLong(size);
+        }
+        long base = Long.parseLong(size.substring(0, size.length() - 1));
+        switch (Character.toUpperCase(unit)) {
+        case 'K':
+            return base * 1024L;
+        case 'M':
+            return base * 1024L * 1024L;
+        case 'G':
+            return base * 1024L * 1024L * 1024L;
+        case 'T':
+            return base * 1024L * 1024L * 1024L * 1024L;
+        default:
+            throw new CloudRuntimeException("Unparseable PVE size string: " + size);
+        }
+    }
+
+    /** Maps a PVE ostype config value to a human-readable OS name for the import listing. */
+    private static String pveOsTypeToDisplayName(String ostype) {
+        if (ostype == null) {
+            return "Other";
+        }
+        switch (ostype) {
+        case "l24":
+            return "Linux 2.4 Kernel (64-bit)";
+        case "l26":
+            return "Other Linux (64-bit)";
+        case "win11":
+            return "Windows 11 (64-bit)";
+        case "win10":
+            return "Windows 10 (64-bit)";
+        case "win8":
+            return "Windows 8 (64-bit)";
+        case "win7":
+            return "Windows 7 (64-bit)";
+        case "wvista":
+            return "Windows Vista (64-bit)";
+        case "wxp":
+            return "Windows XP (32-bit)";
+        case "w2k":
+            return "Windows 2000 Server";
+        case "w2k3":
+            return "Windows Server 2003 (64-bit)";
+        case "w2k8":
+            return "Windows Server 2008 (64-bit)";
+        case "solaris":
+            return "Sun Solaris 11 (64-bit)";
+        default:
+            return "Other (64-bit)";
         }
     }
 

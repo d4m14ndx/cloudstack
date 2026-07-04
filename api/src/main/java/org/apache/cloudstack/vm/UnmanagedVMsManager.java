@@ -73,6 +73,6 @@ public interface UnmanagedVMsManager extends VmImportService, UnmanageVMService,
             null);
 
     static boolean isSupported(Hypervisor.HypervisorType hypervisorType) {
-        return hypervisorType == VMware || hypervisorType == KVM;
+        return hypervisorType == VMware || hypervisorType == KVM || hypervisorType == Hypervisor.HypervisorType.Proxmox;
     }
 }

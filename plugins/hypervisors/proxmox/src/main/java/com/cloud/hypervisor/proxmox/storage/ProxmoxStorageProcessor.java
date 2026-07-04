@@ -392,7 +392,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         DiskTO disk = cmd.getDisk();
         TemplateObjectTO iso = (TemplateObjectTO) disk.getData();
         try {
-            int vmid = resource.vmidOfInstanceName(cmd.getVmName());
+            int vmid = requireVmid(cmd.getVmName());
             String node = nodeOfVm(vmid);
 
             String isoVolid = stageIso(iso, node);
@@ -412,7 +412,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
     public Answer dettachIso(DettachCommand cmd) {
         DiskTO disk = cmd.getDisk();
         try {
-            int vmid = resource.vmidOfInstanceName(cmd.getVmName());
+            int vmid = requireVmid(cmd.getVmName());
             String node = nodeOfVm(vmid);
             Map<String, Object> params = new HashMap<>();
             params.put("ide2", "none,media=cdrom");
@@ -430,7 +430,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         DiskTO disk = cmd.getDisk();
         VolumeObjectTO volume = (VolumeObjectTO) disk.getData();
         try {
-            int vmid = resource.vmidOfInstanceName(cmd.getVmName());
+            int vmid = requireVmid(cmd.getVmName());
             ProxmoxApiClient api = resource.getApiClient();
 
             String volid = volume.getPath();
@@ -524,7 +524,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         DiskTO disk = cmd.getDisk();
         VolumeObjectTO volume = (VolumeObjectTO) disk.getData();
         try {
-            int vmid = resource.vmidOfInstanceName(cmd.getVmName());
+            int vmid = requireVmid(cmd.getVmName());
             String volid = volume.getPath();
             if (volid == null || volid.isEmpty()) {
                 return new DettachAnswer("Volume " + volume.getUuid() + " has no PVE volid path");
@@ -641,7 +641,7 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
 
             if (vmName != null && !vmName.isEmpty()) {
                 try {
-                    int vmid = resource.vmidOfInstanceName(vmName);
+                    int vmid = requireVmid(vmName);
                     String vmNode = resource.getApiClient().findNodeOfVm(vmid);
                     if (vmNode != null) {
                         node = vmNode;
@@ -1199,17 +1199,29 @@ public class ProxmoxStorageProcessor implements StorageProcessor {
         return resource.getVmidBase() - 1;
     }
 
+    /**
+     * Resolves the PVE vmid of an instance by cluster inventory lookup (which also covers
+     * imported VMs that keep their original vmid), failing when the VM cannot be found.
+     */
+    private int requireVmid(String vmName) {
+        Integer vmid = resource.findVmid(vmName);
+        if (vmid == null) {
+            throw new CloudRuntimeException("VM " + vmName + " not found in the Proxmox cluster");
+        }
+        return vmid;
+    }
+
     private int vmidForInstance(String vmName, int fallback) {
         if (vmName == null || vmName.isEmpty()) {
             return fallback;
         }
         try {
-            int vmid = resource.vmidOfInstanceName(vmName);
-            if (vmid > 0) {
+            Integer vmid = resource.findVmid(vmName);
+            if (vmid != null && vmid > 0) {
                 return vmid;
             }
         } catch (Exception e) {
-            logger.debug("Could not derive PVE vmid from instance name {}: {}", vmName, e.getMessage());
+            logger.debug("Could not resolve the PVE vmid of instance {}: {}", vmName, e.getMessage());
         }
         return fallback;
     }

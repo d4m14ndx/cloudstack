@@ -207,7 +207,7 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
     protected Logger logger = LogManager.getLogger(UnmanagedVMsManagerImpl.class);
     private static final long OTHER_LINUX_64_GUEST_OS_ID = 99;
     private static final List<Hypervisor.HypervisorType> importUnmanagedInstancesSupportedHypervisors =
-            Arrays.asList(Hypervisor.HypervisorType.VMware, Hypervisor.HypervisorType.KVM);
+            Arrays.asList(Hypervisor.HypervisorType.VMware, Hypervisor.HypervisorType.KVM, Hypervisor.HypervisorType.Proxmox);
 
     private static final List<Storage.StoragePoolType> forceConvertToPoolAllowedTypes =
             Arrays.asList(Storage.StoragePoolType.NetworkFilesystem, Storage.StoragePoolType.Filesystem,
@@ -638,11 +638,13 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
         if (!autoAssign && network.getGuestType().equals(Network.GuestType.Isolated)) {
             return;
         }
-        checksOnlyNeededForVmware(nic, network, hypervisorType);
+        checksOnlyNeededForVmwareAndProxmox(nic, network, hypervisorType);
     }
 
-    private void checksOnlyNeededForVmware(UnmanagedInstanceTO.Nic nic, Network network, final Hypervisor.HypervisorType hypervisorType) {
-        if (hypervisorType == Hypervisor.HypervisorType.VMware) {
+    // Both hypervisors report the VLAN a NIC is attached to, so the NIC-to-network VLAN
+    // match can and should be enforced (and drives network auto-selection).
+    private void checksOnlyNeededForVmwareAndProxmox(UnmanagedInstanceTO.Nic nic, Network network, final Hypervisor.HypervisorType hypervisorType) {
+        if (hypervisorType == Hypervisor.HypervisorType.VMware || hypervisorType == Hypervisor.HypervisorType.Proxmox) {
             String networkBroadcastUri = network.getBroadcastUri() == null ? null : network.getBroadcastUri().toString();
             if (nic.getVlan() != null && nic.getVlan() != 0 && nic.getPvlan() == null &&
                     (StringUtils.isEmpty(networkBroadcastUri) ||
@@ -733,7 +735,7 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
             } else {
                 network = networkDao.findById(callerNicNetworkMap.get(nic.getNicId()));
                 boolean autoImport = false;
-                if (hypervisorType == Hypervisor.HypervisorType.KVM) {
+                if (hypervisorType == Hypervisor.HypervisorType.KVM || hypervisorType == Hypervisor.HypervisorType.Proxmox) {
                     autoImport = ipAddresses != null && ipAddresses.getIp4Address() != null && ipAddresses.getIp4Address().equalsIgnoreCase("auto");
                 }
                 checkUnmanagedNicAndNetworkForImport(instanceName, nic, network, zone, owner, autoImport, hypervisorType);
@@ -1130,6 +1132,13 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
 
             addImportingVMBootTypeAndModeDetails(unmanagedInstance.getBootType(), unmanagedInstance.getBootMode(), allDetails);
 
+            // A Proxmox VM is addressed by its numeric vmid (reported in the path field); an
+            // imported VM keeps its original vmid, which does not follow the plugin's
+            // vmid-from-instance-name convention, so it must be remembered as a VM detail.
+            if (cluster.getHypervisorType() == Hypervisor.HypervisorType.Proxmox && StringUtils.isNotBlank(unmanagedInstance.getPath())) {
+                allDetails.put(VmDetailConstants.PROXMOX_VM_ID, unmanagedInstance.getPath());
+            }
+
             VirtualMachine.PowerState powerState = VirtualMachine.PowerState.PowerOff;
             if (unmanagedInstance.getPowerState().equals(UnmanagedInstanceTO.PowerState.PowerOn)) {
                 powerState = VirtualMachine.PowerState.PowerOn;
@@ -1345,7 +1354,7 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
                             details, importVmCmd, forced);
                 }
             } else {
-                if (List.of(Hypervisor.HypervisorType.VMware, Hypervisor.HypervisorType.KVM).contains(cluster.getHypervisorType())) {
+                if (List.of(Hypervisor.HypervisorType.VMware, Hypervisor.HypervisorType.KVM, Hypervisor.HypervisorType.Proxmox).contains(cluster.getHypervisorType())) {
                     userVm = importUnmanagedInstanceFromHypervisor(zone, cluster, hosts, additionalNameFilters,
                             template, instanceName, displayName, hostName, caller, owner, userId,
                             serviceOffering, dataDiskOfferingMap,
@@ -1514,7 +1523,8 @@ public class UnmanagedVMsManagerImpl implements UnmanagedVMsManager {
                     throw new ServerApiException(ApiErrorCode.INTERNAL_ERROR, String.format("Unable to retrieve details for unmanaged VM: %s", name));
                 }
 
-                if (template.getName().equals(VM_IMPORT_DEFAULT_TEMPLATE_NAME) && cluster.getHypervisorType().equals(Hypervisor.HypervisorType.KVM)) {
+                if (template.getName().equals(VM_IMPORT_DEFAULT_TEMPLATE_NAME) &&
+                        List.of(Hypervisor.HypervisorType.KVM, Hypervisor.HypervisorType.Proxmox).contains(cluster.getHypervisorType())) {
                     throw new InvalidParameterValueException("Template is needed and unable to use default template for hypervisor " + host.getHypervisorType().toString());
                 }
 

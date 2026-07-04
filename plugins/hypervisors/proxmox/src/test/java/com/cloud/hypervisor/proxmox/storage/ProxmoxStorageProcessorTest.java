@@ -77,7 +77,7 @@ public class ProxmoxStorageProcessorTest {
         when(resource.getApiClient()).thenReturn(api);
         when(resource.getNodeName()).thenReturn(NODE);
         when(resource.getVmidBase()).thenReturn(10000);
-        when(resource.vmidOfInstanceName(VM_NAME)).thenReturn(VMID);
+        when(resource.findVmid(VM_NAME)).thenReturn(VMID);
         when(resource.executeOnNode(anyString(), anyInt())).thenReturn(new Pair<>(true, ""));
         when(resource.getStorageType("nfs-prim")).thenReturn("nfs");
         when(resource.getStorageType("ceph-prim")).thenReturn("rbd");
