@@ -1010,4 +1010,14 @@ public class NetworkOrchestratorTest extends TestCase {
             assertEquals("testtag", nicProfile.getName());
         }
     }
+
+    public void testIsRouterVmTypeSkipsNestedImplementForRouterAppliances() {
+        // Router-type appliances are deployed from inside implementNetwork(); preparing their nics
+        // must not re-enter the implement flow while the network is still in Implementing state.
+        Assert.assertTrue(NetworkOrchestrator.isRouterVmType(Type.DomainRouter));
+        Assert.assertTrue(NetworkOrchestrator.isRouterVmType(Type.RouterOSVm));
+        Assert.assertFalse(NetworkOrchestrator.isRouterVmType(Type.User));
+        Assert.assertFalse(NetworkOrchestrator.isRouterVmType(Type.InternalLoadBalancerVm));
+        Assert.assertFalse(NetworkOrchestrator.isRouterVmType(Type.SecondaryStorageVm));
+    }
 }

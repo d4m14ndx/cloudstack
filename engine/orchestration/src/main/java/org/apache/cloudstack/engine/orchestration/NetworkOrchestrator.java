@@ -1441,6 +1441,14 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         return false;
     }
 
+    /**
+     * Router-type appliances (the systemvm VR and RouterOS CHR appliances) are deployed from within
+     * implementNetwork() itself, so preparing their nics must not re-enter the network implement flow.
+     */
+    static boolean isRouterVmType(final VirtualMachine.Type vmType) {
+        return vmType == Type.DomainRouter || vmType == Type.RouterOSVm;
+    }
+
     Pair<NetworkGuru, NetworkVO> implementNetwork(final long networkId, final DeployDestination dest, final ReservationContext context, final boolean isRouter) throws ConcurrentOperationException,
             ResourceUnavailableException, InsufficientCapacityException {
         Pair<NetworkGuru, NetworkVO> implemented;
@@ -2157,7 +2165,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
         });
 
         for (final NicVO nic : nics) {
-            final Pair<NetworkGuru, NetworkVO> implemented = implementNetwork(nic.getNetworkId(), dest, context, vmProfile.getVirtualMachine().getType() == Type.DomainRouter);
+            final Pair<NetworkGuru, NetworkVO> implemented = implementNetwork(nic.getNetworkId(), dest, context, isRouterVmType(vmProfile.getVirtualMachine().getType()));
             if (implemented == null || implemented.first() == null) {
                 NetworkVO network = _networksDao.findById(nic.getNetworkId());
                 logger.warn("Failed to implement Network: {} as a part of preparing NIC {}", network, nic);
@@ -4530,7 +4538,7 @@ public class NetworkOrchestrator extends ManagerBase implements NetworkOrchestra
 
         //2) prepare nic
         if (prepare) {
-            final Pair<NetworkGuru, NetworkVO> implemented = implementNetwork(nic.getNetworkId(), dest, context, vmProfile.getVirtualMachine().getType() == Type.DomainRouter);
+            final Pair<NetworkGuru, NetworkVO> implemented = implementNetwork(nic.getNetworkId(), dest, context, isRouterVmType(vmProfile.getVirtualMachine().getType()));
             if (implemented == null || implemented.first() == null) {
                 logger.warn("Failed to implement Network {} as a part of preparing NIC {}", network, nic);
                 throw new CloudRuntimeException(String.format("Failed to implement Network %s as a part preparing NIC %s", network, nic));
