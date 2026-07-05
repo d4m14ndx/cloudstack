@@ -302,4 +302,28 @@ public class ProxmoxResourceImportTest {
         assertEquals("virtio-scsi-pci", patch.getValue().get("scsihw"));
         verify(api).startVm(eq("pve-a1"), eq(901), org.mockito.ArgumentMatchers.anyLong());
     }
+
+    @Test
+    public void systemVmPatchingOnlyForTemplateBackedVmsWithBootArgs() {
+        final VirtualMachineTO vr = mock(VirtualMachineTO.class);
+        when(vr.getType()).thenReturn(com.cloud.vm.VirtualMachine.Type.DomainRouter);
+        when(vr.getBootArgs()).thenReturn(" template=domP type=router name=r-1-VM");
+        assertTrue(ProxmoxResource.requiresSystemVmPatching(vr));
+
+        // appliance-style system VM (RouterOS CHR, NetScaler VPX): no boot args, no patching
+        final VirtualMachineTO appliance = mock(VirtualMachineTO.class);
+        when(appliance.getType()).thenReturn(com.cloud.vm.VirtualMachine.Type.DomainRouter);
+        when(appliance.getBootArgs()).thenReturn(null);
+        assertFalse(ProxmoxResource.requiresSystemVmPatching(appliance));
+
+        final VirtualMachineTO blankArgs = mock(VirtualMachineTO.class);
+        when(blankArgs.getType()).thenReturn(com.cloud.vm.VirtualMachine.Type.ConsoleProxy);
+        when(blankArgs.getBootArgs()).thenReturn("  ");
+        assertFalse(ProxmoxResource.requiresSystemVmPatching(blankArgs));
+
+        final VirtualMachineTO user = mock(VirtualMachineTO.class);
+        when(user.getType()).thenReturn(com.cloud.vm.VirtualMachine.Type.User);
+        when(user.getBootArgs()).thenReturn("whatever");
+        assertFalse(ProxmoxResource.requiresSystemVmPatching(user));
+    }
 }

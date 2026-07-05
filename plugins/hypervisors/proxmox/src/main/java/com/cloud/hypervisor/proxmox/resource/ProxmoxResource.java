@@ -886,7 +886,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             }
 
             try {
-                if (spec.getType() != VirtualMachine.Type.User) {
+                if (requiresSystemVmPatching(spec)) {
                     patchSystemVm(spec, node, vmid);
                     deliverSystemVmPatchFiles(spec, node, vmid);
                 }
@@ -1150,6 +1150,15 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         } catch (Exception e) {
             logger.warn("Cleanup stop of vmid " + vmid + " on node " + node + " failed", e);
         }
+    }
+
+    /**
+     * Boot args are what cloud-early-config in the systemvm template consumes; a system-typed
+     * VM without them is a third-party appliance (e.g. a NetScaler VPX or RouterOS CHR) that
+     * neither runs the systemvm template nor accepts its guest-agent file writes.
+     */
+    static boolean requiresSystemVmPatching(final VirtualMachineTO spec) {
+        return spec.getType() != VirtualMachine.Type.User && StringUtils.isNotBlank(spec.getBootArgs());
     }
 
     /**
