@@ -49,10 +49,10 @@ def _configure_ssh_credentials(hypervisor):
         or str(hypervisor).lower() == 'hyperv'):
         ssh_command = "ssh -q -i ~cloud/.ssh/id_rsa -ostricthostkeychecking=no "
     elif str(hypervisor).lower() == 'proxmox':
-        # Same management-server hop as VMware, but reach the system VM as
-        # root explicitly and read the management server's systemvm key via
-        # sudo, so the marvin login account needs no access to it.
-        ssh_command = "sudo ssh -q -i ~cloud/.ssh/id_rsa -ostricthostkeychecking=no -l root "
+        # Proxmox is agentless/direct-connect: tests hop via the hypervisor
+        # host (like KVM), which carries the systemvm key at
+        # /root/.ssh/id_rsa.cloud. The default KVM-style command applies.
+        pass
 
     return ssh_command
 

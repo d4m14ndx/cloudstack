@@ -1932,8 +1932,8 @@ class TestSharedNetwork(cloudstackTestCase):
         # Get Zone, Domain and templates
         cls.domain = get_domain(cls.apiclient)
         cls.zone = get_zone(cls.apiclient, cls.testClient.getZoneForTests())
-        cls.template = get_template(cls.apiclient, cls.zone.id,
-                                    cls.services["ostype"])
+        cls.template = get_test_template(cls.apiclient, cls.zone.id,
+                                         cls.testClient.getHypervisorInfo())
 
         cls.services["virtual_machine"]["zoneid"] = cls.zone.id
         cls.services["virtual_machine"]["template"] = cls.template.id

@@ -1074,6 +1074,17 @@ test_data = {
         },
     },
     "test_templates_cloud_init": {
+        "proxmox": {
+            "name": "ubuntu 22.04 proxmox",
+            "displaytext": "ubuntu 22.04 proxmox",
+            "format": "qcow2",
+            "hypervisor": "proxmox",
+            "ostype": "Ubuntu 22.04 LTS",
+            "url": "https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.img",
+            "requireshvm": "True",
+            "ispublic": "True",
+            "isextractable": "False"
+        },
         "kvm": {
             "name": "ubuntu 22.04 kvm",
             "displaytext": "ubuntu 22.04 kvm",
