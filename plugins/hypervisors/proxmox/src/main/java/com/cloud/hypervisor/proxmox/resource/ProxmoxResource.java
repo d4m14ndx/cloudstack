@@ -1079,6 +1079,10 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         if (!_vrResource.isSystemVMSetup(spec.getName(), controlIp)) {
             throw new CloudRuntimeException("System VM " + spec.getName() + " did not finish setup after the patch files were delivered");
         }
+        // The guest's own init.sh setup_sshd re-points the 3922 rule back at eth0 while it
+        // finishes early-config, racing the inserts of the connect loop above. Re-apply once
+        // setup has completed so the final firewall state (and rules.v4) survives.
+        openSshdFirewallForControlIp(spec.getName(), node, vmid, controlIp);
     }
 
     /**

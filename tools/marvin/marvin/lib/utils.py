@@ -49,10 +49,12 @@ def _configure_ssh_credentials(hypervisor):
         or str(hypervisor).lower() == 'hyperv'):
         ssh_command = "ssh -q -i ~cloud/.ssh/id_rsa -ostricthostkeychecking=no "
     elif str(hypervisor).lower() == 'proxmox':
-        # Proxmox is agentless/direct-connect: tests hop via the hypervisor
-        # host (like KVM), which carries the systemvm key at
-        # /root/.ssh/id_rsa.cloud. The default KVM-style command applies.
-        pass
+        # Proxmox is agentless/direct-connect like VMware: tests hop via the
+        # management server, which holds the systemvm key in the management
+        # account's home. sudo makes the key readable for the configured test
+        # user, and -l root targets the systemvm's ssh account.
+        ssh_command = ("sudo ssh -q -i /var/lib/cloudstack/management/.ssh/id_rsa "
+                       "-ostricthostkeychecking=no -l root ")
 
     return ssh_command
 
