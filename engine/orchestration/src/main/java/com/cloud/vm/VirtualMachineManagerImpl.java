@@ -4221,6 +4221,11 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
             case ConsoleProxy:
             case SecondaryStorageVm:
                 NicVO nic = _nicsDao.getControlNicForVM(vm.getId());
+                if (nic == null || nic.getIPv4Address() == null) {
+                    // Agentless hypervisors (VMware, Proxmox) leave the control NIC unaddressed;
+                    // the management server reaches the system VM on its management-network IP.
+                    return vm.getPrivateIpAddress();
+                }
                 return nic.getIPv4Address();
             case DomainRouter:
                 return vm.getPrivateIpAddress();
