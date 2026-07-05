@@ -68,7 +68,7 @@ create one on a RouterOS VPC still fails loudly (that single operation only).
  mgmt server                                   hypervisor
  ┌────────────────────────────┐                ┌────────────────────────────┐
  │ RouterOSElement /          │                │      CHR appliance VM      │
- │ RouterOSVpcElement         │                │  (Type.User, system acct)  │
+ │ RouterOSVpcElement         │                │ (Type.RouterOSVm, sys acct)│
  │        │                   │   REST/JSON    │                            │
  │ RouterOSVmManagerImpl ─────┼───────────────►│ ether1: public (SNAT IP)   │
  │   │        │               │ https://ip/rest│ ether2: guest gw / tier 1  │
@@ -196,13 +196,14 @@ idempotent).
 
 ## Design decisions and trade-offs
 
-- **VM type**: `VirtualMachine.Type` is a closed enum in 4.22, so the CHR runs
-  as a **`Type.User` instance owned by the system account**. Trade-offs: it is
-  visible as a regular instance (an admin can stop/delete it out from under the
-  network — the plugin re-deploys on the next network operation, but rules
-  programmed in the meantime are lost until then), it is counted against
-  system-account resource usage, and no system-VM protections apply. A proper
-  appliance type needs a core enum change and is on the roadmap.
+- **VM type**: the CHR runs as a **system VM** — a `DomainRouterVO` of
+  `VirtualMachine.Type.RouterOSVm` with role `ROUTEROS_VM`, owned by the system
+  account, with the manager registered as its `VirtualMachineGuru` (the same
+  pattern as the NetScaler VPX and internal load balancer appliances; the fork
+  adds the enum values). It is invisible to user VM listings, exempt from
+  account resource limits, and protected from user lifecycle operations. The
+  VR background sweeps (health checks, stats, alerts) skip appliance roles that
+  are not backed by the CloudStack system VM template.
 - **Persistence**: follows the NSX pattern — VO + DAO live in `engine/schema`
   (`RouterOSDeviceVO`, `RouterOSDeviceDao`), the table ships in the release
   upgrade SQL, passwords are encrypted via the `@Encrypt` column support.
@@ -222,4 +223,3 @@ idempotent).
 - HA pairs via VRRP and connection-tracking sync.
 - Zero-touch bootstrap (KVM console injection; RouterOS cloud-init if/when
   supported upstream).
-- A dedicated appliance VM type (core change) instead of `Type.User`.

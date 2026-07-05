@@ -720,6 +720,9 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 logger.debug("Found {} running routers. ", routers.size());
 
                 for (final DomainRouterVO router : routers) {
+                    if (!isSystemVmTemplateBackedRouter(router)) {
+                        continue;
+                    }
                     collectNetworkStatistics(router, null);
                 }
             } catch (final Exception e) {
@@ -778,6 +781,16 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 scanLock.releaseRef();
             }
         }
+    }
+
+    /**
+     * Roles backed by the CloudStack system VM template, which carries the monitor
+     * service and stats scripts these background tasks talk to over the control
+     * channel. Appliance roles (NetScaler VPX, RouterOS CHR) boot vendor images
+     * without that tooling and must not be probed.
+     */
+    protected static boolean isSystemVmTemplateBackedRouter(final DomainRouterVO router) {
+        return router.getRole() == Role.VIRTUAL_ROUTER || router.getRole() == Role.LB || router.getRole() == Role.INTERNAL_LB_VM;
     }
 
     @DB
@@ -1122,6 +1135,9 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 }
 
                 for (final DomainRouterVO router : routers) {
+                    if (!isSystemVmTemplateBackedRouter(router)) {
+                        continue;
+                    }
                     GetRouterMonitorResultsAnswer answer = fetchAndUpdateRouterHealthChecks(router, false);
                     List<String> failingChecks = getFailingChecks(router, answer);
                     handleFailingChecks(router, failingChecks);
@@ -1546,6 +1562,9 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
                 logger.debug("Found {} running routers. ", routers.size());
 
                 for (final DomainRouterVO router : routers) {
+                    if (!isSystemVmTemplateBackedRouter(router)) {
+                        continue;
+                    }
                     GetRouterMonitorResultsAnswer answer = performBasicTestsOnRouter(router);
                     if (answer != null && answer.getResult()) {
                         updateRouterHealthChecksConfig(router);
@@ -1812,6 +1831,9 @@ Configurable, StateListener<VirtualMachine.State, VirtualMachine.Event, VirtualM
 
             logger.debug("Found " + routers.size() + " running routers. ");
             for (final DomainRouterVO router : routers) {
+                if (!isSystemVmTemplateBackedRouter(router)) {
+                    continue;
+                }
                 final Boolean serviceMonitoringFlag = SetServiceMonitor.valueIn(router.getDataCenterId());
                 // Skip the routers in VPC network or skip the routers where
                 // Monitor service is not enabled in the corresponding Zone

@@ -57,13 +57,21 @@ import com.cloud.network.Networks.IsolationType;
 import com.cloud.network.Networks.TrafficType;
 import com.cloud.network.PublicIpAddress;
 import com.cloud.network.addr.PublicIp;
+import com.cloud.network.VirtualRouterProvider;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
 import com.cloud.network.dao.NetworkDao;
+import com.cloud.network.dao.PhysicalNetworkDao;
+import com.cloud.network.dao.PhysicalNetworkServiceProviderVO;
+import com.cloud.network.dao.PhysicalNetworkServiceProviderDao;
+import com.cloud.network.dao.PhysicalNetworkVO;
 import com.cloud.network.dao.RouterOSDeviceDao;
+import com.cloud.network.dao.VirtualRouterProviderDao;
 import com.cloud.network.element.RouterOSDeviceVO;
+import com.cloud.network.element.VirtualRouterProviderVO;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.PortForwardingRule;
+import com.cloud.network.router.VirtualRouter;
 import com.cloud.network.rules.StaticNat;
 import com.cloud.network.vpc.NetworkACLItem;
 import com.cloud.network.vpc.StaticRoute;
@@ -85,27 +93,33 @@ import com.cloud.utils.component.ManagerBase;
 import com.cloud.utils.db.DB;
 import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.utils.net.NetUtils;
+import com.cloud.agent.api.Answer;
+import com.cloud.agent.manager.Commands;
+import com.cloud.vm.DomainRouterVO;
 import com.cloud.vm.NicProfile;
 import com.cloud.vm.NicVO;
-import com.cloud.vm.UserVmVO;
+import com.cloud.vm.ReservationContext;
 import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.VirtualMachineGuru;
 import com.cloud.vm.VirtualMachineManager;
 import com.cloud.vm.VirtualMachineName;
+import com.cloud.vm.VirtualMachineProfile;
+import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
-import com.cloud.vm.dao.UserVmDao;
 
 /**
  * Deploys a Mikrotik RouterOS CHR appliance per isolated network (or per VPC)
  * from an admin-registered template and programs it over the RouterOS v7 REST
  * API.
  *
- * The appliance is deployed as a regular {@link VirtualMachine.Type#User}
- * instance owned by the system account: VirtualMachine.Type is a closed enum
- * in this release, so appliance-specific typing (as used by the internal load
- * balancer) is not available to out-of-tree providers without a core change.
- * The trade-off is documented in the plugin README.
+ * The appliance runs as a system VM: a {@link DomainRouterVO} of
+ * {@link VirtualMachine.Type#RouterOSVm} with {@link VirtualRouter.Role#ROUTEROS_VM},
+ * owned by the system account and registered with its own VirtualMachineGuru --
+ * the same pattern the NetScaler VPX and internal load balancer appliances use.
+ * It is therefore invisible to user VM listings, exempt from account resource
+ * limits, and protected from user-initiated lifecycle operations.
  */
-public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmManager, Configurable {
+public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmManager, VirtualMachineGuru, Configurable {
 
     protected static final String VM_NAME_PREFIX = "ros";
     protected static final String DEFAULT_OFFERING_UNIQUE_NAME = "Cloud.Com-RouterOS-CHR";
@@ -120,7 +134,13 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     @Inject
     protected RouterOSDeviceDao _routerOSDeviceDao;
     @Inject
-    protected UserVmDao _userVmDao;
+    protected DomainRouterDao _routerDao;
+    @Inject
+    protected VirtualRouterProviderDao _vrProviderDao;
+    @Inject
+    protected PhysicalNetworkServiceProviderDao _pNSPDao;
+    @Inject
+    protected PhysicalNetworkDao _physicalNetworkDao;
     @Inject
     protected VirtualMachineManager _itMgr;
     @Inject
@@ -168,11 +188,13 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (RouterOSServiceOfferingUuid.value() == null) {
             final List<ServiceOfferingVO> offerings = _serviceOfferingDao.createSystemServiceOfferings("System Offering For RouterOS CHR",
                     DEFAULT_OFFERING_UNIQUE_NAME, 1, DEFAULT_CHR_RAM_MB, DEFAULT_CHR_CPU_MHZ, null, null, false, null,
-                    Storage.ProvisioningType.THIN, true, null, true, VirtualMachine.Type.User, true);
+                    Storage.ProvisioningType.THIN, true, null, true, VirtualMachine.Type.RouterOSVm, true);
             if (offerings == null || offerings.size() < 2) {
                 throw new ConfigurationException("Unable to create the default service offering for RouterOS CHR appliances");
             }
         }
+
+        _itMgr.registerGuru(VirtualMachine.Type.RouterOSVm, this);
 
         logger.info("{} has been configured", getName());
         return true;
@@ -258,14 +280,14 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (device.getVmInstanceId() == null) {
             return false;
         }
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         return vm != null && vm.getState() != VirtualMachine.State.Expunging;
     }
 
     @Override
     public boolean addVpcTier(final Network network) throws InsufficientCapacityException, ResourceUnavailableException, ConcurrentOperationException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
-        final UserVmVO vm = getApplianceVm(device, network);
+        final DomainRouterVO vm = getApplianceVm(device, network);
         NicVO tierNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (tierNic == null) {
             final NicProfile gatewayNic = new NicProfile();
@@ -301,7 +323,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         } catch (final ResourceUnavailableException | RouterOSApiException e) {
             logger.warn("Failed to clean RouterOS configuration of VPC tier {}; the appliance may retain stale objects: {}", network, e.getMessage());
         }
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         if (vm != null) {
             final NicVO tierNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
             if (tierNic != null) {
@@ -337,11 +359,11 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (device == null) {
             return true;
         }
-        final UserVmVO vm = device.getVmInstanceId() == null ? null : _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = device.getVmInstanceId() == null ? null : _routerDao.findById(device.getVmInstanceId());
         if (vm != null) {
             logger.debug("Expunging RouterOS appliance {} backing device {}", vm.getInstanceName(), device);
             _itMgr.expunge(vm.getUuid());
-            _userVmDao.remove(vm.getId());
+            _routerDao.remove(vm.getId());
         }
         _routerOSDeviceDao.remove(device.getId());
         return true;
@@ -356,7 +378,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         if (device == null) {
             return true;
         }
-        final UserVmVO vm = device.getVmInstanceId() == null ? null : _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = device.getVmInstanceId() == null ? null : _routerDao.findById(device.getVmInstanceId());
         if (vm != null && vm.getState() == VirtualMachine.State.Running) {
             logger.debug("Stopping RouterOS appliance {} backing device {}", vm.getInstanceName(), device);
             _itMgr.stop(vm.getUuid());
@@ -420,14 +442,17 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         final ServiceOfferingVO offering = findServiceOffering(plan.getDataCenterId());
         final Account systemAccount = _accountMgr.getSystemAccount();
 
-        final long id = _userVmDao.getNextInSequence(Long.class, "id");
+        final long id = _routerDao.getNextInSequence(Long.class, "id");
         final String instanceName = VirtualMachineName.getSystemVmName(id, _instance, VM_NAME_PREFIX);
-        UserVmVO vm = new UserVmVO(id, instanceName, instanceName, template.getId(), template.getHypervisorType(), template.getGuestOSId(), false, false,
-                systemAccount.getDomainId(), systemAccount.getId(), User.UID_SYSTEM, offering.getId(), null, null, null, instanceName);
+        final long elementId = findVirtualRouterProviderId(networkId, vpcId, plan.getDataCenterId());
+        DomainRouterVO vm = new DomainRouterVO(id, offering.getId(), elementId, instanceName, template.getId(), template.getHypervisorType(),
+                template.getGuestOSId(), systemAccount.getDomainId(), systemAccount.getId(), User.UID_SYSTEM, false,
+                VirtualRouter.RedundantState.UNKNOWN, false, false, VirtualMachine.Type.RouterOSVm, vpcId);
+        vm.setRole(VirtualRouter.Role.ROUTEROS_VM);
         vm.setDynamicallyScalable(template.isDynamicallyScalable());
-        vm = _userVmDao.persist(vm);
+        vm = _routerDao.persist(vm);
         _itMgr.allocate(instanceName, template, offering, networks, plan, template.getHypervisorType(), null, null);
-        vm = _userVmDao.findById(vm.getId());
+        vm = _routerDao.findById(vm.getId());
 
         final String apiUrl = String.format("https://%s:%d/rest", publicIpAddress, RouterOSApiPort.value());
         final String password = PasswordGenerator.generateRandomPassword(16);
@@ -457,8 +482,37 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return offering;
     }
 
+    /**
+     * The {@code virtual_router_providers} element row backing the appliance's
+     * {@link DomainRouterVO#getElementId()}, created lazily per physical-network
+     * service provider (the NetScaler VPX pattern).
+     */
+    protected long findVirtualRouterProviderId(final Long networkId, final Long vpcId, final long zoneId) {
+        final String providerName = (vpcId != null ? Network.Provider.VpcRouterOS : Network.Provider.RouterOS).getName();
+        PhysicalNetworkServiceProviderVO nsp = null;
+        if (networkId != null) {
+            final Network network = _networkDao.findById(networkId);
+            nsp = _pNSPDao.findByServiceProvider(network.getPhysicalNetworkId(), providerName);
+        } else {
+            for (final PhysicalNetworkVO physicalNetwork : _physicalNetworkDao.listByZone(zoneId)) {
+                nsp = _pNSPDao.findByServiceProvider(physicalNetwork.getId(), providerName);
+                if (nsp != null) {
+                    break;
+                }
+            }
+        }
+        if (nsp == null) {
+            throw new CloudRuntimeException(String.format("No %s network service provider found in zone %d to own a RouterOS appliance", providerName, zoneId));
+        }
+        VirtualRouterProviderVO element = _vrProviderDao.findByNspIdAndType(nsp.getId(), VirtualRouterProvider.Type.RouterOSVm);
+        if (element == null) {
+            element = _vrProviderDao.persist(new VirtualRouterProviderVO(nsp.getId(), VirtualRouterProvider.Type.RouterOSVm));
+        }
+        return element.getId();
+    }
+
     protected void startAppliance(final RouterOSDeviceVO device) {
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         if (vm == null) {
             throw new CloudRuntimeException("The instance backing RouterOS appliance " + device + " no longer exists");
         }
@@ -574,7 +628,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     }
 
     protected void programBaseConfig(final RouterOSApiClient client, final RouterOSDeviceVO device) {
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         final NicVO publicNic = getNicByTrafficType(vm.getId(), TrafficType.Public);
         if (publicNic == null) {
             throw new CloudRuntimeException("RouterOS appliance " + device + " has no public NIC");
@@ -614,7 +668,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
      * firewall base rules or ACL defaults, DHCP server.
      */
     protected void programGuestNetwork(final RouterOSApiClient client, final RouterOSDeviceVO device, final Network network) {
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         final NicVO guestNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (guestNic == null) {
             logger.warn("RouterOS appliance {} has no NIC in guest network {}; skipping base programming", device, network);
@@ -696,7 +750,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     }
 
     protected String buildBootstrapScript(final RouterOSDeviceVO device) {
-        final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+        final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
         final NicVO publicNic = getNicByTrafficType(vm.getId(), TrafficType.Public);
         final StringBuilder script = new StringBuilder();
         if (publicNic != null) {
@@ -852,7 +906,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public boolean applyNetworkACLs(final Network network, final List<? extends NetworkACLItem> rules) throws ResourceUnavailableException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
-        final UserVmVO vm = getApplianceVm(device, network);
+        final DomainRouterVO vm = getApplianceVm(device, network);
         final NicVO tierNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (tierNic == null) {
             throw new ResourceUnavailableException("The RouterOS appliance has no NIC in the tier network yet", Network.class, network.getId());
@@ -928,7 +982,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         try {
             final RouterOSApiClient client = getActiveClient(device, null);
             final String publicInterface = publicInterfaceName(client, device);
-            final UserVmVO vm = _userVmDao.findById(device.getVmInstanceId());
+            final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
             for (final Network tier : _networkDao.listByVpc(vpc.getId())) {
                 if (_nicDao.findByNtwkIdAndInstanceId(tier.getId(), vm.getId()) == null || !isOurs(tier, Network.Service.SourceNat)) {
                     continue;
@@ -951,7 +1005,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public boolean configureDhcpForNetwork(final Network network) throws ResourceUnavailableException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
-        final UserVmVO vm = getApplianceVm(device, network);
+        final DomainRouterVO vm = getApplianceVm(device, network);
         final NicVO guestNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (guestNic == null) {
             throw new ResourceUnavailableException("The RouterOS appliance has no NIC in the guest network yet", Network.class, network.getId());
@@ -1051,8 +1105,8 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return createApiClient(device.getApiUrl(), device.getUsername(), device.getPassword());
     }
 
-    protected UserVmVO getApplianceVm(final RouterOSDeviceVO device, final Network network) throws ResourceUnavailableException {
-        final UserVmVO vm = device.getVmInstanceId() == null ? null : _userVmDao.findById(device.getVmInstanceId());
+    protected DomainRouterVO getApplianceVm(final RouterOSDeviceVO device, final Network network) throws ResourceUnavailableException {
+        final DomainRouterVO vm = device.getVmInstanceId() == null ? null : _routerDao.findById(device.getVmInstanceId());
         if (vm == null) {
             throw new ResourceUnavailableException("The instance backing RouterOS appliance " + device + " no longer exists", Network.class,
                     network != null ? network.getId() : 0L);
@@ -1140,5 +1194,49 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
 
     protected DataCenter getZone(final long zoneId) {
         return _dcDao.findById(zoneId);
+    }
+
+    // ------------------------------------------------------------------
+    // VirtualMachineGuru
+    // ------------------------------------------------------------------
+    // The CHR boots a vendor image that takes no CloudStack boot args and runs
+    // no systemvm agent; all configuration happens over the RouterOS REST API
+    // after boot (provisionDevice). The guru callbacks are therefore no-ops,
+    // matching the NetScaler VPX appliance guru.
+
+    @Override
+    public boolean finalizeVirtualMachineProfile(final VirtualMachineProfile profile, final DeployDestination dest, final ReservationContext context) {
+        return true;
+    }
+
+    @Override
+    public boolean finalizeDeployment(final Commands cmds, final VirtualMachineProfile profile, final DeployDestination dest, final ReservationContext context) {
+        return true;
+    }
+
+    @Override
+    public boolean finalizeStart(final VirtualMachineProfile profile, final long hostId, final Commands cmds, final ReservationContext context) {
+        return true;
+    }
+
+    @Override
+    public boolean finalizeCommandsOnStart(final Commands cmds, final VirtualMachineProfile profile) {
+        return true;
+    }
+
+    @Override
+    public void finalizeStop(final VirtualMachineProfile profile, final Answer answer) {
+    }
+
+    @Override
+    public void finalizeExpunge(final VirtualMachine vm) {
+    }
+
+    @Override
+    public void prepareStop(final VirtualMachineProfile profile) {
+    }
+
+    @Override
+    public void finalizeUnmanage(final VirtualMachine vm) {
     }
 }

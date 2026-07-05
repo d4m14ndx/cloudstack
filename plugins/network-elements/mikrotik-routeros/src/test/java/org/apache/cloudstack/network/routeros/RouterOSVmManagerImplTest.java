@@ -39,6 +39,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.LinkedHashMap;
+
+import com.cloud.deploy.DeploymentPlan;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
 import com.cloud.network.Network;
 import com.cloud.network.dao.IPAddressDao;
 import com.cloud.network.dao.IPAddressVO;
@@ -46,9 +50,21 @@ import com.cloud.network.dao.RouterOSDeviceDao;
 import com.cloud.network.element.RouterOSDeviceVO;
 import com.cloud.network.rules.FirewallRule;
 import com.cloud.network.rules.StaticNat;
+import com.cloud.network.router.VirtualRouter;
 import com.cloud.offerings.NetworkOfferingVO;
 import com.cloud.offerings.dao.NetworkOfferingDao;
+import com.cloud.service.ServiceOfferingVO;
+import com.cloud.service.dao.ServiceOfferingDao;
+import com.cloud.storage.VMTemplateVO;
+import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.user.Account;
+import com.cloud.user.AccountManager;
 import com.cloud.utils.net.Ip;
+import com.cloud.vm.DomainRouterVO;
+import com.cloud.vm.NicProfile;
+import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.VirtualMachineManager;
+import com.cloud.vm.dao.DomainRouterDao;
 
 /**
  * Unit tests for the ordering / lifecycle behaviour of {@link RouterOSVmManagerImpl}
@@ -170,5 +186,49 @@ public class RouterOSVmManagerImplTest {
         // finding 8: an expunged backing VM must not brick the network forever
         when(device.getVmInstanceId()).thenReturn(null);
         assertTrue("device with no backing VM must be reported as gone", !manager.applianceVmExists(device));
+    }
+
+    @Test
+    public void testAllocateApplianceCreatesSystemTypedRouter() throws Exception {
+        manager._routerDao = mock(DomainRouterDao.class);
+        manager._templateDao = mock(VMTemplateDao.class);
+        manager._serviceOfferingDao = mock(ServiceOfferingDao.class);
+        manager._accountMgr = mock(AccountManager.class);
+        manager._itMgr = mock(VirtualMachineManager.class);
+
+        final VMTemplateVO template = mock(VMTemplateVO.class);
+        when(template.getId()).thenReturn(11L);
+        when(template.getHypervisorType()).thenReturn(HypervisorType.KVM);
+        when(template.getGuestOSId()).thenReturn(1L);
+        when(manager._templateDao.findValidByTemplateName(anyString())).thenReturn(template);
+
+        final ServiceOfferingVO offering = mock(ServiceOfferingVO.class);
+        when(offering.getId()).thenReturn(5L);
+        doReturn(offering).when(manager).findServiceOffering(1L);
+        doReturn(77L).when(manager).findVirtualRouterProviderId(100L, null, 1L);
+
+        final Account systemAccount = mock(Account.class);
+        when(systemAccount.getDomainId()).thenReturn(1L);
+        when(systemAccount.getId()).thenReturn(1L);
+        when(manager._accountMgr.getSystemAccount()).thenReturn(systemAccount);
+
+        when(manager._routerDao.getNextInSequence(Long.class, "id")).thenReturn(123L);
+        final DomainRouterVO[] persisted = new DomainRouterVO[1];
+        when(manager._routerDao.persist(any(DomainRouterVO.class))).thenAnswer(inv -> {
+            persisted[0] = inv.getArgument(0);
+            return persisted[0];
+        });
+        when(manager._routerDao.findById(123L)).thenAnswer(inv -> persisted[0]);
+        when(manager._routerOSDeviceDao.persist(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        final DeploymentPlan plan = mock(DeploymentPlan.class);
+        when(plan.getDataCenterId()).thenReturn(1L);
+
+        manager.allocateAppliance(100L, null, new LinkedHashMap<Network, List<? extends NicProfile>>(), plan, "203.0.113.20");
+
+        assertEquals(VirtualMachine.Type.RouterOSVm, persisted[0].getType());
+        assertEquals(VirtualRouter.Role.ROUTEROS_VM, persisted[0].getRole());
+        assertEquals(77L, persisted[0].getElementId());
+        assertEquals(1L, persisted[0].getAccountId());
     }
 }
