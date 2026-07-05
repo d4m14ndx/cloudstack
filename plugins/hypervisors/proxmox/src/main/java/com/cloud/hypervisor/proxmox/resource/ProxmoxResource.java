@@ -946,6 +946,7 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             return new StartAnswer(cmd, "Imported VM " + spec.getName() + " (vmid " + vmid + ") no longer exists in the Proxmox cluster");
         }
         node = bringVmConfigToThisNode(node, vmid);
+        normalizeAdoptedScsiController(spec.getName(), node, vmid);
         Map<String, Object> isoPatch = new HashMap<>();
         insertAttachedIso(spec, node, isoPatch);
         if (!isoPatch.isEmpty()) {
@@ -965,6 +966,42 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             }
         }
         return new StartAnswer(cmd);
+    }
+
+    /**
+     * With virtio-scsi-single every disk sits on its own controller, so a hot-detach is a
+     * PCI unplug the guest must acknowledge — minimal guests never do ("still busy in
+     * guest"). Both single and pci modes drive the same guest virtio_scsi driver, so while
+     * the VM is stopped the controller can be flipped to the shared one this plugin builds
+     * for its own VMs, making detach a guest-invisible SCSI-bus removal. Per-disk
+     * iothread=1 is only valid with the single-controller mode and goes with it. Other
+     * controller types (lsi, megasas, ...) are left alone: the guest may lack virtio drivers.
+     */
+    void normalizeAdoptedScsiController(String vmName, String node, int vmid) {
+        try {
+            ProxmoxApiClient api = getApiClient();
+            JsonObject config = api.getVmConfig(node, vmid);
+            if (!"virtio-scsi-single".equals(jsonString(config, "scsihw"))) {
+                return;
+            }
+            Map<String, Object> patch = new HashMap<>();
+            patch.put("scsihw", "virtio-scsi-pci");
+            for (Map.Entry<String, JsonElement> entry : config.entrySet()) {
+                if (!entry.getKey().matches("scsi\\d+")) {
+                    continue;
+                }
+                String value = entry.getValue().getAsString();
+                if (value.contains("iothread=1")) {
+                    patch.put(entry.getKey(), Arrays.stream(value.split(","))
+                            .filter(opt -> !opt.equals("iothread=1"))
+                            .collect(Collectors.joining(",")));
+                }
+            }
+            logger.info("Switching imported VM {} (vmid {}) from scsihw virtio-scsi-single to virtio-scsi-pci so volume hot-detach works", vmName, vmid);
+            api.setVmConfig(node, vmid, patch);
+        } catch (Exception e) {
+            logger.warn("Unable to normalize the scsi controller of imported VM {} (vmid {}); starting it unchanged, volume hot-detach may require a stop/start", vmName, vmid, e);
+        }
     }
 
     /**

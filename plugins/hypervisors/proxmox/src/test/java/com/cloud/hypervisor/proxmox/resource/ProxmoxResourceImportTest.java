@@ -21,13 +21,20 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
+import java.util.Map;
+
+import org.mockito.ArgumentCaptor;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -203,5 +210,45 @@ public class ProxmoxResourceImportTest {
         cmd.setInstanceName("no-such-vm");
         PrepareUnmanageVMInstanceAnswer answer = (PrepareUnmanageVMInstanceAnswer) resource.executeRequest(cmd);
         assertFalse(answer.getResult());
+    }
+
+    @Test
+    public void adoptedStartFlipsSingleScsiControllerToSharedAndDropsIothread() {
+        when(api.getVmConfig("pve-a2", 100)).thenReturn(object("{"
+                + "\"scsihw\": \"virtio-scsi-single\","
+                + "\"scsi0\": \"cs-rbd:vm-100-disk-0,iothread=1,size=32G\","
+                + "\"scsi1\": \"cs-rbd:vm-100-disk-1,discard=on,iothread=1\","
+                + "\"scsi2\": \"cs-rbd:vm-100-disk-2,size=8G\","
+                + "\"virtio3\": \"cs-rbd:vm-100-disk-3,iothread=1\","
+                + "\"net0\": \"virtio=BC:24:11:00:00:01,bridge=vmbr0\""
+                + "}"));
+
+        resource.normalizeAdoptedScsiController("web-01", "pve-a2", 100);
+
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ArgumentCaptor<Map<String, Object>> patch = ArgumentCaptor.forClass((Class) Map.class);
+        verify(api).setVmConfig(eq("pve-a2"), eq(100), patch.capture());
+        assertEquals("virtio-scsi-pci", patch.getValue().get("scsihw"));
+        assertEquals("cs-rbd:vm-100-disk-0,size=32G", patch.getValue().get("scsi0"));
+        assertEquals("cs-rbd:vm-100-disk-1,discard=on", patch.getValue().get("scsi1"));
+        // untouched entries must not be rewritten: scsi2 has no iothread, virtio3 is not
+        // a scsi disk (virtio-blk iothread does not depend on scsihw)
+        assertFalse(patch.getValue().containsKey("scsi2"));
+        assertFalse(patch.getValue().containsKey("virtio3"));
+        assertFalse(patch.getValue().containsKey("net0"));
+    }
+
+    @Test
+    public void adoptedStartLeavesForeignScsiControllersAlone() {
+        // lsi guests may lack virtio drivers entirely; only single→pci is guest-invisible
+        when(api.getVmConfig("pve-a2", 101)).thenReturn(object("{"
+                + "\"scsihw\": \"lsi\", \"scsi0\": \"cs-rbd:vm-101-disk-0,size=8G\"}"));
+        when(api.getVmConfig("pve-a2", 102)).thenReturn(object("{"
+                + "\"scsihw\": \"virtio-scsi-pci\", \"scsi0\": \"cs-rbd:vm-102-disk-0,size=8G\"}"));
+
+        resource.normalizeAdoptedScsiController("legacy-lsi", "pve-a2", 101);
+        resource.normalizeAdoptedScsiController("already-shared", "pve-a2", 102);
+
+        verify(api, never()).setVmConfig(any(), anyInt(), anyMap());
     }
 }
