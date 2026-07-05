@@ -301,6 +301,10 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             tierNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         }
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            throw new ResourceUnavailableException("The RouterOS appliance backing VPC tier " + network.getName() + " is not running",
+                    Network.class, network.getId());
+        }
         programGuestNetwork(client, device, network);
         return true;
     }
@@ -313,6 +317,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         try {
             final RouterOSApiClient client = getActiveClient(device, network);
+            if (client == null) {
+                return true;
+            }
             final String networkUuid = network.getUuid();
             client.removeDhcpServerByComment(RouterOSRuleTranslator.networkComment(networkUuid, "dhcp"));
             client.removeByCommentPrefix(RouterOSApiClient.PATH_FIREWALL_FILTER, "cs-acl-" + networkUuid + "-");
@@ -773,6 +780,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         final String publicInterface = publicInterfaceName(client, device);
         final NetworkOffering offering = _networkOfferingDao.findById(network.getNetworkOfferingId());
         final boolean egressDefaultPolicyAllow = offering != null && offering.isEgressDefaultPolicy();
@@ -827,6 +837,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         for (final PortForwardingRule rule : rules) {
             final String comment = RouterOSRuleTranslator.portForwardingComment(rule);
             if (rule.getState() == FirewallRule.State.Revoke) {
@@ -845,6 +858,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         // The per-network masquerade/source-NAT rule (cs-net-<uuid>-srcnat) is a
         // catch-all in the srcnat chain; RouterOS is first-match, so a static
         // NAT's 1:1 src-nat rule must be inserted BEFORE it or it never applies.
@@ -888,6 +904,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         final String publicInterface = publicInterfaceName(client, device);
         for (final PublicIpAddress ip : ips) {
             final String comment = RouterOSRuleTranslator.publicIpComment(ip.getUuid());
@@ -905,6 +924,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public boolean applyNetworkACLs(final Network network, final List<? extends NetworkACLItem> rules) throws ResourceUnavailableException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         final DomainRouterVO vm = getApplianceVm(device, network);
         final NicVO tierNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (tierNic == null) {
@@ -960,6 +982,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             throw new ResourceUnavailableException("No RouterOS appliance deployed for VPC " + vpc.getName(), Vpc.class, vpc.getId());
         }
         final RouterOSApiClient client = getActiveClient(device, null);
+        if (client == null) {
+            return true;
+        }
         for (final StaticRouteProfile route : routes) {
             final String comment = RouterOSRuleTranslator.staticRouteComment(route);
             if (route.getState() == StaticRoute.State.Revoke) {
@@ -980,6 +1005,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
         try {
             final RouterOSApiClient client = getActiveClient(device, null);
+            if (client == null) {
+                return true;
+            }
             final String publicInterface = publicInterfaceName(client, device);
             final DomainRouterVO vm = _routerDao.findById(device.getVmInstanceId());
             for (final Network tier : _networkDao.listByVpc(vpc.getId())) {
@@ -1004,6 +1032,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public boolean configureDhcpForNetwork(final Network network) throws ResourceUnavailableException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         final DomainRouterVO vm = getApplianceVm(device, network);
         final NicVO guestNic = _nicDao.findByNtwkIdAndInstanceId(network.getId(), vm.getId());
         if (guestNic == null) {
@@ -1025,6 +1056,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             return true;
         }
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         client.removeDhcpServerByComment(RouterOSRuleTranslator.networkComment(network.getUuid(), "dhcp"));
         return true;
     }
@@ -1033,6 +1067,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     public boolean addDhcpEntry(final Network network, final NicProfile nic) throws ResourceUnavailableException {
         final RouterOSDeviceVO device = getDeviceForNetwork(network);
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         client.addDhcpLease(dhcpServerName(network), nic.getIPv4Address(), nic.getMacAddress(), RouterOSRuleTranslator.nicComment(nic.getUuid()));
         return true;
     }
@@ -1044,6 +1081,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             return true;
         }
         final RouterOSApiClient client = getActiveClient(device, network);
+        if (client == null) {
+            return true;
+        }
         client.removeDhcpLeasesByComment(RouterOSRuleTranslator.nicComment(nic.getUuid()));
         return true;
     }
@@ -1094,9 +1134,19 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
 
     /**
      * @return a client for a device in Active state, lazily retrying
-     * provisioning when the appliance has not been bootstrapped yet.
+     * provisioning when the appliance has not been bootstrapped yet; null when
+     * the backing appliance is not running — callers must treat null as a
+     * successful no-op, mirroring the virtual-router contract: the network's
+     * full configuration is replayed on its next implement, and a destroyed
+     * appliance takes its rules with it.
      */
     protected RouterOSApiClient getActiveClient(final RouterOSDeviceVO device, final Network network) throws ResourceUnavailableException {
+        final DomainRouterVO applianceVm = device.getVmInstanceId() == null ? null : _routerDao.findById(device.getVmInstanceId());
+        if (applianceVm != null && applianceVm.getState() != VirtualMachine.State.Running) {
+            logger.debug("RouterOS appliance {} is {}; deferring configuration to the next network implement",
+                    applianceVm.getInstanceName(), applianceVm.getState());
+            return null;
+        }
         if (device.getState() != RouterOSDeviceVO.State.Active && !provisionDevice(device, false)) {
             throw new ResourceUnavailableException(String.format("RouterOS appliance %s is not reachable (state %s); bootstrap it and retry",
                     device, device.getState()), Network.class, network != null ? network.getId() : (device.getNetworkId() != null ? device.getNetworkId() : 0L));
