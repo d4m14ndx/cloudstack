@@ -156,11 +156,49 @@ public class RouterOSApiClient {
                 remove(path, current.get(ID_FIELD));
             }
             for (final RouterOSRule rule : rules) {
-                add(path, rule.getParams());
+                final Map<String, String> orphan = findAdoptableMatch(path, rule);
+                if (orphan != null) {
+                    LOGGER.debug("Adopting pre-existing untagged RouterOS object {} on {} as [{}]", orphan.get(ID_FIELD), path, comment);
+                    update(path, orphan.get(ID_FIELD), Collections.singletonMap(COMMENT_FIELD, comment));
+                } else {
+                    add(path, rule.getParams());
+                }
             }
             changed = true;
         }
         return changed;
+    }
+
+    /**
+     * An object created outside the plugin (console or guest-agent bootstrap) that is
+     * field-for-field what we are about to create must be adopted rather than re-added:
+     * RouterOS rejects duplicates of unique objects such as /ip/address entries.
+     * Dynamic entries cannot be modified and are never adopted.
+     */
+    protected Map<String, String> findAdoptableMatch(final String path, final RouterOSRule rule) {
+        for (final Map<String, String> candidate : list(path, null)) {
+            final String candidateComment = candidate.get(COMMENT_FIELD);
+            if (candidateComment != null && !candidateComment.isEmpty()) {
+                continue;
+            }
+            if ("true".equals(candidate.get("dynamic"))) {
+                continue;
+            }
+            boolean same = true;
+            for (final Map.Entry<String, String> param : rule.getParams().entrySet()) {
+                if (RouterOSRule.PLACE_BEFORE.equals(param.getKey()) || COMMENT_FIELD.equals(param.getKey())) {
+                    continue;
+                }
+                if (!param.getValue().equals(candidate.get(param.getKey()))) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     /**

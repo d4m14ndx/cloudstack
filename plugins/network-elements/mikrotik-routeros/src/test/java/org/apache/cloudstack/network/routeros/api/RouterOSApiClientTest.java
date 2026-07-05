@@ -239,6 +239,35 @@ public class RouterOSApiClientTest {
         assertFalse(client.ensureRules("cs-acl-x", Arrays.asList(rule)));
     }
 
+    @Test
+    public void testEnsureRulesAdoptsUntaggedIdenticalObject() {
+        // A console/guest-agent bootstrap pre-seeds the public IP; provisioning must adopt
+        // it (RouterOS rejects duplicate /ip/address entries) instead of failing the add.
+        transport.respond("GET", "/ip/address?comment=cs-ip-1", 200, "[]");
+        transport.respond("GET", "/ip/address", 200,
+                "[{\".id\":\"*2\",\"address\":\"192.168.3.203/24\",\"interface\":\"ether2\",\"dynamic\":\"false\"}]");
+        final RouterOSRule address = new RouterOSRule(RouterOSApiClient.PATH_IP_ADDRESS,
+                params("address", "192.168.3.203/24", "interface", "ether2", "comment", "cs-ip-1"));
+        assertTrue(client.ensureRules("cs-ip-1", Arrays.asList(address)));
+        assertEquals(0, transport.requestsOf("PUT").size());
+        assertEquals(1, transport.requestsOf("PATCH").size());
+        assertTrue(transport.requestsOf("PATCH").get(0).getUrl().contains("/ip/address/"));
+        assertEquals("{\"comment\":\"cs-ip-1\"}", transport.requestsOf("PATCH").get(0).getBody());
+    }
+
+    @Test
+    public void testEnsureRulesNeverAdoptsDynamicOrForeignObjects() {
+        transport.respond("GET", "/ip/route?comment=cs-dev-1-defroute", 200, "[]");
+        transport.respond("GET", "/ip/route", 200,
+                "[{\".id\":\"*F\",\"dst-address\":\"0.0.0.0/0\",\"gateway\":\"192.168.3.1\",\"dynamic\":\"true\"},"
+                + "{\".id\":\"*10\",\"dst-address\":\"0.0.0.0/0\",\"gateway\":\"192.168.3.1\",\"comment\":\"operator-route\"}]");
+        final RouterOSRule route = new RouterOSRule(RouterOSApiClient.PATH_ROUTE,
+                params("dst-address", "0.0.0.0/0", "gateway", "192.168.3.1", "comment", "cs-dev-1-defroute"));
+        assertTrue(client.ensureRules("cs-dev-1-defroute", Arrays.asList(route)));
+        assertEquals(0, transport.requestsOf("PATCH").size());
+        assertEquals(1, transport.requestsOf("PUT").size());
+    }
+
     // ------------------------------------------------------------------
     // removeByComment
     // ------------------------------------------------------------------
