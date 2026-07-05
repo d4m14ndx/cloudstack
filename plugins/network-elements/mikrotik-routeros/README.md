@@ -214,12 +214,30 @@ idempotent).
 - **DHCP**: `address-pool=static-only` — the CHR never allocates addresses on
   its own; CloudStack remains the source of truth.
 
-## Roadmap
+## Roadmap (priorities set 2026-07-05)
 
+- **VPC private gateways** — cheapest item: hot-plug a NIC into the private
+  VLAN (tier mechanism), gateway IP, per-interface ACLs, source-NAT flag;
+  static routes via the gateway already work.
+- **Site-to-site VPN**:
+  1. Policy-based IPsec, IKEv2 and IKEv1 — maps 1:1 onto the core customer
+     gateway model (ikeversion, IKE/ESP policy strings, PSK, DPD, CIDR lists).
+  2. Route-based VPN with addressed tunnel interfaces (for OSPF etc.).
+     RouterOS has no VTI: route-based IPsec = GRE/IPIP-over-IPsec; WireGuard
+     is the simplest native route-based option. Tunnel IPs are not part of
+     the core S2S model and ride in customer-gateway/VPC details.
+  3. OpenVPN site-to-site, after the above.
+- **Remote access VPN** — WireGuard first (needs a key/config distribution
+  design: core's RemoteAccessVPN model is username/password-shaped, so the
+  server generates client keypairs and exposes ready-made client configs),
+  OpenVPN with user/password auth second (fits the core model directly).
+- **HA pairs via VRRP** — active/passive. NOTE: RouterOS has no conntrack
+  synchronization (verify against current docs at design time), so failover
+  drops established NAT sessions; document as stateless failover unless that
+  changes.
+- **Dynamic routing** — BGP by plugging into the CloudStack 4.20+ routed-mode
+  /BGP model (zone ASN, BGP peers); OSPF as plugin-level configuration over
+  the addressed route-based tunnel interfaces.
 - L4 load balancing via RouterOS scripts / `/ip firewall nat` round-robin.
-- Site-to-site VPN via RouterOS IPsec.
-- Remote access VPN (WireGuard is the modern candidate).
-- VPC private gateways.
-- HA pairs via VRRP and connection-tracking sync.
 - Zero-touch bootstrap (KVM console injection; RouterOS cloud-init if/when
   supported upstream).
