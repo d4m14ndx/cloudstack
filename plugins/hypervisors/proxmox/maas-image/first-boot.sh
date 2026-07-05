@@ -53,6 +53,20 @@ systemctl enable cloud-init.service cloud-init-local.service \
 systemctl enable qemu-guest-agent.service || true
 systemctl enable ssh.service || systemctl enable sshd.service || true
 
+# pvestatd races pmxcfs at boot and can die silently (node shows a grey '?' in
+# the PVE GUI even though everything else works). Pin it behind pve-cluster and
+# let systemd retry instead of giving up.
+install -d /etc/systemd/system/pvestatd.service.d
+cat > /etc/systemd/system/pvestatd.service.d/wait-pmxcfs.conf <<'EOF'
+[Unit]
+After=pve-cluster.service
+Requires=pve-cluster.service
+[Service]
+Restart=on-failure
+RestartSec=3
+StartLimitBurst=10
+EOF
+
 # Permit root SSH login (MAAS + our baked key rely on root).
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
 
