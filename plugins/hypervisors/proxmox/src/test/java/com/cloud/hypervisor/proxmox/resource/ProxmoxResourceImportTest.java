@@ -32,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.mockito.ArgumentCaptor;
@@ -43,6 +44,11 @@ import org.apache.cloudstack.vm.UnmanagedInstanceTO;
 
 import com.cloud.agent.api.GetUnmanagedInstancesAnswer;
 import com.cloud.agent.api.GetUnmanagedInstancesCommand;
+import com.cloud.agent.api.StartAnswer;
+import com.cloud.agent.api.StartCommand;
+import com.cloud.agent.api.to.VirtualMachineTO;
+import com.cloud.host.Host;
+import com.cloud.vm.VmDetailConstants;
 import com.cloud.agent.api.PrepareUnmanageVMInstanceCommand;
 import com.cloud.agent.api.PrepareUnmanageVMInstanceAnswer;
 import com.cloud.hypervisor.proxmox.api.ProxmoxApiClient;
@@ -250,5 +256,50 @@ public class ProxmoxResourceImportTest {
         resource.normalizeAdoptedScsiController("already-shared", "pve-a2", 102);
 
         verify(api, never()).setVmConfig(any(), anyInt(), anyMap());
+    }
+
+    private StartCommand adoptedStartCommand(final int vmid, final String name) throws Exception {
+        final java.lang.reflect.Field nodeName = ProxmoxResource.class.getDeclaredField("_nodeName");
+        nodeName.setAccessible(true);
+        nodeName.set(resource, "pve-a1");
+        final VirtualMachineTO vmTO = mock(VirtualMachineTO.class);
+        when(vmTO.getName()).thenReturn(name);
+        final Map<String, String> details = new HashMap<>();
+        details.put(VmDetailConstants.PROXMOX_VM_ID, String.valueOf(vmid));
+        when(vmTO.getDetails()).thenReturn(details);
+        final Host host = mock(Host.class);
+        when(host.getPrivateIpAddress()).thenReturn("192.168.65.200");
+        return new StartCommand(vmTO, host, false);
+    }
+
+    @Test
+    public void adoptedStartSkipsStartWhenQemuAlreadyRuns() throws Exception {
+        // Stale-state race: CloudStack thinks the VM is stopped but the qemu still runs.
+        when(api.findNodeOfVm(901)).thenReturn("pve-a1");
+        when(api.getVmStatus("pve-a1", 901)).thenReturn(object("{\"status\": \"running\"}"));
+
+        final StartAnswer answer = (StartAnswer) resource.executeRequest(adoptedStartCommand(901, "web-01"));
+
+        assertTrue(answer.getDetails(), answer.getResult());
+        verify(api, never()).startVm(any(), anyInt(), org.mockito.ArgumentMatchers.anyLong());
+        // controller normalization must not touch a running guest
+        verify(api, never()).setVmConfig(any(), anyInt(), anyMap());
+    }
+
+    @Test
+    public void adoptedStartNormalizesAndStartsStoppedVm() throws Exception {
+        when(api.findNodeOfVm(901)).thenReturn("pve-a1");
+        when(api.getVmStatus("pve-a1", 901)).thenReturn(object("{\"status\": \"stopped\"}"));
+        when(api.getVmConfig("pve-a1", 901)).thenReturn(object("{"
+                + "\"scsihw\": \"virtio-scsi-single\", \"scsi0\": \"cs-rbd:vm-901-disk-0,iothread=1,size=100M\"}"));
+
+        final StartAnswer answer = (StartAnswer) resource.executeRequest(adoptedStartCommand(901, "web-01"));
+
+        assertTrue(answer.getDetails(), answer.getResult());
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ArgumentCaptor<Map<String, Object>> patch = ArgumentCaptor.forClass((Class) Map.class);
+        verify(api).setVmConfig(eq("pve-a1"), eq(901), patch.capture());
+        assertEquals("virtio-scsi-pci", patch.getValue().get("scsihw"));
+        verify(api).startVm(eq("pve-a1"), eq(901), org.mockito.ArgumentMatchers.anyLong());
     }
 }

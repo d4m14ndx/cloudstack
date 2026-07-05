@@ -860,21 +860,30 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             }
             Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, vmid, this);
             boolean createVm = node == null;
+            boolean alreadyRunning = false;
             if (createVm) {
                 node = _nodeName;
             } else {
                 node = bringVmConfigToThisNode(node, vmid);
+                alreadyRunning = isVmRunning(node, vmid);
             }
-            // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
-            // arrives here as an ISO DiskTO and must be staged and inserted before boot.
-            insertAttachedIso(spec, node, config);
-            if (createVm) {
-                api.createVm(node, vmid, config, getTaskTimeoutMs());
+            if (alreadyRunning) {
+                // Stale-state race: the qemu never actually stopped. It now runs on the
+                // dispatched node (live-migrated there if needed); rebuilding the config
+                // or starting it again would fail, so apply post-start setup only.
+                logger.warn("VM {} (vmid {}) was already running when its StartCommand arrived; skipping config rebuild and start", spec.getName(), vmid);
             } else {
-                api.setVmConfig(node, vmid, config);
-            }
+                // An ISO attached while the VM was stopped only exists in the CloudStack DB; it
+                // arrives here as an ISO DiskTO and must be staged and inserted before boot.
+                insertAttachedIso(spec, node, config);
+                if (createVm) {
+                    api.createVm(node, vmid, config, getTaskTimeoutMs());
+                } else {
+                    api.setVmConfig(node, vmid, config);
+                }
 
-            api.startVm(node, vmid, getTaskTimeoutMs());
+                api.startVm(node, vmid, getTaskTimeoutMs());
+            }
 
             try {
                 if (spec.getType() != VirtualMachine.Type.User) {
@@ -926,12 +935,24 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
     private String bringVmConfigToThisNode(String node, int vmid) {
         if (!node.equals(_nodeName)) {
             if (isNodeOnline(node)) {
-                getApiClient().migrateVm(node, vmid, _nodeName, false, _migrateWithLocalDisks, getTaskTimeoutMs());
+                // A stale-state race (e.g. a stop that CloudStack skipped because it had no
+                // host recorded for the VM) can leave the qemu still running on the other
+                // node. PVE refuses an offline migration then; live-migrate instead so the
+                // VM still ends up where CloudStack dispatched it.
+                boolean running = isVmRunning(node, vmid);
+                if (running) {
+                    logger.warn("PVE VM {} is unexpectedly still running on {} while CloudStack starts it on {}; live-migrating it here", vmid, node, _nodeName);
+                }
+                getApiClient().migrateVm(node, vmid, _nodeName, running, _migrateWithLocalDisks, getTaskTimeoutMs());
             } else {
                 stealVmConfig(node, vmid);
             }
         }
         return _nodeName;
+    }
+
+    private boolean isVmRunning(String node, int vmid) {
+        return "running".equalsIgnoreCase(jsonString(getApiClient().getVmStatus(node, vmid), "status"));
     }
 
     /**
@@ -946,7 +967,12 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
             return new StartAnswer(cmd, "Imported VM " + spec.getName() + " (vmid " + vmid + ") no longer exists in the Proxmox cluster");
         }
         node = bringVmConfigToThisNode(node, vmid);
-        normalizeAdoptedScsiController(spec.getName(), node, vmid);
+        boolean alreadyRunning = isVmRunning(node, vmid);
+        if (alreadyRunning) {
+            logger.warn("Imported VM {} (vmid {}) was already running when its StartCommand arrived; skipping controller normalization and start", spec.getName(), vmid);
+        } else {
+            normalizeAdoptedScsiController(spec.getName(), node, vmid);
+        }
         Map<String, Object> isoPatch = new HashMap<>();
         insertAttachedIso(spec, node, isoPatch);
         if (!isoPatch.isEmpty()) {
@@ -957,7 +983,9 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 api.setVmConfig(node, vmid, isoPatch);
             }
         }
-        api.startVm(node, vmid, getTaskTimeoutMs());
+        if (!alreadyRunning) {
+            api.startVm(node, vmid, getTaskTimeoutMs());
+        }
         if (StringUtils.isNotBlank(spec.getVncPassword())) {
             try {
                 setVncPassword(node, vmid, spec.getVncPassword());
