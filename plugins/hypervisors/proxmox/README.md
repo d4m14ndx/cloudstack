@@ -103,7 +103,7 @@ and the standard VM lifecycle.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `router.template.proxmox` | systemvm template | VR template for Proxmox clusters |
+| `router.template.proxmox` | unset (latest routing template) | Pins the VR template name for Proxmox clusters (zone-scoped) |
 | host detail `vmid.base` | `10000` | PVE vmid offset for CloudStack VMs |
 | host detail `default.bridge` | `vmbr0` | fallback bridge when no traffic label |
 | host detail `task.timeout.sec` | `600` | PVE async task wait budget |
