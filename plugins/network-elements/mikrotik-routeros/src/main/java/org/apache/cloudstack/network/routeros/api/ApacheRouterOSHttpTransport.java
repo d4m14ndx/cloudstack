@@ -27,6 +27,10 @@ import javax.net.ssl.SSLContext;
 
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.config.RequestConfig;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
@@ -85,11 +89,16 @@ public class ApacheRouterOSHttpTransport implements RouterOSHttpTransport {
                     try {
                         final SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, TrustAllStrategy.INSTANCE).build();
                         final SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
-                        final PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+                        // The socket factory must ride in the connection manager's registry: a custom
+                        // connection manager makes HttpClientBuilder ignore setSSLSocketFactory().
+                        final Registry<ConnectionSocketFactory> socketFactories = RegistryBuilder.<ConnectionSocketFactory>create()
+                                .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                                .register("https", socketFactory)
+                                .build();
+                        final PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(socketFactories);
                         connectionManager.setMaxTotal(50);
                         connectionManager.setDefaultMaxPerRoute(10);
                         client = HttpClients.custom()
-                                .setSSLSocketFactory(socketFactory)
                                 .setConnectionManager(connectionManager)
                                 .build();
                         sharedClient = client;
