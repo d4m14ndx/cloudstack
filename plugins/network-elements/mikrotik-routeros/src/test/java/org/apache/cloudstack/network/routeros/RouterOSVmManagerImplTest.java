@@ -234,4 +234,15 @@ public class RouterOSVmManagerImplTest {
         assertEquals(20L, persisted[0].getAccountId());
         assertEquals(10L, persisted[0].getDomainId());
     }
+
+    @Test
+    public void testTeardownNoOpsWhenApplianceUnreachable() throws Exception {
+        // A CHR that never provisioned (bootstrap gap) yields a null client; removal/apply
+        // paths must treat that as a successful no-op so network/VPC delete does not wedge.
+        doReturn(null).when(manager).getActiveClient(device, network);
+        doReturn(device).when(manager).deviceForNetworkOrNull(network);
+
+        assertTrue(manager.applyNetworkACLs(network, Collections.emptyList()));
+        assertTrue(manager.removeDhcpForNetwork(network));
+    }
 }

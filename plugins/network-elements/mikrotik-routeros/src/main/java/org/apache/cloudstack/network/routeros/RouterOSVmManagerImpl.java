@@ -242,7 +242,11 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                 device = allocateAppliance(network.getId(), null, networkOwner, networks, plan, sourceNatIp.getAddress().addr());
             }
             startAppliance(device);
-            provisionDevice(device, true);
+            if (!provisionDevice(device, true)) {
+                throw new ResourceUnavailableException(String.format(
+                        "RouterOS appliance %s could not be provisioned (bootstrap required); the bootstrap configuration was logged", device),
+                        Network.class, network.getId());
+            }
             return device;
         } finally {
             _networkDao.releaseFromLockTable(lock.getId());
@@ -268,7 +272,11 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             device = allocateAppliance(null, vpc.getId(), vpcOwner, networks, plan, publicIp.getAddress().addr());
         }
         startAppliance(device);
-        provisionDevice(device, true);
+        if (!provisionDevice(device, true)) {
+            throw new ResourceUnavailableException(String.format(
+                    "RouterOS appliance %s could not be provisioned (bootstrap required); the bootstrap configuration was logged", device),
+                    Vpc.class, vpc.getId());
+        }
         return device;
     }
 
@@ -1139,12 +1147,14 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     }
 
     /**
-     * @return a client for a device in Active state, lazily retrying
-     * provisioning when the appliance has not been bootstrapped yet; null when
-     * the backing appliance is not running — callers must treat null as a
-     * successful no-op, mirroring the virtual-router contract: the network's
-     * full configuration is replayed on its next implement, and a destroyed
-     * appliance takes its rules with it.
+     * @return a client for a device in Active state, lazily retrying provisioning when the
+     * appliance has not been bootstrapped yet; {@code null} when the backing appliance is not
+     * usable — either not running, or running but not yet reachable/bootstrapped. Callers must
+     * treat null as a successful no-op, mirroring the virtual-router contract: config is replayed
+     * on the next network implement, and a destroyed appliance takes its rules with it. This keeps
+     * teardown (network/VPC delete, rule revoke, DHCP removal) from failing against an appliance
+     * that never provisioned. The deploy paths ({@link #deployForNetwork}/{@link #deployForVpc})
+     * surface an un-bootstrappable appliance explicitly so a fresh implement fails loudly instead.
      */
     protected RouterOSApiClient getActiveClient(final RouterOSDeviceVO device, final Network network) throws ResourceUnavailableException {
         final DomainRouterVO applianceVm = device.getVmInstanceId() == null ? null : _routerDao.findById(device.getVmInstanceId());
@@ -1154,8 +1164,9 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             return null;
         }
         if (device.getState() != RouterOSDeviceVO.State.Active && !provisionDevice(device, false)) {
-            throw new ResourceUnavailableException(String.format("RouterOS appliance %s is not reachable (state %s); bootstrap it and retry",
-                    device, device.getState()), Network.class, network != null ? network.getId() : (device.getNetworkId() != null ? device.getNetworkId() : 0L));
+            logger.debug("RouterOS appliance {} is not reachable (state {}); deferring configuration until it is bootstrapped",
+                    device, device.getState());
+            return null;
         }
         return createApiClient(device.getApiUrl(), device.getUsername(), device.getPassword());
     }
