@@ -17,6 +17,8 @@
 package com.cloud.hypervisor.proxmox.resource;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -28,6 +30,7 @@ import com.cloud.agent.api.to.NicTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
 import com.cloud.network.Networks.BroadcastDomainType;
 import com.cloud.storage.Volume;
+import com.cloud.vm.VirtualMachine;
 
 /**
  * Translates a CloudStack {@link VirtualMachineTO} into a Proxmox VE qemu VM
@@ -38,6 +41,14 @@ public class ProxmoxVmConfigBuilder {
 
     private static final long MIB = 1024L * 1024L;
     private static final int VNC_DISPLAY_MODULO = 20000;
+    /**
+     * qemu fw_cfg entry (user entries must live under {@code opt/}) that carries the
+     * base64-encoded system VM boot args. The systemvm template's init.sh reads it fresh
+     * on every boot from {@code /sys/firmware/qemu_fw_cfg/by_name/<name>/raw}, the way
+     * VMware reads {@code machine.id} — so there is no reused-disk stale-cmdline race and
+     * no reboot-to-repatch. See {@link #buildArgs}.
+     */
+    public static final String FWCFG_CMDLINE_NAME = "opt/cloudstack/cmdline";
 
     private ProxmoxVmConfigBuilder() {
     }
@@ -125,13 +136,25 @@ public class ProxmoxVmConfigBuilder {
     }
 
     /**
-     * Extra qemu arguments: the fixed, password-protected VNC listener the
-     * CloudStack console proxy connects to. System VM boot-args patching goes
-     * through the qemu guest agent (agent=1), so no extra devices are needed.
+     * Extra qemu arguments:
+     * <ul>
+     *   <li>the fixed, password-protected VNC listener the CloudStack console proxy connects to;</li>
+     *   <li>for system VMs, a fw_cfg entry carrying the base64-encoded boot args. Delivering the
+     *       cmdline this way (read fresh from firmware each boot, VMware-{@code machine.id} style)
+     *       avoids the reused-root-disk race where init.sh consumes the previous boot's stale
+     *       {@code /var/cache/cloud/cmdline} before the guest-agent write lands — which otherwise
+     *       forces a reboot-to-repatch. The guest-agent write remains as a fallback for templates
+     *       whose init.sh does not yet read fw_cfg.</li>
+     * </ul>
+     * The value is base64 (no spaces/commas), so it is safe as a single qemu {@code -fw_cfg} token.
      */
     private static String buildArgs(VirtualMachineTO spec, int vmid) {
         StringBuilder args = new StringBuilder();
         args.append("-vnc 0.0.0.0:").append(vmid % VNC_DISPLAY_MODULO).append(",password=on");
+        if (spec.getType() != VirtualMachine.Type.User && StringUtils.isNotBlank(spec.getBootArgs())) {
+            String encoded = Base64.getEncoder().encodeToString(spec.getBootArgs().getBytes(StandardCharsets.UTF_8));
+            args.append(" -fw_cfg name=").append(FWCFG_CMDLINE_NAME).append(",string=").append(encoded);
+        }
         return args.toString();
     }
 

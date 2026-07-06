@@ -98,19 +98,35 @@ config_guest() {
           systemctl enable qemu-guest-agent
           systemctl start qemu-guest-agent
 
-          # Wait for $CMDLINE file to be written by the qemu-guest-agent
-          for i in {1..60}; do
-            if [ -s $CMDLINE ]; then
-              log_it "Received a new non-empty cmdline file from qemu-guest-agent"
-              # Remove old configuration files in /etc/cloudstack if VR is booted from cloudstack
-              rm -rf /etc/cloudstack/*.json
-              log_it "Booting from cloudstack, remove old configuration files in /etc/cloudstack/"
-              break
+          # Prefer boot args delivered via qemu fw_cfg: they are read fresh from firmware on
+          # every boot (like VMware machine.id), so a reused root disk cannot feed us the
+          # previous boot's stale cmdline before the guest agent writes the new one - which on
+          # Proxmox otherwise forces a reboot-to-repatch. Falls back to the guest-agent file
+          # for hypervisors/templates that do not populate fw_cfg (e.g. plain KVM).
+          modprobe qemu_fw_cfg 2>/dev/null || true
+          FWCFG=/sys/firmware/qemu_fw_cfg/by_name/opt/cloudstack/cmdline/raw
+          if [ -r "$FWCFG" ] && base64 -d "$FWCFG" > ${CMDLINE}.fwcfg 2>/dev/null && [ -s ${CMDLINE}.fwcfg ]; then
+            mv -f ${CMDLINE}.fwcfg $CMDLINE
+            log_it "Received cmdline from qemu fw_cfg ($FWCFG)"
+            # Remove old configuration files in /etc/cloudstack if VR is booted from cloudstack
+            rm -rf /etc/cloudstack/*.json
+            log_it "Booting from cloudstack, remove old configuration files in /etc/cloudstack/"
+          else
+            rm -f ${CMDLINE}.fwcfg
+            # Wait for $CMDLINE file to be written by the qemu-guest-agent
+            for i in {1..60}; do
+              if [ -s $CMDLINE ]; then
+                log_it "Received a new non-empty cmdline file from qemu-guest-agent"
+                # Remove old configuration files in /etc/cloudstack if VR is booted from cloudstack
+                rm -rf /etc/cloudstack/*.json
+                log_it "Booting from cloudstack, remove old configuration files in /etc/cloudstack/"
+                break
+              fi
+              sleep 1
+            done
+            if [ ! -s $CMDLINE  ]; then
+              log_it "Failed to receive the cmdline file via the qemu-guest-agent"
             fi
-            sleep 1
-          done
-          if [ ! -s $CMDLINE  ]; then
-            log_it "Failed to receive the cmdline file via the qemu-guest-agent"
           fi
           ;;
      vmware)

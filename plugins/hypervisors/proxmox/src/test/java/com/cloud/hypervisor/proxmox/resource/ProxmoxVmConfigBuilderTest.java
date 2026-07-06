@@ -19,6 +19,10 @@ package com.cloud.hypervisor.proxmox.resource;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -229,6 +233,49 @@ public class ProxmoxVmConfigBuilderTest {
         VirtualMachineTO spec = userVm("CentOS 8");
         Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 30001, resource);
         assertEquals("-vnc 0.0.0.0:10001,password=on", config.get("args"));
+    }
+
+    private VirtualMachineTO systemVm(VirtualMachine.Type type) {
+        return new VirtualMachineTO(6L, "s-6-VM", type, 1, 500,
+                512L * 1024 * 1024, 512L * 1024 * 1024, BootloaderType.HVM,
+                "Debian GNU/Linux 12 (64-bit)", false, false, "vncsecret");
+    }
+
+    @Test
+    public void testSystemVmBootArgsDeliveredViaFwCfg() {
+        VirtualMachineTO spec = systemVm(VirtualMachine.Type.SecondaryStorageVm);
+        String bootArgs = "type=secstorage host=192.168.0.5 eth1ip=10.0.0.9 mtu=1500";
+        spec.setBootArgs(bootArgs);
+
+        Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10006, resource);
+        String args = (String) config.get("args");
+
+        // VNC listener stays first; the fw_cfg entry is appended under the opt/ namespace
+        assertTrue(args, args.startsWith("-vnc 0.0.0.0:10006,password=on "));
+        assertTrue(args, args.contains(" -fw_cfg name=opt/cloudstack/cmdline,string="));
+        // base64 payload carries no spaces or commas, so it is one safe qemu token
+        String encoded = args.substring(args.indexOf("string=") + "string=".length());
+        assertFalse(encoded.isEmpty());
+        assertFalse(encoded.contains(" "));
+        assertFalse(encoded.contains(","));
+        // and it decodes back to exactly the boot args
+        assertEquals(bootArgs, new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void testUserVmGetsNoFwCfgEntryEvenWithBootArgs() {
+        VirtualMachineTO spec = userVm("Ubuntu 22.04 (64-bit)");
+        spec.setBootArgs("irrelevant-for-user-vms");
+        Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10005, resource);
+        assertEquals("-vnc 0.0.0.0:10005,password=on", config.get("args"));
+    }
+
+    @Test
+    public void testSystemVmWithoutBootArgsGetsNoFwCfgEntry() {
+        // an appliance-style system VM (e.g. RouterOS CHR) carries no boot args
+        VirtualMachineTO spec = systemVm(VirtualMachine.Type.DomainRouter);
+        Map<String, Object> config = ProxmoxVmConfigBuilder.build(spec, 10007, resource);
+        assertEquals("-vnc 0.0.0.0:10007,password=on", config.get("args"));
     }
 
     @Test
