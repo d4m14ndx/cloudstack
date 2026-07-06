@@ -239,7 +239,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                 final LinkedHashMap<Network, List<? extends NicProfile>> networks = new LinkedHashMap<>();
                 networks.putAll(createPublicNicNetwork(sourceNatIp, plan));
                 networks.putAll(createGuestNicNetwork(network));
-                device = allocateAppliance(network.getId(), null, networks, plan, sourceNatIp.getAddress().addr());
+                device = allocateAppliance(network.getId(), null, networkOwner, networks, plan, sourceNatIp.getAddress().addr());
             }
             startAppliance(device);
             provisionDevice(device, true);
@@ -264,7 +264,8 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             final PublicIp publicIp = PublicIp.createFromAddrAndVlan(sourceNatIp, _vlanDao.findById(sourceNatIp.getVlanId()));
             final DeploymentPlan plan = createPlan(vpc.getZoneId(), dest);
             final LinkedHashMap<Network, List<? extends NicProfile>> networks = createPublicNicNetwork(publicIp, plan);
-            device = allocateAppliance(null, vpc.getId(), networks, plan, publicIp.getAddress().addr());
+            final Account vpcOwner = _accountMgr.getAccount(vpc.getAccountId());
+            device = allocateAppliance(null, vpc.getId(), vpcOwner, networks, plan, publicIp.getAddress().addr());
         }
         startAppliance(device);
         provisionDevice(device, true);
@@ -437,7 +438,8 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return result;
     }
 
-    protected RouterOSDeviceVO allocateAppliance(final Long networkId, final Long vpcId, final LinkedHashMap<Network, List<? extends NicProfile>> networks,
+    protected RouterOSDeviceVO allocateAppliance(final Long networkId, final Long vpcId, final Account owner,
+            final LinkedHashMap<Network, List<? extends NicProfile>> networks,
             final DeploymentPlan plan, final String publicIpAddress) throws InsufficientCapacityException {
         final VMTemplateVO template = _templateDao.findValidByTemplateName(RouterOSTemplateName.value());
         if (template == null) {
@@ -446,13 +448,17 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                     RouterOSTemplateName.key()));
         }
         final ServiceOfferingVO offering = findServiceOffering(plan.getDataCenterId());
-        final Account systemAccount = _accountMgr.getSystemAccount();
 
         final long id = _routerDao.getNextInSequence(Long.class, "id");
         final String instanceName = VirtualMachineName.getSystemVmName(id, _instance, VM_NAME_PREFIX);
         final long elementId = findVirtualRouterProviderId(networkId, vpcId, plan.getDataCenterId());
+        // Own the appliance by the network/VPC's account (like a regular virtual router), not the
+        // system account, so it appears under that owner in listRouters (the VPC "Virtual Routers"
+        // tab and Infrastructure > Virtual Routers). Type.RouterOSVm is still isUsedBySystem, so it
+        // is excluded from user resource counting and user-facing VM operations, and role
+        // ROUTEROS_VM keeps it out of the systemvm-router health-check sweeps.
         DomainRouterVO vm = new DomainRouterVO(id, offering.getId(), elementId, instanceName, template.getId(), template.getHypervisorType(),
-                template.getGuestOSId(), systemAccount.getDomainId(), systemAccount.getId(), User.UID_SYSTEM, false,
+                template.getGuestOSId(), owner.getDomainId(), owner.getId(), User.UID_SYSTEM, false,
                 VirtualRouter.RedundantState.UNKNOWN, false, false, VirtualMachine.Type.RouterOSVm, vpcId);
         vm.setRole(VirtualRouter.Role.ROUTEROS_VM);
         vm.setDynamicallyScalable(template.isDynamicallyScalable());

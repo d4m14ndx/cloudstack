@@ -207,10 +207,11 @@ public class RouterOSVmManagerImplTest {
         doReturn(offering).when(manager).findServiceOffering(1L);
         doReturn(77L).when(manager).findVirtualRouterProviderId(100L, null, 1L);
 
-        final Account systemAccount = mock(Account.class);
-        when(systemAccount.getDomainId()).thenReturn(1L);
-        when(systemAccount.getId()).thenReturn(1L);
-        when(manager._accountMgr.getSystemAccount()).thenReturn(systemAccount);
+        // The appliance is owned by the network/VPC's account (not the system account) so it
+        // appears in listRouters under that owner.
+        final Account networkOwner = mock(Account.class);
+        when(networkOwner.getDomainId()).thenReturn(10L);
+        when(networkOwner.getId()).thenReturn(20L);
 
         when(manager._routerDao.getNextInSequence(Long.class, "id")).thenReturn(123L);
         final DomainRouterVO[] persisted = new DomainRouterVO[1];
@@ -224,11 +225,13 @@ public class RouterOSVmManagerImplTest {
         final DeploymentPlan plan = mock(DeploymentPlan.class);
         when(plan.getDataCenterId()).thenReturn(1L);
 
-        manager.allocateAppliance(100L, null, new LinkedHashMap<Network, List<? extends NicProfile>>(), plan, "203.0.113.20");
+        manager.allocateAppliance(100L, null, networkOwner, new LinkedHashMap<Network, List<? extends NicProfile>>(), plan, "203.0.113.20");
 
         assertEquals(VirtualMachine.Type.RouterOSVm, persisted[0].getType());
         assertEquals(VirtualRouter.Role.ROUTEROS_VM, persisted[0].getRole());
         assertEquals(77L, persisted[0].getElementId());
-        assertEquals(1L, persisted[0].getAccountId());
+        // owned by the network account, not the system account
+        assertEquals(20L, persisted[0].getAccountId());
+        assertEquals(10L, persisted[0].getDomainId());
     }
 }
