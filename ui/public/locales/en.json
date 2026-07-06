@@ -1596,6 +1596,7 @@
 "label.metadata.description": "Metadata of the Object",
 "label.metadata.upload.description": "Set metadata for the object",
 "label.metrics": "Metrics",
+"label.mikrotik.chr": "Mikrotik CHR",
 "label.migrate.allowed": "Migrate allowed",
 "label.migrate.data.from.image.store": "Migrate data from image store",
 "label.migrate.instance.to": "Migrate Instance to",

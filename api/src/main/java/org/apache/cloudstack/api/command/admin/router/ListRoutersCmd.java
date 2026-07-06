@@ -34,7 +34,6 @@ import org.apache.commons.lang.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import com.cloud.cpu.CPU;
-import com.cloud.network.router.VirtualRouter.Role;
 import com.cloud.vm.VirtualMachine;
 
 @APICommand(name = "listRouters", description = "List routers.", responseObject = DomainRouterResponse.class, entityType = {VirtualMachine.class},
@@ -92,6 +91,12 @@ public class ListRoutersCmd extends BaseListProjectAndAccountResourcesCmd {
             since = "4.20.1")
     private String arch;
 
+    @Parameter(name = ApiConstants.ROLE, type = CommandType.STRING,
+            description = "the role of the router (e.g. VIRTUAL_ROUTER, ROUTEROS_VM, INTERNAL_LB_VM). " +
+                    "When not specified, routers of all roles are listed.",
+            since = "4.22.1")
+    private String role;
+
     /////////////////////////////////////////////////////
     /////////////////// Accessors ///////////////////////
     /////////////////////////////////////////////////////
@@ -141,7 +146,7 @@ public class ListRoutersCmd extends BaseListProjectAndAccountResourcesCmd {
     }
 
     public String getRole() {
-        return Role.VIRTUAL_ROUTER.toString();
+        return role;
     }
 
     public Boolean isHealthCheckFailed() {

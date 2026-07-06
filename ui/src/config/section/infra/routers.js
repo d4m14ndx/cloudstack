@@ -24,7 +24,9 @@ export default {
   icon: 'fork-outlined',
   docHelp: 'adminguide/systemvm.html#virtual-router',
   permission: ['listRouters'],
-  params: { projectid: '-1' },
+  // Keep this view to systemvm-based virtual routers only; appliance-backed routers
+  // (e.g. Mikrotik RouterOS CHR) have their own Infrastructure view.
+  params: { projectid: '-1', role: 'VIRTUAL_ROUTER' },
   columns: () => {
     var columns = ['name', 'state', 'publicip', { field: 'guestnetworkname', customTitle: 'network' }, 'redundantstate', 'softwareversion', 'hostname', 'arch', 'account', 'zonename', 'requiresupgrade']
     columns.splice(6, 0, { field: 'version', customTitle: 'templateversion' })

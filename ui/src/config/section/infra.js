@@ -27,6 +27,7 @@ import backupRepositories from '@/config/section/infra/backupRepositories'
 import objectStorages from '@/config/section/infra/objectStorages'
 import systemVms from '@/config/section/infra/systemVms'
 import routers from '@/config/section/infra/routers'
+import routerosAppliances from '@/config/section/infra/routerosAppliances'
 import ilbvms from '@/config/section/infra/ilbvms'
 import managementServers from '@/config/section/infra/managementServers'
 
@@ -55,6 +56,7 @@ export default {
     objectStorages,
     systemVms,
     routers,
+    routerosAppliances,
     ilbvms,
     managementServers,
     {
