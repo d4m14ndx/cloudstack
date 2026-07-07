@@ -193,6 +193,13 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
     private static final long NIC_HOTPLUG_WAIT_TIMEOUT_MS = 15000L;
     private static final int PATCH_RETRY_COUNT = 5;
     private static final long PATCH_RETRY_SLEEP_MS = 3000L;
+    // A freshly booted appliance guest agent is unreliable (file writes report close timeouts, execs
+    // intermittently return nothing) and the guest OS may not be ready to apply configuration for the
+    // first ~90s (a RouterOS CHR answers the agent ping early but its config/exec subsystem comes up
+    // much later), so the (idempotent) provision script is run several times, spaced out, to span
+    // that window. The element plugin then polls far longer for the appliance to become reachable.
+    private static final int GUEST_PROVISION_ATTEMPTS = 8;
+    private static final long GUEST_PROVISION_RETRY_MS = 15000L;
     private static final long PATCH_AGENT_WAIT_MS = 180000L;
     private static final long GUEST_IP_WAIT_MS = 300000L;
     private static final int MAX_NIC_SLOTS = 32;
@@ -202,6 +209,12 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
     // Base path on the management server where the system VM patch files (agent.zip,
     // cloud-scripts.tgz, patch-sysvms.sh) live; mirrors VmwareResource.BASEPATH.
     public static final String BASEPATH = "/usr/share/cloudstack-common/vms/";
+
+    // VM detail carrying a first-boot provisioning script for appliance-style guests (e.g. a
+    // RouterOS CHR). Kept as a plain string constant rather than a shared API dependency so the
+    // hypervisor plugin has no compile-time coupling to whichever element plugin sets it. The
+    // matching writer lives in the RouterOS element plugin (RouterOSVmManagerImpl).
+    public static final String GUEST_PROVISION_SCRIPT_DETAIL = "guest.provision.script";
 
     private static volatile File s_systemVmKeyFile = null;
     private static final Object s_systemVmKeyFileLock = new Object();
@@ -899,6 +912,19 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
                 return new StartAnswer(cmd, e.getMessage());
             }
 
+            // Appliance-style guests (e.g. a RouterOS CHR) may carry a first-boot provisioning
+            // script as a VM detail. Run it through the guest agent so the appliance can configure
+            // itself (e.g. its public IP) before it is managed. Best-effort: a failure here means
+            // the appliance may need manual bootstrap, not that the start failed.
+            String provisionScript = spec.getDetails() == null ? null : spec.getDetails().get(GUEST_PROVISION_SCRIPT_DETAIL);
+            if (StringUtils.isNotBlank(provisionScript)) {
+                try {
+                    runGuestProvisionScript(spec, node, vmid, provisionScript);
+                } catch (Exception e) {
+                    logger.warn("Guest provisioning script for " + spec.getName() + " (vmid " + vmid + ") failed; the appliance may need manual bootstrap: " + e.getMessage());
+                }
+            }
+
             return new StartAnswer(cmd);
         } catch (Exception e) {
             logger.error("StartCommand failed for VM " + spec.getName() + " (vmid " + vmid + ")", e);
@@ -1249,6 +1275,68 @@ public class ProxmoxResource extends ServerResourceBase implements ServerResourc
         }
         throw lastWriteError != null ? lastWriteError
                 : new CloudRuntimeException("Unable to patch boot args of system VM " + spec.getName());
+    }
+
+    /**
+     * Runs a first-boot provisioning script inside an appliance guest via the qemu guest agent.
+     * Used by appliances (a RouterOS CHR) that boot with no management-reachable IP: the script
+     * programs that IP so CloudStack's element plugin can then manage the appliance over its API.
+     *
+     * The script is written to the guest's file store and then executed. For a RouterOS CHR the
+     * agent interprets the file as a configuration import, so the script must be plain RouterOS
+     * commands (no scripting constructs, which the import parser rejects). Both steps are
+     * best-effort at the call site: the guest-file-close phase can report a timeout even though the
+     * write landed, so a file-write error is logged but not fatal — the exec is what applies it.
+     */
+    void runGuestProvisionScript(VirtualMachineTO spec, String node, int vmid, String script) {
+        waitForGuestAgent(spec.getName(), node, vmid);
+        ProxmoxApiClient api = getApiClient();
+        String fileName = "cs-provision.rsc";
+        // Run the (idempotent) script several times, spaced out: the guest agent is flaky right after
+        // boot and the guest OS may not be ready to apply configuration for the first tens of seconds,
+        // so a single attempt often does not land. Best-effort — the element plugin's own reachability
+        // poll is the real arbiter of success, and re-running an idempotent script is harmless.
+        boolean dispatched = false;
+        for (int attempt = 1; attempt <= GUEST_PROVISION_ATTEMPTS; attempt++) {
+            try {
+                Map<String, Object> params = new HashMap<>();
+                params.put("file", fileName);
+                params.put("content", script);
+                api.post("/nodes/" + node + "/qemu/" + vmid + "/agent/file-write", params);
+            } catch (Exception e) {
+                // A guest-file-close timeout is reported as an error here even when the bytes landed;
+                // proceed to the exec, which is the step that actually applies the configuration.
+                logger.debug("guest file-write of provision script to " + spec.getName() + " (vmid " + vmid
+                        + ") attempt " + attempt + " reported: " + e.getMessage());
+            }
+            String nodeCommand = "pvesh create /nodes/" + node + "/qemu/" + vmid
+                    + "/agent/exec --command " + fileName;
+            Pair<Boolean, String> result = executeOnNode(nodeCommand);
+            if (result.first()) {
+                dispatched = true;
+                logger.debug("Dispatched first-boot provisioning script on appliance " + spec.getName()
+                        + " (vmid " + vmid + "), attempt " + attempt + "/" + GUEST_PROVISION_ATTEMPTS);
+            } else {
+                logger.debug("First-boot provisioning attempt " + attempt + " on " + spec.getName()
+                        + " (vmid " + vmid + ") reported: " + result.second());
+            }
+            if (attempt < GUEST_PROVISION_ATTEMPTS) {
+                try {
+                    Thread.sleep(guestProvisionRetryMs());
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        logger.info("Ran first-boot provisioning script on appliance " + spec.getName() + " (vmid " + vmid
+                + ") over up to " + GUEST_PROVISION_ATTEMPTS + " attempts"
+                + (dispatched ? "" : " (no attempt dispatched cleanly)"));
+    }
+
+    /** Delay between provision-script attempts; overridable so tests need not actually wait. */
+    protected long guestProvisionRetryMs() {
+        return GUEST_PROVISION_RETRY_MS;
     }
 
     /**
