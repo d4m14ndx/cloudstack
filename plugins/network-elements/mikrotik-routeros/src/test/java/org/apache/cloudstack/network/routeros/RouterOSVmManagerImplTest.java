@@ -17,11 +17,13 @@
 package org.apache.cloudstack.network.routeros;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +67,7 @@ import com.cloud.vm.NicProfile;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineManager;
 import com.cloud.vm.dao.DomainRouterDao;
+import com.cloud.vm.dao.VMInstanceDetailsDao;
 
 /**
  * Unit tests for the ordering / lifecycle behaviour of {@link RouterOSVmManagerImpl}
@@ -225,6 +228,8 @@ public class RouterOSVmManagerImplTest {
         final DeploymentPlan plan = mock(DeploymentPlan.class);
         when(plan.getDataCenterId()).thenReturn(1L);
 
+        // allocateAppliance seeds the REST URL with the public IP; it is repointed at the management
+        // IP after start (updateApiUrlFromManagementNic), so no management NIC is needed here.
         manager.allocateAppliance(100L, null, networkOwner, new LinkedHashMap<Network, List<? extends NicProfile>>(), plan, "203.0.113.20");
 
         assertEquals(VirtualMachine.Type.RouterOSVm, persisted[0].getType());
@@ -244,5 +249,63 @@ public class RouterOSVmManagerImplTest {
 
         assertTrue(manager.applyNetworkACLs(network, Collections.emptyList()));
         assertTrue(manager.removeDhcpForNetwork(network));
+    }
+
+    @Test
+    public void testWriteBootstrapDetailStoresGuestProvisionScript() {
+        manager._vmDetailsDao = mock(VMInstanceDetailsDao.class);
+
+        // (vmId, mgmtIp, mgmtNetmask) — the bootstrap programs ONLY the management IP; provisionDevice
+        // configures the public IP/route/NAT/firewall over REST once the appliance is reachable.
+        manager.writeBootstrapDetail(555L, "192.168.65.50", "255.255.255.0");
+
+        final ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
+        final ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
+        verify(manager._vmDetailsDao).addDetail(eq(555L), key.capture(), value.capture(), eq(false));
+
+        assertEquals("guest.provision.script", key.getValue());
+        final String script = value.getValue();
+        // Idempotent (remove-by-value first) management IP on the mgmt interface (default ether3).
+        assertTrue(script, script.contains("/ip address remove [find address=192.168.65.50/24]"));
+        assertTrue(script, script.contains("/ip address add address=192.168.65.50/24 interface=ether3\n"));
+        // The bootstrap touches nothing else — no public IP/route/ping, no www-ssl, no scheduler, no
+        // comments — all of which either belong to provisionDevice or abort the RouterOS import.
+        assertFalse("bootstrap must not add a default route (provisionDevice does)", script.contains("/ip route"));
+        assertFalse("bootstrap must not program the public IP (provisionDevice does)", script.contains("ether4"));
+        assertFalse("must not attempt to toggle www-ssl (aborts the import)", script.contains("www-ssl"));
+        assertFalse("must not install a scheduler (quoted on-event aborts the import)", script.contains("scheduler"));
+        assertFalse("bootstrap objects must be untagged", script.contains("comment="));
+    }
+
+    @Test
+    public void testConnectToleratesSessionClosedDuringPasswordRotation() {
+        // RouterOSApiUser default "admin", RouterOSTemplatePassword default "" (see the ConfigKeys).
+        final RouterOSDeviceVO dev = mock(RouterOSDeviceVO.class);
+        when(dev.getApiUrl()).thenReturn("https://203.0.113.20:443/rest");
+        when(dev.getUsername()).thenReturn("admin");
+        when(dev.getPassword()).thenReturn("newsecret");
+
+        final RouterOSApiClient deviceClient = mock(RouterOSApiClient.class);
+        when(deviceClient.isReachable()).thenReturn(false); // per-device creds not accepted yet
+        final RouterOSApiClient templateClient = mock(RouterOSApiClient.class);
+        when(templateClient.isReachable()).thenReturn(true);
+        // Rotating our own password makes RouterOS drop the REST session, so the call throws even
+        // though the change took effect.
+        doThrow(new org.apache.cloudstack.network.routeros.api.RouterOSApiException(
+                "RouterOS API call PATCH .../rest/user/*1 failed with status 400: Session closed"))
+                .when(templateClient).setUserPassword("admin", "newsecret");
+        final RouterOSApiClient rotatedClient = mock(RouterOSApiClient.class);
+        when(rotatedClient.isReachable()).thenReturn(true); // the new password now works
+
+        // device creds: first probe -> unreachable deviceClient; after rotation -> reachable rotatedClient
+        doReturn(deviceClient, rotatedClient).when(manager).createApiClient("https://203.0.113.20:443/rest", "admin", "newsecret");
+        doReturn(templateClient).when(manager).createApiClient("https://203.0.113.20:443/rest", "admin", "");
+
+        final RouterOSApiClient result = manager.connect(dev, false);
+
+        // the "Session closed" from the rotation must not abort provisioning; the reconnect with the
+        // new password verifies the rotation succeeded
+        assertEquals(rotatedClient, result);
+        verify(templateClient).setUserPassword("admin", "newsecret");
     }
 }

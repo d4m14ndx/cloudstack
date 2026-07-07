@@ -58,6 +58,15 @@ public interface RouterOSVmManager extends Manager {
             "HTTP timeout in seconds for RouterOS REST API calls", true);
     ConfigKey<Integer> RouterOSProvisionWait = new ConfigKey<>("Network", Integer.class, "routeros.provision.wait", "300",
             "Seconds to wait for a freshly started CHR appliance to expose its REST API before deferring provisioning", true);
+    // Interface name the first-boot guest-agent bootstrap programs the MANAGEMENT IP on (the only IP
+    // the bootstrap sets; provisionDevice configures the public IP etc. over REST, resolving those
+    // interfaces by MAC). The CHR gets the full system-VM NIC set (Control=net0, Management=net1,
+    // Public=net2, Guest=net3+), and the current template carries a phantom ether1 from its build so
+    // real NICs start at ether2: thus Control=ether2, Management=ether3. It is a setting because a
+    // template rebuilt without the phantom ether1 shifts every NIC down by one (Management=ether2).
+    ConfigKey<String> RouterOSMgmtInterface = new ConfigKey<>("Network", String.class, "routeros.mgmt.interface", "ether3",
+            "RouterOS interface name the CHR's management NIC maps to. The plugin manages the appliance over the management network " +
+            "(directly reachable from the management server), so the first-boot bootstrap programs the management IP on this interface.", true);
 
     /** Prefix of every RouterOS object comment written by this plugin. */
     String COMMENT_PREFIX = "cs-";

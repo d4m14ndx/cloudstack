@@ -105,6 +105,7 @@ import com.cloud.vm.VirtualMachineName;
 import com.cloud.vm.VirtualMachineProfile;
 import com.cloud.vm.dao.DomainRouterDao;
 import com.cloud.vm.dao.NicDao;
+import com.cloud.vm.dao.VMInstanceDetailsDao;
 
 /**
  * Deploys a Mikrotik RouterOS CHR appliance per isolated network (or per VPC)
@@ -168,6 +169,8 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     protected VlanDao _vlanDao;
     @Inject
     protected ConfigurationDao _configDao;
+    @Inject
+    protected VMInstanceDetailsDao _vmDetailsDao;
 
     protected RouterOSRuleTranslator _translator = new RouterOSRuleTranslator();
 
@@ -207,7 +210,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
     @Override
     public ConfigKey<?>[] getConfigKeys() {
         return new ConfigKey<?>[] {RouterOSTemplateName, RouterOSServiceOfferingUuid, RouterOSApiPort, RouterOSApiUser, RouterOSTemplatePassword,
-                RouterOSApiTimeout, RouterOSProvisionWait};
+                RouterOSApiTimeout, RouterOSProvisionWait, RouterOSMgmtInterface};
     }
 
     // ------------------------------------------------------------------
@@ -238,10 +241,12 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
                 final DeploymentPlan plan = createPlan(network.getDataCenterId(), dest);
                 final LinkedHashMap<Network, List<? extends NicProfile>> networks = new LinkedHashMap<>();
                 networks.putAll(createPublicNicNetwork(sourceNatIp, plan));
+                addControlAndManagementNetworks(networks, plan);
                 networks.putAll(createGuestNicNetwork(network));
                 device = allocateAppliance(network.getId(), null, networkOwner, networks, plan, sourceNatIp.getAddress().addr());
             }
             startAppliance(device);
+            updateApiUrlFromManagementNic(device);
             if (!provisionDevice(device, true)) {
                 throw new ResourceUnavailableException(String.format(
                         "RouterOS appliance %s could not be provisioned (bootstrap required); the bootstrap configuration was logged", device),
@@ -268,10 +273,12 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             final PublicIp publicIp = PublicIp.createFromAddrAndVlan(sourceNatIp, _vlanDao.findById(sourceNatIp.getVlanId()));
             final DeploymentPlan plan = createPlan(vpc.getZoneId(), dest);
             final LinkedHashMap<Network, List<? extends NicProfile>> networks = createPublicNicNetwork(publicIp, plan);
+            addControlAndManagementNetworks(networks, plan);
             final Account vpcOwner = _accountMgr.getAccount(vpc.getAccountId());
             device = allocateAppliance(null, vpc.getId(), vpcOwner, networks, plan, publicIp.getAddress().addr());
         }
         startAppliance(device);
+        updateApiUrlFromManagementNic(device);
         if (!provisionDevice(device, true)) {
             throw new ResourceUnavailableException(String.format(
                     "RouterOS appliance %s could not be provisioned (bootstrap required); the bootstrap configuration was logged", device),
@@ -408,10 +415,30 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         return new DataCenterDeployment(dataCenterId);
     }
 
+    /**
+     * Add the Control + Management system networks (empty NIC profiles → device 0 and 1, like
+     * SSVM/CPVM) to the appliance's network map. The plugin manages the CHR over the Management
+     * NIC's IP, which sits on the same L2 segment as the management server (directly reachable,
+     * no upstream router in the path), rather than over the public IP whose ARP entry on the
+     * upstream gateway is unreliable when a public IP is recycled between appliances.
+     */
+    protected void addControlAndManagementNetworks(final LinkedHashMap<Network, List<? extends NicProfile>> networks, final DeploymentPlan plan) {
+        final Account systemAcct = _accountMgr.getSystemAccount();
+        final List<? extends NetworkOffering> systemOfferings =
+                _networkModel.getSystemAccountNetworkOfferings(NetworkOffering.SystemControlNetwork, NetworkOffering.SystemManagementNetwork);
+        for (final NetworkOffering offering : systemOfferings) {
+            networks.put(_networkMgr.setupNetwork(systemAcct, offering, plan, null, null, false).get(0), new ArrayList<NicProfile>());
+        }
+    }
+
     protected LinkedHashMap<Network, List<? extends NicProfile>> createPublicNicNetwork(final PublicIp sourceNatIp, final DeploymentPlan plan)
             throws InsufficientCapacityException {
         final NicProfile publicNic = new NicProfile();
         publicNic.setDefaultNic(true);
+        // Control(0) + Management(1) are prepended (see addControlAndManagementNetworks), so pin
+        // public to device 2 and the guest tier to device 3 — the SSVM/CPVM layout. The device order
+        // determines the RouterOS ether naming the bootstrap targets (see RouterOSMgmtInterface).
+        publicNic.setDeviceId(2);
         publicNic.setIPv4Address(sourceNatIp.getAddress().addr());
         publicNic.setIPv4Gateway(sourceNatIp.getGateway());
         publicNic.setIPv4Netmask(sourceNatIp.getNetmask());
@@ -435,6 +462,7 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
 
     protected LinkedHashMap<Network, List<? extends NicProfile>> createGuestNicNetwork(final Network guestNetwork) {
         final NicProfile gatewayNic = new NicProfile();
+        gatewayNic.setDeviceId(3);
         gatewayNic.setIPv4Address(guestNetwork.getGateway());
         gatewayNic.setBroadcastUri(guestNetwork.getBroadcastUri());
         gatewayNic.setBroadcastType(guestNetwork.getBroadcastDomainType());
@@ -444,6 +472,41 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         final LinkedHashMap<Network, List<? extends NicProfile>> result = new LinkedHashMap<>();
         result.put(guestNetwork, new ArrayList<>(Arrays.asList(gatewayNic)));
         return result;
+    }
+
+    /**
+     * VM detail carrying a first-boot provisioning script. The Proxmox hypervisor runs it through
+     * the qemu guest agent once the guest is up (RouterOS's documented guest-exec provisioning),
+     * generically for any VM that carries the detail.
+     */
+    protected static final String GUEST_PROVISION_SCRIPT_DETAIL = "guest.provision.script";
+
+    /**
+     * Persist a first-boot bootstrap script on the appliance VM so the hypervisor, via the guest
+     * agent, programs the <b>management IP</b> ({@link #RouterOSMgmtInterface}) before the REST poll
+     * in {@link #provisionDevice}. That is <em>all</em> the bootstrap does: the management IP sits on
+     * the management network — the same L2 segment as the management server, reachable by direct ARP
+     * with no upstream router — so once it is set the plugin can reach the appliance over REST and
+     * {@link #programBaseConfig} configures everything else (public IP, default route, NAT, firewall,
+     * resolving interfaces by MAC over the API). Keeping the bootstrap to a single interface avoids
+     * the early-boot failures of touching the public interface before its link is up.
+     *
+     * Constraints against a RouterOS 7 CHR: the guest agent runs this as a configuration
+     * <em>import</em>, whose parser rejects scripting constructs, {@code set &lt;name&gt;} forms and
+     * quoted values (a single parse error aborts the file), so the interface is named literally
+     * ({@link #RouterOSMgmtInterface}) rather than resolved by MAC. The address is removed-by-value
+     * first so the script is idempotent — the hypervisor re-runs it several times because the guest
+     * agent is flaky right after boot and RouterOS is not immediately ready to apply config.
+     */
+    protected void writeBootstrapDetail(final long vmId, final String mgmtIp, final String mgmtNetmask) {
+        final String mgmtIface = RouterOSMgmtInterface.value();
+        final String mgmtCidr = mgmtIp + "/" + NetUtils.getCidrSize(mgmtNetmask);
+        final String script = String.format(
+                "/ip address remove [find address=%s]%n" +
+                "/ip address add address=%s interface=%s%n",
+                mgmtCidr, mgmtCidr, mgmtIface);
+        _vmDetailsDao.addDetail(vmId, GUEST_PROVISION_SCRIPT_DETAIL, script, false);
+        logger.debug("Stored RouterOS first-boot bootstrap for appliance vm {} (mgmt {} on {})", vmId, mgmtCidr, mgmtIface);
     }
 
     protected RouterOSDeviceVO allocateAppliance(final Long networkId, final Long vpcId, final Account owner,
@@ -474,11 +537,15 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         _itMgr.allocate(instanceName, template, offering, networks, plan, template.getHypervisorType(), null, null);
         vm = _routerDao.findById(vm.getId());
 
+        // The appliance is managed over its Management NIC IP (same L2 segment as the management
+        // server, no upstream router in the path). That IP is assigned during start (NIC
+        // reservation), not here, so seed the REST URL with the public IP as a placeholder and
+        // repoint it at the management IP after startAppliance (see updateApiUrlFromManagementNic).
         final String apiUrl = String.format("https://%s:%d/rest", publicIpAddress, RouterOSApiPort.value());
         final String password = PasswordGenerator.generateRandomPassword(16);
         RouterOSDeviceVO device = new RouterOSDeviceVO(networkId, vpcId, vm.getId(), apiUrl, RouterOSApiUser.value(), password);
         device = _routerOSDeviceDao.persist(device);
-        logger.info("Allocated RouterOS appliance {} ({}) reachable at {}", instanceName, device, apiUrl);
+        logger.info("Allocated RouterOS appliance {} ({}); REST URL will be repointed to its management IP after start", instanceName, device);
         return device;
     }
 
@@ -542,6 +609,24 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
         }
     }
 
+    /**
+     * Repoint the device's REST URL at its Management NIC IP, which is assigned during start (NIC
+     * reservation) and so is not known at {@link #allocateAppliance} time. Idempotent — a no-op once
+     * the URL already points at the management IP (e.g. re-provisioning an existing appliance).
+     */
+    protected void updateApiUrlFromManagementNic(final RouterOSDeviceVO device) {
+        final NicVO mgmtNic = getNicByTrafficType(device.getVmInstanceId(), TrafficType.Management);
+        if (mgmtNic == null || mgmtNic.getIPv4Address() == null) {
+            throw new CloudRuntimeException("RouterOS appliance " + device + " has no management NIC IP; cannot manage it over REST");
+        }
+        final String apiUrl = String.format("https://%s:%d/rest", mgmtNic.getIPv4Address(), RouterOSApiPort.value());
+        if (!apiUrl.equals(device.getApiUrl())) {
+            device.setApiUrl(apiUrl);
+            _routerOSDeviceDao.update(device.getId(), device);
+            logger.info("RouterOS appliance {} is now managed at {}", device, apiUrl);
+        }
+    }
+
     // ------------------------------------------------------------------
     // Provisioning
     // ------------------------------------------------------------------
@@ -594,7 +679,15 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
             final RouterOSApiClient templateClient = createApiClient(device.getApiUrl(), RouterOSApiUser.value(), RouterOSTemplatePassword.value());
             if (templateClient.isReachable()) {
                 logger.info("Reached RouterOS appliance {} with template credentials; rotating the '{}' password", device, device.getUsername());
-                templateClient.setUserPassword(device.getUsername(), device.getPassword());
+                try {
+                    templateClient.setUserPassword(device.getUsername(), device.getPassword());
+                } catch (final RouterOSApiException e) {
+                    // Changing the password of the user the REST session is authenticated as makes
+                    // RouterOS drop that session, so the call itself commonly returns "Session
+                    // closed" even though the new password has already taken effect. Don't trust
+                    // this call's result either way — verify by connecting with the new password.
+                    logger.debug("Password rotation on {} reported '{}'; verifying with the new credentials", device, e.getMessage());
+                }
                 final RouterOSApiClient rotated = createApiClient(device.getApiUrl(), device.getUsername(), device.getPassword());
                 if (rotated.isReachable()) {
                     return rotated;
@@ -1272,7 +1365,31 @@ public class RouterOSVmManagerImpl extends ManagerBase implements RouterOSVmMana
 
     @Override
     public boolean finalizeVirtualMachineProfile(final VirtualMachineProfile profile, final DeployDestination dest, final ReservationContext context) {
+        // The management NIC's IP is reserved by now (network prepare runs before this in
+        // orchestrateStart), so — like the systemvm cmdline — build the first-boot bootstrap here
+        // with the appliance's actual management IP and store it as the guest.provision.script detail
+        // the hypervisor runs through the guest agent during StartCommand (which reads the detail
+        // built just after). Only the management IP is needed; provisionDevice does the rest over REST.
+        final NicProfile mgmtNic = findNicProfile(profile, TrafficType.Management);
+        if (mgmtNic == null || mgmtNic.getIPv4Address() == null || mgmtNic.getIPv4Netmask() == null) {
+            logger.warn("RouterOS appliance {} is missing a management NIC IP at finalize; skipping first-boot bootstrap",
+                    profile.getInstanceName());
+            return true;
+        }
+        writeBootstrapDetail(profile.getId(), mgmtNic.getIPv4Address(), mgmtNic.getIPv4Netmask());
         return true;
+    }
+
+    protected NicProfile findNicProfile(final VirtualMachineProfile profile, final TrafficType trafficType) {
+        if (profile.getNics() == null) {
+            return null;
+        }
+        for (final NicProfile nic : profile.getNics()) {
+            if (nic.getTrafficType() == trafficType) {
+                return nic;
+            }
+        }
+        return null;
     }
 
     @Override
