@@ -34,7 +34,7 @@ SERVICES=(cloudstack-management cloudstack-usage)
 JAR="/usr/share/cloudstack-management/lib/cloudstack-${CS_VERSION}.jar"
 WEBAPP="/usr/share/cloudstack-management/webapp"
 CONFDIR="/etc/cloudstack"
-FLAVOR_MARKER="/etc/cloudstack-management/.cs-flavor"
+FLAVOR_MARKER="/etc/cloudstack/management/.cs-flavor"
 API_URL="${API_URL:-http://localhost:8080/client/api?command=listCapabilities&response=json}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-300}"                        # seconds to wait for the API
 # DB access for the pre-switch dump (best effort). Lab defaults; override via env.
@@ -100,7 +100,7 @@ backup_all() {
       local dump="$BACKUP_DIR/${db}-$stamp.sql.gz"
       log "dumping DB $db -> $dump"
       if mysqldump --single-transaction --routines --triggers -h "$CS_DB_HOST" -u "$CS_DB_USER" -p"$CS_DB_PASS" "$db" 2>/dev/null | gzip > "$dump"; then
-        [ "$db" = "$CS_DB_NAME" ] && echo "$dump" > "$BACKUP_DIR/.last-db"
+        [ "$db" = "$CS_DB_NAME" ] && echo "$dump" > "$BACKUP_DIR/.last-db" || true
       else
         warn "mysqldump of $db failed; removing partial dump"; rm -f "$dump"
       fi

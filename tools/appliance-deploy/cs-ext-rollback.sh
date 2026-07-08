@@ -35,7 +35,7 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/cloudstack-deploy}"; CMK="${CMK:-cmk}"
 
 q(){ mysql -N -B -h "$CS_DB_HOST" -u "$CS_DB_USER" -p"$CS_DB_PASS" "$CS_DB_NAME" -e "$1" 2>/dev/null; }
 log(){ printf '[%s] %s\n' "$(date -u +%T)" "$*"; }
-cmk(){ if [ "$COMMIT" = 1 ]; then "$CMK" "$@"; else printf '     %s %s\n' "$CMK" "$*"; fi; }
+cmk(){ if [ "$COMMIT" = 1 ]; then command "$CMK" "$@"; else printf '     %s %s\n' "$CMK" "$*"; fi; }
 
 # resolve native cluster id/uuid (accepts name or numeric id)
 if [[ "$NATIVE_CLUSTER" =~ ^[0-9]+$ ]]; then NCL_ID="$NATIVE_CLUSTER"; else NCL_ID="$(q "SELECT id FROM cluster WHERE name='$NATIVE_CLUSTER' AND hypervisor_type='Proxmox' AND removed IS NULL ORDER BY id DESC LIMIT 1")"; fi

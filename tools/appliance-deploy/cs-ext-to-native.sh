@@ -61,7 +61,7 @@ CMK="${CMK:-cmk}"
 # contain backslash escapes; default batch mode would double the backslashes and corrupt the JSON.
 q(){ mysql -N --raw -B -h "$CS_DB_HOST" -u "$CS_DB_USER" -p"$CS_DB_PASS" "$CS_DB_NAME" -e "$1" 2>/dev/null; }
 log(){ printf '[%s] %s\n' "$(date -u +%T)" "$*"; }
-cmk(){ if [ "$COMMIT" = 1 ]; then "$CMK" "$@"; else printf '     %s %s\n' "$CMK" "$*"; fi; }
+cmk(){ if [ "$COMMIT" = 1 ]; then command "$CMK" "$@"; else printf '     %s %s\n' "$CMK" "$*"; fi; }
 
 # ---- preflight -------------------------------------------------------------------------------
 [ "$(command -v "$CMK")" ] || { echo "ERROR: cmk (CloudMonkey) not found/configured" >&2; exit 1; }
