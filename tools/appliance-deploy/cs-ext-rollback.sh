@@ -69,6 +69,25 @@ while IFS=$'\t' read -r HID HNAME; do
   cmk prepare hostformaintenance id="$HUUID"
   cmk delete host id="$HUUID" forced=true
 done < <(q "SELECT id,name FROM host WHERE cluster_id=$NCL_ID AND hypervisor_type='Proxmox' AND removed IS NULL")
+
+# 3b. delete host is async — wait for the hosts to actually leave, then remove the cluster's
+#     primary storage pools. A cluster that still has hosts OR storage pools cannot be deleted.
+if [ "$COMMIT" = 1 ]; then
+  deadline=$(( $(date +%s) + 180 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    hc="$(q "SELECT COUNT(*) FROM host WHERE cluster_id=$NCL_ID AND removed IS NULL")"
+    [ "${hc:-1}" -eq 0 ] && break
+    log "  waiting for $hc host(s) to leave the native cluster..."; sleep 5
+  done
+fi
+while IFS=$'\t' read -r SPID SPNAME; do
+  [ -n "${SPID:-}" ] || continue
+  SPUUID="$(q "SELECT uuid FROM storage_pool WHERE id=$SPID")"
+  log "  maintenance+delete primary storage pool $SPNAME"
+  cmk enable storagemaintenance id="$SPUUID" || true
+  cmk delete storagepool id="$SPUUID" forced=true
+done < <(q "SELECT id,name FROM storage_pool WHERE cluster_id=$NCL_ID AND removed IS NULL")
+
 log "  delete native cluster id=$NCL_ID"
 cmk delete cluster id="$(q "SELECT uuid FROM cluster WHERE id=$NCL_ID")"
 

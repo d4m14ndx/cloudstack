@@ -155,6 +155,16 @@ ZONE_UUID="$(q "SELECT uuid FROM data_center WHERE id=$CL_ZONE")"; POD_UUID="$(q
 cmk add cluster zoneid="$ZONE_UUID" podid="$POD_UUID" hypervisor=Proxmox clustertype=CloudManaged \
     clustername="$NATIVE_CLUSTER_NAME" username="$PVE_USER" password="$PVE_PASS" url="$NURL"
 
+# ---- 4b. add the PVE host to the native cluster ----------------------------------------------
+# A CloudManaged Proxmox cluster is NOT auto-populated by addCluster (unlike a discovered/External
+# one) — you must addHost, which makes the ProxmoxServerDiscoverer enumerate the PVE cluster's nodes
+# and add them all. SSH creds were stored on the cluster via the addCluster ?sshpassword=; addHost
+# just needs the node's API host + user/password. Host from the API URL (strip scheme + :port/path).
+PVE_HOST="$(printf '%s' "$PVE_URL" | sed -E 's#^https?://##; s#[:/].*$##')"
+[ "$COMMIT" = 1 ] && NCL_UUID="$(q "SELECT uuid FROM cluster WHERE name='$NATIVE_CLUSTER_NAME' AND hypervisor_type='Proxmox' AND removed IS NULL ORDER BY id DESC LIMIT 1")"
+cmk add host zoneid="$ZONE_UUID" podid="$POD_UUID" clusterid="${NCL_UUID:-<native-cluster-uuid>}" \
+    hypervisor=Proxmox username="$PVE_USER" password="$PVE_PASS" url="http://$PVE_HOST"
+
 # ---- 5. wait for native hosts Up (commit mode only) ------------------------------------------
 if [ "$COMMIT" = 1 ]; then
   log "waiting for native cluster hosts to come Up..."
